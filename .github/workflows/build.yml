@@ -9,12 +9,14 @@ on:
 # ── Bump APP_VERSION here to tag a new release ────────────────────────────────
 env:
   APP_VERSION: "0.1.0"
-  GIT_SSL_NO_VERIFY: "true"
 # ──────────────────────────────────────────────────────────────────────────────
+
+permissions:
+  contents: write
 
 jobs:
   build-windows:
-    runs-on: windows
+    runs-on: windows-latest
 
     defaults:
       run:
@@ -22,9 +24,21 @@ jobs:
 
     steps:
       - name: Checkout repository
-        run: |
-          git clone https://oauth2:${{ secrets.GitHubToken }}@gitea.fameli.net/${{ github.repository }}.git .
-          git checkout ${{ github.sha }}
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
 
       - name: Install frontend dependencies
         run: npm install
@@ -32,9 +46,10 @@ jobs:
       - name: Build Tauri application
         run: npm run tauri build
 
-      - name: Publish release to Gitea
+      - name: Publish release to GitHub
         shell: cmd
         env:
-          GITEA_TOKEN: ${{ secrets.GitHubToken }}
-          GITEA_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: powershell -ExecutionPolicy Bypass -File scripts\publish-release.ps1
+
