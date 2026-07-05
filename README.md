@@ -1,10 +1,3 @@
-<style>
-h1 { color: DarkBlue !important; }
-h2 { color: Orange !important; }
-h3 { color: Blue !important; }
-h4 { color: Purple !important; }
-</style>
-
 # 🧭 Compass
 
 ### *Own your financial life — privately, locally, and without judgment.*

@@ -16,7 +16,9 @@ permissions:
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    # self-hosted = your local machine running the GitHub Actions runner
+    # Node.js and Rust are already installed there, no setup steps needed
+    runs-on: self-hosted
 
     defaults:
       run:
@@ -25,20 +27,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-
-      - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build artifacts
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: "./src-tauri -> target"
 
       - name: Install frontend dependencies
         run: npm install
