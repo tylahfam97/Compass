@@ -31,6 +31,18 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      - name: Patch version from APP_VERSION
+        shell: powershell
+        run: |
+          $v = $env:APP_VERSION
+          (Get-Content src-tauri\tauri.conf.json -Raw) `
+            -replace '"version":\s*"[^"]*"', ('"version": "' + $v + '"') |
+            Set-Content src-tauri\tauri.conf.json -NoNewline
+          (Get-Content package.json -Raw) `
+            -replace '"version":\s*"[^"]*"', ('"version": "' + $v + '"') |
+            Set-Content package.json -NoNewline
+          Write-Host "Patched version to $v"
+          
       - name: Build Tauri application
         run: npm run tauri build
 

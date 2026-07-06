@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
+import logoUrl from "@/assets/logo.svg";
 import { useState, useEffect } from "react";
 import DashboardPage from "@/pages/DashboardPage";
 import TransactionsPage from "@/pages/TransactionsPage";
@@ -46,8 +47,8 @@ function App() {
       <div className="flex h-screen overflow-hidden">
         {/* Sidebar */}
         <aside className="w-52 shrink-0 border-r flex flex-col bg-[hsl(var(--muted))]">
-          <div className="px-5 py-4 border-b">
-            <span className="text-lg font-bold tracking-tight">Compass</span>
+          <div className="px-4 py-3 border-b">
+            <img src={logoUrl} alt="Compass" className="h-9 w-auto" />
           </div>
           <nav className="flex-1 py-4 space-y-1 px-3">
             {NAV_ITEMS.map(({ to, label }) => (
