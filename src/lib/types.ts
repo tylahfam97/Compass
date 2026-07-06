@@ -1,3 +1,37 @@
+export interface Profile {
+  id: number;
+  name: string;
+  avatar_color: string;
+  pin_hash: string | null;
+  created_at: string;
+}
+
+export type InsightType =
+  | "budget_gap"
+  | "ghost_subscription"
+  | "unusual_spike"
+  | "savings_rate_low"
+  | "overspend_streak"
+  | "positive_streak"
+  | "redundant_spending"
+  | "income_irregular";
+
+export interface InsightAction {
+  type: "create_budget" | "create_goal";
+  payload: Record<string, unknown>;
+}
+
+export interface Insight {
+  id: string;
+  type: InsightType;
+  title: string;
+  description: string;
+  severity: "info" | "warning" | "success";
+  actionLabel?: string;
+  action?: InsightAction;
+  dismissKey: string;
+}
+
 export interface Account {
   id: number;
   name: string;
