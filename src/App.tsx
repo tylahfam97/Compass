@@ -8,6 +8,8 @@ import TrendsPage from "@/pages/TrendsPage";
 import BudgetsPage from "@/pages/BudgetsPage";
 import GoalsPage from "@/pages/GoalsPage";
 import ReportsPage from "@/pages/ReportsPage";
+import AgentPage from "@/pages/AgentPage";
+import ProfileSwitcher from "@/components/ProfileSwitcher";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { getDb } from "@/lib/db";
 import type { Category } from "@/lib/types";
@@ -21,6 +23,7 @@ const NAV_ITEMS = [
   { to: "/budgets", label: "Budgets" },
   { to: "/goals", label: "Goals" },
   { to: "/reports", label: "Reports" },
+  { to: "/agent", label: "Agent" },
 ];
 
 function App() {
@@ -68,7 +71,8 @@ function App() {
               </NavLink>
             ))}
           </nav>
-          <div className="px-4 pb-4">
+          <div className="px-4 pb-4 space-y-2">
+            <ProfileSwitcher />
             <button
               onClick={() => setDark((d) => !d)}
               className="w-full text-xs px-3 py-2 rounded-md border hover:bg-[hsl(var(--border))] transition-colors"
@@ -88,6 +92,7 @@ function App() {
             <Route path="/budgets" element={<BudgetsPage />} />
             <Route path="/goals" element={<GoalsPage />} />
             <Route path="/reports" element={<ReportsPage />} />
+            <Route path="/agent" element={<AgentPage />} />
           </Routes>
         </main>
       </div>
