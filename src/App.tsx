@@ -11,8 +11,9 @@ import ReportsPage from "@/pages/ReportsPage";
 import AgentPage from "@/pages/AgentPage";
 import ProfileSwitcher from "@/components/ProfileSwitcher";
 import { useCategoryStore } from "@/stores/categoryStore";
+import { useProfileStore, getSavedProfileId } from "@/stores/profileStore";
 import { getDb } from "@/lib/db";
-import type { Category } from "@/lib/types";
+import type { Category, Profile } from "@/lib/types";
 import "./index.css";
 
 const NAV_ITEMS = [
@@ -31,19 +32,33 @@ function App() {
     window.matchMedia("(prefers-color-scheme: dark)").matches
   );
   const setCategories = useCategoryStore((s) => s.setCategories);
+  const { setProfiles, setActiveProfile } = useProfileStore();
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
 
   useEffect(() => {
-    getDb()
-      .then((db) =>
-        db.select<Category[]>("SELECT * FROM categories ORDER BY name")
-      )
-      .then(setCategories)
-      .catch(console.error);
-  }, [setCategories]);
+    (async () => {
+      const db = await getDb();
+      const profiles = await db.select<Profile[]>(
+        "SELECT * FROM profiles ORDER BY created_at"
+      );
+      setProfiles(profiles);
+
+      const savedId = getSavedProfileId();
+      const active =
+        profiles.find((p) => p.id === savedId) ?? profiles[0] ?? null;
+      if (active) {
+        setActiveProfile(active);
+        const cats = await db.select<Category[]>(
+          "SELECT * FROM categories WHERE is_system=1 OR profile_id=? ORDER BY name",
+          [active.id]
+        );
+        setCategories(cats);
+      }
+    })().catch(console.error);
+  }, [setProfiles, setActiveProfile, setCategories]);
 
   return (
     <BrowserRouter>
