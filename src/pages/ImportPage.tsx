@@ -1,9 +1,10 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import Papa from "papaparse";
 import { useNavigate } from "react-router-dom";
-import { getDb, getOrCreateDefaultAccount, applyCategorizationRules } from "@/lib/db";
+import { getDb, getOrCreateAccountForProfile, applyCategorizationRules } from "@/lib/db";
 import { formatCurrency } from "@/lib/utils";
 import type { CategorizationRule } from "@/lib/types";
+import { useProfileStore } from "@/stores/profileStore";
 
 type Step = "upload" | "checking" | "mapping" | "importing" | "done";
 
@@ -83,14 +84,49 @@ async function hashRow(row: string[]): Promise<string> {
     .join("");
 }
 
+function currentYM(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** Scans the date column and returns the most common YYYY-MM, preferring the most recent on a tie. */
+function detectDominantMonth(rows: string[][], dateColIdx: number): string | null {
+  const counts: Record<string, number> = {};
+  for (const row of rows) {
+    const raw = row[dateColIdx];
+    if (!raw) continue;
+    const iso = parseDate(raw);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) continue;
+    const ym = iso.slice(0, 7);
+    counts[ym] = (counts[ym] ?? 0) + 1;
+  }
+  const entries = Object.entries(counts);
+  if (entries.length === 0) return null;
+  // Sort by count desc, then by month desc (most recent wins tie)
+  entries.sort((a, b) => b[1] - a[1] || b[0].localeCompare(a[0]));
+  return entries[0][0];
+}
+
 export default function ImportPage() {
   const navigate = useNavigate();
+  const activeProfile = useProfileStore((s) => s.activeProfile);
+  const profileId = activeProfile?.id ?? 1;
   const [step, setStep] = useState<Step>("upload");
   const [parsed, setParsed] = useState<ParsedData | null>(null);
   const [colMap, setColMap] = useState<ColMap>({ dateCol: 0, descCol: 1, amountCol: 2 });
   const [profileFound, setProfileFound] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [targetMonth, setTargetMonth] = useState(currentYM);
+
+  // Auto-detect the dominant month whenever the parsed data or date column changes
+  const detectedMonth = useMemo(
+    () => (parsed ? detectDominantMonth(parsed.rows, colMap.dateCol) : null),
+    [parsed, colMap.dateCol]
+  );
+  useEffect(() => {
+    if (detectedMonth) setTargetMonth(detectedMonth);
+  }, [detectedMonth]);
 
   const processFile = useCallback((file: File) => {
     setError(null);
@@ -122,8 +158,8 @@ export default function ImportPage() {
               desc_col: number;
               amount_col: number;
             }[]>(
-              "SELECT date_col, desc_col, amount_col FROM column_profiles WHERE header_sig=?",
-              [sig]
+              "SELECT date_col, desc_col, amount_col FROM column_profiles WHERE header_sig=? AND profile_id=?",
+              [sig, profileId]
             );
             if (profiles.length > 0) {
               const p = profiles[0];
@@ -145,7 +181,7 @@ export default function ImportPage() {
         setStep("upload");
       },
     });
-  }, []);
+  }, [profileId]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -167,9 +203,10 @@ export default function ImportPage() {
     setStep("importing");
     try {
       const db = await getDb();
-      const accountId = await getOrCreateDefaultAccount();
+      const accountId = await getOrCreateAccountForProfile(profileId);
       const rules = await db.select<CategorizationRule[]>(
-        "SELECT * FROM categorization_rules ORDER BY priority DESC"
+        "SELECT * FROM categorization_rules WHERE profile_id=? OR profile_id IS NULL ORDER BY priority DESC",
+        [profileId]
       );
 
       let imported = 0;
@@ -190,9 +227,9 @@ export default function ImportPage() {
         try {
           await db.execute(
             `INSERT INTO transactions
-               (account_id, date, amount_cents, description, category_id, import_hash)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [accountId, date, amountCents, description, categoryId, hash]
+               (account_id, date, amount_cents, description, category_id, import_hash, profile_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [accountId, date, amountCents, description, categoryId, hash, profileId]
           );
           imported++;
         } catch {
@@ -203,13 +240,13 @@ export default function ImportPage() {
       // Save / update the column profile for next time
       const sig = computeHeaderSig(parsed.headers);
       await db.execute(
-        `INSERT INTO column_profiles (header_sig, date_col, desc_col, amount_col)
-         VALUES (?, ?, ?, ?)
+        `INSERT INTO column_profiles (header_sig, date_col, desc_col, amount_col, profile_id)
+         VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(header_sig) DO UPDATE SET
            date_col = excluded.date_col,
            desc_col = excluded.desc_col,
            amount_col = excluded.amount_col`,
-        [sig, colMap.dateCol, colMap.descCol, colMap.amountCol]
+        [sig, colMap.dateCol, colMap.descCol, colMap.amountCol, profileId]
       );
 
       setSummary({ imported, skipped });
@@ -226,6 +263,7 @@ export default function ImportPage() {
     setSummary(null);
     setError(null);
     setProfileFound(false);
+    setTargetMonth(currentYM());
   };
 
   return (
@@ -361,6 +399,31 @@ export default function ImportPage() {
 
           {error && <p className="mb-4 text-red-500 text-sm">{error}</p>}
 
+          {/* Statement month */}
+          <div className="flex items-center gap-3 mb-5 p-3 border rounded-xl bg-[hsl(var(--muted))]/40">
+            <span className="text-sm font-medium shrink-0">Statement month</span>
+            <input
+              type="month"
+              value={targetMonth}
+              onChange={(e) => setTargetMonth(e.target.value)}
+              className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))]
+                         text-[hsl(var(--foreground))]"
+            />
+            {detectedMonth && detectedMonth !== targetMonth && (
+              <button
+                onClick={() => setTargetMonth(detectedMonth)}
+                className="text-xs text-[hsl(var(--primary))] hover:underline"
+              >
+                Reset to detected ({detectedMonth})
+              </button>
+            )}
+            {detectedMonth === targetMonth && (
+              <span className="text-xs text-[hsl(var(--muted-foreground))]">
+                Auto-detected from dates
+              </span>
+            )}
+          </div>
+
           <div className="flex gap-3">
             <button
               onClick={handleImport}
@@ -405,7 +468,7 @@ export default function ImportPage() {
           </p>
           <div className="flex gap-3 justify-center">
             <button
-              onClick={() => navigate("/transactions")}
+              onClick={() => navigate("/transactions", { state: { month: targetMonth } })}
               className="px-6 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
                          rounded-lg font-medium"
             >
