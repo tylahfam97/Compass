@@ -91,3 +91,42 @@ if ($exe) {
 }
 
 Write-Host "Release $tagName published"
+
+# ── Apprise / Discord notification ────────────────────────────────────────────
+$appriseDiscordUrl = $env:APPRISE_DISCORD_URL
+if ($appriseDiscordUrl) {
+    $releasePageUrl = "https://github.com/" + $repo + "/releases/tag/" + $tagName
+    $baseDownload   = "https://github.com/" + $repo + "/releases/download/" + $tagName
+
+    $bodyLines = [System.Collections.Generic.List[string]]::new()
+    $bodyLines.Add("**Compass $tagName** is now available for Windows.")
+    $bodyLines.Add("")
+    $bodyLines.Add([char]0x1F4CB + " [Release notes]($releasePageUrl)")
+    if ($msi) { $bodyLines.Add([char]0x1F4E6 + " [MSI installer]($baseDownload/$($msi.Name))") }
+    if ($exe) { $bodyLines.Add([char]0x1F4BB + " [EXE installer]($baseDownload/$($exe.Name))") }
+
+    $payload = [ordered]@{
+        urls  = $appriseDiscordUrl
+        title = "Compass $tagName Released"
+        body  = $bodyLines -join "`n"
+        type  = "success"
+    } | ConvertTo-Json -Compress
+
+    $tmpApprise = [IO.Path]::GetTempFileName()
+    [IO.File]::WriteAllText($tmpApprise, $payload, (New-Object System.Text.UTF8Encoding $false))
+
+    $httpCode = curl.exe -s -o NUL -w "%{http_code}" -X POST "http://192.168.50.149:9305/notify" `
+        -H "Content-Type: application/json" `
+        -d ("@" + $tmpApprise)
+
+    Remove-Item $tmpApprise -Force
+
+    if ($httpCode -eq "200") {
+        Write-Host "Discord notification sent via Apprise (HTTP $httpCode)"
+    } else {
+        Write-Warning "Apprise returned HTTP $httpCode — notification may not have delivered"
+    }
+} else {
+    Write-Host "APPRISE_DISCORD_URL secret not set — skipping Discord notification"
+}
+
