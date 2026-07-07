@@ -3,7 +3,32 @@ import type { Profile } from "@/lib/types";
 
 const COOLDOWN_SECS = 10;
 
-async function hashPin(pin: string, salt: string): Promise<string> {
+/**
+ * Hashes a PIN using PBKDF2-SHA-256 (260 000 iterations).
+ * The returned string is prefixed with "pbkdf2$" so legacy SHA-256
+ * hashes stored in the database can be distinguished.
+ */
+export async function hashPin(pin: string, salt: string): Promise<string> {
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(pin),
+    "PBKDF2",
+    false,
+    ["deriveBits"]
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt: new TextEncoder().encode(salt), iterations: 260000, hash: "SHA-256" },
+    keyMaterial,
+    256
+  );
+  const hex = Array.from(new Uint8Array(bits))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return `pbkdf2$${hex}`;
+}
+
+/** SHA-256 fallback for PINs set before the PBKDF2 upgrade. */
+async function legacySha256Pin(pin: string, salt: string): Promise<string> {
   const buf = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(pin + salt)
@@ -11,6 +36,18 @@ async function hashPin(pin: string, salt: string): Promise<string> {
   return Array.from(new Uint8Array(buf))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
+}
+
+/**
+ * Verifies a PIN against a stored hash.
+ * Accepts both new PBKDF2 hashes (prefixed "pbkdf2$") and legacy SHA-256 hashes.
+ */
+async function verifyPin(pin: string, salt: string, storedHash: string): Promise<boolean> {
+  if (storedHash.startsWith("pbkdf2$")) {
+    return (await hashPin(pin, salt)) === storedHash;
+  }
+  // Backward compatibility: hashes set before the PBKDF2 upgrade
+  return (await legacySha256Pin(pin, salt)) === storedHash;
 }
 
 interface PinModalProps {
@@ -50,8 +87,8 @@ export default function PinModal({ profile, onSuccess, onCancel }: PinModalProps
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (cooldown > 0 || pin.length < 4) return;
-    const hash = await hashPin(pin, profile.created_at);
-    if (hash === profile.pin_hash) {
+    const match = await verifyPin(pin, profile.created_at, profile.pin_hash!);
+    if (match) {
       onSuccess();
     } else {
       const next = attempts + 1;
@@ -140,6 +177,3 @@ export default function PinModal({ profile, onSuccess, onCancel }: PinModalProps
     </div>
   );
 }
-
-// ─── Utility exported for ProfileSwitcher to hash PINs on set ────────────────
-export { hashPin };
