@@ -276,7 +276,7 @@ export default function ProfileSwitcher() {
           <div
             ref={panelRef}
             className="bg-[hsl(var(--background))] border rounded-2xl shadow-2xl w-96 max-h-[80vh]
-                       overflow-y-auto flex flex-col"
+                       overflow-y-scroll flex flex-col"
           >
             <div className="px-5 py-4 border-b flex items-center justify-between">
               <h2 className="font-semibold">Profiles</h2>
@@ -433,7 +433,7 @@ export default function ProfileSwitcher() {
                             ))}
                           </div>
                           {editState.pinAction === "set" && (
-                            <div className="flex gap-2">
+                            <div className="space-y-2">
                               <input
                                 type="password"
                                 inputMode="numeric"
@@ -445,8 +445,8 @@ export default function ProfileSwitcher() {
                                     s && ({ ...s, pin: e.target.value.replace(/\D/g, "") })
                                   )
                                 }
-                                placeholder="4–6 digits"
-                                className="flex-1 border rounded-lg px-3 py-1.5 text-sm
+                                placeholder="New PIN (4–6 digits)"
+                                className="w-full border rounded-lg px-3 py-1.5 text-sm
                                            bg-[hsl(var(--background))] text-[hsl(var(--foreground))]
                                            placeholder:text-[hsl(var(--muted-foreground))]"
                               />
@@ -461,8 +461,8 @@ export default function ProfileSwitcher() {
                                     s && ({ ...s, pinConfirm: e.target.value.replace(/\D/g, "") })
                                   )
                                 }
-                                placeholder="Confirm"
-                                className="flex-1 border rounded-lg px-3 py-1.5 text-sm
+                                placeholder="Confirm PIN"
+                                className="w-full border rounded-lg px-3 py-1.5 text-sm
                                            bg-[hsl(var(--background))] text-[hsl(var(--foreground))]
                                            placeholder:text-[hsl(var(--muted-foreground))]"
                               />

@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
+import { useLocation } from "react-router-dom";
 import { getDb } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
 import type { Transaction } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
+import { useProfileStore } from "@/stores/profileStore";
 
 function monthBounds(ym: string): [string, string] {
   const [y, m] = ym.split("-").map(Number);
@@ -14,12 +16,16 @@ function monthBounds(ym: string): [string, string] {
 }
 
 export default function TransactionsPage() {
-  const [month, setMonth] = useAutoMonth();
+  const location = useLocation();
+  const initialMonth = (location.state as { month?: string } | null)?.month;
+  const [month, setMonth] = useAutoMonth(initialMonth);
   const [search, setSearch] = useState("");
   const [rows, setRows] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<number | null>(null);
   const categories = useCategoryStore((s) => s.categories);
+  const activeProfile = useProfileStore((s) => s.activeProfile);
+  const profileId = activeProfile?.id ?? 1;
 
   const loadRows = useCallback(async () => {
     setLoading(true);
@@ -27,19 +33,19 @@ export default function TransactionsPage() {
     const [start, end] = monthBounds(month);
     const hasSearch = search.trim().length > 0;
     const params: unknown[] = hasSearch
-      ? [start, end, `%${search.toUpperCase()}%`]
-      : [start, end];
+      ? [start, end, profileId, `%${search.toUpperCase()}%`]
+      : [start, end, profileId];
     const where = hasSearch ? "AND UPPER(t.description) LIKE ?" : "";
     const data = await db.select<Transaction[]>(
       `SELECT t.*, c.name as category_name, c.color as category_color
        FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-       WHERE t.date>=? AND t.date<? ${where}
+       WHERE t.date>=? AND t.date<? AND t.profile_id=? ${where}
        ORDER BY t.date DESC, t.id DESC`,
       params
     );
     setRows(data);
     setLoading(false);
-  }, [month, search]);
+  }, [month, search, profileId]);
 
   useEffect(() => {
     loadRows().catch(console.error);
