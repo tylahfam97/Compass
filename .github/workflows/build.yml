@@ -54,6 +54,11 @@ jobs:
           } else {
             Write-Warning "TAURI_SIGNING_PRIVATE_KEY is NOT set - bundles will not be signed"
           }
+          $cfg = Get-Content src-tauri\tauri.conf.json -Raw | ConvertFrom-Json
+          $pubkey   = $cfg.plugins.updater.pubkey
+          $endpoint = $cfg.plugins.updater.endpoints[0]
+          Write-Host "Updater pubkey set: $($null -ne $pubkey -and $pubkey -ne '')"
+          Write-Host "Updater endpoint: $endpoint"
           npm run tauri build
 
       - name: Verify signing output
