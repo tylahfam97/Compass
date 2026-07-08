@@ -71,6 +71,38 @@ jobs:
           if ($hasSig) { Write-Host "Signing OK - .nsis.zip.sig found" }
           else { Write-Warning "No .nsis.zip.sig - signing key may be missing or password is wrong" }
 
+      - name: Create and sign update bundle
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        shell: powershell
+        run: |
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) { Write-Warning "No signing key - skipping"; exit 0 }
+
+          # Skip if Tauri already created the bundle during build
+          $existing = Get-ChildItem src-tauri\target\release\bundle\nsis\*.nsis.zip -ErrorAction SilentlyContinue
+          if ($existing) { Write-Host "Update bundle already exists, skipping manual creation"; exit 0 }
+
+          $nsisExe = Get-ChildItem src-tauri\target\release\bundle\nsis\*.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $nsisExe) { Write-Warning "No NSIS exe found - skipping"; exit 0 }
+
+          $zipPath = $nsisExe.FullName -replace '\.exe$', '.nsis.zip'
+          Compress-Archive -Path $nsisExe.FullName -DestinationPath $zipPath -Force
+          Write-Host "Created $([IO.Path]::GetFileName($zipPath)) ($([math]::Round((Get-Item $zipPath).Length/1KB))KB)"
+
+          # Write key to temp file — more reliable than passing as a command-line arg
+          $keyFile = [IO.Path]::GetTempFileName()
+          [IO.File]::WriteAllText($keyFile, $env:TAURI_SIGNING_PRIVATE_KEY)
+
+          # Sign: -p "" because the key was generated with an empty password
+          npm run tauri -- signer sign -f $keyFile -p "" $zipPath
+          Remove-Item $keyFile -Force -ErrorAction SilentlyContinue
+
+          if (Test-Path "$zipPath.sig") {
+            Write-Host "Signed - $([IO.Path]::GetFileName($zipPath)).sig created"
+          } else {
+            Write-Warning "tauri signer sign did not produce a .sig file"
+          }
+
       - name: Publish release to GitHub
         shell: cmd
         env:
