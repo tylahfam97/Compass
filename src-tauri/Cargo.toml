@@ -2,8 +2,8 @@
 name = "compass"
 version = "0.3.6"
 description = "Compass – Personal Finance Companion"
-authors = []
-edition = "2021"
+authors = [Tyler Fameli]
+edition = "2026"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
