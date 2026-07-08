@@ -44,7 +44,7 @@ jobs:
             -replace '"version":\s*"[^"]*"', ('"version": "' + $v + '"') |
             Set-Content package.json -NoNewline
           (Get-Content src-tauri\Cargo.toml -Raw) `
-            -replace 'version\s*=\s*"[^"]*"', ('version = "' + $v + '"') |
+            -replace '(?m)^version\s*=\s*"[^"]*"', ('version = "' + $v + '"') |
             Set-Content src-tauri\Cargo.toml -NoNewline
           Write-Host "Patched version to $v and endpoint repo to $repo"
           
