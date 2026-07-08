@@ -31,11 +31,16 @@ export default function UpdateChecker() {
 
   async function handleInstall(update: Update) {
     setState({ phase: "downloading", percent: 0 });
+    let contentLength = 0;
+    let downloaded = 0;
     try {
       await update.downloadAndInstall((event) => {
-        if (event.event === "Progress") {
-          const pct = event.data.chunkLength && event.data.contentLength
-            ? Math.round((event.data.chunkLength / event.data.contentLength) * 100)
+        if (event.event === "Started") {
+          contentLength = event.data.contentLength ?? 0;
+        } else if (event.event === "Progress") {
+          downloaded += event.data.chunkLength;
+          const pct = contentLength > 0
+            ? Math.round((downloaded / contentLength) * 100)
             : 0;
           setState({ phase: "downloading", percent: pct });
         } else if (event.event === "Finished") {
