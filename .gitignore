@@ -32,6 +32,11 @@ lerna-debug.log*
 .env.*.local
 *.local
 
+# Tauri signing keys (never commit these)
+private.key
+private.key.pub
+*.key
+
 # OS artifacts
 .DS_Store
 Thumbs.db

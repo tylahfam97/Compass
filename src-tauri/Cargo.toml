@@ -1,8 +1,8 @@
 [package]
 name = "compass"
-version = "0.1.0"
+version = "0.3.6"
 description = "Compass – Personal Finance Companion"
-authors = []
+authors = ["Tyler Fameli"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -17,6 +17,8 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 rusqlite = { version = "0.31", features = ["bundled-sqlcipher-vendored-openssl"] }
 keyring = "3"
 rand = "0.8"
