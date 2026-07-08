@@ -1,19 +1,38 @@
-import Database from "@tauri-apps/plugin-sql";
+import { invoke } from "@tauri-apps/api/core";
 import type { CategorizationRule } from "./types";
+
+// ─── Invoke-based DB wrapper ──────────────────────────────────────────────────
+// Mirrors the tauri-plugin-sql Database API (select / execute) so all call
+// sites are unchanged.  Actual SQL runs through the encrypted rusqlite layer
+// registered in src-tauri/src/lib.rs.
+
+interface ExecResult {
+  lastInsertId: number;
+  rowsAffected: number;
+}
+
+class CompassDb {
+  select<T>(sql: string, params: unknown[] = []): Promise<T> {
+    return invoke<T>("db_select", { sql, params });
+  }
+  execute(sql: string, params: unknown[] = []): Promise<ExecResult> {
+    return invoke<ExecResult>("db_execute", { sql, params });
+  }
+}
 
 // ─── Singleton with lazy migration ───────────────────────────────────────────
 
-let _dbPromise: Promise<Database> | null = null;
+let _initPromise: Promise<CompassDb> | null = null;
 
-export function getDb(): Promise<Database> {
-  if (!_dbPromise) {
-    _dbPromise = (async () => {
-      const db = await Database.load("sqlite:compass.db");
+export function getDb(): Promise<CompassDb> {
+  if (!_initPromise) {
+    _initPromise = (async () => {
+      const db = new CompassDb();
       await runMigrations(db);
       return db;
     })();
   }
-  return _dbPromise;
+  return _initPromise;
 }
 
 // ─── Schema migration ─────────────────────────────────────────────────────────
@@ -43,13 +62,13 @@ function assertSafeMigrationIdentifiers(table: string, col?: string): void {
   }
 }
 
-async function colExists(db: Database, table: string, col: string): Promise<boolean> {
+async function colExists(db: CompassDb, table: string, col: string): Promise<boolean> {
   assertSafeMigrationIdentifiers(table, col);
   const cols = await db.select<{ name: string }[]>(`PRAGMA table_info(${table})`);
-  return cols.some((c) => c.name === col);
+  return cols.some((c: { name: string }) => c.name === col);
 }
 
-async function runMigrations(db: Database): Promise<void> {
+async function runMigrations(db: CompassDb): Promise<void> {
   const [vRow] = await db.select<{ user_version: number }[]>("PRAGMA user_version");
   const version = vRow?.user_version ?? 0;
 

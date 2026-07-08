@@ -3,6 +3,8 @@ import { getDb } from "@/lib/db";
 import { formatCurrency } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
+import { useProfileStore } from "@/stores/profileStore";
+import WeeklyMiniBar from "@/components/WeeklyMiniBar";
 
 interface BudgetRow {
   id: number;
@@ -14,6 +16,8 @@ interface BudgetRow {
   period: string;
   spent_cents: number;
   earned_cents: number;
+  /** Daily amounts Mon–Sun in cents for the current week */
+  weeklyAmounts: number[];
 }
 
 function monthBounds(ym: string): [string, string] {
@@ -24,11 +28,40 @@ function monthBounds(ym: string): [string, string] {
   ];
 }
 
+/** Start (Mon) and end (Sun+1) of the current ISO week as ISO strings */
+function currentWeekBounds(): [string, string] {
+  const now = new Date();
+  const dow = (now.getDay() + 6) % 7; // 0=Mon
+  const mon = new Date(now);
+  mon.setDate(now.getDate() - dow);
+  const sun = new Date(mon);
+  sun.setDate(mon.getDate() + 7);
+  return [
+    mon.toISOString().split("T")[0],
+    sun.toISOString().split("T")[0],
+  ];
+}
+
+function daysInMonth(ym: string): number {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(y, m, 0).getDate();
+}
+
+function daysElapsed(ym: string): number {
+  const now = new Date();
+  const [y, m] = ym.split("-").map(Number);
+  const isCurrentMonth = now.getFullYear() === y && now.getMonth() + 1 === m;
+  if (!isCurrentMonth) return daysInMonth(ym);
+  return now.getDate();
+}
+
 export default function BudgetsPage() {
   const [month, setMonth] = useAutoMonth();
   const [budgets, setBudgets] = useState<BudgetRow[]>([]);
   const [loading, setLoading] = useState(true);
   const categories = useCategoryStore((s) => s.categories);
+  const activeProfile = useProfileStore((s) => s.activeProfile);
+  const profileId = activeProfile?.id ?? 1;
 
   // New budget form state
   const [formCatId, setFormCatId] = useState<number>(0);
@@ -46,7 +79,9 @@ export default function BudgetsPage() {
     setLoading(true);
     const db = await getDb();
     const [start, end] = monthBounds(month);
-    const rows = await db.select<BudgetRow[]>(
+    const [weekStart, weekEnd] = currentWeekBounds();
+
+    const rawBudgets = await db.select<Omit<BudgetRow, "weeklyAmounts">[]>(
       `SELECT b.id, b.category_id, c.parent_id as category_parent_id,
               c.name as category_name, c.color as category_color,
               b.amount_cents, b.period,
@@ -55,14 +90,38 @@ export default function BudgetsPage() {
        FROM budgets b
        JOIN categories c ON b.category_id=c.id
        LEFT JOIN transactions t ON t.category_id=b.category_id
-         AND t.date>=? AND t.date<?
+         AND t.date>=? AND t.date<? AND t.profile_id=?
+       WHERE b.profile_id=?
        GROUP BY b.id
        ORDER BY c.name`,
-      [start, end]
+      [start, end, profileId, profileId]
     );
-    setBudgets(rows);
+
+    // Load weekly daily amounts for all budget categories in one query
+    const weeklyRows = await db.select<{ category_id: number; dow: number; total: number }[]>(
+      `SELECT category_id,
+              (strftime('%w', date) + 6) % 7 as dow,
+              SUM(ABS(amount_cents)) as total
+       FROM transactions
+       WHERE date>=? AND date<? AND profile_id=? AND amount_cents<0
+       GROUP BY category_id, dow`,
+      [weekStart, weekEnd, profileId]
+    );
+
+    const weeklyMap: Record<number, number[]> = {};
+    for (const row of weeklyRows) {
+      if (!weeklyMap[row.category_id]) weeklyMap[row.category_id] = Array(7).fill(0);
+      weeklyMap[row.category_id][row.dow] = row.total;
+    }
+
+    setBudgets(
+      rawBudgets.map((b) => ({
+        ...b,
+        weeklyAmounts: weeklyMap[b.category_id] ?? Array(7).fill(0),
+      }))
+    );
     setLoading(false);
-  }, [month]);
+  }, [month, profileId]);
 
   useEffect(() => {
     loadBudgets().catch(console.error);
@@ -81,8 +140,8 @@ export default function BudgetsPage() {
     const db = await getDb();
     const [start] = monthBounds(month);
     await db.execute(
-      "INSERT INTO budgets (category_id, amount_cents, period, start_date) VALUES (?,?,?,?)",
-      [formCatId, Math.round(amount * 100), formPeriod, start]
+      "INSERT INTO budgets (category_id, amount_cents, period, start_date, profile_id) VALUES (?,?,?,?,?)",
+      [formCatId, Math.round(amount * 100), formPeriod, start, profileId]
     );
     setFormAmount("");
     setSaving(false);
@@ -198,6 +257,21 @@ export default function BudgetsPage() {
           : 0;
         const over = !isIncome && displayCents > b.amount_cents;
         const under = isIncome && displayCents < b.amount_cents;
+
+        // Pace calculations (only meaningful for current month)
+        const totalDays = daysInMonth(month);
+        const elapsed = daysElapsed(month);
+        const remaining = totalDays - elapsed;
+        const dailyLimit = b.amount_cents / totalDays;
+        const dailyRemaining = remaining > 0
+          ? (b.amount_cents - displayCents) / remaining
+          : 0;
+        const projectedEnd = elapsed > 0
+          ? Math.round((displayCents / elapsed) * totalDays)
+          : 0;
+        const projectedOver = !isIncome && projectedEnd > b.amount_cents;
+        const projectedOverBy = projectedEnd - b.amount_cents;
+
         return (
           <div key={b.id} className="border rounded-xl p-5">
             <div className="flex items-center justify-between mb-3">
@@ -211,13 +285,20 @@ export default function BudgetsPage() {
                   ({b.period})
                 </span>
               </div>
-              <button
-                onClick={() => deleteBudget(b.id)}
-                className="text-xs text-[hsl(var(--muted-foreground))] hover:text-red-500
-                           transition-colors"
-              >
-                Remove
-              </button>
+              <div className="flex items-center gap-3">
+                {projectedOver && remaining > 0 && (
+                  <span className="text-xs text-red-500 font-medium">
+                    Projected +{formatCurrency(projectedOverBy)} over
+                  </span>
+                )}
+                <button
+                  onClick={() => deleteBudget(b.id)}
+                  className="text-xs text-[hsl(var(--muted-foreground))] hover:text-red-500
+                             transition-colors"
+                >
+                  Remove
+                </button>
+              </div>
             </div>
 
             <div className="h-3 rounded-full bg-[hsl(var(--muted))] overflow-hidden mb-2">
@@ -230,7 +311,7 @@ export default function BudgetsPage() {
               />
             </div>
 
-            <div className="flex justify-between text-sm">
+            <div className="flex justify-between text-sm mb-3">
               <span className={over ? "text-red-500 font-medium" : under ? "text-orange-500 font-medium" : "text-[hsl(var(--muted-foreground))]"}>
                 {formatCurrency(displayCents)} {displayLabel}
                 {over && " — over budget"}
@@ -240,6 +321,26 @@ export default function BudgetsPage() {
                 {isIncome ? "Target:" : "Limit:"} {formatCurrency(b.amount_cents)} · {pct}%
               </span>
             </div>
+
+            {/* Pace chip + weekly bar */}
+            {!isIncome && remaining > 0 && (
+              <div className="flex items-end justify-between gap-4 pt-2 border-t">
+                <div>
+                  <p className="text-xs text-[hsl(var(--muted-foreground))]">Daily remaining</p>
+                  <p className={`text-sm font-semibold ${dailyRemaining < 0 ? "text-red-500" : "text-[hsl(var(--foreground))]"}`}>
+                    {dailyRemaining < 0
+                      ? `Over by ${formatCurrency(Math.abs(dailyRemaining))}/day`
+                      : `${formatCurrency(Math.max(0, dailyRemaining))}/day`}
+                  </p>
+                </div>
+                <WeeklyMiniBar
+                  dailyAmounts={b.weeklyAmounts}
+                  dailyTarget={dailyLimit}
+                  overIsBad={true}
+                  className="w-28 shrink-0"
+                />
+              </div>
+            )}
           </div>
         );
       })}

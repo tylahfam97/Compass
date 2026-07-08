@@ -1,13 +1,16 @@
 import { useState, useEffect, useCallback } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip,
   ResponsiveContainer, Cell,
 } from "recharts";
 import { getDb } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import type { Transaction } from "@/lib/types";
+import type { Transaction, Insight } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
+import { useProfileStore } from "@/stores/profileStore";
+import { generateInsights } from "@/lib/agent";
+import InsightCard from "@/components/InsightCard";
 interface MonthStats {
   income: number;
   expenses: number;
@@ -29,7 +32,12 @@ function monthBounds(ym: string): [string, string] {
 
 export default function DashboardPage() {
   const [month, setMonth] = useAutoMonth();
+  const navigate = useNavigate();
+  const activeProfile = useProfileStore((s) => s.activeProfile);
+  const dismissedInsights = useProfileStore((s) => s.dismissedInsights);
+  const profileId = activeProfile?.id ?? 1;
   const [stats, setStats] = useState<MonthStats>({ income: 0, expenses: 0, net: 0 });
+  const [insights, setInsights] = useState<Insight[]>([]);
   const [cats, setCats] = useState<CatStat[]>([]);
   const [recent, setRecent] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,30 +57,32 @@ export default function DashboardPage() {
     const [start, end] = monthBounds(month);
     const [incRow, expRow, catRows, recentRows, monthCountRow, totalCountRow] = await Promise.all([
       db.select<{ total: number }[]>(
-        "SELECT COALESCE(SUM(amount_cents),0) as total FROM transactions WHERE date>=? AND date<? AND amount_cents>0",
-        [start, end]
+        "SELECT COALESCE(SUM(amount_cents),0) as total FROM transactions WHERE date>=? AND date<? AND amount_cents>0 AND profile_id=?",
+        [start, end, profileId]
       ),
       db.select<{ total: number }[]>(
-        "SELECT COALESCE(SUM(amount_cents),0) as total FROM transactions WHERE date>=? AND date<? AND amount_cents<0",
-        [start, end]
+        "SELECT COALESCE(SUM(amount_cents),0) as total FROM transactions WHERE date>=? AND date<? AND amount_cents<0 AND profile_id=?",
+        [start, end, profileId]
       ),
       db.select<{ name: string; color: string; total: number }[]>(
         `SELECT c.name, c.color, SUM(t.amount_cents) as total
          FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-         WHERE t.date>=? AND t.date<? AND t.amount_cents<0
+         WHERE t.date>=? AND t.date<? AND t.amount_cents<0 AND t.profile_id=?
          GROUP BY t.category_id ORDER BY total ASC LIMIT 7`,
-        [start, end]
+        [start, end, profileId]
       ),
       db.select<Transaction[]>(
         `SELECT t.*, c.name as category_name, c.color as category_color
          FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-         ORDER BY t.date DESC, t.id DESC LIMIT 10`
+         WHERE t.profile_id=?
+         ORDER BY t.date DESC, t.id DESC LIMIT 10`,
+        [profileId]
       ),
       db.select<{ n: number }[]>(
-        "SELECT COUNT(*) as n FROM transactions WHERE date>=? AND date<?",
-        [start, end]
+        "SELECT COUNT(*) as n FROM transactions WHERE date>=? AND date<? AND profile_id=?",
+        [start, end, profileId]
       ),
-      db.select<{ n: number }[]>("SELECT COUNT(*) as n FROM transactions"),
+      db.select<{ n: number }[]>("SELECT COUNT(*) as n FROM transactions WHERE profile_id=?", [profileId]),
     ]);
     const inc = incRow[0]?.total ?? 0;
     const exp = expRow[0]?.total ?? 0;
@@ -82,15 +92,15 @@ export default function DashboardPage() {
     setMonthTxnCount(monthCountRow[0]?.n ?? 0);
     setTotalTxnCount(totalCountRow[0]?.n ?? 0);
     setLoading(false);
-  }, [month]);
+  }, [month, profileId]);
 
   const handleClear = async (scope: "month" | "all") => {
     const db = await getDb();
     if (scope === "month") {
       const [start, end] = monthBounds(month);
-      await db.execute("DELETE FROM transactions WHERE date>=? AND date<?", [start, end]);
+      await db.execute("DELETE FROM transactions WHERE date>=? AND date<? AND profile_id=?", [start, end, profileId]);
     } else {
-      await db.execute("DELETE FROM transactions");
+      await db.execute("DELETE FROM transactions WHERE profile_id=?", [profileId]);
     }
     setConfirmClear(null);
     loadData().catch(console.error);
@@ -99,6 +109,25 @@ export default function DashboardPage() {
   useEffect(() => {
     loadData().catch(console.error);
   }, [loadData]);
+
+  // Load insights separately (not tied to month selection)
+  useEffect(() => {
+    if (!activeProfile) return;
+    generateInsights(profileId).then(setInsights).catch(console.error);
+  }, [profileId, activeProfile]);
+
+  const visibleInsights = insights
+    .filter((i) => !dismissedInsights.includes(i.dismissKey))
+    .slice(0, 3);
+
+  const handleApplyInsight = async (insight: Insight) => {
+    if (!insight.action) return;
+    if (insight.action.type === "create_budget") {
+      navigate("/budgets");
+    } else if (insight.action.type === "create_goal") {
+      navigate("/goals");
+    }
+  };
 
   const hasData = stats.income !== 0 || stats.expenses !== 0;
 
@@ -155,6 +184,26 @@ export default function DashboardPage() {
 
       {!loading && hasData && (
         <>
+          {/* Agent insight cards */}
+          {visibleInsights.length > 0 && (
+            <div className="space-y-2">
+              {visibleInsights.map((insight) => (
+                <InsightCard
+                  key={insight.id}
+                  insight={insight}
+                  onApply={handleApplyInsight}
+                  compact
+                />
+              ))}
+              <Link
+                to="/agent"
+                className="block text-xs text-[hsl(var(--primary))] hover:opacity-80 transition-opacity"
+              >
+                See all Agent insights →
+              </Link>
+            </div>
+          )}
+
           {/* Summary cards */}
           <div className="grid grid-cols-3 gap-4">
             {[

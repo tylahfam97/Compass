@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type { Transaction } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
+import { useProfileStore } from "@/stores/profileStore";
 
 interface CatRow {
   category_name: string;
@@ -58,6 +59,8 @@ function changePct(now: number, prev: number): number {
 export default function ReportsPage() {
   const [month, setMonth] = useAutoMonth();
   const [loading, setLoading] = useState(true);
+  const activeProfile = useProfileStore((s) => s.activeProfile);
+  const profileId = activeProfile?.id ?? 1;
 
   const [catThis, setCatThis] = useState<CatRow[]>([]);
   const [catPrev, setCatPrev] = useState<CatRow[]>([]);
@@ -91,31 +94,31 @@ export default function ReportsPage() {
           `SELECT c.name as category_name, c.color as category_color,
                   SUM(ABS(t.amount_cents)) as total_cents
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-           WHERE t.date>=? AND t.date<? AND t.amount_cents<0
+           WHERE t.date>=? AND t.date<? AND t.amount_cents<0 AND t.profile_id=?
            GROUP BY t.category_id ORDER BY total_cents DESC`,
-          [start, end]
+          [start, end, profileId]
         ),
         db.select<CatRow[]>(
           `SELECT c.name as category_name, c.color as category_color,
                   SUM(ABS(t.amount_cents)) as total_cents
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-           WHERE t.date>=? AND t.date<? AND t.amount_cents<0
+           WHERE t.date>=? AND t.date<? AND t.amount_cents<0 AND t.profile_id=?
            GROUP BY t.category_id ORDER BY total_cents DESC`,
-          [prevStart, prevEnd]
+          [prevStart, prevEnd, profileId]
         ),
         db.select<{ month: string; income_cents: number; expense_cents: number }[]>(
           `SELECT strftime('%Y-%m', date) as month,
                   SUM(CASE WHEN amount_cents>0 THEN amount_cents ELSE 0 END) as income_cents,
                   SUM(CASE WHEN amount_cents<0 THEN ABS(amount_cents) ELSE 0 END) as expense_cents
-           FROM transactions WHERE date>=? GROUP BY month ORDER BY month`,
-          [sixMonthsAgo]
+           FROM transactions WHERE date>=? AND profile_id=? GROUP BY month ORDER BY month`,
+          [sixMonthsAgo, profileId]
         ),
         db.select<Transaction[]>(
           `SELECT t.*, c.name as category_name, c.color as category_color
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-           WHERE t.date>=? AND t.date<? AND t.amount_cents<0
+           WHERE t.date>=? AND t.date<? AND t.amount_cents<0 AND t.profile_id=?
            ORDER BY t.amount_cents ASC LIMIT 10`,
-          [start, end]
+          [start, end, profileId]
         ),
         db.select<RecurringItem[]>(
           `SELECT t.description,
@@ -124,9 +127,10 @@ export default function ReportsPage() {
                   CAST(AVG(ABS(t.amount_cents)) AS INTEGER) as avg_cents,
                   c.name as category_name, c.color as category_color
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-           WHERE t.amount_cents<0
+           WHERE t.amount_cents<0 AND t.profile_id=?
            GROUP BY t.description HAVING count>=2
-           ORDER BY count DESC, total_cents DESC LIMIT 10`
+           ORDER BY count DESC, total_cents DESC LIMIT 10`,
+          [profileId]
         ),
         db.select<Subscription[]>(
           `SELECT t.description, t.amount_cents,
@@ -134,10 +138,11 @@ export default function ReportsPage() {
                   MIN(t.date) as first_seen, MAX(t.date) as last_seen,
                   c.name as category_name, c.color as category_color
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-           WHERE t.amount_cents<0
+           WHERE t.amount_cents<0 AND t.profile_id=?
            GROUP BY t.description, t.amount_cents
            HAVING month_count>=2
-           ORDER BY month_count DESC, ABS(t.amount_cents) DESC`
+           ORDER BY month_count DESC, ABS(t.amount_cents) DESC`,
+          [profileId]
         ),
       ]);
 
@@ -154,7 +159,7 @@ export default function ReportsPage() {
     }
     load().catch(console.error);
     return () => { cancelled = true; };
-  }, [month]);
+  }, [month, profileId]);
 
   const prevMap = new Map(catPrev.map((r) => [r.category_name, r.total_cents]));
   const hasData = catThis.length > 0 || topExpenses.length > 0;

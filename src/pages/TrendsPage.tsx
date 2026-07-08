@@ -5,6 +5,7 @@ import {
 } from "recharts";
 import { getDb } from "@/lib/db";
 import { formatCurrency } from "@/lib/utils";
+import { useProfileStore } from "@/stores/profileStore";
 
 interface MonthRow {
   month: string;
@@ -33,6 +34,8 @@ export default function TrendsPage() {
   const [catColors, setCatColors] = useState<Record<string, string>>({});
   const [catNames, setCatNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const activeProfile = useProfileStore((s) => s.activeProfile);
+  const profileId = activeProfile?.id ?? 1;
 
   useEffect(() => {
     let cancelled = false;
@@ -50,17 +53,17 @@ export default function TrendsPage() {
           `SELECT strftime('%Y-%m', date) as month,
                   SUM(CASE WHEN amount_cents>0 THEN amount_cents ELSE 0 END) as income,
                   SUM(CASE WHEN amount_cents<0 THEN ABS(amount_cents) ELSE 0 END) as expenses
-           FROM transactions WHERE date>=? GROUP BY month ORDER BY month`,
-          [start]
+           FROM transactions WHERE date>=? AND profile_id=? GROUP BY month ORDER BY month`,
+          [start, profileId]
         ),
         db.select<CatMonthRow[]>(
           `SELECT strftime('%Y-%m', t.date) as month,
                   c.name as category, c.color,
                   SUM(ABS(t.amount_cents)) as total
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-           WHERE t.date>=? AND t.amount_cents<0
+           WHERE t.date>=? AND t.amount_cents<0 AND t.profile_id=?
            GROUP BY month, t.category_id ORDER BY month`,
-          [start]
+          [start, profileId]
         ),
       ]);
 
@@ -96,7 +99,7 @@ export default function TrendsPage() {
     }
     load().catch(console.error);
     return () => { cancelled = true; };
-  }, [range]);
+  }, [range, profileId]);
 
   const hasData = monthly.length > 0;
 

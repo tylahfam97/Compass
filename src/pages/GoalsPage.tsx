@@ -3,6 +3,8 @@ import { getDb } from "@/lib/db";
 import { formatCurrency } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
+import { useProfileStore } from "@/stores/profileStore";
+import WeeklyMiniBar from "@/components/WeeklyMiniBar";
 
 type GoalType = "net_savings" | "reduce_spend" | "increase_income";
 
@@ -21,6 +23,7 @@ interface GoalWithProgress extends GoalRow {
   current_cents: number;
   on_track: boolean;
   pct: number;
+  weeklyAmounts: number[];
 }
 
 const LABELS: Record<GoalType, string> = {
@@ -43,11 +46,36 @@ function monthBounds(ym: string): [string, string] {
   ];
 }
 
+function daysInMonth(ym: string): number {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(y, m, 0).getDate();
+}
+
+function daysElapsed(ym: string): number {
+  const now = new Date();
+  const [y, m] = ym.split("-").map(Number);
+  const isCurrentMonth = now.getFullYear() === y && now.getMonth() + 1 === m;
+  if (!isCurrentMonth) return daysInMonth(ym);
+  return now.getDate();
+}
+
+function currentWeekBounds(): [string, string] {
+  const now = new Date();
+  const dow = (now.getDay() + 6) % 7;
+  const mon = new Date(now);
+  mon.setDate(now.getDate() - dow);
+  const sun = new Date(mon);
+  sun.setDate(mon.getDate() + 7);
+  return [mon.toISOString().split("T")[0], sun.toISOString().split("T")[0]];
+}
+
 export default function GoalsPage() {
   const [month, setMonth] = useAutoMonth();
   const [goals, setGoals] = useState<GoalWithProgress[]>([]);
   const [loading, setLoading] = useState(true);
   const categories = useCategoryStore((s) => s.categories);
+  const activeProfile = useProfileStore((s) => s.activeProfile);
+  const profileId = activeProfile?.id ?? 1;
 
   const [formType, setFormType] = useState<GoalType>("net_savings");
   const [formName, setFormName] = useState("Save each month");
@@ -69,7 +97,8 @@ export default function GoalsPage() {
     const rows = await db.select<GoalRow[]>(
       `SELECT g.*, c.name as category_name, c.color as category_color
        FROM goals g LEFT JOIN categories c ON g.category_id=c.id
-       WHERE g.active=1 ORDER BY g.created_at`
+       WHERE g.active=1 AND g.profile_id=? ORDER BY g.created_at`,
+      [profileId]
     );
 
     const withProgress: GoalWithProgress[] = await Promise.all(
@@ -77,23 +106,27 @@ export default function GoalsPage() {
         let current = 0;
         if (g.type === "net_savings") {
           const [r] = await db.select<{ v: number }[]>(
-            "SELECT COALESCE(SUM(amount_cents),0) as v FROM transactions WHERE date>=? AND date<?",
-            [start, end]
+            "SELECT COALESCE(SUM(amount_cents),0) as v FROM transactions WHERE date>=? AND date<? AND profile_id=?",
+            [start, end, profileId]
           );
           current = r?.v ?? 0;
         } else if (g.type === "reduce_spend") {
           const extra = g.category_id ? " AND category_id=?" : "";
-          const params: unknown[] = g.category_id ? [start, end, g.category_id] : [start, end];
+          const params: unknown[] = g.category_id
+            ? [start, end, profileId, g.category_id]
+            : [start, end, profileId];
           const [r] = await db.select<{ v: number }[]>(
-            `SELECT COALESCE(SUM(ABS(amount_cents)),0) as v FROM transactions WHERE date>=? AND date<? AND amount_cents<0${extra}`,
+            `SELECT COALESCE(SUM(ABS(amount_cents)),0) as v FROM transactions WHERE date>=? AND date<? AND profile_id=? AND amount_cents<0${extra}`,
             params
           );
           current = r?.v ?? 0;
         } else {
           const extra = g.category_id ? " AND category_id=?" : "";
-          const params: unknown[] = g.category_id ? [start, end, g.category_id] : [start, end];
+          const params: unknown[] = g.category_id
+            ? [start, end, profileId, g.category_id]
+            : [start, end, profileId];
           const [r] = await db.select<{ v: number }[]>(
-            `SELECT COALESCE(SUM(amount_cents),0) as v FROM transactions WHERE date>=? AND date<? AND amount_cents>0${extra}`,
+            `SELECT COALESCE(SUM(amount_cents),0) as v FROM transactions WHERE date>=? AND date<? AND profile_id=? AND amount_cents>0${extra}`,
             params
           );
           current = r?.v ?? 0;
@@ -107,13 +140,43 @@ export default function GoalsPage() {
           ? Math.min(150, Math.round((current / g.target_cents) * 100))
           : 0;
 
-        return { ...g, current_cents: current, on_track, pct };
+        return { ...g, current_cents: current, on_track, pct, weeklyAmounts: [] };
       })
     );
 
-    setGoals(withProgress);
+    // Attach weekly amounts for reduce_spend goals
+    const [weekStart, weekEnd] = currentWeekBounds();
+    const weeklyRows = await db.select<{ category_id: number | null; dow: number; total: number }[]>(
+      `SELECT category_id,
+              (strftime('%w', date) + 6) % 7 as dow,
+              SUM(ABS(amount_cents)) as total
+       FROM transactions
+       WHERE date>=? AND date<? AND profile_id=? AND amount_cents<0
+       GROUP BY category_id, dow`,
+      [weekStart, weekEnd, profileId]
+    );
+    const weeklyAllCats = Array(7).fill(0);
+    const weeklyByCat: Record<number, number[]> = {};
+    for (const row of weeklyRows) {
+      weeklyAllCats[row.dow] = (weeklyAllCats[row.dow] ?? 0) + row.total;
+      if (row.category_id !== null) {
+        if (!weeklyByCat[row.category_id]) weeklyByCat[row.category_id] = Array(7).fill(0);
+        weeklyByCat[row.category_id][row.dow] = row.total;
+      }
+    }
+    const withWeekly = withProgress.map((g) => ({
+      ...g,
+      weeklyAmounts:
+        g.type === "reduce_spend"
+          ? g.category_id
+            ? weeklyByCat[g.category_id] ?? Array(7).fill(0)
+            : weeklyAllCats
+          : Array(7).fill(0),
+    }));
+
+    setGoals(withWeekly);
     setLoading(false);
-  }, [month]);
+  }, [month, profileId]);
 
   useEffect(() => {
     loadGoals().catch(console.error);
@@ -146,8 +209,8 @@ export default function GoalsPage() {
     const db = await getDb();
     const catId = formType === "net_savings" ? null : formCatId || null;
     await db.execute(
-      "INSERT INTO goals (name, type, category_id, target_cents) VALUES (?,?,?,?)",
-      [formName || "Goal", formType, catId, Math.round(amount * 100)]
+      "INSERT INTO goals (name, type, category_id, target_cents, profile_id) VALUES (?,?,?,?,?)",
+      [formName || "Goal", formType, catId, Math.round(amount * 100), profileId]
     );
     setFormTarget("");
     setSaving(false);
@@ -245,6 +308,15 @@ export default function GoalsPage() {
           ? (g.on_track ? "#22c55e" : "#ef4444")
           : (g.on_track ? "#22c55e" : g.pct >= 75 ? "#f97316" : "#9ca3af");
 
+        // Daily pace for spend/income goals in the current month
+        const totalDays = daysInMonth(month);
+        const elapsed = daysElapsed(month);
+        const remaining = totalDays - elapsed;
+        const dailyNeeded = remaining > 0
+          ? (g.target_cents - g.current_cents) / remaining
+          : 0;
+        const showPace = remaining > 0 && (isSpend || isIncome);
+
         return (
           <div key={g.id} className="border rounded-xl p-5">
             <div className="flex items-start justify-between mb-3 gap-2">
@@ -281,7 +353,7 @@ export default function GoalsPage() {
                 style={{ width: `${barPct}%`, backgroundColor: barColor }} />
             </div>
 
-            <div className="flex justify-between text-sm text-[hsl(var(--muted-foreground))]">
+            <div className="flex justify-between text-sm text-[hsl(var(--muted-foreground))] mb-3">
               <span>
                 {isSpend ? "Spent: " : isIncome ? "Earned: " : "Net: "}
                 <span className="font-medium text-[hsl(var(--foreground))]">
@@ -296,6 +368,38 @@ export default function GoalsPage() {
                 {" · "}{g.pct}%
               </span>
             </div>
+
+            {/* Daily pace + weekly bar */}
+            {showPace && (
+              <div className="flex items-end justify-between gap-4 pt-2 border-t">
+                <div>
+                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                    {isSpend ? "Daily allowance left" : "Daily needed"}
+                  </p>
+                  <p className={`text-sm font-semibold ${
+                    isSpend
+                      ? dailyNeeded < 0 ? "text-red-500" : "text-emerald-600"
+                      : dailyNeeded <= 0 ? "text-emerald-600" : "text-[hsl(var(--foreground))]"
+                  }`}>
+                    {isSpend
+                      ? dailyNeeded < 0
+                        ? "Over limit"
+                        : `${formatCurrency(dailyNeeded)}/day left`
+                      : dailyNeeded <= 0
+                      ? "Goal reached!"
+                      : `${formatCurrency(dailyNeeded)}/day to go`}
+                  </p>
+                </div>
+                {isSpend && g.weeklyAmounts.some((v) => v > 0) && (
+                  <WeeklyMiniBar
+                    dailyAmounts={g.weeklyAmounts}
+                    dailyTarget={g.target_cents / totalDays}
+                    overIsBad={true}
+                    className="w-28 shrink-0"
+                  />
+                )}
+              </div>
+            )}
           </div>
         );
       })}
