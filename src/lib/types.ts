@@ -49,6 +49,7 @@ export interface Transaction {
   category_id: number | null;
   notes: string | null;
   import_hash: string;
+  balance_cents: number | null;
   created_at: string;
   // Joined from categories table
   category_name?: string;

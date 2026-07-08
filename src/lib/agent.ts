@@ -30,6 +30,15 @@ export async function generateInsights(profileId: number): Promise<Insight[]> {
   const db = await getDb();
   const insights: Insight[] = [];
 
+  // ── 0. Current account balance ───────────────────────────────────────────
+  const [balanceRow] = await db.select<{ balance_cents: number; date: string }[]>(
+    `SELECT balance_cents, date FROM transactions
+     WHERE profile_id=? AND balance_cents IS NOT NULL
+     ORDER BY date DESC, id DESC LIMIT 1`,
+    [profileId]
+  );
+  // balanceRow is available for insight logic below
+
   // ── 1. How many months of data do we have? ──────────────────────────────
   const [dataRange] = await db.select<{ months: number }[]>(
     `SELECT COUNT(DISTINCT strftime('%Y-%m', date)) as months
@@ -315,6 +324,34 @@ export async function generateInsights(profileId: number): Promise<Insight[]> {
           dismissKey: "income_irregular",
         });
       }
+    }
+  }
+
+  // ── INSIGHT: low balance ────────────────────────────────────────────────
+  if (balanceRow?.balance_cents != null) {
+    const avgMonthlyExpenses = monthlySummaries.length > 0
+      ? monthlySummaries.reduce((s, m) => s + m.expenses, 0) / monthlySummaries.length
+      : 0;
+    const monthsOfRunway = avgMonthlyExpenses > 0 ? balanceRow.balance_cents / avgMonthlyExpenses : 99;
+    if (balanceRow.balance_cents < 50000 && balanceRow.balance_cents >= 0) {
+      // Under $500
+      insights.push({
+        id: "low_balance",
+        type: "savings_rate_low",
+        title: `Low account balance: ${formatCents(balanceRow.balance_cents)}`,
+        description: `Your balance as of ${balanceRow.date} is below $500.${monthsOfRunway < 1 ? " At current spend, this covers less than a month." : ""}`,
+        severity: "warning",
+        dismissKey: `low_balance_${balanceRow.date}`,
+      });
+    } else if (monthsOfRunway < 2 && avgMonthlyExpenses > 0) {
+      insights.push({
+        id: "runway_short",
+        type: "savings_rate_low",
+        title: "Less than 2 months of expenses in account",
+        description: `Balance: ${formatCents(balanceRow.balance_cents)} · avg monthly expenses: ${formatCents(avgMonthlyExpenses)}. Consider building a larger buffer.`,
+        severity: "warning",
+        dismissKey: `runway_short_${balanceRow.date}`,
+      });
     }
   }
 
