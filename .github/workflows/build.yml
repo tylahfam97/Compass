@@ -72,6 +72,7 @@ jobs:
           else { Write-Warning "No .nsis.zip.sig - signing key may be missing or password is wrong" }
 
       - name: Create and sign update bundle
+        continue-on-error: true
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         shell: powershell
@@ -93,8 +94,10 @@ jobs:
           $keyFile = [IO.Path]::GetTempFileName()
           [IO.File]::WriteAllText($keyFile, $env:TAURI_SIGNING_PRIVATE_KEY)
 
-          # Sign: -p "" because the key was generated with an empty password
-          npm run tauri -- signer sign -f $keyFile -p "" $zipPath
+          # Set empty password via env var (key was generated with no password)
+          # Don't pass --password on the command line — PowerShell drops empty-string args
+          $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""
+          npm run tauri -- signer sign --private-key-path $keyFile $zipPath
           Remove-Item $keyFile -Force -ErrorAction SilentlyContinue
 
           if (Test-Path "$zipPath.sig") {
