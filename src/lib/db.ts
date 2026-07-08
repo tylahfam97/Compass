@@ -265,6 +265,21 @@ async function runMigrations(db: CompassDb): Promise<void> {
     }
     await db.execute("PRAGMA user_version = 3");
   }
+
+  // ── v4: Running balance support ──────────────────────────────────────────
+  if (version < 4) {
+    assertSafeMigrationIdentifiers("transactions", "balance_cents");
+    if (!(await colExists(db, "transactions", "balance_cents"))) {
+      await db.execute("ALTER TABLE transactions ADD COLUMN balance_cents INTEGER");
+    }
+    assertSafeMigrationIdentifiers("column_profiles", "balance_col");
+    if (!(await colExists(db, "column_profiles", "balance_col"))) {
+      await db.execute(
+        "ALTER TABLE column_profiles ADD COLUMN balance_col INTEGER NOT NULL DEFAULT -1"
+      );
+    }
+    await db.execute("PRAGMA user_version = 4");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────

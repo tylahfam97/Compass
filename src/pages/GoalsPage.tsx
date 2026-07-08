@@ -228,7 +228,7 @@ export default function GoalsPage() {
   const formCats = formType === "increase_income" ? incomeCats : spendCats;
 
   return (
-    <div className="p-6 max-w-2xl space-y-6">
+    <div className="p-6 max-w-2xl space-y-6 mx-auto w-full">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Goals</h1>

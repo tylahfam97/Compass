@@ -290,7 +290,7 @@ export default function ImportPage() {
   };
 
   return (
-    <div className="p-6 max-w-3xl">
+    <div className="p-6 max-w-3xl mx-auto w-full">
       <h1 className="text-2xl font-semibold mb-2">Import Statements</h1>
       <p className="text-sm text-[hsl(var(--muted-foreground))] mb-6">
         Your data never leaves this device.
@@ -472,6 +472,9 @@ export default function ImportPage() {
                   <th className="px-4 py-2 font-medium">Date</th>
                   <th className="px-4 py-2 font-medium">Description</th>
                   <th className="px-4 py-2 font-medium text-right">Amount</th>
+                  {colMap.balanceCol >= 0 && (
+                    <th className="px-4 py-2 font-medium text-right">Balance</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -483,6 +486,7 @@ export default function ImportPage() {
                     if (typeVal === "debit") amt = -Math.abs(rawAmt);
                     else if (typeVal === "credit") amt = Math.abs(rawAmt);
                   }
+                  const balRaw = colMap.balanceCol >= 0 ? (row[colMap.balanceCol] ?? "") : "";
                   return (
                     <tr key={i} className="border-t">
                       <td className="px-4 py-2 whitespace-nowrap text-[hsl(var(--muted-foreground))]">
@@ -495,6 +499,11 @@ export default function ImportPage() {
                       >
                         {formatCurrency(Math.round(amt * 100))}
                       </td>
+                      {colMap.balanceCol >= 0 && (
+                        <td className="px-4 py-2 text-right font-mono text-[hsl(var(--muted-foreground))]">
+                          {balRaw ? formatCurrency(Math.round(parseAmount(balRaw) * 100)) : "—"}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
