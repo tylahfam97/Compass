@@ -63,44 +63,44 @@ if (-not $releaseId) {
 
 Write-Host "Created release $tagName (ID $releaseId)"
 
-# Upload headers for asset binary uploads (different endpoint)
-$uploadHeaders = @{
-    "Authorization"        = "Bearer " + $token
-    "Accept"               = "application/vnd.github+json"
-    "X-GitHub-Api-Version" = "2022-11-28"
-    "User-Agent"           = "compass-release-script"
-    "Content-Type"         = "application/octet-stream"
-}
+# Brief pause so GitHub's API fully registers the new release before we upload assets
+Start-Sleep -Seconds 3
+
 $uploadBase = "https://uploads.github.com/repos/" + $repo + "/releases/" + $releaseId + "/assets"
+
+# Helper: upload a file via curl.exe (reliable for large binaries; avoids PowerShell HTTP client TLS quirks)
+function Upload-Asset($filePath, $assetName) {
+    $url = $uploadBase + "?name=" + $assetName
+    $result = curl.exe -s -w "%{http_code}" -X POST `
+        -H ("Authorization: Bearer " + $token) `
+        -H "Accept: application/vnd.github+json" `
+        -H "X-GitHub-Api-Version: 2022-11-28" `
+        -H "Content-Type: application/octet-stream" `
+        "--data-binary" "@$filePath" $url
+    $httpCode = $result[-3..-1] -join ''
+    if ($httpCode -notmatch '^2') {
+        Write-Warning "Upload of $assetName returned HTTP $httpCode"
+    } else {
+        Write-Host "Uploaded $assetName (HTTP $httpCode)"
+    }
+}
 
 # Upload MSI
 $msi = Get-ChildItem "src-tauri\target\release\bundle\msi\*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($msi) {
-    $msiBytes = [IO.File]::ReadAllBytes($msi.FullName)
-    Invoke-RestMethod -Uri ($uploadBase + "?name=" + $msi.Name) -Headers $uploadHeaders -Method Post -Body $msiBytes | Out-Null
-    Write-Host "Uploaded $($msi.Name)"
-} else {
-    Write-Warning "No MSI found in bundle output"
-}
+if ($msi) { Upload-Asset $msi.FullName $msi.Name } else { Write-Warning "No MSI found in bundle output" }
 
 # Upload EXE (NSIS)
 $exe = Get-ChildItem "src-tauri\target\release\bundle\nsis\*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($exe) {
-    $exeBytes = [IO.File]::ReadAllBytes($exe.FullName)
-    Invoke-RestMethod -Uri ($uploadBase + "?name=" + $exe.Name) -Headers $uploadHeaders -Method Post -Body $exeBytes | Out-Null
-    Write-Host "Uploaded $($exe.Name)"
-} else {
-    Write-Warning "No EXE found in bundle output"
-}
+if ($exe) { Upload-Asset $exe.FullName $exe.Name } else { Write-Warning "No EXE found in bundle output" }
 
 # Upload NSIS zip (used by the in-app auto-updater) + generate latest.json
+Write-Host "NSIS bundle directory:"
+Get-ChildItem "src-tauri\target\release\bundle\nsis\" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.Name)  ($([math]::Round($_.Length/1KB))KB)" }
 $nsisZip = Get-ChildItem "src-tauri\target\release\bundle\nsis\*.nsis.zip" -ErrorAction SilentlyContinue | Select-Object -First 1
-$nsisSig = if ($nsisZip) { Get-ChildItem ($nsisZip.FullName + ".sig") -ErrorAction SilentlyContinue } else { $null }
+$nsisSig = if ($nsisZip) { Get-Item ($nsisZip.FullName + ".sig") -ErrorAction SilentlyContinue } else { $null }
 
 if ($nsisZip -and $nsisSig) {
-    # Upload the signed NSIS zip bundle
-    $nsisZipBytes = [IO.File]::ReadAllBytes($nsisZip.FullName)
-    Invoke-RestMethod -Uri ($uploadBase + "?name=" + $nsisZip.Name) -Headers $uploadHeaders -Method Post -Body $nsisZipBytes | Out-Null
+    Upload-Asset $nsisZip.FullName $nsisZip.Name
     Write-Host "Uploaded $($nsisZip.Name)"
 
     # Build latest.json — consumed by tauri-plugin-updater on every app launch check
