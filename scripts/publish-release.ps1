@@ -16,48 +16,49 @@ if (-not $token) {
 
 Write-Host "Publishing $tagName for $repo (token length: $($token.Length))"
 
-$api     = "https://api.github.com/repos/" + $repo
-$headers = @{
-    "Authorization"        = "Bearer " + $token
-    "Accept"               = "application/vnd.github+json"
-    "X-GitHub-Api-Version" = "2022-11-28"
-    "User-Agent"           = "compass-release-script"
+$api         = "https://api.github.com/repos/" + $repo
+$authHeaders = @("-H", ("Authorization: Bearer " + $token), "-H", "Accept: application/vnd.github+json", "-H", "X-GitHub-Api-Version: 2022-11-28", "-H", "User-Agent: compass-release-script")
+
+# Helper: run a curl API call and return parsed JSON
+function Invoke-Api($method, $url, $body = $null) {
+    $args = @("-s", "-X", $method) + $authHeaders
+    if ($body) { $args += @("-H", "Content-Type: application/json", "-d", $body) }
+    $response = curl.exe @args $url
+    return ($response | ConvertFrom-Json -ErrorAction SilentlyContinue)
 }
 
-# Delete existing release if one already exists for this tag
-try {
-    $existing = Invoke-RestMethod -Uri ($api + "/releases/tags/" + $tagName) -Headers $headers -Method Get -ErrorAction Stop
-    if ($existing.id) {
-        Invoke-RestMethod -Uri ($api + "/releases/" + $existing.id) -Headers $headers -Method Delete | Out-Null
-        Write-Host "Removed existing release $tagName"
-    }
-} catch {
-    Write-Host "No existing release found for $tagName (this is fine for first publish)"
+# Delete existing release for this tag if one exists
+$existing = Invoke-Api "GET" ($api + "/releases/tags/" + $tagName)
+if ($existing.id) {
+    Invoke-Api "DELETE" ($api + "/releases/" + $existing.id) | Out-Null
+    Write-Host "Removed existing release $tagName (ID $($existing.id))"
+} else {
+    Write-Host "No existing release for $tagName"
 }
 
-# Also delete the existing tag ref so GitHub recreates it at the current commit
-try {
-    Invoke-RestMethod -Uri ($api + "/git/refs/tags/" + $tagName) -Headers $headers -Method Delete | Out-Null
-    Write-Host "Removed existing tag $tagName"
-} catch {
-    # Tag didn't exist yet — ignore
+# Delete the existing tag ref so GitHub recreates it at the current HEAD commit
+$tagDel = Invoke-Api "DELETE" ($api + "/git/refs/tags/" + $tagName)
+if ($tagDel.message -and $tagDel.message -ne "") {
+    Write-Host "Tag ref note: $($tagDel.message)"
+} else {
+    Write-Host "Removed existing tag ref $tagName"
 }
 
-# Create the release (GitHub will create the tag at HEAD automatically)
-$releaseBody = @{
-    tag_name         = $tagName
-    name             = "Compass " + $tagName
-    body             = "Compass " + $tagName + " Windows installer - includes MSI and EXE."
-    draft            = $false
-    prerelease       = $false
+# Create the release — GitHub creates the tag at HEAD automatically
+$releaseJson = (@{
+    tag_name               = $tagName
+    name                   = "Compass " + $tagName
+    body                   = "Compass " + $tagName + " Windows installer."
+    draft                  = $false
+    prerelease             = $false
     generate_release_notes = $false
-}
+} | ConvertTo-Json -Compress)
 
-$release   = Invoke-RestMethod -Uri ($api + "/releases") -Headers $headers -Method Post -Body ($releaseBody | ConvertTo-Json) -ContentType "application/json"
+$release   = Invoke-Api "POST" ($api + "/releases") $releaseJson
 $releaseId = $release.id
 
 if (-not $releaseId) {
-    Write-Error "Failed to create release"
+    Write-Error "Failed to create release: $($release | ConvertTo-Json -Compress)"
     exit 1
 }
 
