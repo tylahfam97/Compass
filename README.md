@@ -1,4 +1,8 @@
-# 🧭 Compass
+<p align="center">
+  <img src="src-tauri/icons/128x128@2x.png" width="128" alt="Compass" />
+</p>
+
+# $${\color{#1C2E54}Compass}$$
 
 ### *Own your financial life — privately, locally, and without judgment.*
 
@@ -6,13 +10,13 @@ Compass is a free, open-source Windows desktop application that helps you unders
 
 ---
 
-## What Is Compass?
+## $${\color{#C08A1C}What \space \color{#C08A1C}Is \space \color{#C08A1C}Compass?}$$
 
 Compass is a personal finance companion built for real people — not spreadsheet experts. Import your bank statements, see your spending broken down automatically, track your budgets and goals, and catch those sneaky recurring charges you forgot about. No accounts. No subscriptions. No cloud. Just clarity.
 
 ---
 
-## Key Features
+## $${\color{#C08A1C}Key \space \color{#C08A1C}Features}$$
 
 ### 💳 Statement Import
 Import bank and credit card statements in CSV format from any institution. Compass automatically detects the column layout for each bank (date, description, amount) and remembers it for future imports — so your second import from the same bank takes one click. Duplicate transactions are detected and silently skipped using a content hash.
@@ -58,7 +62,7 @@ Full searchable, filterable transaction list. Filter by month, search by descrip
 
 ---
 
-## Privacy & Data
+## $${\color{#C08A1C}Privacy \space \color{#C08A1C}\& \space \color{#C08A1C}Data}$$
 
 > **Your data never leaves your device.**
 
@@ -68,7 +72,7 @@ Full searchable, filterable transaction list. Filter by month, search by descrip
 
 ---
 
-## Installation
+## $${\color{#C08A1C}Installation}$$
 
 ### Requirements
 - Windows 10 or Windows 11 (64-bit)
@@ -93,7 +97,7 @@ msiexec /i Compass_0.1.0_x64_en-US.msi /quiet /norestart
 
 ---
 
-## How to Use
+## $${\color{#C08A1C}How \space \color{#C08A1C}to \space \color{#C08A1C}Use}$$
 
 ### 1 — Import your first statement
 
@@ -154,7 +158,7 @@ On the **Dashboard**, scroll to the *Manage Data* section at the bottom:
 
 ---
 
-## Building from Source
+## $${\color{#C08A1C}Building \space \color{#C08A1C}from \space \color{#C08A1C}Source}$$
 
 ### Prerequisites
 - [Node.js v20+](https://nodejs.org)
@@ -170,20 +174,37 @@ npm run tauri build     # production build → src-tauri/target/release/bundle/
 
 ---
 
-## Roadmap
+## $${\color{#C08A1C}Roadmap}$$
 
-### ✅ Phase 1 — Financial Companion *(current)*
+### ✅ Phase 1 — Financial Companion *(complete)*
 Statement import · Auto-categorization · Spending trends · Budgets · Goals · Reports · Ghost subscriptions
 
-### 🔜 Phase 2 — Reflection & Conversations *(planned)*
+### ✅ Phase 2 — Reflection & Conversations *(complete)*
 - Daily journaling with tagging
 - Guided decision-making conversations
 - Recurring theme recognition across entries
 - Long-term personal growth tracking
 
+### 🔜 Phase 3 — Financial Coaching *(planned)*
+Understanding your numbers isn't enough — Compass will help you act on them:
+- **Emergency fund awareness** — explain why emergency funds matter, calculate your personal target based on actual expenses, and track progress toward it
+- **Spending habit analysis** — answer natural-language questions about your own data (*"Where did most of my money go last quarter?"*, *"Am I spending more on food than last year?"*)
+- **Debt & wealth impact** — show how current debt levels affect long-term net worth, model payoff scenarios, and surface the real cost of carrying balances
+- **Smart prompts** — proactive nudges when patterns suggest risk (spending creep, missing savings months, unusually high recurring charges)
+
+### 🔭 Phase 4 — Compass Life *(future)*
+Expanding beyond finances into a whole-life companion:
+- **Habits** — build and track personal routines with streaks and reflection
+- **Goals** — long-horizon life goals across any area, not just money
+- **Relationships** — notes and intentions around the people that matter
+- **Career decisions** — track professional milestones, skills, and decision logs
+- **Health** — log physical and mental wellbeing markers over time
+- **Personal reflection** — open-ended journaling with pattern recognition across all life areas
+- **Long-term planning** — connect daily actions to multi-year life intentions
+
 ---
 
-## License
+## $${\color{#C08A1C}License}$$
 
 MIT — see [LICENSE.txt](LICENSE.txt)
 

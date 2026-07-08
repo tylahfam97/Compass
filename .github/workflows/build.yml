@@ -8,7 +8,7 @@ on:
 
 # ── Bump APP_VERSION here to tag a new release ────────────────────────────────
 env:
-  APP_VERSION: "0.2.1"
+  APP_VERSION: "0.2.2"
 # ──────────────────────────────────────────────────────────────────────────────
 
 permissions:
