@@ -235,6 +235,17 @@ async function runMigrations(db: Database): Promise<void> {
 
     await db.execute("PRAGMA user_version = 2");
   }
+
+  // ── v3: Transaction type column support ──────────────────────────────────
+  if (version < 3) {
+    assertSafeMigrationIdentifiers("column_profiles", "type_col");
+    if (!(await colExists(db, "column_profiles", "type_col"))) {
+      await db.execute(
+        "ALTER TABLE column_profiles ADD COLUMN type_col INTEGER NOT NULL DEFAULT -1"
+      );
+    }
+    await db.execute("PRAGMA user_version = 3");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────

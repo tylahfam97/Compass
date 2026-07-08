@@ -12,6 +12,7 @@ interface ColMap {
   dateCol: number;
   descCol: number;
   amountCol: number;
+  typeCol: number; // -1 = no transaction-type column
 }
 
 interface ParsedData {
@@ -53,10 +54,14 @@ function autoDetect(headers: string[]): ColMap {
   const h = headers.map((s) => s.toLowerCase());
   const find = (...terms: string[]) =>
     Math.max(0, h.findIndex((s) => terms.some((t) => s.includes(t))));
+  // typeCol: look for a column whose name contains "type" but NOT "amount",
+  // as used by banks that have separate "Transaction Type" (Debit/Credit) columns.
+  const typeCol = h.findIndex((s) => s.includes("type") && !s.includes("amount"));
   return {
     dateCol: find("date"),
     descCol: find("description", "payee", "name", "merchant", "memo"),
     amountCol: find("amount", "debit", "credit"),
+    typeCol,
   };
 }
 
@@ -113,7 +118,7 @@ export default function ImportPage() {
   const profileId = activeProfile?.id ?? 1;
   const [step, setStep] = useState<Step>("upload");
   const [parsed, setParsed] = useState<ParsedData | null>(null);
-  const [colMap, setColMap] = useState<ColMap>({ dateCol: 0, descCol: 1, amountCol: 2 });
+  const [colMap, setColMap] = useState<ColMap>({ dateCol: 0, descCol: 1, amountCol: 2, typeCol: -1 });
   const [profileFound, setProfileFound] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -157,13 +162,14 @@ export default function ImportPage() {
               date_col: number;
               desc_col: number;
               amount_col: number;
+              type_col: number;
             }[]>(
-              "SELECT date_col, desc_col, amount_col FROM column_profiles WHERE header_sig=? AND profile_id=?",
+              "SELECT date_col, desc_col, amount_col, COALESCE(type_col, -1) as type_col FROM column_profiles WHERE header_sig=? AND profile_id=?",
               [sig, profileId]
             );
             if (profiles.length > 0) {
               const p = profiles[0];
-              setColMap({ dateCol: p.date_col, descCol: p.desc_col, amountCol: p.amount_col });
+              setColMap({ dateCol: p.date_col, descCol: p.desc_col, amountCol: p.amount_col, typeCol: p.type_col });
               setProfileFound(true);
             } else {
               setColMap(autoDetect(headers));
@@ -213,11 +219,19 @@ export default function ImportPage() {
       let skipped = 0;
 
       for (const row of parsed.rows) {
-        const maxIdx = Math.max(colMap.dateCol, colMap.descCol, colMap.amountCol);
+        const requiredCols = [colMap.dateCol, colMap.descCol, colMap.amountCol];
+        if (colMap.typeCol >= 0) requiredCols.push(colMap.typeCol);
+        const maxIdx = Math.max(...requiredCols);
         if (row.length <= maxIdx) continue;
         const date = parseDate(row[colMap.dateCol] ?? "");
         const description = (row[colMap.descCol] ?? "").trim();
-        const amount = parseAmount(row[colMap.amountCol] ?? "0");
+        const rawAmount = parseAmount(row[colMap.amountCol] ?? "0");
+        let amount = rawAmount;
+        if (colMap.typeCol >= 0) {
+          const typeVal = (row[colMap.typeCol] ?? "").trim().toLowerCase();
+          if (typeVal === "debit") amount = -Math.abs(rawAmount);
+          else if (typeVal === "credit") amount = Math.abs(rawAmount);
+        }
         if (!date || !description || amount === 0) continue;
 
         const amountCents = Math.round(amount * 100);
@@ -240,13 +254,14 @@ export default function ImportPage() {
       // Save / update the column profile for next time
       const sig = computeHeaderSig(parsed.headers);
       await db.execute(
-        `INSERT INTO column_profiles (header_sig, date_col, desc_col, amount_col, profile_id)
-         VALUES (?, ?, ?, ?, ?)
+        `INSERT INTO column_profiles (header_sig, date_col, desc_col, amount_col, type_col, profile_id)
+         VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(header_sig) DO UPDATE SET
            date_col = excluded.date_col,
            desc_col = excluded.desc_col,
-           amount_col = excluded.amount_col`,
-        [sig, colMap.dateCol, colMap.descCol, colMap.amountCol, profileId]
+           amount_col = excluded.amount_col,
+           type_col  = excluded.type_col`,
+        [sig, colMap.dateCol, colMap.descCol, colMap.amountCol, colMap.typeCol, profileId]
       );
 
       setSummary({ imported, skipped });
@@ -361,6 +376,44 @@ export default function ImportPage() {
             ))}
           </div>
 
+          {/* Optional: Transaction Type column */}
+          <div className="mb-5">
+            <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide mb-2">
+              Optional — Transaction Type Column
+            </p>
+            <div className="border rounded-xl p-4 flex flex-col gap-2">
+              <div>
+                <p className="font-medium text-sm">Transaction Type</p>
+                <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                  Select if your bank has a column with values like &ldquo;Debit&rdquo; / &ldquo;Credit&rdquo; instead of signed amounts
+                </p>
+              </div>
+              <select
+                value={colMap.typeCol}
+                onChange={(e) =>
+                  setColMap((m) => ({ ...m, typeCol: parseInt(e.target.value) }))
+                }
+                className="w-full border rounded-lg px-3 py-2 text-sm
+                           bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
+              >
+                <option value={-1}>— None (amounts already have +/−) —</option>
+                {parsed.headers.map((h, idx) => (
+                  <option key={idx} value={idx}>{h || `Column ${idx + 1}`}</option>
+                ))}
+              </select>
+              {colMap.typeCol >= 0 && (
+                <div className="border-l-2 border-[hsl(var(--border))] pl-2 space-y-0.5">
+                  <p className="text-xs text-[hsl(var(--muted-foreground))] italic">e.g. Debit or Credit</p>
+                  {parsed.rows.slice(0, 3).map((row, i) => (
+                    <p key={i} className="text-xs font-mono truncate text-[hsl(var(--foreground))]">
+                      {row[colMap.typeCol] || "—"}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Preview table */}
           <div className="border rounded-xl overflow-hidden mb-5">
             <div className="px-4 py-2 bg-[hsl(var(--muted))] border-b text-xs font-medium
@@ -377,7 +430,13 @@ export default function ImportPage() {
               </thead>
               <tbody>
                 {parsed.rows.slice(0, 5).map((row, i) => {
-                  const amt = parseAmount(row[colMap.amountCol] ?? "0");
+                  const rawAmt = parseAmount(row[colMap.amountCol] ?? "0");
+                  let amt = rawAmt;
+                  if (colMap.typeCol >= 0) {
+                    const typeVal = (row[colMap.typeCol] ?? "").trim().toLowerCase();
+                    if (typeVal === "debit") amt = -Math.abs(rawAmt);
+                    else if (typeVal === "credit") amt = Math.abs(rawAmt);
+                  }
                   return (
                     <tr key={i} className="border-t">
                       <td className="px-4 py-2 whitespace-nowrap text-[hsl(var(--muted-foreground))]">
