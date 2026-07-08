@@ -75,6 +75,7 @@ jobs:
         continue-on-error: true
         env:
           COMPASS_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          COMPASS_SIGNING_PWD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         shell: powershell
         run: |
           if (-not $env:COMPASS_SIGNING_KEY) { Write-Warning "No signing key - skipping"; exit 0 }
@@ -95,7 +96,7 @@ jobs:
           $keyFile = [IO.Path]::GetTempFileName()
           [IO.File]::WriteAllText($keyFile, $env:COMPASS_SIGNING_KEY)
 
-          npm run tauri -- signer sign --private-key-path $keyFile $zipPath
+          npx tauri signer sign --private-key-path $keyFile --password $env:COMPASS_SIGNING_PWD $zipPath
           Remove-Item $keyFile -Force -ErrorAction SilentlyContinue
 
           if (Test-Path "$zipPath.sig") {

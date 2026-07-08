@@ -59,10 +59,16 @@ if ($tagDel.message -and $tagDel.message -ne "") {
 }
 
 # Create the release — GitHub creates the tag at HEAD automatically
+$releaseNotes = if (Test-Path "RELEASE_NOTES.md") {
+    Get-Content "RELEASE_NOTES.md" -Raw
+} else {
+    "Compass $tagName Windows installer."
+}
+
 $releaseJson = (@{
     tag_name               = $tagName
     name                   = "Compass " + $tagName
-    body                   = "Compass " + $tagName + " Windows installer."
+    body                   = $releaseNotes
     draft                  = $false
     prerelease             = $false
     generate_release_notes = $false
