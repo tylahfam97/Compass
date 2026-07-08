@@ -1,6 +1,9 @@
 # GitHub release publisher - called from .github/workflows/build.yml
 # Env vars required: GH_TOKEN, APP_VERSION, GH_REPO
 
+# Force TLS 1.2 — PowerShell 5.1 defaults to TLS 1.0 which GitHub rejects
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
 $version = $env:APP_VERSION
 $token   = $env:GH_TOKEN
 $repo    = $env:GH_REPO
