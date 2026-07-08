@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+dist-ssr/
+
+# Tauri build artifacts
+src-tauri/target/
+src-tauri/gen/
+# Editor / IDE
+.vscode/
+.idea/
+
+# Sample / test data
+sample-data/
+
+# AI assistant config (local only)
+.claude/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+*.local
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# TypeScript / misc editor artifacts
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
