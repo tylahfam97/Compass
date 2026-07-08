@@ -129,8 +129,7 @@ if ($nsisZip -and $nsisSig) {
 
     $tmpJson = [IO.Path]::GetTempFileName() -replace '\.tmp$', '.json'
     [IO.File]::WriteAllText($tmpJson, $latestJson, (New-Object System.Text.UTF8Encoding $false))
-    $jsonBytes = [IO.File]::ReadAllBytes($tmpJson)
-    Invoke-RestMethod -Uri ($uploadBase + "?name=latest.json") -Headers $uploadHeaders -Method Post -Body $jsonBytes | Out-Null
+    Upload-Asset $tmpJson "latest.json"
     Remove-Item $tmpJson -Force
     Write-Host "Uploaded latest.json (updater manifest)"
 } else {
