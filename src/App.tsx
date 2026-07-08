@@ -10,6 +10,7 @@ import GoalsPage from "@/pages/GoalsPage";
 import ReportsPage from "@/pages/ReportsPage";
 import AgentPage from "@/pages/AgentPage";
 import ProfileSwitcher from "@/components/ProfileSwitcher";
+import UpdateChecker from "@/components/UpdateChecker";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useProfileStore, getSavedProfileId } from "@/stores/profileStore";
 import { getDb } from "@/lib/db";
@@ -94,6 +95,7 @@ function App() {
             >
               {dark ? "Light mode" : "Dark mode"}
             </button>
+            <UpdateChecker />
           </div>
         </aside>
 

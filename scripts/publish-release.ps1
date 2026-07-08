@@ -90,6 +90,44 @@ if ($exe) {
     Write-Warning "No EXE found in bundle output"
 }
 
+# Upload NSIS zip (used by the in-app auto-updater) + generate latest.json
+$nsisZip = Get-ChildItem "src-tauri\target\release\bundle\nsis\*.nsis.zip" -ErrorAction SilentlyContinue | Select-Object -First 1
+$nsisSig = if ($nsisZip) { Get-ChildItem ($nsisZip.FullName + ".sig") -ErrorAction SilentlyContinue } else { $null }
+
+if ($nsisZip -and $nsisSig) {
+    # Upload the signed NSIS zip bundle
+    $nsisZipBytes = [IO.File]::ReadAllBytes($nsisZip.FullName)
+    Invoke-RestMethod -Uri ($uploadBase + "?name=" + $nsisZip.Name) -Headers $uploadHeaders -Method Post -Body $nsisZipBytes | Out-Null
+    Write-Host "Uploaded $($nsisZip.Name)"
+
+    # Build latest.json — consumed by tauri-plugin-updater on every app launch check
+    $signature   = Get-Content $nsisSig.FullName -Raw
+    $downloadUrl = "https://github.com/" + $repo + "/releases/download/" + $tagName + "/" + $nsisZip.Name
+    $pubDate     = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+
+    $latestJson = [ordered]@{
+        version  = $version
+        notes    = "Compass $tagName"
+        pub_date = $pubDate
+        platforms = [ordered]@{
+            "windows-x86_64" = [ordered]@{
+                signature = $signature.Trim()
+                url       = $downloadUrl
+            }
+        }
+    } | ConvertTo-Json -Depth 5
+
+    $tmpJson = [IO.Path]::GetTempFileName() -replace '\.tmp$', '.json'
+    [IO.File]::WriteAllText($tmpJson, $latestJson, (New-Object System.Text.UTF8Encoding $false))
+    $jsonBytes = [IO.File]::ReadAllBytes($tmpJson)
+    Invoke-RestMethod -Uri ($uploadBase + "?name=latest.json") -Headers $uploadHeaders -Method Post -Body $jsonBytes | Out-Null
+    Remove-Item $tmpJson -Force
+    Write-Host "Uploaded latest.json (updater manifest)"
+} else {
+    Write-Warning "No signed NSIS zip found — auto-updater manifest (latest.json) was NOT generated."
+    Write-Warning "Ensure TAURI_SIGNING_PRIVATE_KEY is set in the build step environment."
+}
+
 Write-Host "Release $tagName published"
 
 # -- Apprise / Discord notification ------------------------------------------

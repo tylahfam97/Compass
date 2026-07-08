@@ -238,6 +238,8 @@ fn open_db(app: &AppHandle) -> Result<Connection, String> {
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let conn = open_db(app.handle())

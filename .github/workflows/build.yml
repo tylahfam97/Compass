@@ -8,7 +8,7 @@ on:
 
 # ── Bump APP_VERSION here to tag a new release ────────────────────────────────
 env:
-  APP_VERSION: "0.2.3"
+  APP_VERSION: "0.3"
 # ──────────────────────────────────────────────────────────────────────────────
 
 permissions:
@@ -34,16 +34,24 @@ jobs:
       - name: Patch version from APP_VERSION
         shell: powershell
         run: |
-          $v = $env:APP_VERSION
+          $v    = $env:APP_VERSION
+          $repo = $env:GITHUB_REPOSITORY
           (Get-Content src-tauri\tauri.conf.json -Raw) `
-            -replace '"version":\s*"[^"]*"', ('"version": "' + $v + '"') |
+            -replace '"version":\s*"[^"]*"', ('"version": "' + $v + '"') `
+            -replace '__REPO__', $repo |
             Set-Content src-tauri\tauri.conf.json -NoNewline
           (Get-Content package.json -Raw) `
             -replace '"version":\s*"[^"]*"', ('"version": "' + $v + '"') |
             Set-Content package.json -NoNewline
-          Write-Host "Patched version to $v"
+          (Get-Content src-tauri\Cargo.toml -Raw) `
+            -replace 'version\s*=\s*"[^"]*"', ('version = "' + $v + '"') |
+            Set-Content src-tauri\Cargo.toml -NoNewline
+          Write-Host "Patched version to $v and endpoint repo to $repo"
           
       - name: Build Tauri application
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri build
 
       - name: Publish release to GitHub
