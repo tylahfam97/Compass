@@ -124,7 +124,7 @@ if ($nsisZip -and $nsisSig) {
     Remove-Item $tmpJson -Force
     Write-Host "Uploaded latest.json (updater manifest)"
 } else {
-    Write-Warning "No signed NSIS zip found — auto-updater manifest (latest.json) was NOT generated."
+    Write-Warning "No signed NSIS zip found - auto-updater manifest (latest.json) was NOT generated."
     Write-Warning "Ensure TAURI_SIGNING_PRIVATE_KEY is set in the build step environment."
 }
 
