@@ -58,20 +58,6 @@ jobs:
           if ($hasSig) { Write-Host "Signing OK - .nsis.zip.sig found" }
           else { Write-Warning "No .nsis.zip.sig - signing key may be missing or password is wrong" }
 
-      - name: Push release tag
-        shell: powershell
-        run: |
-          $v = (Get-Content src-tauri\tauri.conf.json -Raw | ConvertFrom-Json).version
-          $tag = "v$v"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # Remove tag locally and remotely if it already exists, then recreate at HEAD
-          git tag -d $tag 2>&1 | Out-Null
-          git push origin ":refs/tags/$tag" 2>&1 | Out-Null
-          git tag $tag
-          git push origin $tag
-          Write-Host "Pushed tag $tag"
-
       - name: Publish release to GitHub
         shell: cmd
         env:
