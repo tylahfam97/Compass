@@ -33,11 +33,19 @@ function Invoke-Api($method, $url, $body = $null) {
     return ($response | ConvertFrom-Json -ErrorAction SilentlyContinue)
 }
 
-# Delete existing release for this tag if one exists
+# Check if a release for this tag already exists
 $existing = Invoke-Api "GET" ($api + "/releases/tags/" + $tagName)
 if ($existing.id) {
-    Invoke-Api "DELETE" ($api + "/releases/" + $existing.id) | Out-Null
-    Write-Host "Removed existing release $tagName (ID $($existing.id))"
+    $delResult = Invoke-Api "DELETE" ($api + "/releases/" + $existing.id)
+    if ($delResult -eq $null -or $delResult.message -eq $null) {
+        Write-Host "Removed existing release $tagName (ID $($existing.id))"
+    } else {
+        # Release exists but can't be deleted (likely immutable) — abort with clear message
+        Write-Error "Release $tagName already exists and cannot be deleted (it may be marked immutable). " +
+                    "Go to GitHub Settings > General > Releases and disable 'Immutable releases', " +
+                    "then manually delete the release and tag before re-running."
+        exit 1
+    }
 } else {
     Write-Host "No existing release for $tagName"
 }
