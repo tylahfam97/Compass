@@ -21,9 +21,15 @@ $authHeaders = @("-H", ("Authorization: Bearer " + $token), "-H", "Accept: appli
 
 # Helper: run a curl API call and return parsed JSON
 function Invoke-Api($method, $url, $body = $null) {
-    $args = @("-s", "-X", $method) + $authHeaders
-    if ($body) { $args += @("-H", "Content-Type: application/json", "-d", $body) }
-    $response = curl.exe @args $url
+    $curlArgs = @("-s", "-X", $method) + $authHeaders
+    $tmpFile  = $null
+    if ($body) {
+        $tmpFile = [IO.Path]::GetTempFileName()
+        [IO.File]::WriteAllText($tmpFile, $body, (New-Object System.Text.UTF8Encoding $false))
+        $curlArgs += @("-H", "Content-Type: application/json", "-d", "@$tmpFile")
+    }
+    $response = curl.exe @curlArgs $url
+    if ($tmpFile) { Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue }
     return ($response | ConvertFrom-Json -ErrorAction SilentlyContinue)
 }
 
