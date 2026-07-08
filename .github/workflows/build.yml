@@ -6,11 +6,6 @@ on:
       - main
   workflow_dispatch:
 
-# ── Bump APP_VERSION here to tag a new release ────────────────────────────────
-env:
-  APP_VERSION: "0.3.0"
-# ──────────────────────────────────────────────────────────────────────────────
-
 permissions:
   contents: write
 
@@ -31,22 +26,22 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
-      - name: Patch version from APP_VERSION
+      - name: Read version and patch endpoint
         shell: powershell
         run: |
-          $v    = $env:APP_VERSION
+          # tauri.conf.json is the version source of truth — read it, don't overwrite it
+          $v    = (Get-Content src-tauri\tauri.conf.json -Raw | ConvertFrom-Json).version
           $repo = $env:GITHUB_REPOSITORY
-          (Get-Content src-tauri\tauri.conf.json -Raw) `
-            -replace '"version":\s*"[^"]*"', ('"version": "' + $v + '"') `
-            -replace '__REPO__', $repo |
+          # Export version for the publish script
+          "APP_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          # Patch the updater endpoint placeholder
+          (Get-Content src-tauri\tauri.conf.json -Raw) -replace '__REPO__', $repo |
             Set-Content src-tauri\tauri.conf.json -NoNewline
-          (Get-Content package.json -Raw) `
-            -replace '"version":\s*"[^"]*"', ('"version": "' + $v + '"') |
-            Set-Content package.json -NoNewline
+          # Keep Cargo.toml in sync
           (Get-Content src-tauri\Cargo.toml -Raw) `
             -replace '(?m)^version\s*=\s*"[^"]*"', ('version = "' + $v + '"') |
             Set-Content src-tauri\Cargo.toml -NoNewline
-          Write-Host "Patched version to $v and endpoint repo to $repo"
+          Write-Host "Building version $v for $repo"
           
       - name: Build Tauri application
         env:
