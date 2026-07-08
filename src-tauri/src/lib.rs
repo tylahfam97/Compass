@@ -140,6 +140,12 @@ fn apply_key(conn: &Connection, hex_key: &str) -> Result<(), RusqliteError> {
     Ok(())
 }
 
+fn is_plaintext_sqlite(path: &std::path::Path) -> bool {
+    Connection::open(path)
+        .and_then(|c| c.execute_batch("SELECT count(*) FROM sqlite_master"))
+        .is_ok()
+}
+
 fn migrate_to_encrypted(db_path: &std::path::Path, hex_key: &str) -> Result<Connection, String> {
     let enc_path = db_path.with_extension("enc.db");
     // SQLite accepts forward slashes on Windows; escape single quotes in path
@@ -149,14 +155,19 @@ fn migrate_to_encrypted(db_path: &std::path::Path, hex_key: &str) -> Result<Conn
     // Use sqlcipher_export() — the backup API cannot write to an encrypted destination
     let src = Connection::open(db_path)
         .map_err(|e| format!("migrate open src: {e}"))?;
-    src.execute_batch(&format!(
+    let export_result = src.execute_batch(&format!(
         "ATTACH DATABASE '{enc}' AS encrypted KEY \"x'{key}'\";\
          SELECT sqlcipher_export('encrypted');\
          DETACH DATABASE encrypted;",
         enc = enc_path_str.replace('\\', "/").replace('\'', "''"),
         key = hex_key,
-    )).map_err(|e| format!("migrate export: {e}"))?;
+    ));
     drop(src);
+    // Clean up the partial enc file on any failure before propagating the error
+    if let Err(e) = export_result {
+        let _ = std::fs::remove_file(&enc_path);
+        return Err(format!("migrate export: {e}"));
+    }
 
     let bak_path = db_path.with_extension("db.bak");
     std::fs::rename(db_path, &bak_path)
@@ -204,8 +215,20 @@ fn open_db(app: &AppHandle) -> Result<Connection, String> {
             if err.code == ErrorCode::NotADatabase =>
         {
             drop(conn);
-            eprintln!("[compass] Plaintext DB detected — migrating to encrypted...");
-            migrate_to_encrypted(&db_path, &hex_key)
+            if is_plaintext_sqlite(&db_path) {
+                eprintln!("[compass] Plaintext DB detected — migrating to encrypted...");
+                migrate_to_encrypted(&db_path, &hex_key)
+            } else {
+                // Already encrypted with an unknown key (e.g. keyring was reset).
+                // Preserve the old file and start fresh.
+                eprintln!("[compass] WARNING: DB is encrypted with an unknown key — \
+                           renaming to .db.lost and creating a new database.");
+                let lost_path = db_path.with_extension("db.lost");
+                let _ = std::fs::rename(&db_path, &lost_path);
+                let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+                apply_key(&conn, &hex_key).map_err(|e| e.to_string())?;
+                Ok(conn)
+            }
         }
         Err(e) => Err(format!("db key error: {e}")),
     }
