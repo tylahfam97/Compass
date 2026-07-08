@@ -46,7 +46,14 @@ jobs:
       - name: Build Tauri application
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-        run: npm run tauri build
+        shell: powershell
+        run: |
+          if ($env:TAURI_SIGNING_PRIVATE_KEY) {
+            Write-Host "TAURI_SIGNING_PRIVATE_KEY is set (length: $($env:TAURI_SIGNING_PRIVATE_KEY.Length))"
+          } else {
+            Write-Warning "TAURI_SIGNING_PRIVATE_KEY is NOT set - bundles will not be signed"
+          }
+          npm run tauri build
 
       - name: Verify signing output
         shell: powershell
