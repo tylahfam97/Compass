@@ -74,10 +74,10 @@ jobs:
       - name: Create and sign update bundle
         continue-on-error: true
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          COMPASS_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         shell: powershell
         run: |
-          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) { Write-Warning "No signing key - skipping"; exit 0 }
+          if (-not $env:COMPASS_SIGNING_KEY) { Write-Warning "No signing key - skipping"; exit 0 }
 
           # Skip if Tauri already created the bundle during build
           $existing = Get-ChildItem src-tauri\target\release\bundle\nsis\*.nsis.zip -ErrorAction SilentlyContinue
@@ -90,13 +90,11 @@ jobs:
           Compress-Archive -Path $nsisExe.FullName -DestinationPath $zipPath -Force
           Write-Host "Created $([IO.Path]::GetFileName($zipPath)) ($([math]::Round((Get-Item $zipPath).Length/1KB))KB)"
 
-          # Write key to temp file — more reliable than passing as a command-line arg
+          # Write key to temp file under neutral name — TAURI_SIGNING_PRIVATE_KEY must NOT be set
+          # or the CLI treats it as --private-key and conflicts with --private-key-path
           $keyFile = [IO.Path]::GetTempFileName()
-          [IO.File]::WriteAllText($keyFile, $env:TAURI_SIGNING_PRIVATE_KEY)
+          [IO.File]::WriteAllText($keyFile, $env:COMPASS_SIGNING_KEY)
 
-          # Set empty password via env var (key was generated with no password)
-          # Don't pass --password on the command line — PowerShell drops empty-string args
-          $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""
           npm run tauri -- signer sign --private-key-path $keyFile $zipPath
           Remove-Item $keyFile -Force -ErrorAction SilentlyContinue
 
