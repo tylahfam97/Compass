@@ -4,67 +4,155 @@
 
 # $${\color{#58a6ff}Compass}$$
 
-### *Own your financial life;  privately, locally, and without judgment.*
+<p align="center">
+  <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?logo=windows&logoColor=white" alt="Windows 10/11" />
+  <img src="https://img.shields.io/badge/built%20with-Tauri%20%7C%20React%20%7C%20Rust%20%7C%20SQLite-informational" alt="Tech stack" />
+  <img src="https://img.shields.io/badge/data-local%20only-brightgreen" alt="Local only" />
+  <img src="https://img.shields.io/badge/telemetry-none-brightgreen" alt="No telemetry" />
+  <img src="https://img.shields.io/badge/account-not%20required-brightgreen" alt="No account" />
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT" />
+</p>
+
+<p align="center"><i>Export a CSV from your bank. Drop it in. See where your money went.<br>No account. No cloud. No subscription. No judgment.</i></p>
+
+---
+
+## $${\color{#2ea043}Try \space Demo \space Mode \space —}$$ No Import Needed
+
+**The fastest way to see what Compass does:**
+
+1. [Download and install Compass](#installation) (< 5 MB installer)
+2. Open the app → click **✦ Try Demo Mode** on the dashboard
+3. ~50 realistic sample transactions load instantly across 2 months
+4. Every feature is fully explorable — no real data, no risk, no commitment
+
+> *"Try Compass safely with demo data. No account. No import. No commitment."*
+
+---
+
+## $${\color{#C08A1C}Why \space Compass \space Exists}$$
+
+Most finance apps ask for your bank login, upload your transactions to their servers, and charge you monthly for the privilege. If you cancel, your data disappears.
+
+**Compass does the opposite.**
+
+Every bank lets you export a CSV of your transactions. Compass reads that file, categorizes your spending, and shows you exactly where your money went — entirely on your own machine. No data ever leaves your device.
+
+- No account to create
+- No subscription to pay
+- No bank login to give
+- No cloud server receiving your transactions
+- No telemetry, no analytics, no tracking of any kind
+
+If you've been avoiding finance apps because you don't trust them with your bank credentials, Compass was built for you.
 
 ![Profile selection and app overview](https://github.com/user-attachments/assets/b544e724-ce78-40bd-8146-8a24eaa7d1c0)
 
-Compass is a free, open-source Windows desktop application that helps you understand where your money is going. Every byte of your data lives exclusively on your device. Nothing is ever uploaded, synced, or shared.
+---
+
+## $${\color{#C08A1C}How \space It \space Compares}$$
+
+| | **Compass** | Monarch / Simplifi | Actual Budget | Firefly III | HomeBank |
+|---|:---:|:---:|:---:|:---:|:---:|
+| **Local-only data** | ✅ | ❌ Cloud | ✅ | ✅ Self-hosted | ✅ |
+| **No account required** | ✅ | ❌ | ❌ | ❌ | ✅ |
+| **Free, no subscription** | ✅ | ❌ $10–20/mo | ✅ Open-source | ✅ Open-source | ✅ |
+| **No bank login** | ✅ | ❌ Required | ❌ Required | ❌ Required | ✅ |
+| **Windows desktop app** | ✅ | ❌ Web only | ✅ | ❌ Web only | ✅ |
+| **Modern UI** | ✅ | ✅ | ✅ | ⚠️ | ❌ |
+| **Guided 6-step import** | ✅ | N/A | ⚠️ | ⚠️ | ⚠️ |
+| **Ghost subscription detection** | ✅ | ⚠️ | ❌ | ❌ | ❌ |
+| **Demo mode** | ✅ | ❌ | ❌ | ❌ | ❌ |
+
+**The lane Compass owns:** Simpler than Firefly. Less budgeting-dogmatic than Actual. More modern than HomeBank. More private than Monarch.
 
 ---
 
-## $${\color{#C08A1C}What \space \color{#C08A1C}Is \space \color{#C08A1C}Compass?}$$
+## $${\color{#C08A1C}How \space It \space Works}$$
 
-Compass is a personal finance companion built for real people — not spreadsheet experts. Import your bank statements, see your spending broken down automatically, track your budgets and goals, and catch those sneaky recurring charges you forgot about. No accounts. No subscriptions. No cloud. Just clarity.
+```
+1. Log into your bank's website → Transactions → Download / Export → CSV
+2. Open Compass → Import → drop in the file
+3. Compass auto-detects date, description, and amount columns
+4. Transactions are imported and categorized automatically
+5. Navigate Dashboard, Reports, Budgets, Goals, and Insights
+```
 
-### Import Wizard
+On your second import from the same bank, Compass remembers the column layout and skips straight to the preview — one click.
+
+---
+
+## $${\color{#C08A1C}Key \space Features}$$
+
+### 📥 6-Step Import Wizard
 
 ![Step-by-step import wizard](https://github.com/user-attachments/assets/48af06bd-c936-412d-aaf0-eb6297f6c9f9)
 
----
+A guided import flow that handles any bank's CSV format:
 
-## $${\color{#C08A1C}Key \space \color{#C08A1C}Features}$$
+| Step | What happens |
+|---|---|
+| **1 · Find Data** | Auto-detects your header row; adjust with +/− if needed |
+| **2 · Date** | Pick the date column; Compass parses dates live and warns on invalid values |
+| **3 · Description** | Pick the merchant/payee column with sample values shown |
+| **4 · Amount** | Pick the amount column; supports banks that use separate Debit/Credit columns |
+| **5 · Balance** *(optional)* | Import your running balance to unlock sparklines and balance charts |
+| **6 · Preview** | Row count, detected month, 5-row preview — then import |
 
-### 💳 Statement Import
-Import bank and credit card statements in CSV format from any institution. Compass automatically detects the column layout for each bank (date, description, amount) and remembers it for future imports — so your second import from the same bank takes one click. Duplicate transactions are detected and silently skipped using a content hash.
+Returning users whose bank layout was previously saved skip straight to Preview. Duplicate transactions are silently skipped using a content hash. **Batch import:** drop multiple CSVs at once — Compass queues and processes each in sequence.
 
 ### 🏷️ Automatic Categorization
-Transactions are automatically matched against a built-in set of rules — groceries, restaurants, transportation, entertainment, subscriptions, healthcare, and more. You can override any category with a single click, and the change takes effect immediately.
 
-### 📊 Spending Trends
-Visualise your spending over the last 3, 6, or 12 months with two chart types:
-- **Income vs Expenses** — monthly bar chart showing how much came in and went out
-- **Spending by Category** — stacked monthly breakdown of where money actually went (top 6 categories + "Other")
+100+ built-in rules cover Amazon, Walmart, DoorDash, Instacart, CVS, Waffle House, Progressive, and more. Bank-format noise is stripped automatically. Re-categorize any transaction with one click, and optionally save that correction as a new rule so future imports apply it automatically. Manage all rules from **⚙ Rules** in the sidebar.
 
-### 📅 Dashboard
-Your home screen for any selected month. Shows income, expenses, and net savings as summary cards, a horizontal bar chart of top spending categories, and the 10 most recent transactions. Navigate freely between any month — past or future — using the `‹` `›` arrows.
+### 📅 Dashboard & Trends
+
+Your home screen for any month: income, expenses, and net savings as summary cards, a top categories chart, and the 10 most recent transactions. Navigate freely between months. The **Trends** page shows 3, 6, or 12-month income vs. expenses and per-category spending breakdowns.
 
 ### 📋 Reports
-Four purpose-built reports run automatically across your data:
+
+Five reports that run automatically — no setup required:
 
 | Report | What it shows |
 |---|---|
-| **Spending by Category** | This month vs last month per category with % change, colour-coded red/green |
-| **Month over Month** | Income, expenses, and net for the last 6 months in a table |
-| **Top Expenses** | Ranked list of the biggest individual transactions for the selected month |
+| **Spending by Category** | This period vs last period, with % change, color-coded |
+| **Month over Month** | Income, expenses, and net across your selected date range |
+| **Top Expenses** | Ranked list of the biggest individual transactions |
 | **Most Recurring Payees** | Frequency, average cost, and total paid to each merchant |
-| **👻 Ghost Subscriptions** | Charges with the exact same description *and* amount appearing in 2+ months — your forgotten subscriptions, listed with monthly and estimated yearly cost |
+| **👻 Ghost Subscriptions** | Same description + same amount appearing in 2+ months — your forgotten recurring charges |
+
+Reports support **month navigation** or a **custom date range** with presets: This quarter, Last quarter, Year to date, Last 12 months.
 
 ### 💰 Budgets
-Set soft monthly spending limits per category. Each budget shows a live progress bar and how much has been spent vs the limit. Income categories show *earned vs target* instead of spent. Switch months freely to review past budget performance. No enforcement, no penalties — just awareness.
+
+Set soft monthly spending limits per category. Each budget shows a live progress bar, amount spent vs. limit, and an **On pace for $X** projection so you can see a potential overspend before the month ends. No enforcement, no penalties — just awareness.
 
 ### 🎯 Goals
-Set financial intentions and track them monthly:
 
-| Goal Type | What it tracks |
+| Goal Type | Tracks |
 |---|---|
 | **Net Savings** | Monthly net (income − expenses) at or above your target |
 | **Spending Limit** | Category spending at or below your target |
 | **Income Target** | Income at or above your target |
 
-Each goal shows a progress bar, current vs target amount, and an "On track ✓" or "Needs attention ⚠" status.
+Each goal shows a progress bar, current vs. target amount, and an "On track ✓" or "Needs attention ⚠" status badge.
+
+### 💡 Insights
+
+![Insights page](https://github.com/user-attachments/assets/962bdee8-a336-43b7-8dca-78c0755576b3)
+
+Automatic analysis surfaced from your data — no configuration required:
+
+- Budget pace warnings (on track to overspend before month end)
+- Top 3 merchants by spend this month
+- Food delivery as a % of your food budget
+- Detected subscriptions with monthly and annual totals
+- Paycheck timing prediction based on your pay cycle
+- Overdraft / bank fee alerts
 
 ### 🔍 Transactions
-Full searchable, filterable transaction list. Filter by month or toggle **All time** to see your entire history. Search by description, re-categorize any transaction in one click, and view the running account balance alongside each transaction.
+
+Full searchable, filterable transaction list. Filter by month or view all-time history. Search by description, re-categorize in one click, and view the running account balance alongside each transaction.
 
 - **Edit** any transaction's date, description, amount, category, or notes
 - **Delete** transactions you don't need
@@ -72,57 +160,64 @@ Full searchable, filterable transaction list. Filter by month or toggle **All ti
 - **↓ Export** the current filtered view as a CSV (works with month, all-time, and search filters)
 - **✦ Auto-Categorize** re-runs all rules against uncategorized transactions in one click
 
-### 📋 Reports
-Five purpose-built reports run automatically across your data:
-
-| Report | What it shows |
-|---|---|
-| **Spending by Category** | This period vs last period per category with % change |
-| **Month over Month** | Income, expenses, and net across your selected date range |
-| **Top Expenses** | Ranked list of the biggest individual transactions |
-| **Most Recurring Payees** | Frequency, average cost, and total paid to each merchant |
-| **👻 Ghost Subscriptions** | Charges with the exact same description and amount in 2+ months |
-
-Reports support **month navigation** or a **custom date range** with presets: This quarter, Last quarter, Year to date, Last 12 months.
-
-### 💰 Budgets
-Set soft monthly spending limits per category. Each budget shows a live progress bar, how much has been spent vs the limit, and an **On pace for $X** projection so you can see a potential overspend before the month ends. No enforcement, no penalties — just awareness.
-
-### 💡 Insights
-The Insights page (formerly "Agent") analyzes your spending and surfaces actionable patterns:
-- Warning when you're on pace to exceed a budget
-- Top 3 merchants by spend this month
-- Food delivery as a % of your food budget
-- Detected subscriptions with monthly and annual totals
-- Paycheck timing prediction based on your pay cycle
-- Overdraft / bank fee alerts
-
-![Insights page](https://github.com/user-attachments/assets/962bdee8-a336-43b7-8dca-78c0755576b3)
-
 ### 💼 All Accounts Overview
-The **Overview** page aggregates all profiles in one place. Each account card shows current balance, a 60-day sparkline, and this month's income/expenses/net. Click any card to jump to that account's Dashboard.
 
-### 💰 Running Balance
-Import your bank's "Running Balance" column to unlock balance cards, sparklines, and the Balance Over Time chart in Reports.
-
-### 🏷️ Smart Categorization
-100+ built-in rules cover Amazon, Walmart, DoorDash, Instacart, CVS, Waffle House, Progressive, and many more. Bank-format noise is stripped automatically. Manage your own rules from **⚙ Rules**, or let Compass learn from manual corrections with the "Create Rule?" prompt.
-
-### 📥 Import History
-Every CSV import is logged with filename, date, and row count. **Undo** any import to remove all linked transactions instantly.
+Aggregates all profiles in one place. Each account card shows current balance, a 60-day sparkline, and this month's income/expenses/net. Click any card to jump to that account's dashboard.
 
 ### 🔄 In-App Auto-Updates
-Click **Check for updates** in the sidebar to silently apply the latest release. Updates are cryptographically signed and verified.
+
+Check for updates from the sidebar. Updates are cryptographically signed, verified before applying, and never run automatically without your confirmation.
 
 ---
 
-## $${\color{#C08A1C}Privacy \space \color{#C08A1C}and \space \color{#C08A1C}Data}$$
+## $${\color{#C08A1C}Security \space \& \space Privacy}$$
 
-> **Your data never leaves your device.**
+This section answers every question a new user should ask before importing financial data into any app.
 
-- All data is stored in a local SQLite database in your Windows user profile (`%APPDATA%\com.compass.app\`)
-- No telemetry, no analytics, no accounts, no internet connection required after installation
-- Uninstalling Compass removes all stored data
+### Where is my data stored?
+
+All data is stored in a local SQLite database at:
+```
+%APPDATA%\com.compass.app\com.compass.app.db
+```
+This is a standard Windows user-profile location. Only you have access to it (subject to your Windows account permissions).
+
+### Is the database encrypted?
+
+No — the database is not encrypted at rest. It is protected by your Windows user account access controls, the same way any file in your user profile is. If you want additional encryption, use Windows BitLocker or a third-party tool to encrypt the folder.
+
+### What data leaves my device?
+
+**Nothing financial.** The only network activity Compass performs is:
+
+- **Update check:** A request to the GitHub Releases API to compare version numbers. No personal or financial data is included.
+- **Auto-update download:** The installer binary is downloaded from GitHub Releases if you choose to update.
+
+There is no telemetry, no crash reporting, no analytics, no usage tracking of any kind. The app runs fully offline after installation.
+
+### Does Compass collect telemetry?
+
+No. There is no telemetry SDK, no analytics library, no error reporting service. Compass has zero background network calls except the optional update check described above.
+
+### How do I back up my data?
+
+Copy the database file to any location you want:
+```
+%APPDATA%\com.compass.app\com.compass.app.db
+```
+To restore, replace the file with your backup copy. You can also export any filtered transaction view as CSV from the Transactions page at any time.
+
+### What happens when I uninstall?
+
+The installer removes the application files. Your data file at `%APPDATA%\com.compass.app\` is **not** automatically deleted by the uninstaller — your history is preserved unless you manually delete that folder.
+
+### How do I export all my data?
+
+From the **Transactions** page, toggle **All time** and click **↓ Export CSV**. This exports every transaction across all months in the current profile. Run this for each profile if you have multiple.
+
+### Can the developer see my data?
+
+No. There is no server, no sync, no account, and no mechanism by which anyone other than you can access data stored on your own machine. The developer has no visibility into your financial data at any time.
 
 ---
 
@@ -151,75 +246,75 @@ msiexec /i Compass_0.1.0_x64_en-US.msi /quiet /norestart
 
 ---
 
-## $${\color{#C08A1C}How \space \color{#C08A1C}to \space \color{#C08A1C}Use}$$
+## $${\color{#C08A1C}How \space To \space Use}$$
 
-### 1 — Import your first statement
+### 1 — Try Demo Mode first
 
-1. Export a CSV statement from your bank's online portal (most banks support this under *Transactions → Download / Export*)
-2. Open Compass and click **Import** in the left sidebar
-3. Drag and drop (or browse for) the `.csv` file
-4. Confirm or adjust the column mapping — Compass auto-detects date, description, and amount columns and shows live sample values from your file
-5. Click **Import X Transactions** — categories are applied automatically
+Click **✦ Try Demo Mode** on the empty dashboard for an instant, no-risk tour of every feature. Clear it anytime with one click from the Dashboard's *Manage Data* section.
+
+### 2 — Import your first statement
+
+1. Log into your bank's website and export a CSV (usually under *Transactions → Download / Export*)
+2. Open Compass → **Import** → drag and drop the `.csv` file (or browse for it)
+3. The 6-step wizard walks you through column mapping with live previews
+4. Click **Import** — categories are applied automatically
 
 > On your second import from the same bank, the column layout is remembered and pre-filled.
 
-### 2 — Review and correct categories
+### 3 — Review and correct categories
 
-- Go to **Transactions**
-- Click any coloured category badge to change it
-- The change saves immediately
+Go to **Transactions** → click any colored category badge → select the correct category. The change saves instantly. Compass will ask if you want to save a rule so future transactions from the same payee are auto-categorized.
 
-### 3 — Check your Dashboard
+### 4 — Check your Dashboard
 
-- The **Dashboard** shows your income, expenses, and net savings for any month
-- Use `‹` `›` to navigate months or type a month directly in the date picker
-- The top categories chart and recent transactions update live with each month change
+- Shows income, expenses, and net savings for the selected month
+- Navigate freely between months with `‹` `›` arrows
+- Top categories chart and recent transactions update live
 
-### 4 — Explore Spending Trends
+### 5 — Explore Reports and Insights
 
-- Go to **Trends** and choose a 3, 6, or 12 month window
-- The top chart shows monthly income vs expenses side by side
-- The bottom chart shows spending broken down by your top categories
+**Reports** runs five automatic analyses on your imported data — no setup. **Insights** surfaces patterns like budget pace warnings, detected ghost subscriptions, and top merchant spend. Neither page requires any configuration.
 
-### 5 — Set a Budget
+### 6 — Set Budgets and Goals
 
-1. Go to **Budgets** and select the month you want to plan for
-2. Choose a category, enter a monthly limit, and click **Add**
-3. The progress bar fills as you spend — red when over, category-coloured when within limits
-4. Income categories (e.g. *Income*) show *earned* vs *target* instead of *spent* vs *limit*
+- **Budgets:** Go to Budgets → pick a category → set a monthly limit. The progress bar fills as you spend, with an on-pace projection.
+- **Goals:** Go to Goals → pick a goal type (net savings, spending limit, or income target) → set a target. Status updates automatically each month.
 
-### 6 — Create a Goal
+### 7 — Clear Data
 
-1. Go to **Goals** and select the relevant month
-2. Choose a goal type:
-   - **Net Savings** — save at least $X per month
-   - **Spending Limit** — keep a category under $X per month
-   - **Income Target** — earn at least $X per month
-3. Give it a name, set the target, and click **Add**
-4. The goal card shows current progress vs target with a status badge
-
-### 7 — Run Reports
-
-- Go to **Reports** and select any month for context-sensitive reports
-- The **Ghost Subscriptions** section runs across all your data and shows charges you may have forgotten about, sorted by how many months they've appeared and their estimated annual cost
-- Reports do not require any setup — they populate automatically from your imported transactions
-
-### 8 — Clear Data
-
-On the **Dashboard**, scroll to the *Manage Data* section at the bottom:
+On the **Dashboard**, scroll to the *Manage Data* section:
 - **Clear [month]** — removes all transactions for the selected month only
 - **Clear all transactions** — removes everything (confirmation required)
 
 ---
 
-## $${\color{#C08A1C}Building \space \color{#C08A1C}from \space \color{#C08A1C}Source}$$
+## $${\color{#C08A1C}Known \space Limitations}$$
+
+Being transparent about what Compass does not do helps you decide if it's the right tool.
+
+| Limitation | Notes |
+|---|---|
+| **Windows only** | No macOS or Linux version currently |
+| **CSV import only** | No direct bank connections, no OFX/QIF/PDF support |
+| **No mobile app** | Desktop only |
+| **Single currency** | Multi-currency not supported |
+| **No shared accounts** | No collaborative or family access features |
+| **No investment tracking** | Stocks, 401k, brokerage accounts not supported |
+| **Manual cash entries** | Cash transactions must be added individually |
+| **No scheduled transactions** | Recurring bills are tracked (ghost subscriptions), not scheduled |
+
+If a limitation is blocking you, [open an issue](../../issues) — user feedback directly shapes the roadmap.
+
+---
+
+## $${\color{#C08A1C}Building \space from \space Source}$$
 
 ### Prerequisites
 - [Node.js v20+](https://nodejs.org)
 - [Rust](https://rustup.rs)
 
 ```bash
-git clone https://gitea.fameli.net/Fameli/Compass.git
+git clone https://github.com/tylahfam97/Compass.git
 cd Compass
 npm install
 npm run tauri dev       # development mode with hot reload
@@ -230,30 +325,35 @@ npm run tauri build     # production build → src-tauri/target/release/bundle/
 
 ## $${\color{#C08A1C}Roadmap}$$
 
-### ✅ Phase 1 — Financial Companion *(complete)*
-Statement import · Import history + undo · Auto-categorization · Edit/add/delete transactions · CSV export · Spending trends · Budgets with on-pace projection · Goals · Reports with custom date ranges · Insights · Ghost subscriptions · Running balance · All-accounts overview · Smart categorization rules · In-app auto-updates
+Compass is focused on one thing: making it easy to understand your personal finances privately, locally, and without friction.
+
+### ✅ Phase 1 — Core *(complete)*
+Statement import · Import history + undo · Auto-categorization · Edit/add/delete transactions · CSV export · Spending trends · Budgets with on-pace projection · Goals · Reports with custom date ranges · Insights · Ghost subscriptions · Running balance · All-accounts overview · Smart categorization rules · In-app auto-updates · Demo mode · Batch import · Collapsible sidebar · Profile switcher on launch
 
 ### ✅ Phase 2 — AI Insights *(complete)*
-- AI Agent for natural-language questions about your data
-- Automatic insight generation: budget gaps, unusual spending spikes, savings rate warnings, overspend streaks, ghost subscriptions, low balance / short runway alerts
-- Categorization rules engine with priority ordering
+AI agent for natural-language questions about your data · Automatic insight generation (budget gaps, unusual spending, savings rate, overspend streaks, low balance alerts) · Categorization rules engine with priority ordering
 
-### 🔜 Phase 3 — Financial Coaching *(planned)*
-Understanding your numbers isn't enough — Compass will help you act on them:
-- **Emergency fund awareness** — explain why emergency funds matter, calculate your personal target based on actual expenses, and track progress toward it
-- **Spending habit analysis** — answer natural-language questions about your own data (*"Where did most of my money go last quarter?"*, *"Am I spending more on food than last year?"*)
-- **Debt & wealth impact** — show how current debt levels affect long-term net worth, model payoff scenarios, and surface the real cost of carrying balances
-- **Smart prompts** — proactive nudges when patterns suggest risk (spending creep, missing savings months, unusually high recurring charges)
+### 🔜 Phase 3 — Deeper Financial Clarity *(planned)*
+The goal: help you act on your data, not just see it.
 
-### 🔭 Phase 4 — Compass Life *(future)*
-Expanding beyond finances into a whole-life companion:
-- **Habits** — build and track personal routines with streaks and reflection
-- **Goals** — long-horizon life goals across any area, not just money
-- **Relationships** — notes and intentions around the people that matter
-- **Career decisions** — track professional milestones, skills, and decision logs
-- **Health** — log physical and mental wellbeing markers over time
-- **Personal reflection** — open-ended journaling with pattern recognition across all life areas
-- **Long-term planning** — connect daily actions to multi-year life intentions
+- **Bank-specific import presets** — one-click setup for Chase, Capital One, Wells Fargo, Bank of America, Navy Federal, Discover, Amex, Venmo, Cash App, PayPal, and more
+- **Emergency fund tracker** — calculate your personal target from actual expenses, track progress toward it
+- **Spending habit analysis** — natural-language answers to questions like *"Where did most of my money go last quarter?"*
+- **Debt impact modeling** — show how current debt affects long-term net worth, model payoff scenarios
+- **Smart nudges** — proactive alerts when patterns suggest risk (spending creep, missing savings months, unusually high recurring charges)
+- **Wider bank format coverage** — edge case handling, better error messages, and import reliability improvements
+
+---
+
+## $${\color{#C08A1C}Reporting \space Import \space Issues}$$
+
+If Compass can't parse your bank's CSV correctly, [open an issue](../../issues) and include:
+
+- The name of your bank
+- Which step the wizard fails at (or which columns it mis-detects)
+- A small sample of the CSV with real data removed (the header row + 2–3 rows with fake values)
+
+Import reliability is a top priority. Every format fixed helps everyone using the same bank.
 
 ---
 
