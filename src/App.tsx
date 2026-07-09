@@ -1,6 +1,10 @@
 import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
 import logoUrl from "@/assets/logo.svg";
 import { useState, useEffect } from "react";
+import {
+  LayoutDashboard, ArrowLeftRight, Upload, TrendingUp,
+  Wallet, Target, BarChart2, Lightbulb, Globe, ChevronLeft, ChevronRight,
+} from "lucide-react";
 import DashboardPage from "@/pages/DashboardPage";
 import TransactionsPage from "@/pages/TransactionsPage";
 import ImportPage from "@/pages/ImportPage";
@@ -21,15 +25,15 @@ import type { Category, Profile } from "@/lib/types";
 import "./index.css";
 
 const NAV_ITEMS = [
-  { to: "/overview",      label: "Overview" },
-  { to: "/",             label: "Dashboard" },
-  { to: "/transactions", label: "Transactions" },
-  { to: "/import",       label: "Import" },
-  { to: "/trends",       label: "Trends" },
-  { to: "/budgets",      label: "Budgets" },
-  { to: "/goals",        label: "Goals" },
-  { to: "/reports",      label: "Reports" },
-  { to: "/agent",        label: "Insights", showBadge: true },
+  { to: "/overview",      label: "Overview",      Icon: Globe,            showBadge: false },
+  { to: "/",             label: "Dashboard",     Icon: LayoutDashboard,  showBadge: false },
+  { to: "/transactions", label: "Transactions",  Icon: ArrowLeftRight,   showBadge: false },
+  { to: "/import",       label: "Import",        Icon: Upload,           showBadge: false },
+  { to: "/trends",       label: "Trends",        Icon: TrendingUp,       showBadge: false },
+  { to: "/budgets",      label: "Budgets",       Icon: Wallet,           showBadge: false },
+  { to: "/goals",        label: "Goals",         Icon: Target,           showBadge: false },
+  { to: "/reports",      label: "Reports",       Icon: BarChart2,        showBadge: false },
+  { to: "/agent",        label: "Insights",      Icon: Lightbulb,        showBadge: true  },
 ];
 
 function greeting(): string {
@@ -146,7 +150,7 @@ function App() {
         {/* Sidebar */}
         <aside
           className={`shrink-0 flex flex-col bg-[hsl(var(--muted))] transition-all duration-200
-                      ${sidebarOpen ? "w-52" : "w-10"}`}
+                      ${sidebarOpen ? "w-52" : "w-12"}`}
           style={{ borderRight: '1.5px solid var(--gold)' }}
         >
           {/* Logo row + collapse toggle */}
@@ -160,46 +164,58 @@ function App() {
               })}
               title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
               className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]
-                         hover:bg-[hsl(var(--border))] rounded-md p-1 transition-colors text-base leading-none select-none"
+                         hover:bg-[hsl(var(--border))] rounded-md p-1 transition-colors"
             >
-              {sidebarOpen ? "‹" : "›"}
+              {sidebarOpen
+                ? <ChevronLeft size={16} />
+                : <ChevronRight size={16} />}
             </button>
           </div>
 
-          {sidebarOpen && (
-            <>
-              <nav className="flex-1 py-4 space-y-1 px-3">
-                {NAV_ITEMS.map(({ to, label, showBadge }) => (
-                  <NavLink
-                    key={to}
-                    to={to}
-                    end={to === "/"}
-                    className={({ isActive }) =>
-                      `flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                        isActive
-                          ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
-                          : "hover:bg-[hsl(var(--border))] text-[hsl(var(--foreground))]"
-                      }`
-                    }
-                  >
+          {/* Nav — icon+label when open, icon-only with tooltip when collapsed */}
+          <nav className="flex-1 py-3 space-y-0.5 px-2">
+            {NAV_ITEMS.map(({ to, label, Icon, showBadge }) => (
+              <NavLink
+                key={to}
+                to={to}
+                end={to === "/"}
+                title={!sidebarOpen ? label : undefined}
+                className={({ isActive }) =>
+                  `flex items-center gap-2.5 px-2 py-2 rounded-md text-sm font-medium transition-colors
+                   ${sidebarOpen ? "" : "justify-center"}
+                   ${isActive
+                     ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
+                     : "hover:bg-[hsl(var(--border))] text-[hsl(var(--foreground))]"
+                   }`
+                }
+              >
+                <Icon size={16} className="shrink-0" />
+                {sidebarOpen && (
+                  <span className="flex-1 flex items-center justify-between">
                     {label}
                     {showBadge && insightWarnings > 0 && (
-                      <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+                      <span className="w-2 h-2 rounded-full bg-amber-500" />
                     )}
-                  </NavLink>
-                ))}
-              </nav>
-              <div className="px-4 pb-4 space-y-2">
-                <ProfileSwitcher />
-                <button
-                  onClick={() => setDark((d) => !d)}
-                  className="w-full text-xs px-3 py-2 rounded-md border hover:bg-[hsl(var(--border))] transition-colors"
-                >
-                  {dark ? "Light mode" : "Dark mode"}
-                </button>
-                <UpdateChecker />
-              </div>
-            </>
+                  </span>
+                )}
+                {!sidebarOpen && showBadge && insightWarnings > 0 && (
+                  <span className="absolute ml-3 -mt-3 w-2 h-2 rounded-full bg-amber-500" />
+                )}
+              </NavLink>
+            ))}
+          </nav>
+
+          {sidebarOpen && (
+            <div className="px-4 pb-4 space-y-2">
+              <ProfileSwitcher />
+              <button
+                onClick={() => setDark((d) => !d)}
+                className="w-full text-xs px-3 py-2 rounded-md border hover:bg-[hsl(var(--border))] transition-colors"
+              >
+                {dark ? "Light mode" : "Dark mode"}
+              </button>
+              <UpdateChecker />
+            </div>
           )}
         </aside>
 
