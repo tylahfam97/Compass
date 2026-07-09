@@ -9,6 +9,7 @@ import BudgetsPage from "@/pages/BudgetsPage";
 import GoalsPage from "@/pages/GoalsPage";
 import ReportsPage from "@/pages/ReportsPage";
 import AgentPage from "@/pages/AgentPage";
+import OverviewPage from "@/pages/OverviewPage";
 import ProfileSwitcher from "@/components/ProfileSwitcher";
 import UpdateChecker from "@/components/UpdateChecker";
 import { useCategoryStore } from "@/stores/categoryStore";
@@ -18,6 +19,7 @@ import type { Category, Profile } from "@/lib/types";
 import "./index.css";
 
 const NAV_ITEMS = [
+  { to: "/overview", label: "Overview" },
   { to: "/", label: "Dashboard" },
   { to: "/transactions", label: "Transactions" },
   { to: "/import", label: "Import" },
@@ -106,6 +108,7 @@ function App() {
         <main className="flex-1 overflow-y-auto">
           <div className="max-w-[1200px] mx-auto w-full min-h-full">
             <Routes>
+              <Route path="/overview" element={<OverviewPage />} />
               <Route path="/" element={<DashboardPage />} />
               <Route path="/transactions" element={<TransactionsPage />} />
               <Route path="/import" element={<ImportPage />} />
