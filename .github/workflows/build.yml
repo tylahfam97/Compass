@@ -78,7 +78,17 @@ jobs:
           if (-not $nsisExe) { Write-Warning "No NSIS exe found - skipping"; exit 0 }
 
           $zipPath = $nsisExe.FullName -replace '\.exe$', '.nsis.zip'
-          Compress-Archive -Path $nsisExe.FullName -DestinationPath $zipPath -CompressionLevel NoCompression -Force
+
+          # Use .NET ZipArchive directly — guarantees STORE (method 0) compression,
+          # which the Tauri updater's zip crate supports unconditionally
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zipStream   = [System.IO.File]::Create($zipPath)
+          $archive     = New-Object System.IO.Compression.ZipArchive($zipStream, [System.IO.Compression.ZipArchiveMode]::Create, $false)
+          $entry       = $archive.CreateEntry($nsisExe.Name, [System.IO.Compression.CompressionLevel]::NoCompression)
+          $entryStream = $entry.Open()
+          $srcStream   = [System.IO.File]::OpenRead($nsisExe.FullName)
+          $srcStream.CopyTo($entryStream)
+          $srcStream.Dispose(); $entryStream.Dispose(); $archive.Dispose(); $zipStream.Dispose()
           Write-Host "Created $([IO.Path]::GetFileName($zipPath)) ($([math]::Round((Get-Item $zipPath).Length/1KB))KB)"
 
           # Write key to temp file under neutral name — TAURI_SIGNING_PRIVATE_KEY must NOT be set
