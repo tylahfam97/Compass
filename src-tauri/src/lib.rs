@@ -43,6 +43,52 @@ fn json_to_sql(v: &Value) -> Box<dyn rusqlite::ToSql> {
     }
 }
 
+// ─── SQL statement allowlists ─────────────────────────────────────────────────
+//
+// All SQL executed through the frontend is written as literal strings in the
+// TypeScript source — no dynamic statement construction, only parameterised
+// values.  These validators enforce that even if a malicious script were ever
+// injected into the WebView, it cannot call db_execute / db_select with an
+// arbitrary statement type (e.g. DROP TABLE, ATTACH DATABASE, PRAGMA key).
+//
+// The lists are intentionally narrow: only the exact statement families used
+// by Compass are permitted.
+
+fn validate_execute_sql(sql: &str) -> Result<(), String> {
+    // Collapse leading whitespace/newlines produced by template literals.
+    let s = sql.trim().to_ascii_lowercase();
+    const ALLOWED: &[&str] = &[
+        "insert",           // INSERT INTO …, INSERT OR IGNORE …, INSERT OR REPLACE …
+        "update",           // UPDATE … SET …
+        "delete",           // DELETE FROM …
+        "create table",     // CREATE TABLE IF NOT EXISTS …
+        "create index",     // CREATE INDEX IF NOT EXISTS …
+        "create unique index",
+        "alter table",      // ALTER TABLE … ADD COLUMN …
+        "pragma user_version =", // schema version write
+    ];
+    if ALLOWED.iter().any(|p| s.starts_with(p)) {
+        Ok(())
+    } else {
+        Err(format!("db_execute: statement type not permitted"))
+    }
+}
+
+fn validate_select_sql(sql: &str) -> Result<(), String> {
+    let s = sql.trim().to_ascii_lowercase();
+    const ALLOWED: &[&str] = &[
+        "select",
+        "with",              // CTEs
+        "pragma table_info(", // column introspection used during migrations
+        "pragma user_version", // schema version read
+    ];
+    if ALLOWED.iter().any(|p| s.starts_with(p)) {
+        Ok(())
+    } else {
+        Err(format!("db_select: statement type not permitted"))
+    }
+}
+
 // ─── Commands ─────────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -51,6 +97,7 @@ fn db_execute(
     sql: String,
     params: Vec<Value>,
 ) -> Result<ExecResult, String> {
+    validate_execute_sql(&sql)?;
     let conn = state.0.lock().map_err(|e| e.to_string())?;
     let bound: Vec<Box<dyn rusqlite::ToSql>> = params.iter().map(json_to_sql).collect();
     let refs: Vec<&dyn rusqlite::ToSql> = bound.iter().map(|b| b.as_ref()).collect();
@@ -71,6 +118,7 @@ fn db_select(
     sql: String,
     params: Vec<Value>,
 ) -> Result<Vec<Map<String, Value>>, String> {
+    validate_select_sql(&sql)?;
     let conn = state.0.lock().map_err(|e| e.to_string())?;
     let bound: Vec<Box<dyn rusqlite::ToSql>> = params.iter().map(json_to_sql).collect();
     let refs: Vec<&dyn rusqlite::ToSql> = bound.iter().map(|b| b.as_ref()).collect();

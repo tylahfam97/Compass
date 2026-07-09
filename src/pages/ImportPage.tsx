@@ -17,6 +17,131 @@ interface ColMap {
   amountCol: number;
   typeCol: number; // -1 = no transaction-type column
   balanceCol: number; // -1 = no running balance column
+  invertAmounts: boolean; // true for banks that export expenses as positive (Discover, Amex)
+}
+
+interface BankPreset {
+  name: string;
+  dateKeywords: string[];
+  descKeywords: string[];
+  amountKeywords: string[];
+  typeKeywords?: string[];
+  balanceKeywords?: string[];
+  invertAmounts?: boolean;
+  note?: string;
+}
+
+const BANK_PRESETS: Record<string, BankPreset> = {
+  "chase-checking": {
+    name: "Chase (Checking / Savings)",
+    dateKeywords: ["posting date"],
+    descKeywords: ["description"],
+    amountKeywords: ["amount"],
+    balanceKeywords: ["balance"],
+  },
+  "chase-credit": {
+    name: "Chase (Credit Card)",
+    dateKeywords: ["transaction date"],
+    descKeywords: ["description"],
+    amountKeywords: ["amount"],
+  },
+  "capital-one": {
+    name: "Capital One",
+    dateKeywords: ["transaction date"],
+    descKeywords: ["description"],
+    amountKeywords: ["debit"],
+    typeKeywords: [],
+    note: "Capital One uses separate Debit and Credit columns. Select the Debit column as the amount — expenses will be positive numbers.",
+    invertAmounts: true,
+  },
+  "wells-fargo": {
+    name: "Wells Fargo",
+    dateKeywords: ["date"],
+    descKeywords: ["description"],
+    amountKeywords: ["amount"],
+    balanceKeywords: ["balance"],
+  },
+  "bank-of-america": {
+    name: "Bank of America",
+    dateKeywords: ["date"],
+    descKeywords: ["description"],
+    amountKeywords: ["amount"],
+    balanceKeywords: ["running bal"],
+    note: "Bank of America statements include summary rows at the top — Compass skips them automatically.",
+  },
+  "navy-federal": {
+    name: "Navy Federal",
+    dateKeywords: ["tran date"],
+    descKeywords: ["description"],
+    amountKeywords: ["debit"],
+    invertAmounts: true,
+    note: "Navy Federal has header rows before the transaction table — Compass skips them automatically.",
+  },
+  "discover": {
+    name: "Discover",
+    dateKeywords: ["trans. date", "trans date"],
+    descKeywords: ["description"],
+    amountKeywords: ["amount"],
+    invertAmounts: true,
+    note: "Discover exports expenses as positive numbers. Compass will flip the signs automatically.",
+  },
+  "amex": {
+    name: "American Express",
+    dateKeywords: ["date"],
+    descKeywords: ["description"],
+    amountKeywords: ["amount"],
+    invertAmounts: true,
+    note: "Amex exports expenses as positive numbers. Compass will flip the signs automatically.",
+  },
+  "venmo": {
+    name: "Venmo",
+    dateKeywords: ["datetime"],
+    descKeywords: ["note"],
+    amountKeywords: ["amount (total)"],
+    note: "Use the full CSV export from Venmo's website (not the app). Transfers to your bank may appear as income.",
+  },
+  "cash-app": {
+    name: "Cash App",
+    dateKeywords: ["date"],
+    descKeywords: ["name"],
+    amountKeywords: ["net amount"],
+    note: "Use the CSV export from Cash App's website under Activity → Export.",
+  },
+  "paypal": {
+    name: "PayPal",
+    dateKeywords: ["date"],
+    descKeywords: ["name"],
+    amountKeywords: ["net"],
+    note: "Export a filtered USD-only CSV from PayPal for best results.",
+  },
+};
+
+function applyPreset(preset: BankPreset, headers: string[]): Partial<ColMap> {
+  const h = headers.map((s) => s.toLowerCase().trim());
+  const findByKeywords = (keywords: string[]): number => {
+    for (const kw of keywords) {
+      const idx = h.findIndex((s) => s.includes(kw));
+      if (idx >= 0) return idx;
+    }
+    return -1;
+  };
+  const result: Partial<ColMap> = {};
+  const d = findByKeywords(preset.dateKeywords);
+  if (d >= 0) result.dateCol = d;
+  const desc = findByKeywords(preset.descKeywords);
+  if (desc >= 0) result.descCol = desc;
+  const amt = findByKeywords(preset.amountKeywords);
+  if (amt >= 0) result.amountCol = amt;
+  if (preset.typeKeywords && preset.typeKeywords.length > 0) {
+    const t = findByKeywords(preset.typeKeywords);
+    result.typeCol = t;
+  }
+  if (preset.balanceKeywords) {
+    const b = findByKeywords(preset.balanceKeywords);
+    result.balanceCol = b;
+  }
+  if (preset.invertAmounts !== undefined) result.invertAmounts = preset.invertAmounts;
+  return result;
 }
 
 interface ParsedData {
@@ -105,6 +230,7 @@ function autoDetect(headers: string[]): ColMap {
     amountCol: find("amount", "debit", "credit"),
     typeCol,
     balanceCol,
+    invertAmounts: false,
   };
 }
 
@@ -164,7 +290,7 @@ export default function ImportPage() {
   const [skipRows, setSkipRows] = useState(0);
   const [parsed, setParsed] = useState<ParsedData | null>(null);
   const [currentFilename, setCurrentFilename] = useState("");
-  const [colMap, setColMap] = useState<ColMap>({ dateCol: 0, descCol: 1, amountCol: 2, typeCol: -1, balanceCol: -1 });
+  const [colMap, setColMap] = useState<ColMap>({ dateCol: 0, descCol: 1, amountCol: 2, typeCol: -1, balanceCol: -1, invertAmounts: false });
   const [profileFound, setProfileFound] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -173,6 +299,7 @@ export default function ImportPage() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [wizardDir, setWizardDir] = useState<"forward" | "back">("forward");
   const [batchQueue, setBatchQueue] = useState<File[]>([]);
+  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
 
   // Auto-detect the dominant month whenever the parsed data or date column changes
   const detectedMonth = useMemo(
@@ -253,10 +380,16 @@ export default function ImportPage() {
             );
             if (profiles.length > 0) {
               const p = profiles[0];
-              setColMap({ dateCol: p.date_col, descCol: p.desc_col, amountCol: p.amount_col, typeCol: p.type_col, balanceCol: p.balance_col });
+              setColMap({ dateCol: p.date_col, descCol: p.desc_col, amountCol: p.amount_col, typeCol: p.type_col, balanceCol: p.balance_col, invertAmounts: false });
               setProfileFound(true);
             } else {
-              setColMap(autoDetect(headers));
+              const base = autoDetect(headers);
+              if (selectedPresetId && BANK_PRESETS[selectedPresetId]) {
+                const overrides = applyPreset(BANK_PRESETS[selectedPresetId], headers);
+                setColMap({ ...base, ...overrides });
+              } else {
+                setColMap(base);
+              }
               setProfileFound(false);
             }
           } catch {
@@ -301,7 +434,13 @@ export default function ImportPage() {
     const derived = deriveHeaders(rawData, newSkip);
     if (derived) {
       setParsed(derived);
-      setColMap(autoDetect(derived.headers));
+      const base = autoDetect(derived.headers);
+      if (selectedPresetId && BANK_PRESETS[selectedPresetId]) {
+        const overrides = applyPreset(BANK_PRESETS[selectedPresetId], derived.headers);
+        setColMap({ ...base, ...overrides });
+      } else {
+        setColMap(base);
+      }
       setProfileFound(false);
     }
   };
@@ -341,6 +480,7 @@ export default function ImportPage() {
           if (typeVal === "debit") amount = -Math.abs(rawAmount);
           else if (typeVal === "credit") amount = Math.abs(rawAmount);
         }
+        if (colMap.invertAmounts) amount = -amount;
         if (!date || !description || amount === 0) continue;
 
         const amountCents = Math.round(amount * 100);
@@ -411,6 +551,7 @@ export default function ImportPage() {
     setTargetMonth(currentYM());
     setConfirmDeleteId(null);
     setBatchQueue([]);
+    setSelectedPresetId(null);
   };
 
   return (
@@ -451,6 +592,41 @@ export default function ImportPage() {
             className="hidden"
             onChange={handleFileInput}
           />
+
+          {/* Bank preset picker */}
+          {step === "upload" && (
+            <div className="mt-5 border rounded-xl p-4 space-y-3">
+              <p className="text-sm font-medium">
+                Select your bank <span className="text-[hsl(var(--muted-foreground))] font-normal">(optional — speeds up column detection)</span>
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(BANK_PRESETS).map(([id, preset]) => (
+                  <button
+                    key={id}
+                    onClick={() => setSelectedPresetId((prev) => (prev === id ? null : id))}
+                    className={`px-3 py-1.5 rounded-lg border text-sm transition-colors ${
+                      selectedPresetId === id
+                        ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent"
+                        : "hover:bg-[hsl(var(--muted))]"
+                    }`}
+                  >
+                    {preset.name}
+                  </button>
+                ))}
+              </div>
+              {selectedPresetId && BANK_PRESETS[selectedPresetId]?.note && (
+                <p className="text-xs text-[hsl(var(--muted-foreground))] border-t pt-2">
+                  ℹ️ {BANK_PRESETS[selectedPresetId].note}
+                </p>
+              )}
+              {selectedPresetId && (
+                <p className="text-xs text-green-600 dark:text-green-400">
+                  ✓ {BANK_PRESETS[selectedPresetId].name} selected — column mapping will be pre-filled when you drop your file.
+                </p>
+              )}
+            </div>
+          )}
+
           {error && <p className="mt-4 text-red-500 text-sm">{error}</p>}
         </div>
       )}
@@ -666,6 +842,7 @@ export default function ImportPage() {
                     if (tv === "debit") amt = -Math.abs(amt);
                     else if (tv === "credit") amt = Math.abs(amt);
                   }
+                  if (colMap.invertAmounts) amt = -amt;
                   return (
                     <div key={i} className="py-3 text-center">
                       <p className="font-mono text-sm text-[hsl(var(--muted-foreground))]">{raw}</p>
@@ -707,6 +884,30 @@ export default function ImportPage() {
                   {parsed.headers.map((h, i) => <option key={i} value={i}>{h || `Column ${i + 1}`}</option>)}
                 </select>
               )}
+            </div>
+
+            {/* Sign inversion toggle — for banks that export expenses as positive (Discover, Amex) */}
+            <div className="pt-3 border-t space-y-2">
+              <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
+                Are expenses shown as positive numbers?
+              </p>
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                Some banks (Discover, Amex, Capital One) export purchases as positive values instead of negative. Enable this to flip all signs.
+              </p>
+              <div className="flex gap-3 text-sm">
+                <button
+                  onClick={() => setColMap((m) => ({ ...m, invertAmounts: false }))}
+                  className={`px-3 py-1.5 rounded-lg border transition-colors ${!colMap.invertAmounts ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
+                >
+                  No — standard signs
+                </button>
+                <button
+                  onClick={() => setColMap((m) => ({ ...m, invertAmounts: true }))}
+                  className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.invertAmounts ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
+                >
+                  Yes — flip signs
+                </button>
+              </div>
             </div>
           </div>
 
