@@ -81,6 +81,7 @@ jobs:
 
           # Use .NET ZipArchive directly — guarantees STORE (method 0) compression,
           # which the Tauri updater's zip crate supports unconditionally
+          Add-Type -AssemblyName System.IO.Compression
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $zipStream   = [System.IO.File]::Create($zipPath)
           $archive     = New-Object System.IO.Compression.ZipArchive($zipStream, [System.IO.Compression.ZipArchiveMode]::Create, $false)
