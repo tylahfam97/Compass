@@ -39,3 +39,33 @@ body {
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
 }
+
+/* ── Wizard transition animations ──────────────────────────────────────────── */
+
+@keyframes wizard-slide-forward {
+  from { opacity: 0; transform: translateX(10px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes wizard-slide-back {
+  from { opacity: 0; transform: translateX(-10px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes wizard-done {
+  0%   { opacity: 0; transform: scale(0.88) translateY(6px); }
+  65%  { transform: scale(1.04) translateY(-1px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.wizard-enter-forward {
+  animation: wizard-slide-forward 160ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.wizard-enter-back {
+  animation: wizard-slide-back 160ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.wizard-enter-done {
+  animation: wizard-done 300ms cubic-bezier(0.34, 1.2, 0.64, 1);
+}

@@ -171,6 +171,7 @@ export default function ImportPage() {
   const [targetMonth, setTargetMonth] = useState(currentYM);
   const [importHistory, setImportHistory] = useState<ImportSession[]>([]);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [wizardDir, setWizardDir] = useState<"forward" | "back">("forward");
 
   // Auto-detect the dominant month whenever the parsed data or date column changes
   const detectedMonth = useMemo(
@@ -193,6 +194,12 @@ export default function ImportPage() {
   }, [profileId]);
 
   useEffect(() => { loadHistory().catch(console.error); }, [loadHistory]);
+
+  /** Navigate between wizard steps with direction tracking for the slide animation. */
+  const wizardGo = (target: Step, dir: "forward" | "back" = "forward") => {
+    setWizardDir(dir);
+    setStep(target);
+  };
 
   const undoImport = async (sessionId: number) => {
     const db = await getDb();
@@ -476,7 +483,7 @@ export default function ImportPage() {
 
       {/* ── WIZARD STEP 1: Find Data ── */}
       {step === "wizard:data" && parsed && (
-        <div className="space-y-5">
+        <div key="wizard:data" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           {profileFound && (
             <div className="px-4 py-2.5 rounded-lg text-sm border border-green-300 bg-green-50
                             text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
@@ -520,12 +527,12 @@ export default function ImportPage() {
 
           <div className="flex gap-3 justify-center">
             {profileFound && (
-              <button onClick={() => setStep("wizard:preview")}
+              <button onClick={() => wizardGo("wizard:preview", "forward")}
                 className="px-5 py-2 border rounded-lg text-sm font-medium hover:bg-[hsl(var(--muted))] transition-colors">
                 Skip to Preview
               </button>
             )}
-            <button onClick={() => setStep("wizard:date")}
+              <button onClick={() => wizardGo("wizard:date", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
               Looks good → Next
             </button>
@@ -538,7 +545,7 @@ export default function ImportPage() {
 
       {/* ── WIZARD STEP 2: Date Column ── */}
       {step === "wizard:date" && parsed && (
-        <div className="space-y-5">
+        <div key="wizard:date" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           <p className="text-sm text-[hsl(var(--muted-foreground))]">
             Select the column that contains the transaction date.
           </p>
@@ -574,8 +581,8 @@ export default function ImportPage() {
           </div>
 
           <div className="flex gap-3">
-            <button onClick={() => setStep("wizard:data")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">← Back</button>
-            <button onClick={() => setStep("wizard:desc")}
+            <button onClick={() => wizardGo("wizard:data", "back")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">← Back</button>
+            <button onClick={() => wizardGo("wizard:desc", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
               Next →
             </button>
@@ -585,7 +592,7 @@ export default function ImportPage() {
 
       {/* ── WIZARD STEP 3: Description Column ── */}
       {step === "wizard:desc" && parsed && (
-        <div className="space-y-5">
+        <div key="wizard:desc" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           <p className="text-sm text-[hsl(var(--muted-foreground))]">
             Select the column that contains the merchant or payee name. This is used for categorization.
           </p>
@@ -613,8 +620,8 @@ export default function ImportPage() {
           </div>
 
           <div className="flex gap-3">
-            <button onClick={() => setStep("wizard:date")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">← Back</button>
-            <button onClick={() => setStep("wizard:amount")}
+            <button onClick={() => wizardGo("wizard:date", "back")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">← Back</button>
+            <button onClick={() => wizardGo("wizard:amount", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
               Next →
             </button>
@@ -624,7 +631,7 @@ export default function ImportPage() {
 
       {/* ── WIZARD STEP 4: Amount Column ── */}
       {step === "wizard:amount" && parsed && (
-        <div className="space-y-5">
+        <div key="wizard:amount" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           <p className="text-sm text-[hsl(var(--muted-foreground))]">
             Select the column containing the transaction amount. Expenses should be negative, income positive.
           </p>
@@ -695,8 +702,8 @@ export default function ImportPage() {
           </div>
 
           <div className="flex gap-3">
-            <button onClick={() => setStep("wizard:desc")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">← Back</button>
-            <button onClick={() => setStep("wizard:balance")}
+            <button onClick={() => wizardGo("wizard:desc", "back")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">← Back</button>
+            <button onClick={() => wizardGo("wizard:balance", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
               Next →
             </button>
@@ -706,7 +713,7 @@ export default function ImportPage() {
 
       {/* ── WIZARD STEP 5: Balance Column (optional) ── */}
       {step === "wizard:balance" && parsed && (
-        <div className="space-y-5">
+        <div key="wizard:balance" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           <p className="text-sm text-[hsl(var(--muted-foreground))]">
             Some banks include a running account balance after each transaction. Importing it unlocks balance charts and low-balance alerts.
           </p>
@@ -762,8 +769,8 @@ export default function ImportPage() {
           </div>
 
           <div className="flex gap-3">
-            <button onClick={() => setStep("wizard:amount")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">← Back</button>
-            <button onClick={() => setStep("wizard:preview")}
+            <button onClick={() => wizardGo("wizard:amount", "back")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">← Back</button>
+            <button onClick={() => wizardGo("wizard:preview", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
               Next →
             </button>
@@ -773,7 +780,7 @@ export default function ImportPage() {
 
       {/* ── WIZARD STEP 6: Preview & Confirm ── */}
       {step === "wizard:preview" && parsed && (
-        <div className="space-y-5">
+        <div key="wizard:preview" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           {error && <p className="text-red-500 text-sm p-3 border border-red-300 rounded-lg">{error}</p>}
 
           <div className="grid grid-cols-3 gap-3 text-sm">
@@ -853,7 +860,7 @@ export default function ImportPage() {
           </div>
 
           <div className="flex gap-3">
-            <button onClick={() => setStep("wizard:balance")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">← Back</button>
+            <button onClick={() => wizardGo("wizard:balance", "back")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">← Back</button>
             <button onClick={handleImport}
               className="px-6 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg font-medium hover:opacity-90 transition-opacity">
               Import {parsed.rows.length} Transactions
@@ -873,7 +880,7 @@ export default function ImportPage() {
 
       {/* ── DONE ── */}
       {step === "done" && summary && (
-        <div className="text-center py-12">
+        <div className="text-center py-12 wizard-enter-done">
           {summary.imported === 0 ? (
             <>
               <div className="text-5xl mb-4">ℹ️</div>
@@ -885,7 +892,7 @@ export default function ImportPage() {
             </>
           ) : (
             <>
-              <div className="text-5xl mb-4">✅</div>
+              <div className="text-5xl mb-4 wizard-enter-done inline-block">✅</div>
               <p className="text-xl font-semibold mb-2">Import complete!</p>
               <p className="text-[hsl(var(--muted-foreground))] mb-6">
                 <span className="text-green-600 font-semibold">{summary.imported} transactions</span>{" "}
