@@ -439,6 +439,7 @@ export default function ImportPage() {
             id="csv-input"
             type="file"
             accept=".csv"
+            multiple
             className="hidden"
             onChange={handleFileInput}
           />
