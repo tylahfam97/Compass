@@ -172,6 +172,7 @@ export default function ImportPage() {
   const [importHistory, setImportHistory] = useState<ImportSession[]>([]);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [wizardDir, setWizardDir] = useState<"forward" | "back">("forward");
+  const [batchQueue, setBatchQueue] = useState<File[]>([]);
 
   // Auto-detect the dominant month whenever the parsed data or date column changes
   const detectedMonth = useMemo(
@@ -275,16 +276,22 @@ export default function ImportPage() {
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
-      const f = e.dataTransfer.files[0];
-      if (f?.name.endsWith(".csv")) processFile(f);
-      else setError("Please drop a .csv file.");
+      const files = Array.from(e.dataTransfer.files).filter((f) => f.name.endsWith(".csv"));
+      if (files.length === 0) { setError("Please drop one or more .csv files."); return; }
+      const [first, ...rest] = files;
+      setBatchQueue(rest);
+      processFile(first);
     },
     [processFile]
   );
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (f) processFile(f);
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
+    const [first, ...rest] = files;
+    setBatchQueue(rest);
+    processFile(first);
+    e.target.value = "";
   };
 
   const adjustSkipRows = (delta: number) => {
@@ -403,6 +410,7 @@ export default function ImportPage() {
     setProfileFound(false);
     setTargetMonth(currentYM());
     setConfirmDeleteId(null);
+    setBatchQueue([]);
   };
 
   return (
@@ -439,6 +447,7 @@ export default function ImportPage() {
             id="csv-input"
             type="file"
             accept=".csv"
+            multiple
             className="hidden"
             onChange={handleFileInput}
           />
@@ -916,13 +925,37 @@ export default function ImportPage() {
                 View Transactions
               </button>
             )}
-            <button
-              onClick={reset}
-              className="px-6 py-2 border rounded-lg font-medium hover:bg-[hsl(var(--muted))]
-                         transition-colors"
-            >
-              Import Another
-            </button>
+            {batchQueue.length > 0 ? (
+              <button
+                onClick={() => {
+                  const [next, ...rest] = batchQueue;
+                  // Reset wizard state but preserve the remaining queue
+                  setStep("upload");
+                  setRawData(null);
+                  setSkipRows(0);
+                  setParsed(null);
+                  setSummary(null);
+                  setError(null);
+                  setProfileFound(false);
+                  setTargetMonth(currentYM());
+                  setConfirmDeleteId(null);
+                  setBatchQueue(rest);
+                  processFile(next);
+                }}
+                className="px-6 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
+                           rounded-lg font-medium hover:opacity-90 transition-opacity"
+              >
+                Next File ({batchQueue.length} remaining)
+              </button>
+            ) : (
+              <button
+                onClick={reset}
+                className="px-6 py-2 border rounded-lg font-medium hover:bg-[hsl(var(--muted))]
+                           transition-colors"
+              >
+                Import Another
+              </button>
+            )}
           </div>
         </div>
       )}

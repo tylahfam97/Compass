@@ -3,8 +3,9 @@ import logoUrl from "@/assets/logo.svg";
 import { useState, useEffect } from "react";
 import {
   LayoutDashboard, ArrowLeftRight, Upload, TrendingUp,
-  Wallet, Target, BarChart2, Lightbulb, Globe, ChevronLeft, ChevronRight,
+  Wallet, Target, BarChart2, Lightbulb, Globe, ChevronLeft, ChevronRight, MessageSquare,
 } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import DashboardPage from "@/pages/DashboardPage";
 import TransactionsPage from "@/pages/TransactionsPage";
 import ImportPage from "@/pages/ImportPage";
@@ -62,6 +63,13 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(
     () => localStorage.getItem("sidebarOpen") !== "false"
   );
+  const [appVersion, setAppVersion] = useState("");
+
+  useEffect(() => {
+    import("@tauri-apps/api/app").then(({ getVersion }) => {
+      getVersion().then(setAppVersion).catch(() => {});
+    });
+  }, []);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
@@ -215,6 +223,20 @@ function App() {
                 {dark ? "Light mode" : "Dark mode"}
               </button>
               <UpdateChecker />
+              <button
+                onClick={() => openUrl("https://github.com/tylahfam97/Compass/issues/new").catch(() => {})}
+                className="w-full text-xs px-3 py-1.5 rounded-md text-[hsl(var(--muted-foreground))]
+                           hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--border))]
+                           transition-colors flex items-center gap-1.5"
+              >
+                <MessageSquare size={12} />
+                Report an issue
+              </button>
+              {appVersion && (
+                <p className="text-center text-[10px] text-[hsl(var(--muted-foreground))] opacity-50">
+                  v{appVersion} beta
+                </p>
+              )}
             </div>
           )}
         </aside>
