@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  build-windows:
+  create-compass:
     # self-hosted = your local machine running the GitHub Actions runner
     # Node.js and Rust are already installed there, no setup steps needed
     runs-on: self-hosted
