@@ -114,21 +114,65 @@ fn db_select(
 const KEYRING_SERVICE: &str = "com.compass.app";
 const KEYRING_USER: &str = "db_encryption_key";
 
-fn load_or_create_key() -> Result<String, String> {
+/// Load the encryption key, using a two-tier strategy:
+///  1. Windows Credential Manager (keyring) — primary, backward-compatible
+///  2. `compass.key` file in the app data dir — backup / fallback
+///
+/// On every successful keyring read the key is also written to the file so
+/// that future keyring losses (Credential Manager reset, update side-effect,
+/// roaming profile sync, etc.) do NOT cause the DB to be abandoned.
+fn load_or_create_key(data_dir: &std::path::Path) -> Result<String, String> {
+    let key_file = data_dir.join("compass.key");
+
     let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
         .map_err(|e| format!("keyring init: {e}"))?;
 
     match entry.get_password() {
-        Ok(key) => Ok(key),
+        Ok(key) => {
+            // Keyring succeeded — refresh the file backup silently.
+            let _ = std::fs::write(&key_file, &key);
+            Ok(key)
+        }
         Err(keyring::Error::NoEntry) => {
-            let mut bytes = [0u8; 32];
-            rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut bytes);
-            let hex_key = hex::encode(bytes);
-            entry.set_password(&hex_key)
-                .map_err(|e| format!("keyring write: {e}"))?;
+            // Keyring has no entry. Check the file backup before creating a new key,
+            // because a new key would make the existing DB permanently unreadable.
+            if let Some(key) = read_key_file(&key_file) {
+                eprintln!("[compass] Keyring entry missing — key restored from backup file.");
+                let _ = entry.set_password(&key); // re-populate keyring
+                return Ok(key);
+            }
+            // Genuinely first launch: generate and persist a new key.
+            let hex_key = generate_key();
+            let _ = entry.set_password(&hex_key);
+            let _ = std::fs::write(&key_file, &hex_key);
             Ok(hex_key)
         }
-        Err(e) => Err(format!("keyring read: {e}")),
+        Err(e) => {
+            // Keyring returned an unexpected error. Fall back to file rather than
+            // treating it as "no entry" and generating a new (wrong) key.
+            eprintln!("[compass] Keyring read error ({e}) — falling back to key file.");
+            if let Some(key) = read_key_file(&key_file) {
+                return Ok(key);
+            }
+            Err(format!("keyring read: {e}"))
+        }
+    }
+}
+
+fn generate_key() -> String {
+    let mut bytes = [0u8; 32];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut bytes);
+    hex::encode(bytes)
+}
+
+fn read_key_file(path: &std::path::Path) -> Option<String> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let key = raw.trim().to_string();
+    // Sanity-check: must be exactly 64 hex characters (32 bytes).
+    if key.len() == 64 && key.chars().all(|c| c.is_ascii_hexdigit()) {
+        Some(key)
+    } else {
+        None
     }
 }
 
@@ -194,7 +238,7 @@ fn open_db(app: &AppHandle) -> Result<Connection, String> {
         .map_err(|e| format!("create data dir: {e}"))?;
     let db_path = data_dir.join("compass.db");
 
-    let hex_key = match load_or_create_key() {
+    let hex_key = match load_or_create_key(&data_dir) {
         Ok(k) => k,
         Err(e) => {
             eprintln!("[compass] WARNING: keyring unavailable ({e}), DB will be unencrypted");
