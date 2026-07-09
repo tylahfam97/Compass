@@ -6,7 +6,7 @@
 
 ### *Own your financial life;  privately, locally, and without judgment.*
 
-![Compassdemo](https://chrysisgithub.blob.core.windows.net/github/Animation.gif)
+![Profile selection and app overview](https://github.com/user-attachments/assets/b544e724-ce78-40bd-8146-8a24eaa7d1c0)
 
 Compass is a free, open-source Windows desktop application that helps you understand where your money is going. Every byte of your data lives exclusively on your device. Nothing is ever uploaded, synced, or shared.
 
@@ -15,6 +15,10 @@ Compass is a free, open-source Windows desktop application that helps you unders
 ## $${\color{#C08A1C}What \space \color{#C08A1C}Is \space \color{#C08A1C}Compass?}$$
 
 Compass is a personal finance companion built for real people — not spreadsheet experts. Import your bank statements, see your spending broken down automatically, track your budgets and goals, and catch those sneaky recurring charges you forgot about. No accounts. No subscriptions. No cloud. Just clarity.
+
+### Import Wizard
+
+![Step-by-step import wizard](https://github.com/user-attachments/assets/48af06bd-c936-412d-aaf0-eb6297f6c9f9)
 
 ---
 
@@ -92,6 +96,8 @@ The Insights page (formerly "Agent") analyzes your spending and surfaces actiona
 - Detected subscriptions with monthly and annual totals
 - Paycheck timing prediction based on your pay cycle
 - Overdraft / bank fee alerts
+
+![Insights page](https://github.com/user-attachments/assets/962bdee8-a336-43b7-8dca-78c0755576b3)
 
 ### 💼 All Accounts Overview
 The **Overview** page aggregates all profiles in one place. Each account card shows current balance, a 60-day sparkline, and this month's income/expenses/net. Click any card to jump to that account's Dashboard.
