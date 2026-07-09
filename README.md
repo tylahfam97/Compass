@@ -58,7 +58,19 @@ Set financial intentions and track them monthly:
 Each goal shows a progress bar, current vs target amount, and an "On track ✓" or "Needs attention ⚠" status.
 
 ### 🔍 Transactions
-Full searchable, filterable transaction list. Filter by month, search by description, and re-categorize any transaction in one click. Shows a summary strip with total in and out for the current filter.
+Full searchable, filterable transaction list. Filter by month or toggle **All time** to see your entire history. Search by description, re-categorize any transaction in one click, and view the running account balance alongside each transaction. Shows a summary strip with total in, out, and transaction count.
+
+### 💼 All Accounts Overview
+The **Overview** page aggregates all of your profiles in one place. Each account appears as a card showing the current balance, a 60-day balance sparkline, and this month's income/expenses/net. A combined totals banner runs across the top. Click any card to switch directly to that account's Dashboard.
+
+### 💰 Running Balance
+Import your bank's "Running Balance" (or "Balance") column alongside your transactions. Compass auto-detects and stores it, then surfaces it as a balance card and sparkline on the Dashboard, a Balance Over Time chart in Reports, and context for the AI Agent (low-balance and short-runway insights).
+
+### 🏷️ Custom Categories
+Create, rename, recolor, and delete your own categories from the Transactions page. System categories are protected. Custom categories appear throughout the app in budgets, reports, and auto-categorization rules.
+
+### 🔄 In-App Auto-Updates
+Compass checks for updates from the **sidebar** — click **Check for updates**, then **Install update** to download and silently apply the latest release without leaving the app. Updates are cryptographically signed and verified.
 
 ---
 
@@ -177,13 +189,12 @@ npm run tauri build     # production build → src-tauri/target/release/bundle/
 ## $${\color{#C08A1C}Roadmap}$$
 
 ### ✅ Phase 1 — Financial Companion *(complete)*
-Statement import · Auto-categorization · Spending trends · Budgets · Goals · Reports · Ghost subscriptions
+Statement import · Auto-categorization · Spending trends · Budgets · Goals · Reports · Ghost subscriptions · Running balance · All-accounts overview · Custom categories · In-app auto-updates
 
-### ✅ Phase 2 — Reflection & Conversations *(complete)*
-- Daily journaling with tagging
-- Guided decision-making conversations
-- Recurring theme recognition across entries
-- Long-term personal growth tracking
+### ✅ Phase 2 — AI Insights *(complete)*
+- AI Agent for natural-language questions about your data
+- Automatic insight generation: budget gaps, unusual spending spikes, savings rate warnings, overspend streaks, ghost subscriptions, low balance / short runway alerts
+- Categorization rules engine with priority ordering
 
 ### 🔜 Phase 3 — Financial Coaching *(planned)*
 Understanding your numbers isn't enough — Compass will help you act on them:
