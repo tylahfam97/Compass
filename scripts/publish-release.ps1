@@ -213,7 +213,7 @@ if ($appriseDiscordUrl -and -not $isPrerelease) {
     [IO.File]::WriteAllText($tmpNotify, $notifyJson, (New-Object System.Text.UTF8Encoding $false))
 
     Write-Host "Sending Discord notification via Apprise..."
-    curl.exe -s -X POST "http://192.168.50.149:9305/notify" -H "Content-Type: application/json" -d ("@" + $tmpNotify)
+    curl.exe -s -X POST "$env:APPRISE_URL/notify" -H "Content-Type: application/json" -d ("@" + $tmpNotify)
     Write-Host ""
     Remove-Item $tmpNotify -Force
     Write-Host "Apprise notification sent"

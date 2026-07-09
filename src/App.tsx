@@ -12,8 +12,9 @@ import AgentPage from "@/pages/AgentPage";
 import OverviewPage from "@/pages/OverviewPage";
 import ProfileSwitcher from "@/components/ProfileSwitcher";
 import UpdateChecker from "@/components/UpdateChecker";
+import PinModal from "@/components/PinModal";
 import { useCategoryStore } from "@/stores/categoryStore";
-import { useProfileStore, getSavedProfileId } from "@/stores/profileStore";
+import { useProfileStore } from "@/stores/profileStore";
 import { getDb } from "@/lib/db";
 import { generateInsights } from "@/lib/agent";
 import type { Category, Profile } from "@/lib/types";
@@ -31,46 +32,113 @@ const NAV_ITEMS = [
   { to: "/agent",        label: "Insights", showBadge: true },
 ];
 
+function greeting(): string {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  return "Good evening";
+}
+
+function initials(name: string): string {
+  return name.trim().split(/\s+/).map((w) => w[0]?.toUpperCase() ?? "").slice(0, 2).join("");
+}
+
 function App() {
   const [dark, setDark] = useState(() =>
     window.matchMedia("(prefers-color-scheme: dark)").matches
   );
   const setCategories = useCategoryStore((s) => s.setCategories);
-  const { setProfiles, setActiveProfile } = useProfileStore();
+  const { profiles, setProfiles, setActiveProfile } = useProfileStore();
   const [insightWarnings, setInsightWarnings] = useState(0);
+
+  // Launch picker state
+  const [launchReady, setLaunchReady] = useState(false);
+  const [profileSelected, setProfileSelected] = useState(false);
+  const [pinTarget, setPinTarget] = useState<Profile | null>(null);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
 
+  const selectProfile = async (profile: Profile) => {
+    setActiveProfile(profile);
+    const db = await getDb();
+    const cats = await db.select<Category[]>(
+      "SELECT * FROM categories WHERE is_system=1 OR profile_id=? ORDER BY name",
+      [profile.id]
+    );
+    setCategories(cats);
+    generateInsights(profile.id)
+      .then((ins) => setInsightWarnings(ins.filter((i) => i.severity === "warning").length))
+      .catch(() => {});
+    setPinTarget(null);
+    setProfileSelected(true);
+  };
+
   useEffect(() => {
     (async () => {
       const db = await getDb();
-      const profiles = await db.select<Profile[]>(
+      const allProfiles = await db.select<Profile[]>(
         "SELECT * FROM profiles ORDER BY created_at"
       );
-      setProfiles(profiles);
+      setProfiles(allProfiles);
+      setLaunchReady(true);
 
-      const savedId = getSavedProfileId();
-      const active =
-        profiles.find((p) => p.id === savedId) ?? profiles[0] ?? null;
-      if (active) {
-        setActiveProfile(active);
-        const cats = await db.select<Category[]>(
-          "SELECT * FROM categories WHERE is_system=1 OR profile_id=? ORDER BY name",
-          [active.id]
-        );
-        setCategories(cats);
-        // Load insight badge count
-        generateInsights(active.id)
-          .then((ins) => setInsightWarnings(ins.filter((i) => i.severity === "warning").length))
-          .catch(() => {});
+      // Auto-select only when there is exactly one profile and it has no PIN
+      if (allProfiles.length === 1 && !allProfiles[0].pin_hash) {
+        await selectProfile(allProfiles[0]);
       }
     })().catch(console.error);
-  }, [setProfiles, setActiveProfile, setCategories]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <BrowserRouter>
+      {/* ── Launch profile picker ─────────────────────────────────── */}
+      {launchReady && !profileSelected && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center
+                        bg-[hsl(var(--background))] wizard-enter-forward">
+          <img src={logoUrl} alt="Compass" className="h-12 mb-8 opacity-90" />
+          <h1 className="text-2xl font-semibold mb-1">{greeting()}</h1>
+          <p className="text-sm text-[hsl(var(--muted-foreground))] mb-8">
+            {profiles.length > 1 ? "Who's tracking today?" : "Enter your PIN to continue"}
+          </p>
+
+          <div className="flex gap-4 flex-wrap justify-center max-w-xl px-6">
+            {profiles.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => p.pin_hash ? setPinTarget(p) : selectProfile(p)}
+                className="flex flex-col items-center gap-3 p-6 rounded-2xl border
+                           hover:bg-[hsl(var(--muted))] hover:border-[hsl(var(--primary)/0.4)]
+                           transition-all duration-150 w-40 group"
+              >
+                <div
+                  className="w-16 h-16 rounded-full flex items-center justify-center
+                             text-2xl font-bold text-white shadow-sm
+                             group-hover:scale-105 transition-transform duration-150"
+                  style={{ backgroundColor: p.avatar_color }}
+                >
+                  {initials(p.name)}
+                </div>
+                <span className="font-medium text-sm">{p.name}</span>
+                {p.pin_hash && (
+                  <span className="text-xs text-[hsl(var(--muted-foreground))]">🔒 PIN</span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* PIN entry for launch picker */}
+      {pinTarget && (
+        <PinModal
+          profile={pinTarget}
+          onSuccess={() => selectProfile(pinTarget)}
+          onCancel={() => setPinTarget(null)}
+        />
+      )}
       <div className="flex h-screen overflow-hidden">
         {/* Sidebar */}
         <aside

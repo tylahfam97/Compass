@@ -8,7 +8,7 @@ on:
       - 'feat/**'
       - 'fix/**'
       - 'chore/**'
-      - 'task/**'
+
   workflow_dispatch:
 
 permissions:
