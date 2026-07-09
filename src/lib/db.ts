@@ -583,10 +583,11 @@ export async function reapplyCategorizationRules(
      ORDER BY priority DESC`,
     [profileId]
   );
+  console.debug(`[autoCat] ${rules.length} rules loaded`);
 
   const whereClause =
     mode === "uncategorized"
-      ? "AND (t.category_id IS NULL OR t.category_id = 15)"
+      ? "AND (category_id IS NULL OR category_id = 15)"
       : "";
 
   const transactions = await db.select<{ id: number; description: string }[]>(
@@ -595,18 +596,41 @@ export async function reapplyCategorizationRules(
      ORDER BY id`,
     [profileId]
   );
+  console.debug(`[autoCat] ${transactions.length} transactions to process (mode=${mode})`);
 
-  let updated = 0;
+  // ── Group by matched category (pure JS — no IPC inside the loop) ──────────
+  const byCategory = new Map<number, number[]>(); // catId → [txnId, …]
+  let matched = 0;
+
   for (const txn of transactions) {
     const newCatId = applyCategorizationRules(txn.description, rules);
-    // In "uncategorized" mode, only update if a real category was matched
+    // In "uncategorized" mode only apply if a real category was found
     if (mode === "uncategorized" && newCatId === 15) continue;
-    await db.execute(
-      "UPDATE transactions SET category_id=? WHERE id=?",
-      [newCatId, txn.id]
-    );
-    updated++;
+    const bucket = byCategory.get(newCatId) ?? [];
+    bucket.push(txn.id);
+    byCategory.set(newCatId, bucket);
+    matched++;
   }
 
-  return updated;
+  if (matched === 0) {
+    console.debug("[autoCat] No matches — nothing to update");
+    return 0;
+  }
+  console.debug(`[autoCat] ${matched} matched across ${byCategory.size} categories, running updates…`);
+
+  // ── One UPDATE per distinct category, chunked to stay under SQLite's
+  //    variable limit. Each chunk: 1 catId param + up to 500 id params.
+  const CHUNK = 500;
+  for (const [catId, ids] of byCategory.entries()) {
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const chunk = ids.slice(i, i + CHUNK);
+      const placeholders = chunk.map(() => "?").join(",");
+      await db.execute(
+        `UPDATE transactions SET category_id=? WHERE id IN (${placeholders})`,
+        [catId, ...chunk]
+      );
+    }
+  }
+
+  return matched;
 }

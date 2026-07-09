@@ -43,6 +43,7 @@ export default function TransactionsPage() {
   const [rulePrompt, setRulePrompt] = useState<{ txn: Transaction; newCatId: number } | null>(null);
   const [autoCatResult, setAutoCatResult] = useState<{ updated: number; mode: string } | null>(null);
   const [autoCatRunning, setAutoCatRunning] = useState(false);
+  const [autoCatError, setAutoCatError] = useState<string | null>(null);
   const categories = useCategoryStore((s) => s.categories);
   const activeProfile = useProfileStore((s) => s.activeProfile);
   const profileId = activeProfile?.id ?? 1;
@@ -104,10 +105,16 @@ export default function TransactionsPage() {
   const runAutoCategorize = async (mode: "uncategorized" | "all") => {
     setAutoCatRunning(true);
     setAutoCatResult(null);
-    const updated = await reapplyCategorizationRules(profileId, mode);
-    await loadRows();
-    setAutoCatResult({ updated, mode });
-    setAutoCatRunning(false);
+    setAutoCatError(null);
+    try {
+      const updated = await reapplyCategorizationRules(profileId, mode);
+      setAutoCatResult({ updated, mode });
+    } catch (e) {
+      setAutoCatError(String(e));
+    } finally {
+      await loadRows();
+      setAutoCatRunning(false);
+    }
   };
 
   const totalIncome = rows.filter((r) => r.amount_cents > 0)
@@ -258,18 +265,22 @@ export default function TransactionsPage() {
         <CategorizationRulesModal onClose={() => setRulesModalOpen(false)} profileId={profileId} />
       )}
 
-      {/* Auto-categorize result toast */}
-      {autoCatResult && (
-        <div className="fixed bottom-6 right-6 z-50 bg-[hsl(var(--background))] border shadow-xl
-                        rounded-xl px-5 py-3 flex items-center gap-4 text-sm max-w-sm">
+      {/* Auto-categorize result / error toast */}
+      {(autoCatResult || autoCatError) && (
+        <div className={`fixed bottom-6 right-6 z-50 border shadow-xl rounded-xl px-5 py-3
+                        flex items-center gap-4 text-sm max-w-sm
+                        bg-[hsl(var(--background))]
+                        ${autoCatError ? "border-red-500" : ""}`}>
           <span className="flex-1 text-[hsl(var(--foreground))]">
-            {autoCatResult.updated === 0
-              ? "No transactions were updated."
-              : <><strong>{autoCatResult.updated}</strong> transaction{autoCatResult.updated !== 1 ? "s" : ""} categorized.</>
+            {autoCatError
+              ? <span className="text-red-500">Error: {autoCatError}</span>
+              : autoCatResult!.updated === 0
+                ? "No uncategorized transactions matched any rule."
+                : <><strong>{autoCatResult!.updated}</strong> transaction{autoCatResult!.updated !== 1 ? "s" : ""} categorized.</>
             }
           </span>
           <button
-            onClick={() => setAutoCatResult(null)}
+            onClick={() => { setAutoCatResult(null); setAutoCatError(null); }}
             className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] text-lg leading-none"
           >
             ✕
