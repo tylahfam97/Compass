@@ -23,6 +23,23 @@ jobs:
         shell: cmd
 
     steps:
+      - name: Prune stale local refs (self-hosted runner)
+        shell: powershell
+        continue-on-error: true
+        run: |
+          if (Test-Path ".git") {
+            git remote prune origin 2>$null
+            # Remove local branch namespace directories left by deleted namespaced branches
+            # e.g. .git\refs\heads\dev\ (directory) blocks creating branch 'dev' (file)
+            $headsPath = Resolve-Path ".git\refs\heads" -ErrorAction SilentlyContinue
+            if ($headsPath) {
+              Get-ChildItem -Path $headsPath.Path -Directory | ForEach-Object {
+                Write-Host "Removing stale branch namespace: $($_.Name)/"
+                Remove-Item -Recurse -Force $_.FullName
+              }
+            }
+          }
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
