@@ -559,3 +559,54 @@ export function applyCategorizationRules(
   }
   return 15; // Uncategorized
 }
+
+/**
+ * Re-run categorization rules against already-imported transactions.
+ *
+ * @param profileId   Profile whose transactions to process.
+ * @param mode        "uncategorized" — only touch transactions currently
+ *                    assigned to "Uncategorized" (id 15) or NULL.
+ *                    "all" — overwrite every transaction's category.
+ * @returns           Number of transactions whose category was changed.
+ */
+export async function reapplyCategorizationRules(
+  profileId: number,
+  mode: "uncategorized" | "all" = "uncategorized"
+): Promise<number> {
+  const db = await getDb();
+
+  // Fetch rules ordered by priority so the loop mirrors import behaviour
+  const rules = await db.select<CategorizationRule[]>(
+    `SELECT id, pattern, match_type, category_id, priority
+     FROM categorization_rules
+     WHERE profile_id=? OR profile_id IS NULL
+     ORDER BY priority DESC`,
+    [profileId]
+  );
+
+  const whereClause =
+    mode === "uncategorized"
+      ? "AND (t.category_id IS NULL OR t.category_id = 15)"
+      : "";
+
+  const transactions = await db.select<{ id: number; description: string }[]>(
+    `SELECT id, description FROM transactions
+     WHERE profile_id=? ${whereClause}
+     ORDER BY id`,
+    [profileId]
+  );
+
+  let updated = 0;
+  for (const txn of transactions) {
+    const newCatId = applyCategorizationRules(txn.description, rules);
+    // In "uncategorized" mode, only update if a real category was matched
+    if (mode === "uncategorized" && newCatId === 15) continue;
+    await db.execute(
+      "UPDATE transactions SET category_id=? WHERE id=?",
+      [newCatId, txn.id]
+    );
+    updated++;
+  }
+
+  return updated;
+}

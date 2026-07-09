@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "react-router-dom";
-import { getDb } from "@/lib/db";
+import { getDb, reapplyCategorizationRules } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
 import type { Transaction } from "@/lib/types";
@@ -41,6 +41,8 @@ export default function TransactionsPage() {
   const [catModalOpen, setCatModalOpen] = useState(false);
   const [rulesModalOpen, setRulesModalOpen] = useState(false);
   const [rulePrompt, setRulePrompt] = useState<{ txn: Transaction; newCatId: number } | null>(null);
+  const [autoCatResult, setAutoCatResult] = useState<{ updated: number; mode: string } | null>(null);
+  const [autoCatRunning, setAutoCatRunning] = useState(false);
   const categories = useCategoryStore((s) => s.categories);
   const activeProfile = useProfileStore((s) => s.activeProfile);
   const profileId = activeProfile?.id ?? 1;
@@ -99,6 +101,15 @@ export default function TransactionsPage() {
     setRulePrompt(null);
   };
 
+  const runAutoCategorize = async (mode: "uncategorized" | "all") => {
+    setAutoCatRunning(true);
+    setAutoCatResult(null);
+    const updated = await reapplyCategorizationRules(profileId, mode);
+    await loadRows();
+    setAutoCatResult({ updated, mode });
+    setAutoCatRunning(false);
+  };
+
   const totalIncome = rows.filter((r) => r.amount_cents > 0)
     .reduce((s, r) => s + r.amount_cents, 0);
   const totalExpenses = rows.filter((r) => r.amount_cents < 0)
@@ -108,6 +119,15 @@ export default function TransactionsPage() {
     <div className="p-6 flex flex-col h-full">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-semibold">Transactions</h1>
+        <button
+          onClick={() => runAutoCategorize("uncategorized")}
+          disabled={autoCatRunning}
+          title="Re-run rules on uncategorized transactions only"
+          className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
+                     transition-colors disabled:opacity-50"
+        >
+          {autoCatRunning ? "Running…" : "✦ Auto-Categorize"}
+        </button>
         <button
           onClick={() => setCatModalOpen(true)}
           className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
@@ -236,6 +256,25 @@ export default function TransactionsPage() {
 
       {rulesModalOpen && (
         <CategorizationRulesModal onClose={() => setRulesModalOpen(false)} profileId={profileId} />
+      )}
+
+      {/* Auto-categorize result toast */}
+      {autoCatResult && (
+        <div className="fixed bottom-6 right-6 z-50 bg-[hsl(var(--background))] border shadow-xl
+                        rounded-xl px-5 py-3 flex items-center gap-4 text-sm max-w-sm">
+          <span className="flex-1 text-[hsl(var(--foreground))]">
+            {autoCatResult.updated === 0
+              ? "No transactions were updated."
+              : <><strong>{autoCatResult.updated}</strong> transaction{autoCatResult.updated !== 1 ? "s" : ""} categorized.</>
+            }
+          </span>
+          <button
+            onClick={() => setAutoCatResult(null)}
+            className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] text-lg leading-none"
+          >
+            ✕
+          </button>
+        </div>
       )}
 
       {/* "Create rule?" toast after manual recategorize */}
