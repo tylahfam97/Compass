@@ -279,7 +279,12 @@ export default function ProfileSwitcher() {
                        overflow-y-scroll flex flex-col"
           >
             <div className="px-5 py-4 border-b flex items-center justify-between">
-              <h2 className="font-semibold">Profiles</h2>
+              <div>
+                <h2 className="font-semibold">Profiles</h2>
+                <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">
+                  Track spending per person or account separately
+                </p>
+              </div>
               <button
                 onClick={() => setOpen(false)}
                 className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]

@@ -66,6 +66,12 @@ function changePct(now: number, prev: number): number {
 
 export default function ReportsPage() {
   const [month, setMonth] = useAutoMonth();
+  const [rangeMode, setRangeMode] = useState<"month" | "custom">("month");
+  const [customStart, setCustomStart] = useState(() => {
+    const d = new Date(); d.setMonth(d.getMonth() - 2); d.setDate(1);
+    return d.toISOString().split("T")[0];
+  });
+  const [customEnd, setCustomEnd] = useState(() => new Date().toISOString().split("T")[0]);
   const [loading, setLoading] = useState(true);
   const activeProfile = useProfileStore((s) => s.activeProfile);
   const profileId = activeProfile?.id ?? 1;
@@ -78,6 +84,40 @@ export default function ReportsPage() {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [balanceTrend, setBalanceTrend] = useState<BalanceTrendPoint[]>([]);
 
+  // Compute effective [start, end) for all queries
+  const effectiveRange = (): [string, string] => {
+    if (rangeMode === "month") return monthBounds(month);
+    // end is exclusive: advance customEnd by one day
+    const e = new Date(customEnd);
+    e.setDate(e.getDate() + 1);
+    return [customStart, e.toISOString().split("T")[0]];
+  };
+
+  const applyPreset = (preset: "thisQ" | "lastQ" | "ytd" | "12m") => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth(); // 0-indexed
+    let s: Date, e: Date;
+    if (preset === "thisQ") {
+      const qStart = Math.floor(m / 3) * 3;
+      s = new Date(y, qStart, 1);
+      e = now;
+    } else if (preset === "lastQ") {
+      const qStart = Math.floor(m / 3) * 3;
+      s = new Date(y, qStart - 3, 1);
+      e = new Date(y, qStart, 0);
+    } else if (preset === "ytd") {
+      s = new Date(y, 0, 1);
+      e = now;
+    } else {
+      s = new Date(y, m - 11, 1);
+      e = now;
+    }
+    setCustomStart(s.toISOString().split("T")[0]);
+    setCustomEnd(e.toISOString().split("T")[0]);
+    setRangeMode("custom");
+  };
+
   const navMonth = (dir: -1 | 1) => {
     const [y, m] = month.split("-").map(Number);
     const d = new Date(y, m - 1 + dir, 1);
@@ -89,14 +129,18 @@ export default function ReportsPage() {
     async function load() {
       setLoading(true);
       const db = await getDb();
-      const [start, end] = monthBounds(month);
-      const [prevStart, prevEnd] = monthBounds(prevYM(month));
+      const [start, end] = effectiveRange();
+      const [prevStart, prevEnd] = rangeMode === "month"
+        ? monthBounds(prevYM(month))
+        : [start, start]; // custom mode: no "prev" comparison (same range = 0% change)
 
-      // Start date for 6-month totals
-      const d6 = new Date();
-      d6.setMonth(d6.getMonth() - 5);
-      d6.setDate(1);
-      const sixMonthsAgo = d6.toISOString().split("T")[0];
+      // Start date for totals chart — use selected range
+      const chartStart = rangeMode === "custom" ? customStart : (() => {
+        const d6 = new Date();
+        d6.setMonth(d6.getMonth() - 5);
+        d6.setDate(1);
+        return d6.toISOString().split("T")[0];
+      })();
 
       const [thisMonthCats, prevMonthCats, totals, top, rec, subs, balTrend] = await Promise.all([
         db.select<CatRow[]>(
@@ -121,8 +165,8 @@ export default function ReportsPage() {
           `SELECT strftime('%Y-%m', date) as month,
                   SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income_cents,
                   SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as expense_cents
-           FROM transactions WHERE date>=? AND profile_id=? GROUP BY month ORDER BY month`,
-          [sixMonthsAgo, profileId]
+           FROM transactions WHERE date>=? AND date<? AND profile_id=? GROUP BY month ORDER BY month`,
+          [chartStart, end, profileId]
         ),
         db.select<Transaction[]>(
           `SELECT t.*, c.name as category_name, c.color as category_color
@@ -184,27 +228,59 @@ export default function ReportsPage() {
     }
     load().catch(console.error);
     return () => { cancelled = true; };
-  }, [month, profileId]);
+  }, [month, rangeMode, customStart, customEnd, profileId]);
 
   const prevMap = new Map(catPrev.map((r) => [r.category_name, r.total_cents]));
   const hasData = catThis.length > 0 || topExpenses.length > 0;
 
   return (
     <div className="p-6 space-y-8 max-w-3xl mx-auto w-full">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Reports</h1>
-        <div className="flex items-center gap-1">
-          <button onClick={() => navMonth(-1)} aria-label="Previous month"
-            className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors">
-            ‹
-          </button>
-          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)}
-            className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]" />
-          <button onClick={() => navMonth(1)} aria-label="Next month"
-            className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors">
-            ›
-          </button>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-semibold">Reports</h1>
+          {/* Mode toggle */}
+          <div className="flex rounded-lg border overflow-hidden text-sm">
+            <button
+              onClick={() => setRangeMode("month")}
+              className={`px-3 py-1.5 transition-colors ${rangeMode === "month" ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]" : "hover:bg-[hsl(var(--muted))]"}`}
+            >Month</button>
+            <button
+              onClick={() => setRangeMode("custom")}
+              className={`px-3 py-1.5 border-l transition-colors ${rangeMode === "custom" ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]" : "hover:bg-[hsl(var(--muted))]"}`}
+            >Custom</button>
+          </div>
         </div>
+
+        {rangeMode === "month" && (
+          <div className="flex items-center gap-1 justify-end">
+            <button onClick={() => navMonth(-1)} aria-label="Previous month"
+              className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors">‹</button>
+            <input type="month" value={month} onChange={(e) => setMonth(e.target.value)}
+              className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]" />
+            <button onClick={() => navMonth(1)} aria-label="Next month"
+              className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors">›</button>
+          </div>
+        )}
+
+        {rangeMode === "custom" && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)}
+                className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]" />
+              <span className="text-[hsl(var(--muted-foreground))] text-sm">to</span>
+              <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)}
+                className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]" />
+            </div>
+            <div className="flex gap-2 flex-wrap text-xs">
+              {([["thisQ","This quarter"],["lastQ","Last quarter"],["ytd","Year to date"],["12m","Last 12 months"]] as const).map(([k,l]) => (
+                <button key={k} onClick={() => applyPreset(k)}
+                  className="px-2.5 py-1 border rounded-md hover:bg-[hsl(var(--muted))] transition-colors">
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {loading && <p className="text-[hsl(var(--muted-foreground))]">Loading…</p>}
@@ -225,9 +301,9 @@ export default function ReportsPage() {
                 <thead>
                   <tr className="bg-[hsl(var(--muted))] border-b text-left">
                     <th className="px-4 py-2.5 font-medium">Category</th>
-                    <th className="px-4 py-2.5 font-medium text-right">This Month</th>
-                    <th className="px-4 py-2.5 font-medium text-right">Last Month</th>
-                    <th className="px-4 py-2.5 font-medium text-right">Change</th>
+                    <th className="px-4 py-2.5 font-medium text-right">{rangeMode === "custom" ? "Selected Period" : "This Month"}</th>
+                    <th className="px-4 py-2.5 font-medium text-right">{rangeMode === "custom" ? "" : "Last Month"}</th>
+                    <th className="px-4 py-2.5 font-medium text-right">{rangeMode === "custom" ? "" : "Change"}</th>
                   </tr>
                 </thead>
                 <tbody>

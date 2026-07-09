@@ -1,8 +1,39 @@
 # @tylahfam97 
 
-Hello Discord, @here !
+Hello!
 
-## Compass 0.3.80 — Smart Categorization
+## Compass 0.4.0 - Data Ownership Update
+
+This release brings full control over your transaction data: edit, add, and delete transactions directly in the app, undo entire imports, and export anything to CSV. The UI has also been sharpened throughout.
+
+### Edit, Add and Delete Transactions
+- Click the **pencil icon** (or **note icon** if notes exist) on any transaction row to edit date, description, amount, category, and notes
+- **+ Add** button creates manual transactions (cash purchases, Venmo/Zelle payments, anything not in a bank export)
+- **Delete** individual transactions with a single confirm
+- Manual entries use a unique internal ID so they never conflict with imported rows
+
+### Import History and Undo
+- Every CSV import is now recorded with filename, date, and row count
+- **Undo** any import with one click - removes all linked transactions instantly
+- Importing a duplicate file now shows a clear "Already imported" message instead of the confusing "0 imported, N skipped"
+
+### CSV Export
+- **Export** button on the Transactions page downloads the current filtered view (respects month, all-time, and search filters) as a CSV with Date, Description, Category, Amount, Balance, and Notes columns
+
+### Reports: Custom Date Ranges
+- Toggle between **Month** and **Custom** range modes in Reports
+- Custom mode supports free date range selection plus quick presets: **This quarter**, **Last quarter**, **Year to date**, **Last 12 months**
+
+### Budget On-Pace Projection
+- Each budget card now shows **On pace for $X by month-end** so you can see projected overspend before it happens, not after
+- Shown in amber when approaching the limit, red when already over
+
+### Insights (formerly Agent)
+- Navigation label renamed to **Insights** for clarity
+- A dot badge appears on the sidebar when there are active warnings
+
+### Profiles tooltip
+- The Profiles panel now explains what profiles are for: "Track spending per person or account separately"
 
 ### Auto-Categorization
 - **100+ new rules** covering the most common real-world merchants: Amazon, Walmart, Instacart, Apple, Racetrac, QT, CVS, Walgreens, Waffle House, DashPass, Progressive, and many more
