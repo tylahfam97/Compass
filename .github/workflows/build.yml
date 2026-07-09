@@ -23,6 +23,11 @@ jobs:
         shell: cmd
 
     steps:
+      - name: Prune stale remote refs (self-hosted runner)
+        shell: powershell
+        continue-on-error: true
+        run: if (Test-Path ".git") { git remote prune origin }
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
