@@ -46,10 +46,15 @@
     ],
     "windows": {
       "nsis": {
-        "installMode": "perMachine"
+        "installMode": "perMachine",
+        "installerIcon": "icons/icon.ico",
+        "headerImage": "icons/installer-header.bmp",
+        "sidebarImage": "icons/installer-sidebar.bmp"
       },
       "wix": {
-        "upgradeCode": "6c5b4a3d-2e1f-4a9b-9c7d-6e5f4a3b2c1d"
+        "upgradeCode": "6c5b4a3d-2e1f-4a9b-9c7d-6e5f4a3b2c1d",
+        "bannerPath": "icons/installer-wix-banner.bmp",
+        "dialogImagePath": "icons/installer-wix-dialog.bmp"
       }
     }
   }
