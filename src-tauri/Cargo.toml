@@ -1,6 +1,6 @@
 [package]
 name = "compass"
-version = "0.3.81"
+version = "0.4.0"
 description = "Compass – Personal Finance Companion"
 authors = ["Tyler Fameli"]
 edition = "2021"

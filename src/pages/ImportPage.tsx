@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useMemo } from "react";
 import Papa from "papaparse";
 import { useNavigate } from "react-router-dom";
 import { getDb, getOrCreateAccountForProfile, applyCategorizationRules } from "@/lib/db";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import type { CategorizationRule } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
 
@@ -24,6 +24,14 @@ interface ParsedData {
 interface Summary {
   imported: number;
   skipped: number;
+}
+
+interface ImportSession {
+  id: number;
+  filename: string;
+  imported_at: string;
+  row_count: number;
+  skipped_count: number;
 }
 
 const FIELDS = [
@@ -160,11 +168,14 @@ export default function ImportPage() {
   const [rawData, setRawData] = useState<string[][] | null>(null);
   const [skipRows, setSkipRows] = useState(0);
   const [parsed, setParsed] = useState<ParsedData | null>(null);
+  const [currentFilename, setCurrentFilename] = useState("");
   const [colMap, setColMap] = useState<ColMap>({ dateCol: 0, descCol: 1, amountCol: 2, typeCol: -1, balanceCol: -1 });
   const [profileFound, setProfileFound] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [targetMonth, setTargetMonth] = useState(currentYM);
+  const [importHistory, setImportHistory] = useState<ImportSession[]>([]);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
   // Auto-detect the dominant month whenever the parsed data or date column changes
   const detectedMonth = useMemo(
@@ -175,9 +186,31 @@ export default function ImportPage() {
     if (detectedMonth) setTargetMonth(detectedMonth);
   }, [detectedMonth]);
 
+  const loadHistory = useCallback(async () => {
+    const db = await getDb();
+    const rows = await db.select<ImportSession[]>(
+      `SELECT id, filename, imported_at, row_count, skipped_count
+       FROM import_sessions WHERE profile_id=?
+       ORDER BY imported_at DESC LIMIT 15`,
+      [profileId]
+    );
+    setImportHistory(rows);
+  }, [profileId]);
+
+  useEffect(() => { loadHistory().catch(console.error); }, [loadHistory]);
+
+  const undoImport = async (sessionId: number) => {
+    const db = await getDb();
+    await db.execute("DELETE FROM transactions WHERE import_session_id=?", [sessionId]);
+    await db.execute("DELETE FROM import_sessions WHERE id=?", [sessionId]);
+    setConfirmDeleteId(null);
+    await loadHistory();
+  };
+
   const processFile = useCallback((file: File) => {
     setError(null);
     setStep("checking");
+    setCurrentFilename(file.name);
     Papa.parse<string[]>(file, {
       skipEmptyLines: true,
       complete: (result) => {
@@ -275,6 +308,13 @@ export default function ImportPage() {
         [profileId]
       );
 
+      // Create an import session record before the loop so we have an ID to reference
+      const sessionResult = await db.execute(
+        "INSERT INTO import_sessions (filename, row_count, skipped_count, profile_id) VALUES (?, 0, 0, ?)",
+        [currentFilename, profileId]
+      );
+      const sessionId = sessionResult.lastInsertId as number;
+
       let imported = 0;
       let skipped = 0;
 
@@ -304,14 +344,27 @@ export default function ImportPage() {
         try {
           await db.execute(
             `INSERT INTO transactions
-               (account_id, date, amount_cents, description, category_id, import_hash, balance_cents, profile_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [accountId, date, amountCents, description, categoryId, hash, balanceCents, profileId]
+               (account_id, date, amount_cents, description, category_id, import_hash,
+                balance_cents, profile_id, import_session_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [accountId, date, amountCents, description, categoryId, hash,
+             balanceCents, profileId, sessionId]
           );
           imported++;
         } catch {
           skipped++;
         }
+      }
+
+      if (imported === 0) {
+        // Nothing new — remove the empty session record
+        await db.execute("DELETE FROM import_sessions WHERE id=?", [sessionId]);
+      } else {
+        // Update session with actual counts
+        await db.execute(
+          "UPDATE import_sessions SET row_count=?, skipped_count=? WHERE id=?",
+          [imported, skipped, sessionId]
+        );
       }
 
       // Save / update the column profile for next time
@@ -329,6 +382,7 @@ export default function ImportPage() {
       );
 
       setSummary({ imported, skipped });
+      await loadHistory();
       setStep("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -341,10 +395,12 @@ export default function ImportPage() {
     setRawData(null);
     setSkipRows(0);
     setParsed(null);
+    setCurrentFilename("");
     setSummary(null);
     setError(null);
     setProfileFound(false);
     setTargetMonth(currentYM());
+    setConfirmDeleteId(null);
   };
 
   return (
@@ -648,27 +704,42 @@ export default function ImportPage() {
 
       {/* ── DONE ── */}
       {step === "done" && summary && (
-        <div className="text-center py-16">
-          <div className="text-5xl mb-4">✅</div>
-          <p className="text-xl font-semibold mb-2">Import complete!</p>
-          <p className="text-[hsl(var(--muted-foreground))] mb-6">
-            <span className="text-green-600 font-semibold">{summary.imported} transactions</span>{" "}
-            imported
-            {summary.skipped > 0 && `, ${summary.skipped} duplicates skipped`}.
-            {!profileFound && (
-              <span className="block text-xs mt-1">
-                Column layout saved — this bank's CSV will be recognized automatically next time.
-              </span>
-            )}
-          </p>
+        <div className="text-center py-12">
+          {summary.imported === 0 ? (
+            <>
+              <div className="text-5xl mb-4">ℹ️</div>
+              <p className="text-xl font-semibold mb-2">Already imported</p>
+              <p className="text-[hsl(var(--muted-foreground))] mb-6">
+                All {summary.skipped} rows from <strong>{currentFilename}</strong> already exist
+                — this file has been imported before.
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="text-5xl mb-4">✅</div>
+              <p className="text-xl font-semibold mb-2">Import complete!</p>
+              <p className="text-[hsl(var(--muted-foreground))] mb-6">
+                <span className="text-green-600 font-semibold">{summary.imported} transactions</span>{" "}
+                imported
+                {summary.skipped > 0 && `, ${summary.skipped} duplicates skipped`}.
+                {!profileFound && (
+                  <span className="block text-xs mt-1">
+                    Column layout saved — this bank's CSV will be recognized automatically next time.
+                  </span>
+                )}
+              </p>
+            </>
+          )}
           <div className="flex gap-3 justify-center">
-            <button
-              onClick={() => navigate("/transactions", { state: { month: targetMonth } })}
-              className="px-6 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
-                         rounded-lg font-medium"
-            >
-              View Transactions
-            </button>
+            {summary.imported > 0 && (
+              <button
+                onClick={() => navigate("/transactions", { state: { month: targetMonth } })}
+                className="px-6 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
+                           rounded-lg font-medium"
+              >
+                View Transactions
+              </button>
+            )}
             <button
               onClick={reset}
               className="px-6 py-2 border rounded-lg font-medium hover:bg-[hsl(var(--muted))]
@@ -676,6 +747,70 @@ export default function ImportPage() {
             >
               Import Another
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── IMPORT HISTORY ── */}
+      {importHistory.length > 0 && (step === "upload" || step === "done") && (
+        <div className="mt-8">
+          <h2 className="text-base font-semibold mb-3 flex items-center gap-2">
+            Import History
+            <span className="text-xs font-normal text-[hsl(var(--muted-foreground))]">
+              — undo removes all transactions from that import
+            </span>
+          </h2>
+          <div className="border rounded-xl overflow-hidden text-sm">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-[hsl(var(--muted))] border-b text-left">
+                  <th className="px-4 py-2 font-medium">File</th>
+                  <th className="px-4 py-2 font-medium">Date</th>
+                  <th className="px-4 py-2 font-medium text-right">Rows</th>
+                  <th className="px-4 py-2 w-24" />
+                </tr>
+              </thead>
+              <tbody>
+                {importHistory.map((s) => (
+                  <tr key={s.id} className="border-b last:border-0 hover:bg-[hsl(var(--muted)/0.5)]">
+                    <td className="px-4 py-2 font-mono text-xs max-w-[200px] truncate" title={s.filename}>
+                      {s.filename}
+                    </td>
+                    <td className="px-4 py-2 text-[hsl(var(--muted-foreground))] whitespace-nowrap">
+                      {formatDate(s.imported_at.split("T")[0])}
+                    </td>
+                    <td className="px-4 py-2 text-right">{s.row_count}</td>
+                    <td className="px-4 py-2 text-right">
+                      {confirmDeleteId === s.id ? (
+                        <span className="flex items-center justify-end gap-2 text-xs">
+                          <button
+                            onClick={() => undoImport(s.id)}
+                            className="text-red-500 font-medium hover:underline"
+                          >
+                            Delete {s.row_count} rows
+                          </button>
+                          <span className="text-[hsl(var(--muted-foreground))]">/</span>
+                          <button
+                            onClick={() => setConfirmDeleteId(null)}
+                            className="hover:underline"
+                          >
+                            Cancel
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmDeleteId(s.id)}
+                          className="text-xs text-[hsl(var(--muted-foreground))] hover:text-red-500
+                                     transition-colors"
+                        >
+                          Undo
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
