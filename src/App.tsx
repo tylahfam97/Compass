@@ -234,7 +234,7 @@ function App() {
               </button>
               {appVersion && (
                 <p className="text-center text-[10px] text-[hsl(var(--muted-foreground))] opacity-50">
-                  v{appVersion} beta
+                  v{appVersion}
                 </p>
               )}
             </div>
