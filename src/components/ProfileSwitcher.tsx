@@ -224,6 +224,7 @@ export default function ProfileSwitcher() {
     const db = await getDb();
     // Cascade delete profile data
     await db.execute("DELETE FROM transactions WHERE profile_id=?", [id]);
+    await db.execute("DELETE FROM import_sessions WHERE profile_id=?", [id]);
     await db.execute("DELETE FROM budgets WHERE profile_id=?", [id]);
     await db.execute("DELETE FROM goals WHERE profile_id=?", [id]);
     await db.execute("DELETE FROM accounts WHERE profile_id=?", [id]);
