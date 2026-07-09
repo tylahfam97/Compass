@@ -168,8 +168,12 @@ if ($appriseDiscordUrl) {
     $releasePageUrl = "https://github.com/" + $repo + "/releases/tag/" + $tagName
     $baseDownload   = "https://github.com/" + $repo + "/releases/download/" + $tagName
 
-    $notifyBody  = "Compass $tagName is now available for Windows.`n`n"
-    $notifyBody += "Release notes: " + $releasePageUrl
+    $releaseNoteText = if (Test-Path "RELEASE_NOTES.md") {
+        "`n`n" + [IO.File]::ReadAllText((Resolve-Path "RELEASE_NOTES.md").Path).Trim()
+    } else { "" }
+
+    $notifyBody  = "@here - Compass $tagName is now available for Windows.$releaseNoteText`n`n"
+    $notifyBody += "Release page: " + $releasePageUrl
     if ($msi) { $notifyBody += "`nMSI installer: " + $baseDownload + "/" + $msi.Name }
     if ($exe) { $notifyBody += "`nEXE installer: " + $baseDownload + "/" + $exe.Name }
 
