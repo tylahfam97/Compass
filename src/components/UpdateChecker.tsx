@@ -1,18 +1,39 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+
+interface Props {
+  /** When true, silently checks for updates on mount and prompts via modal if one is found. */
+  autoCheck?: boolean;
+}
 
 type State =
   | { phase: "idle" }
   | { phase: "checking" }
   | { phase: "up-to-date" }
   | { phase: "available"; update: Update }
+  | { phase: "prompt"; update: Update }       // auto-check found an update — shows modal
   | { phase: "downloading"; percent: number }
   | { phase: "restart" }
   | { phase: "error"; message: string };
 
-export default function UpdateChecker() {
+export default function UpdateChecker({ autoCheck = false }: Props) {
   const [state, setState] = useState<State>({ phase: "idle" });
+
+  // Silent background check on launch — never changes the sidebar UI on failure
+  // or when already up-to-date, so it's invisible unless an update is found.
+  useEffect(() => {
+    if (!autoCheck) return;
+    const timer = setTimeout(async () => {
+      try {
+        const update = await check();
+        if (update) setState({ phase: "prompt", update });
+      } catch {
+        // Silently swallow — user can still check manually from the sidebar.
+      }
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleCheck() {
     setState({ phase: "checking" });
@@ -57,6 +78,43 @@ export default function UpdateChecker() {
   const normal = `${base} hover:bg-[hsl(var(--border))]`;
   const muted = "text-[hsl(var(--muted-foreground))]";
 
+  // ── Auto-check modal prompt ──────────────────────────────────────────────
+  if (state.phase === "prompt") {
+    const { update } = state;
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="bg-[hsl(var(--background))] border rounded-xl p-6 w-80 shadow-xl space-y-4">
+          <div>
+            <p className="font-semibold text-sm">Update available</p>
+            <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
+              Compass v{update.version} is ready to install.
+            </p>
+            {update.body && (
+              <p className="text-xs text-[hsl(var(--muted-foreground))] mt-3 border-t pt-3 max-h-32 overflow-y-auto whitespace-pre-wrap">
+                {update.body}
+              </p>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => handleInstall(update)}
+              className="flex-1 px-3 py-2 text-xs font-medium bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg hover:opacity-90 transition-opacity"
+            >
+              Install now
+            </button>
+            <button
+              onClick={() => setState({ phase: "idle" })}
+              className="flex-1 px-3 py-2 text-xs border rounded-lg hover:bg-[hsl(var(--muted))] transition-colors"
+            >
+              Later
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Sidebar states ───────────────────────────────────────────────────────
   if (state.phase === "idle") {
     return (
       <button onClick={handleCheck} className={normal}>
@@ -128,3 +186,4 @@ export default function UpdateChecker() {
     </div>
   );
 }
+
