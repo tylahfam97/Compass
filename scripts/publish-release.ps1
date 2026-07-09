@@ -169,13 +169,22 @@ if ($appriseDiscordUrl) {
     $baseDownload   = "https://github.com/" + $repo + "/releases/download/" + $tagName
 
     $releaseNoteText = if (Test-Path "RELEASE_NOTES.md") {
-        "`n`n" + [IO.File]::ReadAllText((Resolve-Path "RELEASE_NOTES.md").Path).Trim()
+        $raw = [IO.File]::ReadAllText((Resolve-Path "RELEASE_NOTES.md").Path).Trim()
+        # Strip markdown that Discord embeds can't render: tables (|) and rule separators (--)
+        # Also strip ## heading markers, keeping the text
+        $stripped = ($raw -split "`n" |
+            Where-Object { $_ -notmatch '^\s*\|' -and $_ -notmatch '^\s*---' } |
+            ForEach-Object { ($_ -replace '^#+\s*', '').TrimEnd() }) -join "`n"
+        # Trim consecutive blank lines and cap at 900 chars
+        $stripped = ($stripped -replace '(\r?\n){3,}', "`n`n").Trim()
+        if ($stripped.Length -gt 900) { $stripped.Substring(0, 897) + "…" } else { $stripped }
     } else { "" }
 
-    $notifyBody  = "@here - Compass $tagName is now available for Windows.$releaseNoteText`n`n"
-    $notifyBody += "Release page: " + $releasePageUrl
-    if ($msi) { $notifyBody += "`nMSI installer: " + $baseDownload + "/" + $msi.Name }
-    if ($exe) { $notifyBody += "`nEXE installer: " + $baseDownload + "/" + $exe.Name }
+    $notifyBody  = "Compass $tagName is now available for Windows."
+    if ($releaseNoteText) { $notifyBody += "`n`n" + $releaseNoteText }
+    $notifyBody += "`n`nRelease page: " + $releasePageUrl
+    if ($msi) { $notifyBody += "`nMSI: " + $baseDownload + "/" + $msi.Name }
+    if ($exe) { $notifyBody += "`nEXE: " + $baseDownload + "/" + $exe.Name }
 
     $notifyPayload = @{
         urls  = $appriseDiscordUrl
