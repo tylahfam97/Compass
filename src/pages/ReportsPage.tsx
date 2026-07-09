@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  BarChart, Bar, Cell,
 } from "recharts";
 import { getDb } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
