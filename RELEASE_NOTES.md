@@ -1,6 +1,6 @@
 # Hello, @here !
 
-## Compass 0.3.8 — Smart Categorization
+## Compass 0.3.80 — Smart Categorization
 
 ### Auto-Categorization
 - **100+ new rules** covering the most common real-world merchants: Amazon, Walmart, Instacart, Apple, Racetrac, QT, CVS, Walgreens, Waffle House, DashPass, Progressive, and many more
