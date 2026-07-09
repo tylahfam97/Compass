@@ -8,6 +8,7 @@ import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
 import CategoryModal from "@/components/CategoryModal";
 import CategorizationRulesModal from "@/components/CategorizationRulesModal";
+import EditTransactionModal from "@/components/EditTransactionModal";
 
 const MAX_ROWS = 500;
 
@@ -44,6 +45,8 @@ export default function TransactionsPage() {
   const [autoCatResult, setAutoCatResult] = useState<{ updated: number; mode: string } | null>(null);
   const [autoCatRunning, setAutoCatRunning] = useState(false);
   const [autoCatError, setAutoCatError] = useState<string | null>(null);
+  const [editTxn, setEditTxn] = useState<Transaction | null>(null);
+  const [addingTxn, setAddingTxn] = useState(false);
   const categories = useCategoryStore((s) => s.categories);
   const activeProfile = useProfileStore((s) => s.activeProfile);
   const profileId = activeProfile?.id ?? 1;
@@ -102,6 +105,47 @@ export default function TransactionsPage() {
     setRulePrompt(null);
   };
 
+  const exportCsv = async () => {
+    const db = await getDb();
+    const hasSearch = search.trim().length > 0;
+    let params: unknown[];
+    let dateWhere = "";
+    if (!allTime) {
+      const [start, end] = monthBounds(month);
+      dateWhere = "AND t.date>=? AND t.date<? ";
+      params = hasSearch ? [profileId, start, end, `%${search.toUpperCase()}%`] : [profileId, start, end];
+    } else {
+      params = hasSearch ? [profileId, `%${search.toUpperCase()}%`] : [profileId];
+    }
+    const searchWhere = hasSearch ? "AND UPPER(t.description) LIKE ?" : "";
+    const data = await db.select<Transaction[]>(
+      `SELECT t.*, c.name as category_name
+       FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
+       WHERE t.profile_id=? ${dateWhere}${searchWhere}
+       ORDER BY t.date DESC, t.id DESC`,
+      params
+    );
+    const header = "Date,Description,Category,Amount,Balance,Notes";
+    const lines = data.map((r) =>
+      [
+        r.date,
+        `"${(r.description ?? "").replace(/"/g, '""')}"`,
+        `"${(r.category_name ?? "Uncategorized").replace(/"/g, '""')}"`,
+        (r.amount_cents / 100).toFixed(2),
+        r.balance_cents != null ? (r.balance_cents / 100).toFixed(2) : "",
+        `"${(r.notes ?? "").replace(/"/g, '""')}"`,
+      ].join(",")
+    );
+    const csv = [header, ...lines].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `compass-${allTime ? "all-time" : month}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const runAutoCategorize = async (mode: "uncategorized" | "all") => {
     setAutoCatRunning(true);
     setAutoCatResult(null);
@@ -126,6 +170,21 @@ export default function TransactionsPage() {
     <div className="p-6 flex flex-col h-full">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-semibold">Transactions</h1>
+        <button
+          onClick={exportCsv}
+          title="Export current view as CSV"
+          className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
+                     transition-colors"
+        >
+          ↓ Export
+        </button>
+        <button
+          onClick={() => setAddingTxn(true)}
+          className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
+                     transition-colors"
+        >
+          ＋ Add
+        </button>
         <button
           onClick={() => runAutoCategorize("uncategorized")}
           disabled={autoCatRunning}
@@ -209,6 +268,7 @@ export default function TransactionsPage() {
                 <th className="px-4 py-3 font-medium">Category</th>
                 <th className="px-4 py-3 font-medium text-right w-32">Amount</th>
                 <th className="px-4 py-3 font-medium text-right w-32">Balance</th>
+                <th className="px-4 py-3 w-10" />
               </tr>
             </thead>
             <tbody>
@@ -250,6 +310,15 @@ export default function TransactionsPage() {
                   <td className="px-4 py-3 text-right font-mono text-[hsl(var(--muted-foreground))]">
                     {t.balance_cents != null ? formatCurrency(t.balance_cents) : "—"}
                   </td>
+                  <td className="px-2 py-3 text-center">
+                    <button
+                      onClick={() => setEditTxn(t)}
+                      title={t.notes ? `Note: ${t.notes}` : "Edit transaction"}
+                      className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors text-sm"
+                    >
+                      {t.notes ? "📝" : "✏️"}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -263,6 +332,23 @@ export default function TransactionsPage() {
 
       {rulesModalOpen && (
         <CategorizationRulesModal onClose={() => setRulesModalOpen(false)} profileId={profileId} />
+      )}
+
+      {editTxn && (
+        <EditTransactionModal
+          transaction={editTxn}
+          onClose={() => setEditTxn(null)}
+          onSaved={() => loadRows()}
+          profileId={profileId}
+        />
+      )}
+
+      {addingTxn && (
+        <EditTransactionModal
+          onClose={() => setAddingTxn(false)}
+          onSaved={() => loadRows()}
+          profileId={profileId}
+        />
       )}
 
       {/* Auto-categorize result / error toast */}

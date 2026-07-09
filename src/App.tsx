@@ -15,19 +15,20 @@ import UpdateChecker from "@/components/UpdateChecker";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useProfileStore, getSavedProfileId } from "@/stores/profileStore";
 import { getDb } from "@/lib/db";
+import { generateInsights } from "@/lib/agent";
 import type { Category, Profile } from "@/lib/types";
 import "./index.css";
 
 const NAV_ITEMS = [
-  { to: "/overview", label: "Overview" },
-  { to: "/", label: "Dashboard" },
+  { to: "/overview",      label: "Overview" },
+  { to: "/",             label: "Dashboard" },
   { to: "/transactions", label: "Transactions" },
-  { to: "/import", label: "Import" },
-  { to: "/trends", label: "Trends" },
-  { to: "/budgets", label: "Budgets" },
-  { to: "/goals", label: "Goals" },
-  { to: "/reports", label: "Reports" },
-  { to: "/agent", label: "Agent" },
+  { to: "/import",       label: "Import" },
+  { to: "/trends",       label: "Trends" },
+  { to: "/budgets",      label: "Budgets" },
+  { to: "/goals",        label: "Goals" },
+  { to: "/reports",      label: "Reports" },
+  { to: "/agent",        label: "Insights", showBadge: true },
 ];
 
 function App() {
@@ -36,6 +37,7 @@ function App() {
   );
   const setCategories = useCategoryStore((s) => s.setCategories);
   const { setProfiles, setActiveProfile } = useProfileStore();
+  const [insightWarnings, setInsightWarnings] = useState(0);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
@@ -59,6 +61,10 @@ function App() {
           [active.id]
         );
         setCategories(cats);
+        // Load insight badge count
+        generateInsights(active.id)
+          .then((ins) => setInsightWarnings(ins.filter((i) => i.severity === "warning").length))
+          .catch(() => {});
       }
     })().catch(console.error);
   }, [setProfiles, setActiveProfile, setCategories]);
@@ -75,13 +81,13 @@ function App() {
             <img src={logoUrl} alt="Compass" className="h-9 w-auto" />
           </div>
           <nav className="flex-1 py-4 space-y-1 px-3">
-            {NAV_ITEMS.map(({ to, label }) => (
+            {NAV_ITEMS.map(({ to, label, showBadge }) => (
               <NavLink
                 key={to}
                 to={to}
                 end={to === "/"}
                 className={({ isActive }) =>
-                  `block px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  `flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                     isActive
                       ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
                       : "hover:bg-[hsl(var(--border))] text-[hsl(var(--foreground))]"
@@ -89,6 +95,9 @@ function App() {
                 }
               >
                 {label}
+                {showBadge && insightWarnings > 0 && (
+                  <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+                )}
               </NavLink>
             ))}
           </nav>

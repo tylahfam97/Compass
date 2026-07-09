@@ -311,7 +311,7 @@ export default function BudgetsPage() {
               />
             </div>
 
-            <div className="flex justify-between text-sm mb-3">
+            <div className="flex justify-between text-sm mb-1">
               <span className={over ? "text-red-500 font-medium" : under ? "text-orange-500 font-medium" : "text-[hsl(var(--muted-foreground))]"}>
                 {formatCurrency(displayCents)} {displayLabel}
                 {over && " — over budget"}
@@ -321,6 +321,18 @@ export default function BudgetsPage() {
                 {isIncome ? "Target:" : "Limit:"} {formatCurrency(b.amount_cents)} · {pct}%
               </span>
             </div>
+
+            {/* On-pace projection — shown for expense budgets when we have elapsed days */}
+            {!isIncome && elapsed > 0 && projectedEnd > 0 && (
+              <p className={`text-xs mb-3 ${
+                projectedOver
+                  ? over ? "text-red-500 font-medium" : "text-amber-500 font-medium"
+                  : "text-[hsl(var(--muted-foreground))]"
+              }`}>
+                On pace for {formatCurrency(projectedEnd)} by month-end
+                {projectedOver && !over && " — approaching limit"}
+              </p>
+            )}
 
             {/* Pace chip + weekly bar */}
             {!isIncome && remaining > 0 && (

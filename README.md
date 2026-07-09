@@ -58,19 +58,53 @@ Set financial intentions and track them monthly:
 Each goal shows a progress bar, current vs target amount, and an "On track ✓" or "Needs attention ⚠" status.
 
 ### 🔍 Transactions
-Full searchable, filterable transaction list. Filter by month or toggle **All time** to see your entire history. Search by description, re-categorize any transaction in one click, and view the running account balance alongside each transaction. Shows a summary strip with total in, out, and transaction count.
+Full searchable, filterable transaction list. Filter by month or toggle **All time** to see your entire history. Search by description, re-categorize any transaction in one click, and view the running account balance alongside each transaction.
+
+- **Edit** any transaction's date, description, amount, category, or notes
+- **Delete** transactions you don't need
+- **＋ Add** manual transactions for cash, Venmo, or anything not in a bank export
+- **↓ Export** the current filtered view as a CSV (works with month, all-time, and search filters)
+- **✦ Auto-Categorize** re-runs all rules against uncategorized transactions in one click
+
+### 📋 Reports
+Five purpose-built reports run automatically across your data:
+
+| Report | What it shows |
+|---|---|
+| **Spending by Category** | This period vs last period per category with % change |
+| **Month over Month** | Income, expenses, and net across your selected date range |
+| **Top Expenses** | Ranked list of the biggest individual transactions |
+| **Most Recurring Payees** | Frequency, average cost, and total paid to each merchant |
+| **👻 Ghost Subscriptions** | Charges with the exact same description and amount in 2+ months |
+
+Reports support **month navigation** or a **custom date range** with presets: This quarter, Last quarter, Year to date, Last 12 months.
+
+### 💰 Budgets
+Set soft monthly spending limits per category. Each budget shows a live progress bar, how much has been spent vs the limit, and an **On pace for $X** projection so you can see a potential overspend before the month ends. No enforcement, no penalties — just awareness.
+
+### 💡 Insights
+The Insights page (formerly "Agent") analyzes your spending and surfaces actionable patterns:
+- Warning when you're on pace to exceed a budget
+- Top 3 merchants by spend this month
+- Food delivery as a % of your food budget
+- Detected subscriptions with monthly and annual totals
+- Paycheck timing prediction based on your pay cycle
+- Overdraft / bank fee alerts
 
 ### 💼 All Accounts Overview
-The **Overview** page aggregates all of your profiles in one place. Each account appears as a card showing the current balance, a 60-day balance sparkline, and this month's income/expenses/net. A combined totals banner runs across the top. Click any card to switch directly to that account's Dashboard.
+The **Overview** page aggregates all profiles in one place. Each account card shows current balance, a 60-day sparkline, and this month's income/expenses/net. Click any card to jump to that account's Dashboard.
 
 ### 💰 Running Balance
-Import your bank's "Running Balance" (or "Balance") column alongside your transactions. Compass auto-detects and stores it, then surfaces it as a balance card and sparkline on the Dashboard, a Balance Over Time chart in Reports, and context for the AI Agent (low-balance and short-runway insights).
+Import your bank's "Running Balance" column to unlock balance cards, sparklines, and the Balance Over Time chart in Reports.
 
-### 🏷️ Custom Categories
-Create, rename, recolor, and delete your own categories from the Transactions page. System categories are protected. Custom categories appear throughout the app in budgets, reports, and auto-categorization rules.
+### 🏷️ Smart Categorization
+100+ built-in rules cover Amazon, Walmart, DoorDash, Instacart, CVS, Waffle House, Progressive, and many more. Bank-format noise is stripped automatically. Manage your own rules from **⚙ Rules**, or let Compass learn from manual corrections with the "Create Rule?" prompt.
+
+### 📥 Import History
+Every CSV import is logged with filename, date, and row count. **Undo** any import to remove all linked transactions instantly.
 
 ### 🔄 In-App Auto-Updates
-Compass checks for updates from the **sidebar** — click **Check for updates**, then **Install update** to download and silently apply the latest release without leaving the app. Updates are cryptographically signed and verified.
+Click **Check for updates** in the sidebar to silently apply the latest release. Updates are cryptographically signed and verified.
 
 ---
 
@@ -189,7 +223,7 @@ npm run tauri build     # production build → src-tauri/target/release/bundle/
 ## $${\color{#C08A1C}Roadmap}$$
 
 ### ✅ Phase 1 — Financial Companion *(complete)*
-Statement import · Auto-categorization · Spending trends · Budgets · Goals · Reports · Ghost subscriptions · Running balance · All-accounts overview · Custom categories · In-app auto-updates
+Statement import · Import history + undo · Auto-categorization · Edit/add/delete transactions · CSV export · Spending trends · Budgets with on-pace projection · Goals · Reports with custom date ranges · Insights · Ghost subscriptions · Running balance · All-accounts overview · Smart categorization rules · In-app auto-updates
 
 ### ✅ Phase 2 — AI Insights *(complete)*
 - AI Agent for natural-language questions about your data

@@ -49,6 +49,7 @@ const ALLOWED_MIGRATION_TABLES = new Set([
   "categorization_rules",
   "column_profiles",
   "profiles",
+  "import_sessions",
 ]);
 
 const SAFE_COLUMN_NAME_RE = /^[a-z_][a-z0-9_]*$/i;
@@ -481,6 +482,29 @@ async function runMigrations(db: CompassDb): Promise<void> {
     }
 
     await db.execute("PRAGMA user_version = 5");
+  }
+
+  // ── v6: Import session history ──────────────────────────────────────
+  if (version < 6) {
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS import_sessions (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        filename      TEXT    NOT NULL,
+        imported_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+        row_count     INTEGER NOT NULL DEFAULT 0,
+        skipped_count INTEGER NOT NULL DEFAULT 0,
+        profile_id    INTEGER NOT NULL
+      )
+    `);
+
+    assertSafeMigrationIdentifiers("transactions", "import_session_id");
+    if (!(await colExists(db, "transactions", "import_session_id"))) {
+      await db.execute(
+        "ALTER TABLE transactions ADD COLUMN import_session_id INTEGER REFERENCES import_sessions(id) ON DELETE SET NULL"
+      );
+    }
+
+    await db.execute("PRAGMA user_version = 6");
   }
 }
 
