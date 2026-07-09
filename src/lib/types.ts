@@ -14,7 +14,15 @@ export type InsightType =
   | "overspend_streak"
   | "positive_streak"
   | "redundant_spending"
-  | "income_irregular";
+  | "income_irregular"
+  | "top_merchants"
+  | "food_delivery_spend"
+  | "subscription_total"
+  | "income_expected"
+  | "overdraft_alert";
+
+/** Category ID reserved for internal bank transfers — excluded from expense totals. */
+export const TRANSFER_CATEGORY_ID = 20;
 
 export interface InsightAction {
   type: "create_budget" | "create_goal";

@@ -280,6 +280,207 @@ async function runMigrations(db: CompassDb): Promise<void> {
     }
     await db.execute("PRAGMA user_version = 4");
   }
+
+  // ── v5: Expanded categories + comprehensive categorization rules ──────────
+  if (version < 5) {
+    // New system categories
+    await db.execute(`
+      INSERT OR IGNORE INTO categories (id, name, parent_id, color, icon, is_system) VALUES
+        (16, 'Gas & Fuel',        4,    '#818cf8', 'fuel',             1),
+        (17, 'Subscriptions',     6,    '#a78bfa', 'repeat',           1),
+        (18, 'Insurance',         NULL, '#0ea5e9', 'shield',           1),
+        (19, 'Bank Fees',         NULL, '#f43f5e', 'landmark',         1),
+        (20, 'Transfers',         NULL, '#71717a', 'arrow-right-left', 1),
+        (21, 'Gifts & Donations', NULL, '#f472b6', 'gift',             1)
+    `);
+
+    // Insert new rules in batch — unique index on (pattern, category_id) prevents dupes.
+    // Priority guide: Transfers 200 · Income 100 · Subscriptions-specific 95 ·
+    //   Housing 90 · Insurance 85 · Utilities 80 · Groceries 70 · Delivery 65 ·
+    //   Restaurants 60 · Gas 58 · Transport 55 · Healthcare 53 · Shopping 50 ·
+    //   Personal Care 45 · Subscriptions-generic 40 · Bank Fees 35
+
+    const newRules: [string, string, number, number][] = [
+      // ── Transfers (highest priority so internal moves never inflate expenses) ──
+      ["ONLINE BANKING TRANSFER",        "contains",    20, 200],
+      ["OVERDRAFT PROTECTION FROM",      "contains",    20, 200],
+      ["KEEP THE CHANGE",                "contains",    10, 195], // round-up → Savings
+      ["ZELLE",                          "contains",    20, 190],
+      ["VENMO",                          "contains",    20, 190],
+      ["CASH APP",                       "contains",    20, 190],
+      ["ACH TRANSFER",                   "contains",    20, 190],
+      ["AMERICAN EXPRESS.*ACH PMT",      "regex",       20, 185], // AmEx bill pay
+      ["CREDIT CARD PAYMENT",            "contains",    20, 185],
+      // ── Income ────────────────────────────────────────────────────────────
+      ["AVEANNA",                        "contains",    1,  100],
+      ["SALARY",                         "contains",    1,  100],
+      ["WAGES",                          "contains",    1,  100],
+      // ── Subscriptions — specific patterns before generic merchant names ──
+      ["INSTACART.*SUBSCRIP",            "regex",       17, 95],
+      ["INSTACART.*ANNUAL",              "regex",       17, 95],
+      ["DOORDASHDASHPASS",               "contains",    17, 95],
+      ["APPLE.COM/BILL",                 "contains",    17, 95],
+      ["PP\\*APPLE",                     "regex",       17, 95],
+      ["AMAZON PRIME",                   "contains",    17, 92],
+      ["NETFLIX",                        "contains",    17, 40],
+      ["SPOTIFY",                        "contains",    17, 40],
+      ["HULU",                           "contains",    17, 40],
+      ["DISNEY",                         "contains",    17, 40],
+      ["HBO",                            "contains",    17, 40],
+      ["PEACOCK",                        "contains",    17, 40],
+      ["PARAMOUNT",                      "contains",    17, 40],
+      ["APPLE TV",                       "contains",    17, 40],
+      ["DISCOVERY PLUS",                 "contains",    17, 40],
+      ["PATREON",                        "contains",    17, 40],
+      ["GITHUB",                         "contains",    17, 40],
+      ["ADOBE",                          "contains",    17, 40],
+      ["MICROSOFT 365",                  "contains",    17, 40],
+      ["DROPBOX",                        "contains",    17, 40],
+      ["GOOGLE ONE",                     "contains",    17, 40],
+      ["GOOGLE STORAGE",                 "contains",    17, 40],
+      ["SIRIUS",                         "contains",    17, 40],
+      ["PANDORA",                        "contains",    17, 40],
+      ["YOUTUBE PREMIUM",                "contains",    17, 40],
+      // ── Insurance ─────────────────────────────────────────────────────────
+      ["PROG PREMIER",                   "contains",    18, 85],
+      ["INS PREM",                       "contains",    18, 85],
+      ["GEICO",                          "contains",    18, 85],
+      ["STATE FARM",                     "contains",    18, 85],
+      ["ALLSTATE",                       "contains",    18, 85],
+      ["PROGRESSIVE INS",                "contains",    18, 85],
+      ["USAA",                           "contains",    18, 85],
+      ["NATIONWIDE",                     "contains",    18, 85],
+      ["FARMERS INS",                    "contains",    18, 85],
+      ["LIBERTY MUTUAL",                 "contains",    18, 85],
+      ["HUMANA",                         "contains",    18, 85],
+      ["AETNA",                          "contains",    18, 85],
+      ["CIGNA",                          "contains",    18, 85],
+      ["ANTHEM",                         "contains",    18, 85],
+      // ── Groceries ─────────────────────────────────────────────────────────
+      ["INSTACART",                      "contains",    13, 70],
+      ["HEB",                            "contains",    13, 70],
+      ["FOOD LION",                      "contains",    13, 70],
+      ["HARRIS TEETER",                  "contains",    13, 70],
+      ["MEIJER",                         "contains",    13, 70],
+      ["SPROUTS",                        "contains",    13, 70],
+      ["WINN DIXIE",                     "contains",    13, 70],
+      ["GIANT FOOD",                     "contains",    13, 70],
+      ["STOP & SHOP",                    "contains",    13, 70],
+      ["MARKET BASKET",                  "contains",    13, 70],
+      ["FOOD 4 LESS",                    "contains",    13, 70],
+      ["FRESH MARKET",                   "contains",    13, 70],
+      // ── Restaurants ───────────────────────────────────────────────────────
+      ["WAFFLE HOUSE",                   "contains",    14, 60],
+      ["WING STOP",                      "contains",    14, 60],
+      ["WINGSTOP",                       "contains",    14, 60],
+      ["FOODA",                          "contains",    14, 60],
+      ["LABOTTEGA",                      "contains",    14, 60],
+      ["TACO BELL",                      "contains",    14, 60],
+      ["SONIC",                          "contains",    14, 60],
+      ["CULVER",                         "contains",    14, 60],
+      ["FIVE GUYS",                      "contains",    14, 60],
+      ["SHAKE SHACK",                    "contains",    14, 60],
+      ["PANDA EXPRESS",                  "contains",    14, 60],
+      ["PIZZA HUT",                      "contains",    14, 60],
+      ["DOMINO",                         "contains",    14, 60],
+      ["BURGER KING",                    "contains",    14, 60],
+      ["WENDYS",                         "contains",    14, 60],
+      ["DAIRY QUEEN",                    "contains",    14, 60],
+      ["JIMMY JOHN",                     "contains",    14, 60],
+      ["JERSEY MIKE",                    "contains",    14, 60],
+      ["RAISING CANE",                   "contains",    14, 60],
+      ["OLIVE GARDEN",                   "contains",    14, 60],
+      ["APPLEBEES",                      "contains",    14, 60],
+      ["CHILIS",                         "contains",    14, 60],
+      ["TEXAS ROADHOUSE",                "contains",    14, 60],
+      ["OUTBACK",                        "contains",    14, 60],
+      ["CRACKER BARREL",                 "contains",    14, 60],
+      ["DENNYS",                         "contains",    14, 60],
+      ["DENNY'S",                        "contains",    14, 60],
+      ["HOOTERS",                        "contains",    14, 60],
+      ["BUFFALO WILD",                   "contains",    14, 60],
+      ["MAZZYS",                         "contains",    14, 60],
+      ["TIN CUP",                        "contains",    14, 60],
+      ["SPORTS BAR",                     "contains",    14, 58],
+      ["TST*",                           "starts_with", 14, 55], // Toast POS (restaurants)
+      // ── Gas & Fuel ────────────────────────────────────────────────────────
+      ["RACETRAC",                       "contains",    16, 58],
+      ["QT ",                            "contains",    16, 58], // QuikTrip (space after to avoid false matches)
+      ["BP ",                            "contains",    16, 58],
+      ["CHEVRON",                        "contains",    16, 58],
+      ["EXXON",                          "contains",    16, 58],
+      ["SUNOCO",                         "contains",    16, 58],
+      ["MOBIL",                          "contains",    16, 58],
+      ["VALERO",                         "contains",    16, 58],
+      ["SPEEDWAY",                       "contains",    16, 58],
+      ["CIRCLE K",                       "contains",    16, 58],
+      ["WAWA",                           "contains",    16, 58],
+      ["MARATHON",                       "contains",    16, 58],
+      ["CASEYS",                         "contains",    16, 58],
+      ["SHEETZ",                         "contains",    16, 58],
+      ["KWIK TRIP",                      "contains",    16, 58],
+      ["GAS STATION",                    "contains",    16, 55],
+      ["FUEL",                           "contains",    16, 50],
+      // ── Healthcare ────────────────────────────────────────────────────────
+      ["CVS",                            "contains",    5,  53],
+      ["WALGREENS",                      "contains",    5,  53],
+      ["RITE AID",                       "contains",    5,  53],
+      ["DUANE READE",                    "contains",    5,  53],
+      ["PHARMACY",                       "contains",    5,  52],
+      ["URGENT CARE",                    "contains",    5,  52],
+      ["MEDICAL",                        "contains",    5,  50],
+      ["DENTAL",                         "contains",    5,  50],
+      ["OPTOMETRY",                      "contains",    5,  50],
+      ["LAB CORP",                       "contains",    5,  50],
+      ["LABCORP",                        "contains",    5,  50],
+      ["QUEST DIAGN",                    "contains",    5,  50],
+      // ── Shopping ──────────────────────────────────────────────────────────
+      ["AMAZON",                         "contains",    7,  50],
+      ["AMZN",                           "contains",    7,  50],
+      ["WALMART",                        "contains",    7,  50],
+      ["TARGET",                         "contains",    7,  50],
+      ["COSTCO",                         "contains",    7,  50],
+      ["SAMS CLUB",                      "contains",    7,  50],
+      ["BEST BUY",                       "contains",    7,  50],
+      ["HOME DEPOT",                     "contains",    7,  50],
+      ["LOWES",                          "contains",    7,  50],
+      ["ROSS",                           "contains",    7,  50],
+      ["TJ MAXX",                        "contains",    7,  50],
+      ["MARSHALLS",                      "contains",    7,  50],
+      ["DOLLAR GENERAL",                 "contains",    7,  50],
+      ["DOLLAR TREE",                    "contains",    7,  50],
+      ["FIVE BELOW",                     "contains",    7,  50],
+      ["ETSY",                           "contains",    7,  50],
+      ["EBAY",                           "contains",    7,  50],
+      ["CHEWY",                          "contains",    7,  50],
+      // ── Personal Care ─────────────────────────────────────────────────────
+      ["STEEL SUPPLEMENT",               "contains",    8,  45],
+      ["SUPPLEMENT",                     "contains",    8,  43],
+      ["SUPERCUTS",                      "contains",    8,  45],
+      ["GREAT CLIPS",                    "contains",    8,  45],
+      ["FANTASTIC SAM",                  "contains",    8,  45],
+      ["ULTA",                           "contains",    8,  45],
+      ["SEPHORA",                        "contains",    8,  45],
+      ["SPORT CLIPS",                    "contains",    8,  45],
+      // ── Bank Fees ─────────────────────────────────────────────────────────
+      ["OVERDRAFT FEE",                  "contains",    19, 35],
+      ["NSF FEE",                        "contains",    19, 35],
+      ["SERVICE CHARGE",                 "contains",    19, 35],
+      ["MONTHLY FEE",                    "contains",    19, 35],
+      ["LATE FEE",                       "contains",    19, 35],
+      ["ANNUAL FEE",                     "contains",    19, 35],
+      ["FOREIGN TRANSACTION",            "contains",    19, 35],
+    ];
+
+    for (const [pattern, matchType, categoryId, priority] of newRules) {
+      await db.execute(
+        `INSERT OR IGNORE INTO categorization_rules (pattern, match_type, category_id, priority) VALUES (?,?,?,?)`,
+        [pattern, matchType, categoryId, priority]
+      );
+    }
+
+    await db.execute("PRAGMA user_version = 5");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────
@@ -306,18 +507,54 @@ export async function getOrCreateDefaultAccount(): Promise<number> {
 
 // ─── Categorization ───────────────────────────────────────────────────────────
 
+/**
+ * Strip common bank-format noise so patterns match more reliably.
+ *
+ * Examples:
+ *   "DD *DOORDASH CHIPOTLEM 05/27 PURCHASE 855-973-1040 CA"
+ *    → "DOORDASH CHIPOTLEM"
+ *   "IC* INSTACART*161 06/15 PURCHASE INSTACART.COM CA"
+ *    → "INSTACART"
+ *   "PP*APPLE.COM/BILL 06/13 PURCHASE 402-935-7733 CA"
+ *    → "APPLE.COM/BILL"
+ *   "AMAZON MKTPL*1A52U9IQ3 05/22 PURCHASE Amzn.com/bill WA"
+ *    → "AMAZON MKTPL"
+ */
+function normalizeDescription(desc: string): string {
+  let s = desc.toUpperCase().trim();
+  // Strip leading 2-4 char processor codes followed by * or space+*
+  s = s.replace(/^[A-Z]{2,4}[\s*]+/, "");
+  // Strip trailing purchase-date / phone / state noise: "05/21 PURCHASE …"
+  s = s.replace(/\s+\d{2}\/\d{2}\s+.*$/, "");
+  // Strip mid-string or trailing *ALPHANUM codes (order-ref noise)
+  s = s.replace(/\*[A-Z0-9]{4,}/g, "");
+  return s.trim();
+}
+
 export function applyCategorizationRules(
   description: string,
   rules: CategorizationRule[]
 ): number {
   const upper = description.toUpperCase();
+  const normalized = normalizeDescription(description);
+
   for (const rule of rules) {
     const pattern = rule.pattern.toUpperCase();
-    if (rule.match_type === "contains" && upper.includes(pattern)) {
-      return rule.category_id;
-    }
-    if (rule.match_type === "starts_with" && upper.startsWith(pattern)) {
-      return rule.category_id;
+    // Test against both raw and normalized string so existing rules keep working
+    for (const text of [upper, normalized]) {
+      if (rule.match_type === "contains" && text.includes(pattern)) {
+        return rule.category_id;
+      }
+      if (rule.match_type === "starts_with" && text.startsWith(pattern)) {
+        return rule.category_id;
+      }
+      if (rule.match_type === "regex") {
+        try {
+          if (new RegExp(rule.pattern, "i").test(text)) return rule.category_id;
+        } catch {
+          // invalid stored regex — skip
+        }
+      }
     }
   }
   return 15; // Uncategorized

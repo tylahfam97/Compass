@@ -60,8 +60,8 @@ export async function generateInsights(profileId: number): Promise<Insight[]> {
     expenses: number;
   }[]>(
     `SELECT strftime('%Y-%m', date) as month,
-            SUM(CASE WHEN amount_cents>0 THEN amount_cents ELSE 0 END) as income,
-            SUM(CASE WHEN amount_cents<0 THEN ABS(amount_cents) ELSE 0 END) as expenses
+            SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income,
+            SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as expenses
      FROM transactions WHERE profile_id=? GROUP BY month ORDER BY month DESC LIMIT 12`,
     [profileId]
   );
@@ -95,6 +95,7 @@ export async function generateInsights(profileId: number): Promise<Insight[]> {
        SELECT category_id, strftime('%Y-%m', date) as month, SUM(ABS(amount_cents)) as monthly_total
        FROM transactions
        WHERE profile_id=? AND amount_cents<0
+         AND (category_id IS NULL OR category_id != 20)
          AND date >= ?
        GROUP BY category_id, month
      ) t
@@ -112,6 +113,7 @@ export async function generateInsights(profileId: number): Promise<Insight[]> {
   }[]>(
     `SELECT category_id, SUM(ABS(amount_cents)) as total
      FROM transactions WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0
+       AND (category_id IS NULL OR category_id != 20)
      GROUP BY category_id`,
     [profileId, thisStart, thisEnd]
   );
@@ -353,6 +355,144 @@ export async function generateInsights(profileId: number): Promise<Insight[]> {
         dismissKey: `runway_short_${balanceRow.date}`,
       });
     }
+  }
+
+  // ── INSIGHT: top_merchants ───────────────────────────────────────────────
+  const topMerchants = await db.select<{ description: string; total: number }[]>(
+    `SELECT description, SUM(ABS(amount_cents)) as total
+     FROM transactions
+     WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0
+       AND (category_id IS NULL OR category_id NOT IN (20))
+     GROUP BY description ORDER BY total DESC LIMIT 5`,
+    [profileId, thisStart, thisEnd]
+  );
+  if (topMerchants.length >= 3) {
+    const lines = topMerchants
+      .slice(0, 3)
+      .map((m, i) => `${i + 1}. ${truncate(m.description, 28)} — ${formatCents(m.total)}`);
+    insights.push({
+      id: `top_merchants_${thisMonth}`,
+      type: "top_merchants",
+      title: "Top spending merchants this month",
+      description: lines.join("  ·  "),
+      severity: "info",
+      dismissKey: `top_merchants_${thisMonth}`,
+    });
+  }
+
+  // ── INSIGHT: food_delivery_spend ────────────────────────────────────────
+  const [deliveryRow] = await db.select<{ total: number }[]>(
+    `SELECT COALESCE(SUM(ABS(amount_cents)), 0) as total
+     FROM transactions
+     WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0
+       AND (UPPER(description) LIKE '%DOORDASH%' OR UPPER(description) LIKE '%UBER EATS%'
+            OR UPPER(description) LIKE '%GRUBHUB%' OR UPPER(description) LIKE '%INSTACART%')`,
+    [profileId, thisStart, thisEnd]
+  );
+  const deliveryTotal = deliveryRow?.total ?? 0;
+  // Sum food-related categories: Food & Dining(3), Groceries(13), Restaurants(14)
+  const totalFoodSpend = [3, 13, 14].reduce(
+    (s, id) => s + (thisMonthCatMap.get(id) ?? 0),
+    0
+  );
+  if (deliveryTotal > 3000 && totalFoodSpend > 0) {
+    const pct = Math.round((deliveryTotal / totalFoodSpend) * 100);
+    insights.push({
+      id: `food_delivery_${thisMonth}`,
+      type: "food_delivery_spend",
+      title: `${pct}% of food spending is delivery apps`,
+      description: `Food delivery: ${formatCents(deliveryTotal)} · Total food: ${formatCents(totalFoodSpend)} this month. Cooking more could save ${formatCents(Math.round(deliveryTotal * 0.6))}/mo.`,
+      severity: pct > 50 ? "warning" : "info",
+      dismissKey: `food_delivery_${thisMonth}`,
+    });
+  }
+
+  // ── INSIGHT: subscription_total ─────────────────────────────────────────
+  const subscriptionItems = await db.select<{ description: string; amount_cents: number }[]>(
+    `SELECT description, amount_cents
+     FROM transactions
+     WHERE profile_id=? AND amount_cents<0 AND category_id=17
+     GROUP BY description, amount_cents
+     ORDER BY ABS(amount_cents) DESC`,
+    [profileId]
+  );
+  if (subscriptionItems.length > 0) {
+    const monthlyTotal = subscriptionItems.reduce(
+      (s, i) => s + Math.abs(i.amount_cents),
+      0
+    );
+    const preview = subscriptionItems
+      .slice(0, 3)
+      .map((s) => `${truncate(s.description, 18)} ${formatCents(Math.abs(s.amount_cents))}`)
+      .join("  ·  ");
+    insights.push({
+      id: "subscription_total",
+      type: "subscription_total",
+      title: `${subscriptionItems.length} subscription${subscriptionItems.length > 1 ? "s" : ""} — ${formatCents(monthlyTotal)}/mo detected`,
+      description: preview + (subscriptionItems.length > 3 ? ` + ${subscriptionItems.length - 3} more` : ""),
+      severity: "info",
+      dismissKey: "subscription_total",
+    });
+  }
+
+  // ── INSIGHT: income_expected ─────────────────────────────────────────────
+  const payrollTxns = await db.select<{ date: string; amount_cents: number }[]>(
+    `SELECT date, amount_cents FROM transactions
+     WHERE profile_id=? AND amount_cents>50000 AND category_id=1
+     ORDER BY date DESC LIMIT 6`,
+    [profileId]
+  );
+  if (payrollTxns.length >= 2) {
+    const intervals: number[] = [];
+    for (let i = 0; i < payrollTxns.length - 1; i++) {
+      const a = new Date(payrollTxns[i].date).getTime();
+      const b = new Date(payrollTxns[i + 1].date).getTime();
+      const days = Math.round((a - b) / 86_400_000);
+      if (days > 0 && days <= 35) intervals.push(days);
+    }
+    if (intervals.length >= 1) {
+      const avgInterval = Math.round(
+        intervals.reduce((a, b) => a + b, 0) / intervals.length
+      );
+      const nextPay = new Date(payrollTxns[0].date);
+      nextPay.setDate(nextPay.getDate() + avgInterval);
+      const daysUntil = Math.round(
+        (nextPay.getTime() - Date.now()) / 86_400_000
+      );
+      if (daysUntil >= 0 && daysUntil <= 14) {
+        insights.push({
+          id: `income_expected_${thisMonth}`,
+          type: "income_expected",
+          title:
+            daysUntil === 0
+              ? "Paycheck expected today"
+              : `Paycheck in ~${daysUntil} day${daysUntil > 1 ? "s" : ""}`,
+          description: `Based on your ${avgInterval}-day pay cycle. Last deposit: ${formatCents(Math.abs(payrollTxns[0].amount_cents))} on ${payrollTxns[0].date}.`,
+          severity: "info",
+          dismissKey: `income_expected_${thisMonth}`,
+        });
+      }
+    }
+  }
+
+  // ── INSIGHT: overdraft_alert ────────────────────────────────────────────
+  const [overdraftRow] = await db.select<{ count: number; total: number }[]>(
+    `SELECT COUNT(*) as count, COALESCE(SUM(ABS(amount_cents)), 0) as total
+     FROM transactions
+     WHERE profile_id=? AND date>=? AND date<?
+       AND (category_id=19 OR UPPER(description) LIKE '%OVERDRAFT FEE%')
+       AND amount_cents<0`,
+    [profileId, thisStart, thisEnd]
+  );
+  if (overdraftRow && overdraftRow.count > 0) {
+    insights.push({
+      id: `overdraft_alert_${thisMonth}`,
+      type: "overdraft_alert",
+      title: `Bank fees detected this month`,
+      description: `${overdraftRow.count} bank fee charge${overdraftRow.count > 1 ? "s" : ""} totaling ${formatCents(overdraftRow.total)}. Keeping a $200–$500 buffer can prevent these.`,
+      severity: "warning",
+      dismissKey: `overdraft_alert_${thisMonth}`,
+    });
   }
 
   // ── Sort: warnings → info → success ─────────────────────────────────────
