@@ -86,18 +86,20 @@ jobs:
           $nameBytes = [Text.Encoding]::UTF8.GetBytes($nsisExe.Name)
           $fileSize  = [uint32]$fileBytes.Length
 
-          # CRC-32
+          # CRC-32 (decimal literals avoid PowerShell 5.1 sign-extension of large hex values)
+          $poly     = [long]3988292384   # 0xEDB88320
+          $mask32   = [long]4294967295   # 0xFFFFFFFF
           $crcTable = 0..255 | ForEach-Object {
-              $c = [uint32]$_
+              $c = [long]$_
               for ($j = 0; $j -lt 8; $j++) {
-                  if ($c -band 1) { $c = [uint32]0xEDB88320 -bxor ($c -shr 1) }
+                  if ($c -band 1) { $c = $poly -bxor ($c -shr 1) }
                   else             { $c = $c -shr 1 }
               }
-              $c
+              $c -band $mask32
           }
-          $crc = [uint32]0xFFFFFFFF
-          foreach ($b in $fileBytes) { $crc = $crcTable[($crc -bxor $b) -band 0xFF] -bxor ($crc -shr 8) }
-          $crc = $crc -bxor [uint32]0xFFFFFFFF
+          [long]$crc = 4294967295
+          foreach ($b in $fileBytes) { $crc = $crcTable[($crc -bxor $b) -band 255] -bxor ($crc -shr 8) }
+          [uint32]$crc = ($crc -bxor $mask32) -band $mask32
 
           $ms = [IO.MemoryStream]::new()
           $bw = [IO.BinaryWriter]::new($ms)
