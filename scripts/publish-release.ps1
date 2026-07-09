@@ -7,8 +7,18 @@
 $version      = $env:APP_VERSION
 $token        = $env:GH_TOKEN
 $repo         = $env:GH_REPO
-$tagName      = "v" + $version
 $isPrerelease = $env:IS_PRERELEASE -eq "true"
+
+# Stable builds use "v{version}"; prerelease builds append the sanitized branch name
+# so dev/feature tags never collide with or overwrite the stable release tag.
+$tagName = if ($isPrerelease) {
+    $branch    = if ($env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { "dev" }
+    $sanitized = ($branch -replace '[^a-zA-Z0-9]', '-') -replace '-{2,}', '-'
+    $sanitized = $sanitized.Trim('-').ToLower()
+    "v" + $version + "-" + $sanitized
+} else {
+    "v" + $version
+}
 
 if (-not $token) {
     Write-Error "GH_TOKEN is empty - check the GITHUB_TOKEN secret in repo settings"
