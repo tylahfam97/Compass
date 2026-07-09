@@ -180,7 +180,7 @@ if ($appriseDiscordUrl) {
         if ($stripped.Length -gt 900) { $stripped.Substring(0, 897) + "…" } else { $stripped }
     } else { "" }
 
-    $notifyBody  = "Compass $tagName is now available for Windows."
+    $notifyBody  = "Hello! Compass $tagName is now available for Windows."
     if ($releaseNoteText) { $notifyBody += "`n`n" + $releaseNoteText }
     $notifyBody += "`n`nRelease page: " + $releasePageUrl
     if ($msi) { $notifyBody += "`nMSI: " + $baseDownload + "/" + $msi.Name }
