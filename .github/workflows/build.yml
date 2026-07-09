@@ -112,10 +112,9 @@ jobs:
           $bw.Write([uint32]$fileSize); $bw.Write([uint32]$fileSize)
           $bw.Write([uint16]$nameBytes.Length); $bw.Write([uint16]0)
           $bw.Write($nameBytes)
-          $dataOffset = [uint32]$ms.Position
-          $bw.Write($fileBytes)
+          $bw.Write($fileBytes)   # data immediately follows LFH; LFH starts at offset 0
 
-          # Central directory entry
+          # Central directory entry — offset field = start of local file header = 0
           $cdOffset = [uint32]$ms.Position
           $bw.Write([uint32]0x02014B50); $bw.Write([uint16]0x0314); $bw.Write([uint16]20)
           $bw.Write([uint16]0); $bw.Write([uint16]0)  # method: STORE
@@ -124,7 +123,7 @@ jobs:
           $bw.Write([uint32]$fileSize); $bw.Write([uint32]$fileSize)
           $bw.Write([uint16]$nameBytes.Length); $bw.Write([uint16]0); $bw.Write([uint16]0)
           $bw.Write([uint16]0); $bw.Write([uint16]0); $bw.Write([uint32]0)
-          $bw.Write([uint32]$dataOffset); $bw.Write($nameBytes)
+          $bw.Write([uint32]0); $bw.Write($nameBytes)   # LFH offset = 0 (first entry)
           $cdSize = [uint32]($ms.Position - $cdOffset)
 
           # End of central directory
