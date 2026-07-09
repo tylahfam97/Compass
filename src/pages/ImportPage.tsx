@@ -51,6 +51,43 @@ function computeHeaderSig(headers: string[]): string {
   return [...headers].map((h) => h.toLowerCase().trim()).sort().join("|");
 }
 
+/** Keywords used to identify a real transaction header row. */
+const HEADER_KEYWORDS = [
+  "date", "description", "amount", "payee", "debit", "credit",
+  "balance", "memo", "transaction", "posting",
+];
+
+/**
+ * Scan the first 15 rows and return the index of the row that looks most
+ * like a column-header row (contains ≥2 header keywords).  Falls back to 0.
+ *
+ * Handles formats like Bank of America that prepend a summary block before
+ * the real transaction table.
+ */
+function findRealHeaderRow(data: string[][]): number {
+  for (let i = 0; i < Math.min(data.length, 15); i++) {
+    const row = data[i].map((c) => (c ?? "").toLowerCase().trim());
+    const hits = row.filter((cell) =>
+      HEADER_KEYWORDS.some((kw) => cell.includes(kw))
+    ).length;
+    if (hits >= 2) return i;
+  }
+  return 0;
+}
+
+/** Slice raw CSV data at `skip` and return {headers, rows}, or null if too short. */
+function deriveHeaders(data: string[][], skip: number): ParsedData | null {
+  const sliced = data.slice(skip);
+  if (sliced.length < 2) return null;
+  const [first, ...rest] = sliced;
+  const looksLikeHeader = first.some((c) =>
+    isNaN(parseFloat((c ?? "").replace(/[$,]/g, "")))
+  );
+  const headers = looksLikeHeader ? first : first.map((_, i) => `Column ${i + 1}`);
+  const rows    = looksLikeHeader ? rest : sliced;
+  return { headers, rows };
+}
+
 function autoDetect(headers: string[]): ColMap {
   const h = headers.map((s) => s.toLowerCase());
   const find = (...terms: string[]) =>
@@ -120,6 +157,8 @@ export default function ImportPage() {
   const activeProfile = useProfileStore((s) => s.activeProfile);
   const profileId = activeProfile?.id ?? 1;
   const [step, setStep] = useState<Step>("upload");
+  const [rawData, setRawData] = useState<string[][] | null>(null);
+  const [skipRows, setSkipRows] = useState(0);
   const [parsed, setParsed] = useState<ParsedData | null>(null);
   const [colMap, setColMap] = useState<ColMap>({ dateCol: 0, descCol: 1, amountCol: 2, typeCol: -1, balanceCol: -1 });
   const [profileFound, setProfileFound] = useState(false);
@@ -148,13 +187,18 @@ export default function ImportPage() {
           setStep("upload");
           return;
         }
-        const [first, ...rest] = data;
-        const looksLikeHeader = first.some((cell) =>
-          isNaN(parseFloat(cell.replace(/[$,]/g, "")))
-        );
-        const headers = looksLikeHeader ? first : first.map((_, i) => `Column ${i + 1}`);
-        const rows = looksLikeHeader ? rest : data;
-        setParsed({ headers, rows });
+        // Auto-detect where the real header row is (skips bank summary blocks)
+        const initialSkip = findRealHeaderRow(data);
+        setRawData(data);
+        setSkipRows(initialSkip);
+        const derived = deriveHeaders(data, initialSkip);
+        if (!derived) {
+          setError("File appears empty after skipping summary rows.");
+          setStep("upload");
+          return;
+        }
+        setParsed(derived);
+        const { headers } = derived;
 
         // Check for a saved column profile for this bank's CSV layout
         (async () => {
@@ -206,6 +250,18 @@ export default function ImportPage() {
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (f) processFile(f);
+  };
+
+  const adjustSkipRows = (delta: number) => {
+    if (!rawData) return;
+    const newSkip = Math.max(0, Math.min(skipRows + delta, rawData.length - 2));
+    setSkipRows(newSkip);
+    const derived = deriveHeaders(rawData, newSkip);
+    if (derived) {
+      setParsed(derived);
+      setColMap(autoDetect(derived.headers));
+      setProfileFound(false);
+    }
   };
 
   const handleImport = async () => {
@@ -282,6 +338,8 @@ export default function ImportPage() {
 
   const reset = () => {
     setStep("upload");
+    setRawData(null);
+    setSkipRows(0);
     setParsed(null);
     setSummary(null);
     setError(null);
@@ -346,6 +404,29 @@ export default function ImportPage() {
               New column layout — match each CSV column to the correct field:
             </div>
           )}
+
+          {/* Skip-rows control — shown when auto-detect chose >0 OR always for manual adjustment */}
+          <div className="flex items-center gap-2 text-sm mb-3">
+            <span className="text-[hsl(var(--muted-foreground))]">Header at row:</span>
+            <button
+              onClick={() => adjustSkipRows(-1)}
+              disabled={skipRows === 0}
+              className="w-6 h-6 flex items-center justify-center border rounded-md
+                         disabled:opacity-30 hover:bg-[hsl(var(--muted))] transition-colors text-base leading-none"
+            >−</button>
+            <span className="w-8 text-center font-mono font-medium">{skipRows + 1}</span>
+            <button
+              onClick={() => adjustSkipRows(1)}
+              disabled={!rawData || skipRows >= rawData.length - 2}
+              className="w-6 h-6 flex items-center justify-center border rounded-md
+                         disabled:opacity-30 hover:bg-[hsl(var(--muted))] transition-colors text-base leading-none"
+            >+</button>
+            {skipRows > 0 && (
+              <span className="text-xs text-[hsl(var(--muted-foreground))]">
+                — skipping {skipRows} summary row{skipRows !== 1 ? "s" : ""} above
+              </span>
+            )}
+          </div>
 
           <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">
             {parsed.rows.length} rows · {parsed.headers.length} columns detected

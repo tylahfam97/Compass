@@ -305,6 +305,7 @@ async function runMigrations(db: CompassDb): Promise<void> {
       ["ONLINE BANKING TRANSFER",        "contains",    20, 200],
       ["OVERDRAFT PROTECTION FROM",      "contains",    20, 200],
       ["KEEP THE CHANGE",                "contains",    10, 195], // round-up → Savings
+      ["KEEPTHECHANGE",                   "contains",    10, 195], // BoA no-space variant
       ["ZELLE",                          "contains",    20, 190],
       ["VENMO",                          "contains",    20, 190],
       ["CASH APP",                       "contains",    20, 190],

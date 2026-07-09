@@ -2,7 +2,7 @@
   <img src="src-tauri/icons/128x128@2x.png" width="128" alt="Compass" />
 </p>
 
-# $${\color{#1C2E54}Compass}$$
+# $${\color{#58a6ff}Compass}$$
 
 ### *Own your financial life — privately, locally, and without judgment.*
 
@@ -74,7 +74,7 @@ Compass checks for updates from the **sidebar** — click **Check for updates**,
 
 ---
 
-## $${\color{#C08A1C}Privacy \space \color{#C08A1C}\& \space \color{#C08A1C}Data}$$
+## $${\color{#C08A1C}Privacy \space \color{#C08A1C}and \space \color{#C08A1C}Data}$$
 
 > **Your data never leaves your device.**
 

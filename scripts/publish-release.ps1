@@ -1,20 +1,31 @@
 # GitHub release publisher - called from .github/workflows/build.yml
 # Env vars required: GH_TOKEN, APP_VERSION, GH_REPO
 
-# Force TLS 1.2 — PowerShell 5.1 defaults to TLS 1.0 which GitHub rejects
+# Force TLS 1.2 - PowerShell 5.1 defaults to TLS 1.0 which GitHub rejects
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$version = $env:APP_VERSION
-$token   = $env:GH_TOKEN
-$repo    = $env:GH_REPO
-$tagName = "v" + $version
+$version      = $env:APP_VERSION
+$token        = $env:GH_TOKEN
+$repo         = $env:GH_REPO
+$isPrerelease = $env:IS_PRERELEASE -eq "true"
+
+# Stable builds use "v{version}"; prerelease builds append the sanitized branch name
+# so dev/feature tags never collide with or overwrite the stable release tag.
+$tagName = if ($isPrerelease) {
+    $branch    = if ($env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { "dev" }
+    $sanitized = ($branch -replace '[^a-zA-Z0-9]', '-') -replace '-{2,}', '-'
+    $sanitized = $sanitized.Trim('-').ToLower()
+    "v" + $version + "-" + $sanitized
+} else {
+    "v" + $version
+}
 
 if (-not $token) {
     Write-Error "GH_TOKEN is empty - check the GITHUB_TOKEN secret in repo settings"
     exit 1
 }
 
-Write-Host "Publishing $tagName for $repo (token length: $($token.Length))"
+Write-Host "Publishing $tagName for $repo | prerelease=$isPrerelease (token length: $($token.Length))"
 
 $api         = "https://api.github.com/repos/" + $repo
 $authHeaders = @("-H", ("Authorization: Bearer " + $token), "-H", "Accept: application/vnd.github+json", "-H", "X-GitHub-Api-Version: 2022-11-28", "-H", "User-Agent: compass-release-script")
@@ -40,7 +51,7 @@ if ($existing.id) {
     if ($delResult -eq $null -or $delResult.message -eq $null) {
         Write-Host "Removed existing release $tagName (ID $($existing.id))"
     } else {
-        # Release exists but can't be deleted (likely immutable) — abort with clear message
+        # Release exists but can't be deleted (likely immutable) - abort with clear message
         Write-Error "Release $tagName already exists and cannot be deleted (it may be marked immutable). " +
                     "Go to GitHub Settings > General > Releases and disable 'Immutable releases', " +
                     "then manually delete the release and tag before re-running."
@@ -58,7 +69,7 @@ if ($tagDel.message -and $tagDel.message -ne "") {
     Write-Host "Removed existing tag ref $tagName"
 }
 
-# Create the release — GitHub creates the tag at HEAD automatically
+# Create the release - GitHub creates the tag at HEAD automatically
 $releaseNotes = if (Test-Path "RELEASE_NOTES.md") {
     [IO.File]::ReadAllText((Resolve-Path "RELEASE_NOTES.md").Path)
 } else {
@@ -67,10 +78,10 @@ $releaseNotes = if (Test-Path "RELEASE_NOTES.md") {
 
 $releaseJson = (@{
     tag_name               = $tagName
-    name                   = "Compass " + $tagName
+    name                   = if ($isPrerelease) { "[DEV] Compass $tagName" } else { "Compass $tagName" }
     body                   = $releaseNotes
     draft                  = $false
-    prerelease             = $false
+    prerelease             = $isPrerelease
     generate_release_notes = $false
 } | ConvertTo-Json -Compress)
 
@@ -87,7 +98,7 @@ Write-Host "Created release $tagName (ID $releaseId)"
 # Brief pause so GitHub's API fully registers the new release before uploading assets
 Start-Sleep -Seconds 3
 
-# Upload headers — Invoke-RestMethod is used for binary uploads (proven reliable with ReadAllBytes)
+# Upload headers - Invoke-RestMethod is used for binary uploads (proven reliable with ReadAllBytes)
 $uploadHeaders = @{
     "Authorization"        = "Bearer " + $token
     "Accept"               = "application/vnd.github+json"
@@ -128,29 +139,33 @@ if ($nsisZip -and $nsisSig) {
     Invoke-RestMethod -Uri ($uploadBase + "?name=" + $nsisZip.Name) -Headers $uploadHeaders -Method Post -Body $nsisZipBytes | Out-Null
     Write-Host "Uploaded $($nsisZip.Name)"
 
-    # Build latest.json — consumed by tauri-plugin-updater on every app launch check
-    $signature   = Get-Content $nsisSig.FullName -Raw
-    $downloadUrl = "https://github.com/" + $repo + "/releases/download/" + $tagName + "/" + $nsisZip.Name
-    $pubDate     = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+    if ($isPrerelease) {
+        Write-Host "Prerelease build - skipping latest.json so stable users are not prompted to update."
+    } else {
+        # Build latest.json - consumed by tauri-plugin-updater on every app launch check
+        $signature   = Get-Content $nsisSig.FullName -Raw
+        $downloadUrl = "https://github.com/" + $repo + "/releases/download/" + $tagName + "/" + $nsisZip.Name
+        $pubDate     = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
 
-    $latestJson = [ordered]@{
-        version  = $version
-        notes    = "Compass $tagName"
-        pub_date = $pubDate
-        platforms = [ordered]@{
-            "windows-x86_64" = [ordered]@{
-                signature = $signature.Trim()
-                url       = $downloadUrl
+        $latestJson = [ordered]@{
+            version  = $version
+            notes    = "Compass $tagName"
+            pub_date = $pubDate
+            platforms = [ordered]@{
+                "windows-x86_64" = [ordered]@{
+                    signature = $signature.Trim()
+                    url       = $downloadUrl
+                }
             }
-        }
-    } | ConvertTo-Json -Depth 5
+        } | ConvertTo-Json -Depth 5
 
-    $tmpJson     = [IO.Path]::GetTempFileName() -replace '\.tmp$', '.json'
-    [IO.File]::WriteAllText($tmpJson, $latestJson, (New-Object System.Text.UTF8Encoding $false))
-    $latestBytes = [IO.File]::ReadAllBytes($tmpJson)
-    Invoke-RestMethod -Uri ($uploadBase + "?name=latest.json") -Headers $uploadHeaders -Method Post -Body $latestBytes | Out-Null
-    Remove-Item $tmpJson -Force
-    Write-Host "Uploaded latest.json (updater manifest)"
+        $tmpJson     = [IO.Path]::GetTempFileName() -replace '\.tmp$', '.json'
+        [IO.File]::WriteAllText($tmpJson, $latestJson, (New-Object System.Text.UTF8Encoding $false))
+        $latestBytes = [IO.File]::ReadAllBytes($tmpJson)
+        Invoke-RestMethod -Uri ($uploadBase + "?name=latest.json") -Headers $uploadHeaders -Method Post -Body $latestBytes | Out-Null
+        Remove-Item $tmpJson -Force
+        Write-Host "Uploaded latest.json (updater manifest)"
+    }
 } else {
     if (-not $nsisZip) {
         Write-Warning "No .nsis.zip found - signing key was likely not picked up during tauri build."
@@ -162,9 +177,9 @@ if ($nsisZip -and $nsisSig) {
 
 Write-Host "Release $tagName published"
 
-# -- Apprise / Discord notification ------------------------------------------
+# -- Apprise / Discord notification (stable releases only) -------------------
 $appriseDiscordUrl = $env:APPRISE_DISCORD_URL
-if ($appriseDiscordUrl) {
+if ($appriseDiscordUrl -and -not $isPrerelease) {
     $releasePageUrl = "https://github.com/" + $repo + "/releases/tag/" + $tagName
     $baseDownload   = "https://github.com/" + $repo + "/releases/download/" + $tagName
 
@@ -203,6 +218,10 @@ if ($appriseDiscordUrl) {
     Remove-Item $tmpNotify -Force
     Write-Host "Apprise notification sent"
 } else {
-    Write-Host "APPRISE_DISCORD_URL secret not set - skipping Discord notification"
+    if (-not $appriseDiscordUrl) {
+        Write-Host "APPRISE_DISCORD_URL secret not set - skipping Discord notification"
+    } else {
+        Write-Host "Prerelease build - skipping Discord notification"
+    }
 }
 
