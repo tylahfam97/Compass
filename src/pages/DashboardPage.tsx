@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, Cell,
+  ResponsiveContainer, Cell, AreaChart, Area,
 } from "recharts";
 import { getDb } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -11,6 +11,7 @@ import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
 import { generateInsights } from "@/lib/agent";
 import InsightCard from "@/components/InsightCard";
+
 interface MonthStats {
   income: number;
   expenses: number;
@@ -21,6 +22,11 @@ interface CatStat {
   name: string;
   color: string;
   total: number;
+}
+
+interface BalancePoint {
+  date: string;
+  balance: number;
 }
 
 function monthBounds(ym: string): [string, string] {
@@ -44,6 +50,8 @@ export default function DashboardPage() {
   const [monthTxnCount, setMonthTxnCount] = useState(0);
   const [totalTxnCount, setTotalTxnCount] = useState(0);
   const [confirmClear, setConfirmClear] = useState<"month" | "all" | null>(null);
+  const [currentBalance, setCurrentBalance] = useState<number | null>(null);
+  const [balancePoints, setBalancePoints] = useState<BalancePoint[]>([]);
 
   const navMonth = (dir: -1 | 1) => {
     const [y, m] = month.split("-").map(Number);
@@ -55,7 +63,7 @@ export default function DashboardPage() {
     setLoading(true);
     const db = await getDb();
     const [start, end] = monthBounds(month);
-    const [incRow, expRow, catRows, recentRows, monthCountRow, totalCountRow] = await Promise.all([
+    const [incRow, expRow, catRows, recentRows, monthCountRow, totalCountRow, balanceRow, balancePointRows] = await Promise.all([
       db.select<{ total: number }[]>(
         "SELECT COALESCE(SUM(amount_cents),0) as total FROM transactions WHERE date>=? AND date<? AND amount_cents>0 AND profile_id=?",
         [start, end, profileId]
@@ -83,6 +91,16 @@ export default function DashboardPage() {
         [start, end, profileId]
       ),
       db.select<{ n: number }[]>("SELECT COUNT(*) as n FROM transactions WHERE profile_id=?", [profileId]),
+      db.select<{ balance_cents: number }[]>(
+        "SELECT balance_cents FROM transactions WHERE profile_id=? AND balance_cents IS NOT NULL ORDER BY date DESC, id DESC LIMIT 1",
+        [profileId]
+      ),
+      db.select<{ date: string; balance_cents: number }[]>(
+        `SELECT date, balance_cents FROM transactions
+         WHERE profile_id=? AND date>=? AND date<? AND balance_cents IS NOT NULL
+         ORDER BY date ASC, id ASC`,
+        [profileId, start, end]
+      ),
     ]);
     const inc = incRow[0]?.total ?? 0;
     const exp = expRow[0]?.total ?? 0;
@@ -91,6 +109,8 @@ export default function DashboardPage() {
     setRecent(recentRows);
     setMonthTxnCount(monthCountRow[0]?.n ?? 0);
     setTotalTxnCount(totalCountRow[0]?.n ?? 0);
+    setCurrentBalance(balanceRow[0]?.balance_cents ?? null);
+    setBalancePoints(balancePointRows.map((r) => ({ date: r.date, balance: r.balance_cents / 100 })));
     setLoading(false);
   }, [month, profileId]);
 
@@ -217,6 +237,44 @@ export default function DashboardPage() {
               </div>
             ))}
           </div>
+
+          {/* Account balance card + sparkline */}
+          {currentBalance != null && (
+            <div className="border rounded-xl p-5 flex gap-6 items-center">
+              <div className="shrink-0">
+                <p className="text-sm text-[hsl(var(--muted-foreground))] mb-1">Account Balance</p>
+                <p className={`text-2xl font-bold ${currentBalance >= 0 ? "text-green-600" : "text-red-500"}`}>
+                  {formatCurrency(currentBalance)}
+                </p>
+                <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">Most recent transaction</p>
+              </div>
+              {balancePoints.length > 1 && (
+                <div className="flex-1 h-16">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={balancePoints} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
+                      <defs>
+                        <linearGradient id="balGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} />
+                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "hsl(var(--background))",
+                          border: "1px solid hsl(var(--border))",
+                          borderRadius: "8px",
+                          fontSize: "12px",
+                        }}
+                        formatter={(v) => [`$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "Balance"]}
+                        labelFormatter={(l) => l}
+                      />
+                      <Area type="monotone" dataKey="balance" stroke="#3b82f6" strokeWidth={2} fill="url(#balGrad)" dot={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Top categories */}
           {cats.length > 0 && (

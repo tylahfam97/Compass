@@ -11,6 +11,7 @@
   --ring: 221.2 83.2% 53.3%;
   --primary: 221.2 83.2% 53.3%;
   --primary-foreground: 210 40% 98%;
+  --gold: #c9952b;
 }
 
 .dark {
@@ -22,6 +23,7 @@
   --ring: 224.3 76.3% 48%;
   --primary: 217.2 91.2% 59.8%;
   --primary-foreground: 222.2 47.4% 11.2%;
+  --gold: #d4a832;
 }
 
 * {
@@ -30,6 +32,8 @@
 
 body {
   background-color: hsl(var(--background));
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='60'%3E%3Cpath d='M0 20 Q100 8 200 20 Q300 32 400 20' fill='none' stroke='rgba(201%2C149%2C43%2C0.055)' stroke-width='1.5'/%3E%3Cpath d='M0 42 Q100 30 200 42 Q300 54 400 42' fill='none' stroke='rgba(201%2C149%2C43%2C0.03)' stroke-width='1'/%3E%3C/svg%3E");
+  background-repeat: repeat;
   color: hsl(var(--foreground));
   font-synthesis: none;
   text-rendering: optimizeLegibility;

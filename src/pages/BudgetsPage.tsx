@@ -155,7 +155,7 @@ export default function BudgetsPage() {
   };
 
   return (
-    <div className="p-6 max-w-2xl space-y-6">
+    <div className="p-6 max-w-2xl space-y-6 mx-auto w-full">
       {/* Header with month navigation */}
       <div className="flex items-center justify-between">
         <div>

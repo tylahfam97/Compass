@@ -187,7 +187,7 @@ export default function AgentPage() {
   const annualSubCost = totalSubCost * 12;
 
   return (
-    <div className="p-6 max-w-3xl space-y-8">
+    <div className="p-6 max-w-3xl space-y-8 mx-auto w-full">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

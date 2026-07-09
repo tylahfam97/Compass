@@ -9,6 +9,7 @@ import BudgetsPage from "@/pages/BudgetsPage";
 import GoalsPage from "@/pages/GoalsPage";
 import ReportsPage from "@/pages/ReportsPage";
 import AgentPage from "@/pages/AgentPage";
+import OverviewPage from "@/pages/OverviewPage";
 import ProfileSwitcher from "@/components/ProfileSwitcher";
 import UpdateChecker from "@/components/UpdateChecker";
 import { useCategoryStore } from "@/stores/categoryStore";
@@ -18,6 +19,7 @@ import type { Category, Profile } from "@/lib/types";
 import "./index.css";
 
 const NAV_ITEMS = [
+  { to: "/overview", label: "Overview" },
   { to: "/", label: "Dashboard" },
   { to: "/transactions", label: "Transactions" },
   { to: "/import", label: "Import" },
@@ -65,7 +67,10 @@ function App() {
     <BrowserRouter>
       <div className="flex h-screen overflow-hidden">
         {/* Sidebar */}
-        <aside className="w-52 shrink-0 border-r flex flex-col bg-[hsl(var(--muted))]">
+        <aside
+          className="w-52 shrink-0 flex flex-col bg-[hsl(var(--muted))]"
+          style={{ borderRight: '1.5px solid var(--gold)' }}
+        >
           <div className="px-4 py-3 border-b">
             <img src={logoUrl} alt="Compass" className="h-9 w-auto" />
           </div>
@@ -101,16 +106,19 @@ function App() {
 
         {/* Main content */}
         <main className="flex-1 overflow-y-auto">
-          <Routes>
-            <Route path="/" element={<DashboardPage />} />
-            <Route path="/transactions" element={<TransactionsPage />} />
-            <Route path="/import" element={<ImportPage />} />
-            <Route path="/trends" element={<TrendsPage />} />
-            <Route path="/budgets" element={<BudgetsPage />} />
-            <Route path="/goals" element={<GoalsPage />} />
-            <Route path="/reports" element={<ReportsPage />} />
-            <Route path="/agent" element={<AgentPage />} />
-          </Routes>
+          <div className="max-w-[1200px] mx-auto w-full min-h-full">
+            <Routes>
+              <Route path="/overview" element={<OverviewPage />} />
+              <Route path="/" element={<DashboardPage />} />
+              <Route path="/transactions" element={<TransactionsPage />} />
+              <Route path="/import" element={<ImportPage />} />
+              <Route path="/trends" element={<TrendsPage />} />
+              <Route path="/budgets" element={<BudgetsPage />} />
+              <Route path="/goals" element={<GoalsPage />} />
+              <Route path="/reports" element={<ReportsPage />} />
+              <Route path="/agent" element={<AgentPage />} />
+            </Routes>
+          </div>
         </main>
       </div>
     </BrowserRouter>

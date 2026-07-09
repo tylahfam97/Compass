@@ -1,9 +1,18 @@
 import { useState, useEffect } from "react";
+import {
+  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  BarChart, Bar, Cell,
+} from "recharts";
 import { getDb } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type { Transaction } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
+
+interface BalanceTrendPoint {
+  month: string;
+  balance: number;
+}
 
 interface CatRow {
   category_name: string;
@@ -68,6 +77,7 @@ export default function ReportsPage() {
   const [topExpenses, setTopExpenses] = useState<Transaction[]>([]);
   const [recurring, setRecurring] = useState<RecurringItem[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [balanceTrend, setBalanceTrend] = useState<BalanceTrendPoint[]>([]);
 
   const navMonth = (dir: -1 | 1) => {
     const [y, m] = month.split("-").map(Number);
@@ -89,7 +99,7 @@ export default function ReportsPage() {
       d6.setDate(1);
       const sixMonthsAgo = d6.toISOString().split("T")[0];
 
-      const [thisMonthCats, prevMonthCats, totals, top, rec, subs] = await Promise.all([
+      const [thisMonthCats, prevMonthCats, totals, top, rec, subs, balTrend] = await Promise.all([
         db.select<CatRow[]>(
           `SELECT c.name as category_name, c.color as category_color,
                   SUM(ABS(t.amount_cents)) as total_cents
@@ -144,6 +154,16 @@ export default function ReportsPage() {
            ORDER BY month_count DESC, ABS(t.amount_cents) DESC`,
           [profileId]
         ),
+        db.select<{ month: string; last_balance: number }[]>(
+          `SELECT strftime('%Y-%m', date) as month,
+                  balance_cents as last_balance
+           FROM transactions
+           WHERE profile_id=? AND balance_cents IS NOT NULL
+           GROUP BY strftime('%Y-%m', date)
+           HAVING id = MAX(id)
+           ORDER BY month`,
+          [profileId]
+        ),
       ]);
 
       if (cancelled) return;
@@ -155,6 +175,7 @@ export default function ReportsPage() {
       setTopExpenses(top);
       setRecurring(rec);
       setSubscriptions(subs);
+      setBalanceTrend(balTrend.map((r) => ({ month: r.month, balance: r.last_balance / 100 })));
       setLoading(false);
     }
     load().catch(console.error);
@@ -165,7 +186,7 @@ export default function ReportsPage() {
   const hasData = catThis.length > 0 || topExpenses.length > 0;
 
   return (
-    <div className="p-6 space-y-8 max-w-3xl">
+    <div className="p-6 space-y-8 max-w-3xl mx-auto w-full">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Reports</h1>
         <div className="flex items-center gap-1">
@@ -268,6 +289,41 @@ export default function ReportsPage() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </section>
+          )}
+
+          {/* ── BALANCE OVER TIME ── */}
+          {balanceTrend.length > 1 && (
+            <section>
+              <h2 className="font-semibold mb-3">Balance Over Time</h2>
+              <div className="border rounded-xl p-5">
+                <ResponsiveContainer width="100%" height={180}>
+                  <AreaChart data={balanceTrend} margin={{ top: 4, right: 16, bottom: 4, left: 16 }}>
+                    <defs>
+                      <linearGradient id="balTrendGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} />
+                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                    <YAxis
+                      tickFormatter={(v) => `$${Math.round(v / 1000)}k`}
+                      tick={{ fontSize: 11 }}
+                      width={50}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "hsl(var(--background))",
+                        border: "1px solid hsl(var(--border))",
+                        borderRadius: "8px",
+                        fontSize: "12px",
+                      }}
+                      formatter={(v) => [`$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "Balance"]}
+                    />
+                    <Area type="monotone" dataKey="balance" stroke="#3b82f6" strokeWidth={2} fill="url(#balTrendGrad)" dot={{ r: 3 }} />
+                  </AreaChart>
+                </ResponsiveContainer>
               </div>
             </section>
           )}

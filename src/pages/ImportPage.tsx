@@ -13,6 +13,7 @@ interface ColMap {
   descCol: number;
   amountCol: number;
   typeCol: number; // -1 = no transaction-type column
+  balanceCol: number; // -1 = no running balance column
 }
 
 interface ParsedData {
@@ -57,11 +58,13 @@ function autoDetect(headers: string[]): ColMap {
   // typeCol: look for a column whose name contains "type" but NOT "amount",
   // as used by banks that have separate "Transaction Type" (Debit/Credit) columns.
   const typeCol = h.findIndex((s) => s.includes("type") && !s.includes("amount"));
+  const balanceCol = h.findIndex((s) => s.includes("balance"));
   return {
     dateCol: find("date"),
     descCol: find("description", "payee", "name", "merchant", "memo"),
     amountCol: find("amount", "debit", "credit"),
     typeCol,
+    balanceCol,
   };
 }
 
@@ -118,7 +121,7 @@ export default function ImportPage() {
   const profileId = activeProfile?.id ?? 1;
   const [step, setStep] = useState<Step>("upload");
   const [parsed, setParsed] = useState<ParsedData | null>(null);
-  const [colMap, setColMap] = useState<ColMap>({ dateCol: 0, descCol: 1, amountCol: 2, typeCol: -1 });
+  const [colMap, setColMap] = useState<ColMap>({ dateCol: 0, descCol: 1, amountCol: 2, typeCol: -1, balanceCol: -1 });
   const [profileFound, setProfileFound] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -163,13 +166,14 @@ export default function ImportPage() {
               desc_col: number;
               amount_col: number;
               type_col: number;
+              balance_col: number;
             }[]>(
-              "SELECT date_col, desc_col, amount_col, COALESCE(type_col, -1) as type_col FROM column_profiles WHERE header_sig=? AND profile_id=?",
+              "SELECT date_col, desc_col, amount_col, COALESCE(type_col, -1) as type_col, COALESCE(balance_col, -1) as balance_col FROM column_profiles WHERE header_sig=? AND profile_id=?",
               [sig, profileId]
             );
             if (profiles.length > 0) {
               const p = profiles[0];
-              setColMap({ dateCol: p.date_col, descCol: p.desc_col, amountCol: p.amount_col, typeCol: p.type_col });
+              setColMap({ dateCol: p.date_col, descCol: p.desc_col, amountCol: p.amount_col, typeCol: p.type_col, balanceCol: p.balance_col });
               setProfileFound(true);
             } else {
               setColMap(autoDetect(headers));
@@ -237,13 +241,16 @@ export default function ImportPage() {
         const amountCents = Math.round(amount * 100);
         const hash = await hashRow(row);
         const categoryId = applyCategorizationRules(description, rules);
+        const balanceCents = colMap.balanceCol >= 0 && row[colMap.balanceCol]
+          ? Math.round(parseAmount(row[colMap.balanceCol]) * 100)
+          : null;
 
         try {
           await db.execute(
             `INSERT INTO transactions
-               (account_id, date, amount_cents, description, category_id, import_hash, profile_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [accountId, date, amountCents, description, categoryId, hash, profileId]
+               (account_id, date, amount_cents, description, category_id, import_hash, balance_cents, profile_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [accountId, date, amountCents, description, categoryId, hash, balanceCents, profileId]
           );
           imported++;
         } catch {
@@ -254,14 +261,15 @@ export default function ImportPage() {
       // Save / update the column profile for next time
       const sig = computeHeaderSig(parsed.headers);
       await db.execute(
-        `INSERT INTO column_profiles (header_sig, date_col, desc_col, amount_col, type_col, profile_id)
-         VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO column_profiles (header_sig, date_col, desc_col, amount_col, type_col, balance_col, profile_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(header_sig) DO UPDATE SET
-           date_col = excluded.date_col,
-           desc_col = excluded.desc_col,
-           amount_col = excluded.amount_col,
-           type_col  = excluded.type_col`,
-        [sig, colMap.dateCol, colMap.descCol, colMap.amountCol, colMap.typeCol, profileId]
+           date_col    = excluded.date_col,
+           desc_col    = excluded.desc_col,
+           amount_col  = excluded.amount_col,
+           type_col    = excluded.type_col,
+           balance_col = excluded.balance_col`,
+        [sig, colMap.dateCol, colMap.descCol, colMap.amountCol, colMap.typeCol, colMap.balanceCol, profileId]
       );
 
       setSummary({ imported, skipped });
@@ -282,7 +290,7 @@ export default function ImportPage() {
   };
 
   return (
-    <div className="p-6 max-w-3xl">
+    <div className="p-6 max-w-3xl mx-auto w-full">
       <h1 className="text-2xl font-semibold mb-2">Import Statements</h1>
       <p className="text-sm text-[hsl(var(--muted-foreground))] mb-6">
         Your data never leaves this device.
@@ -414,6 +422,44 @@ export default function ImportPage() {
             </div>
           </div>
 
+          {/* Optional: Running Balance column */}
+          <div className="mb-5">
+            <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide mb-2">
+              Optional — Running Balance Column
+            </p>
+            <div className="border rounded-xl p-4 flex flex-col gap-2">
+              <div>
+                <p className="font-medium text-sm">Running Balance</p>
+                <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                  Account balance after each transaction — used in dashboards and reports
+                </p>
+              </div>
+              <select
+                value={colMap.balanceCol}
+                onChange={(e) =>
+                  setColMap((m) => ({ ...m, balanceCol: parseInt(e.target.value) }))
+                }
+                className="w-full border rounded-lg px-3 py-2 text-sm
+                           bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
+              >
+                <option value={-1}>— None —</option>
+                {parsed.headers.map((h, idx) => (
+                  <option key={idx} value={idx}>{h || `Column ${idx + 1}`}</option>
+                ))}
+              </select>
+              {colMap.balanceCol >= 0 && (
+                <div className="border-l-2 border-[hsl(var(--border))] pl-2 space-y-0.5">
+                  <p className="text-xs text-[hsl(var(--muted-foreground))] italic">e.g. 4,250.00</p>
+                  {parsed.rows.slice(0, 3).map((row, i) => (
+                    <p key={i} className="text-xs font-mono truncate text-[hsl(var(--foreground))]">
+                      {row[colMap.balanceCol] || "—"}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Preview table */}
           <div className="border rounded-xl overflow-hidden mb-5">
             <div className="px-4 py-2 bg-[hsl(var(--muted))] border-b text-xs font-medium
@@ -426,6 +472,9 @@ export default function ImportPage() {
                   <th className="px-4 py-2 font-medium">Date</th>
                   <th className="px-4 py-2 font-medium">Description</th>
                   <th className="px-4 py-2 font-medium text-right">Amount</th>
+                  {colMap.balanceCol >= 0 && (
+                    <th className="px-4 py-2 font-medium text-right">Balance</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -437,6 +486,7 @@ export default function ImportPage() {
                     if (typeVal === "debit") amt = -Math.abs(rawAmt);
                     else if (typeVal === "credit") amt = Math.abs(rawAmt);
                   }
+                  const balRaw = colMap.balanceCol >= 0 ? (row[colMap.balanceCol] ?? "") : "";
                   return (
                     <tr key={i} className="border-t">
                       <td className="px-4 py-2 whitespace-nowrap text-[hsl(var(--muted-foreground))]">
@@ -449,6 +499,11 @@ export default function ImportPage() {
                       >
                         {formatCurrency(Math.round(amt * 100))}
                       </td>
+                      {colMap.balanceCol >= 0 && (
+                        <td className="px-4 py-2 text-right font-mono text-[hsl(var(--muted-foreground))]">
+                          {balRaw ? formatCurrency(Math.round(parseAmount(balRaw) * 100)) : "—"}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
