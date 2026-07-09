@@ -4,7 +4,11 @@
 
 # $${\color{#58a6ff}Compass}$$
 
-### *Own your financial life — privately, locally, and without judgment.*
+### *Own your financial life;  privately, locally, and without judgment.*
+
+<p align="center">
+  <img src="https://chrysisgithub.blob.core.windows.net/github/Animation.gif" alt="Compass demo" width="100%" />
+</p>
 
 Compass is a free, open-source Windows desktop application that helps you understand where your money is going. Every byte of your data lives exclusively on your device. Nothing is ever uploaded, synced, or shared.
 
