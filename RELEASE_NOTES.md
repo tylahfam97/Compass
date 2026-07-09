@@ -1,8 +1,8 @@
 Hello, @here !
 
-## Compass 0.3.78
+## Compass 0.3.79
 
-- **Fixed: Profiles & transactions lost after relaunch or update** — The encryption key is now backed up to a local file (`compass.key`) alongside the database. If Windows Credential Manager loses the keyring entry (which could happen after an app update, Windows profile sync, or a Credential Manager reset), the key is restored from the file instead of generating a new one. This prevents the database from being renamed to `.db.lost` and your data from disappearing.
+- **Branded installer** — The Windows setup wizard now shows the Compass logo, navy and gold colour scheme on the Welcome, Finish, and all inner installer pages (both NSIS .exe and WiX .msi)
 
 ---
 
