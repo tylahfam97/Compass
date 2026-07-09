@@ -61,16 +61,6 @@ jobs:
           Write-Host "Updater endpoint: $endpoint"
           npm run tauri build
 
-      - name: Verify signing output
-        shell: powershell
-        run: |
-          Write-Host "=== NSIS bundle output ==="
-          Get-ChildItem src-tauri\target\release\bundle\nsis\ -ErrorAction SilentlyContinue |
-            Select-Object Name, @{n='KB';e={[math]::Round($_.Length/1KB)}} | Format-Table -AutoSize
-          $hasSig = Test-Path "src-tauri\target\release\bundle\nsis\*.nsis.zip.sig"
-          if ($hasSig) { Write-Host "Signing OK - .nsis.zip.sig found" }
-          else { Write-Warning "No .nsis.zip.sig - signing key may be missing or password is wrong" }
-
       - name: Create and sign update bundle
         continue-on-error: true
         env:
