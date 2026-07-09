@@ -176,15 +176,20 @@ This section answers every question a new user should ask before importing finan
 
 ### Where is my data stored?
 
-All data is stored in a local SQLite database at:
-```
-%APPDATA%\com.compass.app\com.compass.app.db
-```
-This is a standard Windows user-profile location. Only you have access to it (subject to your Windows account permissions).
+Compass stores two files in your Windows user profile:
+
+| File | What it is |
+|---|---|
+| `%APPDATA%\com.compass.app\com.compass.app.db` | Encrypted SQLite database (all your transactions, budgets, goals, and categories) |
+| `%APPDATA%\com.compass.app\compass.key` | Backup copy of the database encryption key |
+
+Both files are accessible only to your Windows user account.
 
 ### Is the database encrypted?
 
-No — the database is not encrypted at rest. It is protected by your Windows user account access controls, the same way any file in your user profile is. If you want additional encryption, use Windows BitLocker or a third-party tool to encrypt the folder.
+Yes. The database is encrypted at rest using **SQLCipher (AES-256)**. The encryption key is a 32-byte random value generated on first launch and stored in **Windows Credential Manager** (DPAPI-backed), which ties it to your Windows user account. The key is never visible to you or to the app's UI — it is loaded by the Rust backend at startup and used only to open the database connection.
+
+A copy of the key is also written to `%APPDATA%\com.compass.app\compass.key` as a fallback in case Credential Manager loses the entry (e.g. after a Windows profile migration or credential reset). If you delete this file and the Credential Manager entry is also gone, the existing database cannot be reopened — treat it like any other encryption key backup.
 
 ### What data leaves my device?
 
@@ -201,11 +206,12 @@ No. There is no telemetry SDK, no analytics library, no error reporting service.
 
 ### How do I back up my data?
 
-Copy the database file to any location you want:
-```
-%APPDATA%\com.compass.app\com.compass.app.db
-```
-To restore, replace the file with your backup copy. You can also export any filtered transaction view as CSV from the Transactions page at any time.
+To make a complete portable backup, copy **both** files from `%APPDATA%\com.compass.app\`:
+
+- `com.compass.app.db` — the encrypted database
+- `compass.key` — the encryption key needed to open it
+
+Keep them together. Restoring only the `.db` file without the matching key file on a machine where Credential Manager no longer has the entry will result in an unreadable database. You can also export all transactions as CSV from the Transactions page (toggle **All time** → **↓ Export CSV**) for a plaintext backup that works anywhere.
 
 ### What happens when I uninstall?
 

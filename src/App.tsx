@@ -222,7 +222,7 @@ function App() {
               >
                 {dark ? "Light mode" : "Dark mode"}
               </button>
-              <UpdateChecker />
+              <UpdateChecker autoCheck />
               <button
                 onClick={() => openUrl("https://github.com/tylahfam97/Compass/issues/new").catch(() => {})}
                 className="w-full text-xs px-3 py-1.5 rounded-md text-[hsl(var(--muted-foreground))]
