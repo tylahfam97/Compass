@@ -552,22 +552,28 @@ export default function ImportPage() {
               {parsed.headers.map((h, i) => <option key={i} value={i}>{h || `Column ${i + 1}`}</option>)}
             </select>
 
-            <div className="rounded-lg border overflow-hidden text-xs">
-              <div className="grid grid-cols-2 bg-[hsl(var(--muted))] px-3 py-1.5 font-medium text-[hsl(var(--muted-foreground))]">
-                <span>Raw from CSV</span><span>Parsed as date</span>
-              </div>
+          <div className="border rounded-xl overflow-hidden">
+            <div className="text-center py-2.5 bg-[hsl(var(--primary)/0.08)] border-b">
+              <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
+                {parsed.headers[colMap.dateCol] || `Column ${colMap.dateCol + 1}`}
+              </span>
+            </div>
+            <div className="divide-y">
               {parsed.rows.filter((r) => r[colMap.dateCol]).slice(0, 4).map((row, i) => {
                 const raw = row[colMap.dateCol] ?? "";
-                const parsed_date = parseDate(raw);
-                const ok = /^\d{4}-\d{2}-\d{2}$/.test(parsed_date);
+                const iso = parseDate(raw);
+                const ok = /^\d{4}-\d{2}-\d{2}$/.test(iso);
                 return (
-                  <div key={i} className="grid grid-cols-2 px-3 py-1.5 border-t font-mono">
-                    <span className="truncate text-[hsl(var(--foreground))]">{raw}</span>
-                    <span className={ok ? "text-green-600" : "text-red-500"}>{ok ? formatDate(parsed_date) : "⚠ not a date"}</span>
+                  <div key={i} className="py-3 text-center">
+                    <p className="font-mono text-sm text-[hsl(var(--muted-foreground))]">{raw}</p>
+                    <p className={`text-base font-semibold mt-0.5 ${ok ? "text-green-600" : "text-red-500"}`}>
+                      {ok ? formatDate(iso) : "⚠ could not parse"}
+                    </p>
                   </div>
                 );
               })}
             </div>
+          </div>
           </div>
 
           <div className="flex gap-3">
@@ -593,13 +599,19 @@ export default function ImportPage() {
               {parsed.headers.map((h, i) => <option key={i} value={i}>{h || `Column ${i + 1}`}</option>)}
             </select>
 
-            <div className="rounded-lg border overflow-hidden text-xs">
-              <div className="bg-[hsl(var(--muted))] px-3 py-1.5 font-medium text-[hsl(var(--muted-foreground))]">Sample values</div>
-              {parsed.rows.filter((r) => r[colMap.descCol]).slice(0, 4).map((row, i) => (
-                <div key={i} className="px-3 py-1.5 border-t font-mono text-[hsl(var(--foreground))] truncate">
-                  {row[colMap.descCol]}
-                </div>
-              ))}
+            <div className="border rounded-xl overflow-hidden">
+              <div className="text-center py-2.5 bg-[hsl(var(--primary)/0.08)] border-b">
+                <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
+                  {parsed.headers[colMap.descCol] || `Column ${colMap.descCol + 1}`}
+                </span>
+              </div>
+              <div className="divide-y">
+                {parsed.rows.filter((r) => r[colMap.descCol]).slice(0, 4).map((row, i) => (
+                  <div key={i} className="py-3 text-center px-6">
+                    <p className="text-sm">{row[colMap.descCol]}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -626,27 +638,31 @@ export default function ImportPage() {
               {parsed.headers.map((h, i) => <option key={i} value={i}>{h || `Column ${i + 1}`}</option>)}
             </select>
 
-            <div className="rounded-lg border overflow-hidden text-xs">
-              <div className="grid grid-cols-2 bg-[hsl(var(--muted))] px-3 py-1.5 font-medium text-[hsl(var(--muted-foreground))]">
-                <span>Raw from CSV</span><span>Imported as</span>
+            <div className="border rounded-xl overflow-hidden">
+              <div className="text-center py-2.5 bg-[hsl(var(--primary)/0.08)] border-b">
+                <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
+                  {parsed.headers[colMap.amountCol] || `Column ${colMap.amountCol + 1}`}
+                </span>
               </div>
-              {parsed.rows.filter((r) => r[colMap.amountCol]).slice(0, 4).map((row, i) => {
-                const raw = row[colMap.amountCol] ?? "";
-                let amt = parseAmount(raw);
-                if (colMap.typeCol >= 0) {
-                  const tv = (row[colMap.typeCol] ?? "").trim().toLowerCase();
-                  if (tv === "debit") amt = -Math.abs(amt);
-                  else if (tv === "credit") amt = Math.abs(amt);
-                }
-                return (
-                  <div key={i} className="grid grid-cols-2 px-3 py-1.5 border-t font-mono">
-                    <span className="text-[hsl(var(--foreground))]">{raw}</span>
-                    <span className={amt < 0 ? "text-red-500" : "text-green-600"}>
-                      {amt === 0 ? <span className="text-amber-500">⚠ zero</span> : formatCurrency(Math.round(amt * 100))}
-                    </span>
-                  </div>
-                );
-              })}
+              <div className="divide-y">
+                {parsed.rows.filter((r) => r[colMap.amountCol]).slice(0, 4).map((row, i) => {
+                  const raw = row[colMap.amountCol] ?? "";
+                  let amt = parseAmount(raw);
+                  if (colMap.typeCol >= 0) {
+                    const tv = (row[colMap.typeCol] ?? "").trim().toLowerCase();
+                    if (tv === "debit") amt = -Math.abs(amt);
+                    else if (tv === "credit") amt = Math.abs(amt);
+                  }
+                  return (
+                    <div key={i} className="py-3 text-center">
+                      <p className="font-mono text-sm text-[hsl(var(--muted-foreground))]">{raw}</p>
+                      <p className={`font-mono text-base font-semibold mt-0.5 ${amt < 0 ? "text-red-500" : amt > 0 ? "text-green-600" : "text-amber-500"}`}>
+                        {amt === 0 ? "⚠ zero — will be skipped" : formatCurrency(Math.round(amt * 100))}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Debit/Credit type column toggle */}
@@ -723,20 +739,26 @@ export default function ImportPage() {
                   className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
                   {parsed.headers.map((h, i) => <option key={i} value={i}>{h || `Column ${i + 1}`}</option>)}
                 </select>
-                <div className="rounded-lg border overflow-hidden text-xs">
-                  <div className="grid grid-cols-2 bg-[hsl(var(--muted))] px-3 py-1.5 font-medium text-[hsl(var(--muted-foreground))]">
-                    <span>Raw</span><span>Parsed</span>
+                <div className="border rounded-xl overflow-hidden">
+                  <div className="text-center py-2.5 bg-[hsl(var(--primary)/0.08)] border-b">
+                    <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
+                      {parsed.headers[colMap.balanceCol] || `Column ${colMap.balanceCol + 1}`}
+                    </span>
                   </div>
-                  {parsed.rows.filter((r) => r[colMap.balanceCol]).slice(0, 4).map((row, i) => {
-                    const raw = row[colMap.balanceCol] ?? "";
-                    const amt = parseAmount(raw);
-                    return (
-                      <div key={i} className="grid grid-cols-2 px-3 py-1.5 border-t font-mono">
-                        <span className="text-[hsl(var(--foreground))]">{raw}</span>
-                        <span className="text-[hsl(var(--muted-foreground))]">{formatCurrency(Math.round(amt * 100))}</span>
-                      </div>
-                    );
-                  })}
+                  <div className="divide-y">
+                    {parsed.rows.filter((r) => r[colMap.balanceCol]).slice(0, 4).map((row, i) => {
+                      const raw = row[colMap.balanceCol] ?? "";
+                      const amt = parseAmount(raw);
+                      return (
+                        <div key={i} className="py-3 text-center">
+                          <p className="font-mono text-sm text-[hsl(var(--muted-foreground))]">{raw}</p>
+                          <p className="font-mono text-base font-semibold mt-0.5 text-[hsl(var(--foreground))]">
+                            {formatCurrency(Math.round(amt * 100))}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </>
             )}
