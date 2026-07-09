@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "react-router-dom";
-import { getDb } from "@/lib/db";
+import { getDb, reapplyCategorizationRules } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
 import type { Transaction } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
 import CategoryModal from "@/components/CategoryModal";
+import CategorizationRulesModal from "@/components/CategorizationRulesModal";
 
 const MAX_ROWS = 500;
 
@@ -16,6 +17,16 @@ function monthBounds(ym: string): [string, string] {
     `${y}-${String(m).padStart(2, "0")}-01`,
     new Date(y, m, 1).toISOString().split("T")[0],
   ];
+}
+
+/** Extract a clean merchant key from a raw bank description for rule creation. */
+function extractMerchantKey(description: string): string {
+  let s = description.toUpperCase().trim();
+  s = s.replace(/^[A-Z]{2,4}[\s*]+/, "");          // strip PP*, DD *, IC* …
+  s = s.replace(/\s+\d{2}\/\d{2}\s+.*$/, "");       // strip " 05/21 PURCHASE …"
+  s = s.replace(/\*[A-Z0-9]{4,}/g, "");             // strip *1A52U9IQ3
+  const words = s.trim().split(/\s+/);
+  return words.slice(0, 2).join(" ").slice(0, 30);
 }
 
 export default function TransactionsPage() {
@@ -28,6 +39,11 @@ export default function TransactionsPage() {
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [catModalOpen, setCatModalOpen] = useState(false);
+  const [rulesModalOpen, setRulesModalOpen] = useState(false);
+  const [rulePrompt, setRulePrompt] = useState<{ txn: Transaction; newCatId: number } | null>(null);
+  const [autoCatResult, setAutoCatResult] = useState<{ updated: number; mode: string } | null>(null);
+  const [autoCatRunning, setAutoCatRunning] = useState(false);
+  const [autoCatError, setAutoCatError] = useState<string | null>(null);
   const categories = useCategoryStore((s) => s.categories);
   const activeProfile = useProfileStore((s) => s.activeProfile);
   const profileId = activeProfile?.id ?? 1;
@@ -62,14 +78,43 @@ export default function TransactionsPage() {
     loadRows().catch(console.error);
   }, [loadRows]);
 
-  const recategorize = async (txnId: number, categoryId: number) => {
+  const recategorize = async (txn: Transaction, categoryId: number) => {
     const db = await getDb();
     await db.execute("UPDATE transactions SET category_id=? WHERE id=?", [
       categoryId,
-      txnId,
+      txn.id,
     ]);
     setEditingId(null);
     await loadRows();
+    // Offer to create a rule so future imports are auto-categorized
+    setRulePrompt({ txn, newCatId: categoryId });
+  };
+
+  const createRuleFromPrompt = async () => {
+    if (!rulePrompt) return;
+    const pattern = extractMerchantKey(rulePrompt.txn.description);
+    if (!pattern) { setRulePrompt(null); return; }
+    const db = await getDb();
+    await db.execute(
+      "INSERT OR IGNORE INTO categorization_rules (pattern, match_type, category_id, priority, profile_id) VALUES (?,?,?,?,?)",
+      [pattern, "contains", rulePrompt.newCatId, 75, profileId]
+    );
+    setRulePrompt(null);
+  };
+
+  const runAutoCategorize = async (mode: "uncategorized" | "all") => {
+    setAutoCatRunning(true);
+    setAutoCatResult(null);
+    setAutoCatError(null);
+    try {
+      const updated = await reapplyCategorizationRules(profileId, mode);
+      setAutoCatResult({ updated, mode });
+    } catch (e) {
+      setAutoCatError(String(e));
+    } finally {
+      await loadRows();
+      setAutoCatRunning(false);
+    }
   };
 
   const totalIncome = rows.filter((r) => r.amount_cents > 0)
@@ -82,11 +127,27 @@ export default function TransactionsPage() {
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-semibold">Transactions</h1>
         <button
+          onClick={() => runAutoCategorize("uncategorized")}
+          disabled={autoCatRunning}
+          title="Re-run rules on uncategorized transactions only"
+          className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
+                     transition-colors disabled:opacity-50"
+        >
+          {autoCatRunning ? "Running…" : "✦ Auto-Categorize"}
+        </button>
+        <button
           onClick={() => setCatModalOpen(true)}
           className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
                      transition-colors"
         >
           ＋ Category
+        </button>
+        <button
+          onClick={() => setRulesModalOpen(true)}
+          className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
+                     transition-colors"
+        >
+          ⚙ Rules
         </button>
       </div>
 
@@ -163,7 +224,7 @@ export default function TransactionsPage() {
                         autoFocus
                         defaultValue={t.category_id ?? 15}
                         onBlur={() => setEditingId(null)}
-                        onChange={(e) => recategorize(t.id, parseInt(e.target.value))}
+                        onChange={(e) => recategorize(t, parseInt(e.target.value))}
                         className="border rounded px-2 py-1 text-xs bg-[hsl(var(--background))]
                                    text-[hsl(var(--foreground))]"
                       >
@@ -199,6 +260,64 @@ export default function TransactionsPage() {
       {catModalOpen && (
         <CategoryModal onClose={() => setCatModalOpen(false)} profileId={profileId} />
       )}
+
+      {rulesModalOpen && (
+        <CategorizationRulesModal onClose={() => setRulesModalOpen(false)} profileId={profileId} />
+      )}
+
+      {/* Auto-categorize result / error toast */}
+      {(autoCatResult || autoCatError) && (
+        <div className={`fixed bottom-6 right-6 z-50 border shadow-xl rounded-xl px-5 py-3
+                        flex items-center gap-4 text-sm max-w-sm
+                        bg-[hsl(var(--background))]
+                        ${autoCatError ? "border-red-500" : ""}`}>
+          <span className="flex-1 text-[hsl(var(--foreground))]">
+            {autoCatError
+              ? <span className="text-red-500">Error: {autoCatError}</span>
+              : autoCatResult!.updated === 0
+                ? "No uncategorized transactions matched any rule."
+                : <><strong>{autoCatResult!.updated}</strong> transaction{autoCatResult!.updated !== 1 ? "s" : ""} categorized.</>
+            }
+          </span>
+          <button
+            onClick={() => { setAutoCatResult(null); setAutoCatError(null); }}
+            className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] text-lg leading-none"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* "Create rule?" toast after manual recategorize */}
+      {rulePrompt && (() => {
+        const cat = categories.find((c) => c.id === rulePrompt.newCatId);
+        const key = extractMerchantKey(rulePrompt.txn.description);
+        return (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50
+                          bg-[hsl(var(--background))] border shadow-xl rounded-xl
+                          px-5 py-3 flex items-center gap-4 text-sm max-w-lg w-full">
+            <span className="flex-1 text-[hsl(var(--foreground))]">
+              Always categorize <strong>"{key}"</strong> as{" "}
+              <span className="font-medium" style={{ color: cat?.color }}>
+                {cat?.name ?? "this category"}
+              </span>?
+            </span>
+            <button
+              onClick={createRuleFromPrompt}
+              className="px-3 py-1.5 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
+                         rounded-lg font-medium hover:opacity-90 transition-opacity"
+            >
+              Create Rule
+            </button>
+            <button
+              onClick={() => setRulePrompt(null)}
+              className="px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))] transition-colors"
+            >
+              Dismiss
+            </button>
+          </div>
+        );
+      })()}
     </div>
   );
 }

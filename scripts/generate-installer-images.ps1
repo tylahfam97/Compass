@@ -11,8 +11,11 @@
 
 Add-Type -AssemblyName System.Drawing
 
-$iconPath = Join-Path $PSScriptRoot "..\src-tauri\icons\icon.png"
-$outDir   = Join-Path $PSScriptRoot "..\src-tauri\icons"
+$iconPath   = Join-Path $PSScriptRoot "..\.\src-tauri\icons\icon.png"
+$outDir     = Join-Path $PSScriptRoot "..\.\src-tauri\icons"
+$tauriConf  = Join-Path $PSScriptRoot "..\.\src-tauri\tauri.conf.json"
+$appVersion = "v" + (Get-Content $tauriConf | ConvertFrom-Json).version
+Write-Host "Building installer images for $appVersion"
 
 $navy    = [System.Drawing.Color]::FromArgb(14,  27,  60)
 $gold    = [System.Drawing.Color]::FromArgb(201, 149, 43)
@@ -64,7 +67,7 @@ $g.FillRectangle($goldB, 22, 172, 120, 1)
 $f2 = New-Object System.Drawing.Font("Segoe UI", 11, [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Pixel)
 $g.DrawString("Personal Finance", $f2, $subB, 82, 180, $fmtC)
 $f3 = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Pixel)
-$g.DrawString("v0.3.79", $f3, $verB, 82, 285, $fmtC)
+$g.DrawString($appVersion, $f3, $verB, 82, 285, $fmtC)
 $g.FillRectangle($goldB, 0, 310, 164, 4)
 $g.Dispose()
 Save-Bmp $bmp (Join-Path $outDir "installer-sidebar.bmp")
