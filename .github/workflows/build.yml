@@ -180,4 +180,5 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           APPRISE_DISCORD_URL: ${{ secrets.AppriseDiscordUrl }}
+          APPRISE_URL: ${{ secrets.APPRISE_URL }}
         run: powershell -ExecutionPolicy Bypass -File scripts\publish-release.ps1
