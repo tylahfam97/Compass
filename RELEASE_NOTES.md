@@ -1,38 +1,30 @@
 # Hello, @here !
 
-## Compass 0.3.79
+## Compass 0.3.8 — Smart Categorization
 
-- **Branded installer** — The Windows setup wizard now shows the Compass logo, navy and gold colour scheme on the Welcome, Finish, and all inner installer pages (both NSIS .exe and WiX .msi)
+### Auto-Categorization
+- **100+ new rules** covering the most common real-world merchants: Amazon, Walmart, Instacart, Apple, Racetrac, QT, CVS, Walgreens, Waffle House, DashPass, Progressive, and many more
+- **6 new system categories**: Gas & Fuel, Subscriptions, Insurance, Bank Fees, Transfers, Gifts & Donations
+- **Description normalization** — bank format noise like `DD *`, `IC* `, `PP*`, and `*1A52U9IQ3` trailing codes are stripped before matching, so merchants are correctly identified regardless of how your bank formats the description
+- **Regex rule support** — rules can now use regular expressions in addition to `contains` and `starts_with`
+- **Transfers excluded from expenses** — internal bank transfers, Keep the Change, Zelle, Venmo, and credit card payments are routed to the new Transfers category and excluded from all expense totals, reports, and agent calculations
 
----
+### ✦ Auto-Categorize Button
+- One-click **Auto-Categorize** on the Transactions page re-runs all rules against your existing uncategorized transactions
+- Uses the same batched engine as the importer — completes in under a second regardless of transaction count
 
-## Compass 0.3.7
+### Rules Manager
+- New **⚙ Rules** button on the Transactions page opens a full rules manager
+- View all 130+ system rules and all your custom rules in one place
+- Add, delete, and configure custom rules (pattern, match type, category, priority) without touching any settings
 
-### New Features
-- **Running Balance**: Import your bank's Running Balance column — shown in transactions, dashboard balance card with sparkline, and a Balance Over Time chart in Reports
-- **All Accounts Overview**: New "Overview" page shows all profiles side-by-side with current balance, this-month income/expenses, and a mini balance sparkline per account. Clicking a card switches to that profile
-- **Custom Categories**: Add, edit, and delete your own categories directly from the Transactions page (system categories remain protected)
+### Learn from Corrections
+- When you manually change a transaction's category, a **"Create Rule?"** prompt appears
+- One click creates a permanent rule so future imports are auto-categorized correctly
 
-### Transactions
-- Added **All time** toggle to view every transaction regardless of month
-- Balance column now shown in the transaction table (populated when Running Balance was imported)
-- Transactions table now scrolls correctly with all rows visible
-- 500-row cap with notice to prevent browser freeze on large datasets
-
-### Imports
-- Running Balance column auto-detected and mapped as an optional field
-- Preview table shows the balance column when mapped
-
-### UI
-- Wider default window (1600×1000) for a more spacious layout
-- All pages now center within the wider window
-- Subtle gold border on the sidebar divider
-- Very light wavy background texture for a more polished feel
-
-### Dashboard
-- Account balance card with mini sparkline for the selected month
-- AI Agent now generates low-balance and short-runway insights when balance data is present
-
-### Bug Fixes
-- Fixed DB migration error ("table column_profiles has no column named balance_col")
-- Improved release pipeline reliability and asset upload stability
+### Agent Insights (5 new)
+- **Top merchants** — highlights your top 3 spending merchants this month
+- **Food delivery ratio** — flags when delivery apps are >30% of your food budget and estimates monthly savings from cooking more
+- **Subscription summary** — lists all detected subscription charges and their monthly total
+- **Paycheck expected** — predicts your next deposit date based on your pay cycle (shown within a 14-day window)
+- **Overdraft alert** — fires when Bank Fee transactions are detected this month
