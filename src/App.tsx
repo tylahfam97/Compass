@@ -55,6 +55,9 @@ function App() {
   const [launchReady, setLaunchReady] = useState(false);
   const [profileSelected, setProfileSelected] = useState(false);
   const [pinTarget, setPinTarget] = useState<Profile | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => localStorage.getItem("sidebarOpen") !== "false"
+  );
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
@@ -142,43 +145,62 @@ function App() {
       <div className="flex h-screen overflow-hidden">
         {/* Sidebar */}
         <aside
-          className="w-52 shrink-0 flex flex-col bg-[hsl(var(--muted))]"
+          className={`shrink-0 flex flex-col bg-[hsl(var(--muted))] transition-all duration-200
+                      ${sidebarOpen ? "w-52" : "w-10"}`}
           style={{ borderRight: '1.5px solid var(--gold)' }}
         >
-          <div className="px-4 py-3 border-b">
-            <img src={logoUrl} alt="Compass" className="h-9 w-auto" />
-          </div>
-          <nav className="flex-1 py-4 space-y-1 px-3">
-            {NAV_ITEMS.map(({ to, label, showBadge }) => (
-              <NavLink
-                key={to}
-                to={to}
-                end={to === "/"}
-                className={({ isActive }) =>
-                  `flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                    isActive
-                      ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
-                      : "hover:bg-[hsl(var(--border))] text-[hsl(var(--foreground))]"
-                  }`
-                }
-              >
-                {label}
-                {showBadge && insightWarnings > 0 && (
-                  <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
-                )}
-              </NavLink>
-            ))}
-          </nav>
-          <div className="px-4 pb-4 space-y-2">
-            <ProfileSwitcher />
+          {/* Logo row + collapse toggle */}
+          <div className={`border-b flex items-center ${sidebarOpen ? "px-4 py-3 justify-between" : "py-3 justify-center"}`}>
+            {sidebarOpen && <img src={logoUrl} alt="Compass" className="h-9 w-auto" />}
             <button
-              onClick={() => setDark((d) => !d)}
-              className="w-full text-xs px-3 py-2 rounded-md border hover:bg-[hsl(var(--border))] transition-colors"
+              onClick={() => setSidebarOpen((v) => {
+                const next = !v;
+                localStorage.setItem("sidebarOpen", String(next));
+                return next;
+              })}
+              title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+              className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]
+                         hover:bg-[hsl(var(--border))] rounded-md p-1 transition-colors text-base leading-none select-none"
             >
-              {dark ? "Light mode" : "Dark mode"}
+              {sidebarOpen ? "‹" : "›"}
             </button>
-            <UpdateChecker />
           </div>
+
+          {sidebarOpen && (
+            <>
+              <nav className="flex-1 py-4 space-y-1 px-3">
+                {NAV_ITEMS.map(({ to, label, showBadge }) => (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    end={to === "/"}
+                    className={({ isActive }) =>
+                      `flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                        isActive
+                          ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
+                          : "hover:bg-[hsl(var(--border))] text-[hsl(var(--foreground))]"
+                      }`
+                    }
+                  >
+                    {label}
+                    {showBadge && insightWarnings > 0 && (
+                      <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+                    )}
+                  </NavLink>
+                ))}
+              </nav>
+              <div className="px-4 pb-4 space-y-2">
+                <ProfileSwitcher />
+                <button
+                  onClick={() => setDark((d) => !d)}
+                  className="w-full text-xs px-3 py-2 rounded-md border hover:bg-[hsl(var(--border))] transition-colors"
+                >
+                  {dark ? "Light mode" : "Dark mode"}
+                </button>
+                <UpdateChecker />
+              </div>
+            </>
+          )}
         </aside>
 
         {/* Main content */}
