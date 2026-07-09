@@ -1,7 +1,7 @@
 # GitHub release publisher - called from .github/workflows/build.yml
 # Env vars required: GH_TOKEN, APP_VERSION, GH_REPO
 
-# Force TLS 1.2 — PowerShell 5.1 defaults to TLS 1.0 which GitHub rejects
+# Force TLS 1.2 - PowerShell 5.1 defaults to TLS 1.0 which GitHub rejects
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $version      = $env:APP_VERSION
@@ -51,7 +51,7 @@ if ($existing.id) {
     if ($delResult -eq $null -or $delResult.message -eq $null) {
         Write-Host "Removed existing release $tagName (ID $($existing.id))"
     } else {
-        # Release exists but can't be deleted (likely immutable) — abort with clear message
+        # Release exists but can't be deleted (likely immutable) - abort with clear message
         Write-Error "Release $tagName already exists and cannot be deleted (it may be marked immutable). " +
                     "Go to GitHub Settings > General > Releases and disable 'Immutable releases', " +
                     "then manually delete the release and tag before re-running."
@@ -69,7 +69,7 @@ if ($tagDel.message -and $tagDel.message -ne "") {
     Write-Host "Removed existing tag ref $tagName"
 }
 
-# Create the release — GitHub creates the tag at HEAD automatically
+# Create the release - GitHub creates the tag at HEAD automatically
 $releaseNotes = if (Test-Path "RELEASE_NOTES.md") {
     [IO.File]::ReadAllText((Resolve-Path "RELEASE_NOTES.md").Path)
 } else {
@@ -98,7 +98,7 @@ Write-Host "Created release $tagName (ID $releaseId)"
 # Brief pause so GitHub's API fully registers the new release before uploading assets
 Start-Sleep -Seconds 3
 
-# Upload headers — Invoke-RestMethod is used for binary uploads (proven reliable with ReadAllBytes)
+# Upload headers - Invoke-RestMethod is used for binary uploads (proven reliable with ReadAllBytes)
 $uploadHeaders = @{
     "Authorization"        = "Bearer " + $token
     "Accept"               = "application/vnd.github+json"
@@ -140,9 +140,9 @@ if ($nsisZip -and $nsisSig) {
     Write-Host "Uploaded $($nsisZip.Name)"
 
     if ($isPrerelease) {
-        Write-Host "Prerelease build — skipping latest.json so stable users are not prompted to update."
+        Write-Host "Prerelease build - skipping latest.json so stable users are not prompted to update."
     } else {
-        # Build latest.json — consumed by tauri-plugin-updater on every app launch check
+        # Build latest.json - consumed by tauri-plugin-updater on every app launch check
         $signature   = Get-Content $nsisSig.FullName -Raw
         $downloadUrl = "https://github.com/" + $repo + "/releases/download/" + $tagName + "/" + $nsisZip.Name
         $pubDate     = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
@@ -221,7 +221,7 @@ if ($appriseDiscordUrl -and -not $isPrerelease) {
     if (-not $appriseDiscordUrl) {
         Write-Host "APPRISE_DISCORD_URL secret not set - skipping Discord notification"
     } else {
-        Write-Host "Prerelease build — skipping Discord notification"
+        Write-Host "Prerelease build - skipping Discord notification"
     }
 }
 
