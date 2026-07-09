@@ -484,44 +484,41 @@ export default function ImportPage() {
             </div>
           )}
 
-          <div>
-            <p className="text-sm text-[hsl(var(--muted-foreground))] mb-3">
-              Compass found the column headers below. Make sure the first highlighted row is your header row, not a bank summary line.
-            </p>
+          <p className="text-sm text-[hsl(var(--muted-foreground))]">
+            Compass detected the column headers below. If they don't look right, use − / + to shift to the correct row.
+          </p>
 
-            {/* Header row + first 3 data rows */}
-            <div className="border rounded-xl overflow-hidden text-sm">
-              <div className="bg-[hsl(var(--primary)/0.1)] border-b px-4 py-2 font-medium text-xs uppercase tracking-wide text-[hsl(var(--primary))]">
+          {/* Header-only display — centered column pills */}
+          <div className="border rounded-xl overflow-hidden">
+            <div className="text-center py-2 bg-[hsl(var(--primary)/0.08)] border-b">
+              <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
                 Header row (row {skipRows + 1})
-              </div>
-              <div className="px-4 py-2 font-mono text-xs flex gap-3 flex-wrap border-b bg-[hsl(var(--muted))]">
-                {parsed.headers.map((h, i) => (
-                  <span key={i} className="px-2 py-0.5 bg-[hsl(var(--background))] border rounded font-semibold">
-                    {h || `Col ${i + 1}`}
-                  </span>
-                ))}
-              </div>
-              {parsed.rows.slice(0, 3).map((row, i) => (
-                <div key={i} className="px-4 py-2 font-mono text-xs flex gap-3 flex-wrap border-b last:border-0 text-[hsl(var(--muted-foreground))]">
-                  {row.map((cell, j) => <span key={j} className="truncate max-w-[120px]">{cell || "—"}</span>)}
-                </div>
+              </span>
+            </div>
+            <div className="py-5 flex flex-wrap justify-center gap-2 px-6">
+              {parsed.headers.map((h, i) => (
+                <span key={i} className="px-3 py-1.5 bg-[hsl(var(--muted))] border rounded-lg text-sm font-semibold">
+                  {h || `Column ${i + 1}`}
+                </span>
               ))}
             </div>
           </div>
 
-          <div className="flex items-center gap-2 text-sm">
-            <span className="text-[hsl(var(--muted-foreground))]">Header at row:</span>
+          {/* Row navigation */}
+          <div className="flex items-center justify-center gap-3 text-sm">
             <button onClick={() => adjustSkipRows(-1)} disabled={skipRows === 0}
-              className="w-7 h-7 flex items-center justify-center border rounded-md disabled:opacity-30 hover:bg-[hsl(var(--muted))] transition-colors">−</button>
-            <span className="w-8 text-center font-mono font-medium">{skipRows + 1}</span>
+              className="w-8 h-8 flex items-center justify-center border rounded-md disabled:opacity-30 hover:bg-[hsl(var(--muted))] transition-colors text-base">−</button>
+            <span className="text-[hsl(var(--muted-foreground))]">
+              Row <span className="font-mono font-bold text-[hsl(var(--foreground))]">{skipRows + 1}</span> of {rawData?.length ?? 0}
+            </span>
             <button onClick={() => adjustSkipRows(1)} disabled={!rawData || skipRows >= rawData.length - 2}
-              className="w-7 h-7 flex items-center justify-center border rounded-md disabled:opacity-30 hover:bg-[hsl(var(--muted))] transition-colors">+</button>
-            <span className="text-xs text-[hsl(var(--muted-foreground))]">
+              className="w-8 h-8 flex items-center justify-center border rounded-md disabled:opacity-30 hover:bg-[hsl(var(--muted))] transition-colors text-base">+</button>
+            <span className="text-xs text-[hsl(var(--muted-foreground))] ml-2">
               {parsed.rows.length} data rows · {parsed.headers.length} columns
             </span>
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex gap-3 justify-center">
             {profileFound && (
               <button onClick={() => setStep("wizard:preview")}
                 className="px-5 py-2 border rounded-lg text-sm font-medium hover:bg-[hsl(var(--muted))] transition-colors">
@@ -532,7 +529,7 @@ export default function ImportPage() {
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
               Looks good → Next
             </button>
-            <button onClick={reset} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
+            <button onClick={reset} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
               Cancel
             </button>
           </div>
