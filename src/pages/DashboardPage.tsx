@@ -119,8 +119,18 @@ export default function DashboardPage() {
     if (scope === "month") {
       const [start, end] = monthBounds(month);
       await db.execute("DELETE FROM transactions WHERE date>=? AND date<? AND profile_id=?", [start, end, profileId]);
+      // Remove sessions that no longer have any transactions linked to them
+      await db.execute(
+        `DELETE FROM import_sessions WHERE profile_id=?
+         AND id NOT IN (
+           SELECT DISTINCT import_session_id FROM transactions
+           WHERE profile_id=? AND import_session_id IS NOT NULL
+         )`,
+        [profileId, profileId]
+      );
     } else {
       await db.execute("DELETE FROM transactions WHERE profile_id=?", [profileId]);
+      await db.execute("DELETE FROM import_sessions WHERE profile_id=?", [profileId]);
     }
     setConfirmClear(null);
     loadData().catch(console.error);

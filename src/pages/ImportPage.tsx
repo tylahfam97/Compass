@@ -6,7 +6,10 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import type { CategorizationRule } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
 
-type Step = "upload" | "checking" | "mapping" | "importing" | "done";
+type Step =
+  | "upload" | "checking"
+  | "wizard:data" | "wizard:date" | "wizard:desc" | "wizard:amount" | "wizard:balance" | "wizard:preview"
+  | "importing" | "done";
 
 interface ColMap {
   dateCol: number;
@@ -34,26 +37,18 @@ interface ImportSession {
   skipped_count: number;
 }
 
-const FIELDS = [
-  {
-    key: "dateCol" as const,
-    label: "Date",
-    hint: "Transaction date",
-    example: "e.g. 06/15/2026 or 2026-06-15",
-  },
-  {
-    key: "descCol" as const,
-    label: "Description",
-    hint: "Merchant or payee name",
-    example: "e.g. WHOLE FOODS MARKET",
-  },
-  {
-    key: "amountCol" as const,
-    label: "Amount",
-    hint: "Negative = expense, positive = income",
-    example: "e.g. -87.43 or 3500.00",
-  },
+const WIZARD_STEPS = [
+  { step: "wizard:data"    as const, num: 1, label: "Find Data" },
+  { step: "wizard:date"    as const, num: 2, label: "Date" },
+  { step: "wizard:desc"    as const, num: 3, label: "Description" },
+  { step: "wizard:amount"  as const, num: 4, label: "Amount" },
+  { step: "wizard:balance" as const, num: 5, label: "Balance" },
+  { step: "wizard:preview" as const, num: 6, label: "Preview" },
 ];
+
+function wizardNum(step: string): number {
+  return WIZARD_STEPS.find((s) => s.step === step)?.num ?? 0;
+}
 
 function computeHeaderSig(headers: string[]): string {
   return [...headers].map((h) => h.toLowerCase().trim()).sort().join("|");
@@ -176,6 +171,7 @@ export default function ImportPage() {
   const [targetMonth, setTargetMonth] = useState(currentYM);
   const [importHistory, setImportHistory] = useState<ImportSession[]>([]);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [wizardDir, setWizardDir] = useState<"forward" | "back">("forward");
 
   // Auto-detect the dominant month whenever the parsed data or date column changes
   const detectedMonth = useMemo(
@@ -198,6 +194,12 @@ export default function ImportPage() {
   }, [profileId]);
 
   useEffect(() => { loadHistory().catch(console.error); }, [loadHistory]);
+
+  /** Navigate between wizard steps with direction tracking for the slide animation. */
+  const wizardGo = (target: Step, dir: "forward" | "back" = "forward") => {
+    setWizardDir(dir);
+    setStep(target);
+  };
 
   const undoImport = async (sessionId: number) => {
     const db = await getDb();
@@ -260,7 +262,7 @@ export default function ImportPage() {
             setColMap(autoDetect(headers));
             setProfileFound(false);
           }
-          setStep("mapping");
+          setStep("wizard:data");
         })();
       },
       error: (err) => {
@@ -386,7 +388,7 @@ export default function ImportPage() {
       setStep("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
-      setStep("mapping");
+      setStep("wizard:preview");
     }
   };
 
@@ -444,163 +446,365 @@ export default function ImportPage() {
         </div>
       )}
 
-      {/* ── COLUMN MAPPING ── */}
-      {step === "mapping" && parsed && (
-        <div>
-          {/* Profile status */}
-          {profileFound ? (
-            <div className="flex items-center gap-2 mb-5 px-4 py-2.5 rounded-lg text-sm
-                            border border-green-300 bg-green-50 text-green-800
-                            dark:border-green-800 dark:bg-green-950 dark:text-green-300">
-              ✓ Column layout recognized from a previous import — verify below and adjust if needed.
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 mb-5 px-4 py-2.5 rounded-lg text-sm
-                            border border-[hsl(var(--border))] bg-[hsl(var(--muted))]">
-              New column layout — match each CSV column to the correct field:
-            </div>
-          )}
-
-          {/* Skip-rows control — shown when auto-detect chose >0 OR always for manual adjustment */}
-          <div className="flex items-center gap-2 text-sm mb-3">
-            <span className="text-[hsl(var(--muted-foreground))]">Header at row:</span>
-            <button
-              onClick={() => adjustSkipRows(-1)}
-              disabled={skipRows === 0}
-              className="w-6 h-6 flex items-center justify-center border rounded-md
-                         disabled:opacity-30 hover:bg-[hsl(var(--muted))] transition-colors text-base leading-none"
-            >−</button>
-            <span className="w-8 text-center font-mono font-medium">{skipRows + 1}</span>
-            <button
-              onClick={() => adjustSkipRows(1)}
-              disabled={!rawData || skipRows >= rawData.length - 2}
-              className="w-6 h-6 flex items-center justify-center border rounded-md
-                         disabled:opacity-30 hover:bg-[hsl(var(--muted))] transition-colors text-base leading-none"
-            >+</button>
-            {skipRows > 0 && (
-              <span className="text-xs text-[hsl(var(--muted-foreground))]">
-                — skipping {skipRows} summary row{skipRows !== 1 ? "s" : ""} above
-              </span>
-            )}
-          </div>
-
-          <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">
-            {parsed.rows.length} rows · {parsed.headers.length} columns detected
-          </p>
-
-          {/* Column matching cards */}
-          <div className="grid grid-cols-3 gap-3 mb-5">
-            {FIELDS.map(({ key, label, hint, example }) => (
-              <div key={key} className="border rounded-xl p-4 flex flex-col gap-2">
-                <div>
-                  <p className="font-medium text-sm">{label}</p>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">{hint}</p>
+      {/* ── WIZARD: shared step indicator ── */}
+      {wizardNum(step) > 0 && parsed && (
+        <div className="mb-6">
+          <div className="flex items-center gap-1 mb-2">
+            {WIZARD_STEPS.map((ws, i) => (
+              <div key={ws.step} className="flex items-center gap-1">
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
+                  wizardNum(step) === ws.num
+                    ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
+                    : wizardNum(step) > ws.num
+                    ? "bg-green-500 text-white"
+                    : "bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]"
+                }`}>
+                  {wizardNum(step) > ws.num ? "✓" : ws.num}
                 </div>
-                <select
-                  value={colMap[key]}
-                  onChange={(e) =>
-                    setColMap((m) => ({ ...m, [key]: parseInt(e.target.value) }))
-                  }
-                  className="w-full border rounded-lg px-3 py-2 text-sm
-                             bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
-                >
-                  {parsed.headers.map((h, idx) => (
-                    <option key={idx} value={idx}>{h || `Column ${idx + 1}`}</option>
-                  ))}
-                </select>
-                {/* Sample values from the selected column */}
-                <div className="border-l-2 border-[hsl(var(--border))] pl-2 space-y-0.5">
-                  <p className="text-xs text-[hsl(var(--muted-foreground))] italic">{example}</p>
-                  {parsed.rows.slice(0, 3).map((row, i) => (
-                    <p key={i} className="text-xs font-mono truncate text-[hsl(var(--foreground))]">
-                      {row[colMap[key]] || "—"}
-                    </p>
-                  ))}
-                </div>
+                {i < WIZARD_STEPS.length - 1 && (
+                  <div className={`h-0.5 w-6 transition-colors ${wizardNum(step) > ws.num ? "bg-green-500" : "bg-[hsl(var(--muted))]"}`} />
+                )}
               </div>
             ))}
           </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-xs text-[hsl(var(--muted-foreground))]">
+              Step {wizardNum(step)} of {WIZARD_STEPS.length}
+            </span>
+            <span className="font-semibold">
+              {WIZARD_STEPS.find((s) => s.step === step)?.label}
+            </span>
+            <span className="text-xs text-[hsl(var(--muted-foreground))] ml-auto">
+              {currentFilename}
+            </span>
+          </div>
+        </div>
+      )}
 
-          {/* Optional: Transaction Type column */}
-          <div className="mb-5">
-            <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide mb-2">
-              Optional — Transaction Type Column
-            </p>
-            <div className="border rounded-xl p-4 flex flex-col gap-2">
-              <div>
-                <p className="font-medium text-sm">Transaction Type</p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                  Select if your bank has a column with values like &ldquo;Debit&rdquo; / &ldquo;Credit&rdquo; instead of signed amounts
-                </p>
+      {/* ── WIZARD STEP 1: Find Data ── */}
+      {step === "wizard:data" && parsed && (
+        <div key="wizard:data" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
+          {profileFound && (
+            <div className="px-4 py-2.5 rounded-lg text-sm border border-green-300 bg-green-50
+                            text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
+              ✓ Column layout recognized from a previous import — you can skip straight to Preview.
+            </div>
+          )}
+
+          <p className="text-sm text-[hsl(var(--muted-foreground))]">
+            Compass detected the column headers below. If they don't look right, use − / + to shift to the correct row.
+          </p>
+
+          {/* Header-only display — centered column pills */}
+          <div className="border rounded-xl overflow-hidden">
+            <div className="text-center py-2 bg-[hsl(var(--primary)/0.08)] border-b">
+              <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
+                Header row (row {skipRows + 1})
+              </span>
+            </div>
+            <div className="py-5 flex flex-wrap justify-center gap-2 px-6">
+              {parsed.headers.map((h, i) => (
+                <span key={i} className="px-3 py-1.5 bg-[hsl(var(--muted))] border rounded-lg text-sm font-semibold">
+                  {h || `Column ${i + 1}`}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Row navigation */}
+          <div className="flex items-center justify-center gap-3 text-sm">
+            <button onClick={() => adjustSkipRows(-1)} disabled={skipRows === 0}
+              className="w-8 h-8 flex items-center justify-center border rounded-md disabled:opacity-30 hover:bg-[hsl(var(--muted))] transition-colors text-base">−</button>
+            <span className="text-[hsl(var(--muted-foreground))]">
+              Row <span className="font-mono font-bold text-[hsl(var(--foreground))]">{skipRows + 1}</span> of {rawData?.length ?? 0}
+            </span>
+            <button onClick={() => adjustSkipRows(1)} disabled={!rawData || skipRows >= rawData.length - 2}
+              className="w-8 h-8 flex items-center justify-center border rounded-md disabled:opacity-30 hover:bg-[hsl(var(--muted))] transition-colors text-base">+</button>
+            <span className="text-xs text-[hsl(var(--muted-foreground))] ml-2">
+              {parsed.rows.length} data rows · {parsed.headers.length} columns
+            </span>
+          </div>
+
+          <div className="flex gap-3 justify-center">
+            {profileFound && (
+              <button onClick={() => wizardGo("wizard:preview", "forward")}
+                className="px-5 py-2 border rounded-lg text-sm font-medium hover:bg-[hsl(var(--muted))] transition-colors">
+                Skip to Preview
+              </button>
+            )}
+              <button onClick={() => wizardGo("wizard:date", "forward")}
+              className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
+              Looks good → Next
+            </button>
+            <button onClick={reset} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── WIZARD STEP 2: Date Column ── */}
+      {step === "wizard:date" && parsed && (
+        <div key="wizard:date" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
+          <p className="text-sm text-[hsl(var(--muted-foreground))]">
+            Select the column that contains the transaction date.
+          </p>
+          <div className="border rounded-xl p-5 space-y-4">
+            <select value={colMap.dateCol}
+              onChange={(e) => setColMap((m) => ({ ...m, dateCol: parseInt(e.target.value) }))}
+              className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
+              {parsed.headers.map((h, i) => <option key={i} value={i}>{h || `Column ${i + 1}`}</option>)}
+            </select>
+
+          <div className="border rounded-xl overflow-hidden">
+            <div className="text-center py-2.5 bg-[hsl(var(--primary)/0.08)] border-b">
+              <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
+                {parsed.headers[colMap.dateCol] || `Column ${colMap.dateCol + 1}`}
+              </span>
+            </div>
+            <div className="divide-y">
+              {parsed.rows.filter((r) => r[colMap.dateCol]).slice(0, 4).map((row, i) => {
+                const raw = row[colMap.dateCol] ?? "";
+                const iso = parseDate(raw);
+                const ok = /^\d{4}-\d{2}-\d{2}$/.test(iso);
+                return (
+                  <div key={i} className="py-3 text-center">
+                    <p className="font-mono text-sm text-[hsl(var(--muted-foreground))]">{raw}</p>
+                    <p className={`text-base font-semibold mt-0.5 ${ok ? "text-green-600" : "text-red-500"}`}>
+                      {ok ? formatDate(iso) : "⚠ could not parse"}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          </div>
+
+          <div className="flex gap-3">
+            <button onClick={() => wizardGo("wizard:data", "back")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">← Back</button>
+            <button onClick={() => wizardGo("wizard:desc", "forward")}
+              className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
+              Next →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── WIZARD STEP 3: Description Column ── */}
+      {step === "wizard:desc" && parsed && (
+        <div key="wizard:desc" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
+          <p className="text-sm text-[hsl(var(--muted-foreground))]">
+            Select the column that contains the merchant or payee name. This is used for categorization.
+          </p>
+          <div className="border rounded-xl p-5 space-y-4">
+            <select value={colMap.descCol}
+              onChange={(e) => setColMap((m) => ({ ...m, descCol: parseInt(e.target.value) }))}
+              className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
+              {parsed.headers.map((h, i) => <option key={i} value={i}>{h || `Column ${i + 1}`}</option>)}
+            </select>
+
+            <div className="border rounded-xl overflow-hidden">
+              <div className="text-center py-2.5 bg-[hsl(var(--primary)/0.08)] border-b">
+                <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
+                  {parsed.headers[colMap.descCol] || `Column ${colMap.descCol + 1}`}
+                </span>
               </div>
-              <select
-                value={colMap.typeCol}
-                onChange={(e) =>
-                  setColMap((m) => ({ ...m, typeCol: parseInt(e.target.value) }))
-                }
-                className="w-full border rounded-lg px-3 py-2 text-sm
-                           bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
-              >
-                <option value={-1}>— None (amounts already have +/−) —</option>
-                {parsed.headers.map((h, idx) => (
-                  <option key={idx} value={idx}>{h || `Column ${idx + 1}`}</option>
+              <div className="divide-y">
+                {parsed.rows.filter((r) => r[colMap.descCol]).slice(0, 4).map((row, i) => (
+                  <div key={i} className="py-3 text-center px-6">
+                    <p className="text-sm">{row[colMap.descCol]}</p>
+                  </div>
                 ))}
-              </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <button onClick={() => wizardGo("wizard:date", "back")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">← Back</button>
+            <button onClick={() => wizardGo("wizard:amount", "forward")}
+              className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
+              Next →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── WIZARD STEP 4: Amount Column ── */}
+      {step === "wizard:amount" && parsed && (
+        <div key="wizard:amount" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
+          <p className="text-sm text-[hsl(var(--muted-foreground))]">
+            Select the column containing the transaction amount. Expenses should be negative, income positive.
+          </p>
+          <div className="border rounded-xl p-5 space-y-4">
+            <select value={colMap.amountCol}
+              onChange={(e) => setColMap((m) => ({ ...m, amountCol: parseInt(e.target.value) }))}
+              className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
+              {parsed.headers.map((h, i) => <option key={i} value={i}>{h || `Column ${i + 1}`}</option>)}
+            </select>
+
+            <div className="border rounded-xl overflow-hidden">
+              <div className="text-center py-2.5 bg-[hsl(var(--primary)/0.08)] border-b">
+                <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
+                  {parsed.headers[colMap.amountCol] || `Column ${colMap.amountCol + 1}`}
+                </span>
+              </div>
+              <div className="divide-y">
+                {parsed.rows.filter((r) => r[colMap.amountCol]).slice(0, 4).map((row, i) => {
+                  const raw = row[colMap.amountCol] ?? "";
+                  let amt = parseAmount(raw);
+                  if (colMap.typeCol >= 0) {
+                    const tv = (row[colMap.typeCol] ?? "").trim().toLowerCase();
+                    if (tv === "debit") amt = -Math.abs(amt);
+                    else if (tv === "credit") amt = Math.abs(amt);
+                  }
+                  return (
+                    <div key={i} className="py-3 text-center">
+                      <p className="font-mono text-sm text-[hsl(var(--muted-foreground))]">{raw}</p>
+                      <p className={`font-mono text-base font-semibold mt-0.5 ${amt < 0 ? "text-red-500" : amt > 0 ? "text-green-600" : "text-amber-500"}`}>
+                        {amt === 0 ? "⚠ zero — will be skipped" : formatCurrency(Math.round(amt * 100))}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Debit/Credit type column toggle */}
+            <div className="pt-3 border-t space-y-3">
+              <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
+                Does your bank use a separate "Debit / Credit" column?
+              </p>
+              <div className="flex gap-3 text-sm">
+                <button
+                  onClick={() => setColMap((m) => ({ ...m, typeCol: -1 }))}
+                  className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.typeCol === -1 ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
+                >
+                  No — amounts are already signed
+                </button>
+                <button
+                  onClick={() => {
+                    const typeGuess = parsed.headers.findIndex((h) => h.toLowerCase().includes("type") && !h.toLowerCase().includes("amount"));
+                    setColMap((m) => ({ ...m, typeCol: typeGuess >= 0 ? typeGuess : 0 }));
+                  }}
+                  className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.typeCol >= 0 ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
+                >
+                  Yes — select that column
+                </button>
+              </div>
               {colMap.typeCol >= 0 && (
-                <div className="border-l-2 border-[hsl(var(--border))] pl-2 space-y-0.5">
-                  <p className="text-xs text-[hsl(var(--muted-foreground))] italic">e.g. Debit or Credit</p>
-                  {parsed.rows.slice(0, 3).map((row, i) => (
-                    <p key={i} className="text-xs font-mono truncate text-[hsl(var(--foreground))]">
-                      {row[colMap.typeCol] || "—"}
-                    </p>
-                  ))}
-                </div>
+                <select value={colMap.typeCol}
+                  onChange={(e) => setColMap((m) => ({ ...m, typeCol: parseInt(e.target.value) }))}
+                  className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
+                  {parsed.headers.map((h, i) => <option key={i} value={i}>{h || `Column ${i + 1}`}</option>)}
+                </select>
               )}
             </div>
           </div>
 
-          {/* Optional: Running Balance column */}
-          <div className="mb-5">
-            <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide mb-2">
-              Optional — Running Balance Column
-            </p>
-            <div className="border rounded-xl p-4 flex flex-col gap-2">
-              <div>
-                <p className="font-medium text-sm">Running Balance</p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                  Account balance after each transaction — used in dashboards and reports
-                </p>
-              </div>
-              <select
-                value={colMap.balanceCol}
-                onChange={(e) =>
-                  setColMap((m) => ({ ...m, balanceCol: parseInt(e.target.value) }))
-                }
-                className="w-full border rounded-lg px-3 py-2 text-sm
-                           bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
+          <div className="flex gap-3">
+            <button onClick={() => wizardGo("wizard:desc", "back")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">← Back</button>
+            <button onClick={() => wizardGo("wizard:balance", "forward")}
+              className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
+              Next →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── WIZARD STEP 5: Balance Column (optional) ── */}
+      {step === "wizard:balance" && parsed && (
+        <div key="wizard:balance" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
+          <p className="text-sm text-[hsl(var(--muted-foreground))]">
+            Some banks include a running account balance after each transaction. Importing it unlocks balance charts and low-balance alerts.
+          </p>
+          <div className="border rounded-xl p-5 space-y-4">
+            <div className="flex gap-3 text-sm">
+              <button
+                onClick={() => setColMap((m) => ({ ...m, balanceCol: -1 }))}
+                className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.balanceCol === -1 ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
               >
-                <option value={-1}>— None —</option>
-                {parsed.headers.map((h, idx) => (
-                  <option key={idx} value={idx}>{h || `Column ${idx + 1}`}</option>
-                ))}
-              </select>
-              {colMap.balanceCol >= 0 && (
-                <div className="border-l-2 border-[hsl(var(--border))] pl-2 space-y-0.5">
-                  <p className="text-xs text-[hsl(var(--muted-foreground))] italic">e.g. 4,250.00</p>
-                  {parsed.rows.slice(0, 3).map((row, i) => (
-                    <p key={i} className="text-xs font-mono truncate text-[hsl(var(--foreground))]">
-                      {row[colMap.balanceCol] || "—"}
-                    </p>
-                  ))}
+                No balance column
+              </button>
+              <button
+                onClick={() => {
+                  const guess = parsed.headers.findIndex((h) => h.toLowerCase().includes("balance"));
+                  setColMap((m) => ({ ...m, balanceCol: guess >= 0 ? guess : 0 }));
+                }}
+                className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.balanceCol >= 0 ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
+              >
+                Yes, select it
+              </button>
+            </div>
+
+            {colMap.balanceCol >= 0 && (
+              <>
+                <select value={colMap.balanceCol}
+                  onChange={(e) => setColMap((m) => ({ ...m, balanceCol: parseInt(e.target.value) }))}
+                  className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
+                  {parsed.headers.map((h, i) => <option key={i} value={i}>{h || `Column ${i + 1}`}</option>)}
+                </select>
+                <div className="border rounded-xl overflow-hidden">
+                  <div className="text-center py-2.5 bg-[hsl(var(--primary)/0.08)] border-b">
+                    <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
+                      {parsed.headers[colMap.balanceCol] || `Column ${colMap.balanceCol + 1}`}
+                    </span>
+                  </div>
+                  <div className="divide-y">
+                    {parsed.rows.filter((r) => r[colMap.balanceCol]).slice(0, 4).map((row, i) => {
+                      const raw = row[colMap.balanceCol] ?? "";
+                      const amt = parseAmount(raw);
+                      return (
+                        <div key={i} className="py-3 text-center">
+                          <p className="font-mono text-sm text-[hsl(var(--muted-foreground))]">{raw}</p>
+                          <p className="font-mono text-base font-semibold mt-0.5 text-[hsl(var(--foreground))]">
+                            {formatCurrency(Math.round(amt * 100))}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              )}
+              </>
+            )}
+          </div>
+
+          <div className="flex gap-3">
+            <button onClick={() => wizardGo("wizard:amount", "back")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">← Back</button>
+            <button onClick={() => wizardGo("wizard:preview", "forward")}
+              className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
+              Next →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── WIZARD STEP 6: Preview & Confirm ── */}
+      {step === "wizard:preview" && parsed && (
+        <div key="wizard:preview" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
+          {error && <p className="text-red-500 text-sm p-3 border border-red-300 rounded-lg">{error}</p>}
+
+          <div className="grid grid-cols-3 gap-3 text-sm">
+            <div className="border rounded-xl p-4 text-center">
+              <p className="text-2xl font-bold">{parsed.rows.filter((r) => {
+                const d = parseDate(r[colMap.dateCol] ?? "");
+                const a = parseAmount(r[colMap.amountCol] ?? "0");
+                return d && r[colMap.descCol]?.trim() && a !== 0;
+              }).length}</p>
+              <p className="text-[hsl(var(--muted-foreground))] text-xs mt-0.5">Transactions to import</p>
+            </div>
+            <div className="border rounded-xl p-4 text-center">
+              <p className="text-2xl font-bold">{detectedMonth ?? targetMonth}</p>
+              <p className="text-[hsl(var(--muted-foreground))] text-xs mt-0.5">Detected month</p>
+            </div>
+            <div className="border rounded-xl p-4 text-center">
+              <p className="text-2xl font-bold">{parsed.headers.length}</p>
+              <p className="text-[hsl(var(--muted-foreground))] text-xs mt-0.5">Columns mapped</p>
             </div>
           </div>
 
-          {/* Preview table */}
-          <div className="border rounded-xl overflow-hidden mb-5">
-            <div className="px-4 py-2 bg-[hsl(var(--muted))] border-b text-xs font-medium
-                            text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
+          {/* Full preview table */}
+          <div className="border rounded-xl overflow-hidden">
+            <div className="px-4 py-2 bg-[hsl(var(--muted))] border-b text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
               Preview — first 5 rows
             </div>
             <table className="w-full text-sm">
@@ -609,9 +813,7 @@ export default function ImportPage() {
                   <th className="px-4 py-2 font-medium">Date</th>
                   <th className="px-4 py-2 font-medium">Description</th>
                   <th className="px-4 py-2 font-medium text-right">Amount</th>
-                  {colMap.balanceCol >= 0 && (
-                    <th className="px-4 py-2 font-medium text-right">Balance</th>
-                  )}
+                  {colMap.balanceCol >= 0 && <th className="px-4 py-2 font-medium text-right">Balance</th>}
                 </tr>
               </thead>
               <tbody>
@@ -619,25 +821,22 @@ export default function ImportPage() {
                   const rawAmt = parseAmount(row[colMap.amountCol] ?? "0");
                   let amt = rawAmt;
                   if (colMap.typeCol >= 0) {
-                    const typeVal = (row[colMap.typeCol] ?? "").trim().toLowerCase();
-                    if (typeVal === "debit") amt = -Math.abs(rawAmt);
-                    else if (typeVal === "credit") amt = Math.abs(rawAmt);
+                    const tv = (row[colMap.typeCol] ?? "").trim().toLowerCase();
+                    if (tv === "debit") amt = -Math.abs(rawAmt);
+                    else if (tv === "credit") amt = Math.abs(rawAmt);
                   }
                   const balRaw = colMap.balanceCol >= 0 ? (row[colMap.balanceCol] ?? "") : "";
                   return (
                     <tr key={i} className="border-t">
-                      <td className="px-4 py-2 whitespace-nowrap text-[hsl(var(--muted-foreground))]">
-                        {parseDate(row[colMap.dateCol] ?? "")}
+                      <td className="px-4 py-2 whitespace-nowrap text-[hsl(var(--muted-foreground))] text-xs">
+                        {formatDate(parseDate(row[colMap.dateCol] ?? ""))}
                       </td>
-                      <td className="px-4 py-2 max-w-xs truncate">{row[colMap.descCol]}</td>
-                      <td
-                        className={`px-4 py-2 text-right font-mono
-                          ${amt < 0 ? "text-red-500" : "text-green-600"}`}
-                      >
+                      <td className="px-4 py-2 max-w-xs truncate text-xs">{row[colMap.descCol]}</td>
+                      <td className={`px-4 py-2 text-right font-mono text-xs ${amt < 0 ? "text-red-500" : "text-green-600"}`}>
                         {formatCurrency(Math.round(amt * 100))}
                       </td>
                       {colMap.balanceCol >= 0 && (
-                        <td className="px-4 py-2 text-right font-mono text-[hsl(var(--muted-foreground))]">
+                        <td className="px-4 py-2 text-right font-mono text-xs text-[hsl(var(--muted-foreground))]">
                           {balRaw ? formatCurrency(Math.round(parseAmount(balRaw) * 100)) : "—"}
                         </td>
                       )}
@@ -648,48 +847,25 @@ export default function ImportPage() {
             </table>
           </div>
 
-          {error && <p className="mb-4 text-red-500 text-sm">{error}</p>}
-
-          {/* Statement month */}
-          <div className="flex items-center gap-3 mb-5 p-3 border rounded-xl bg-[hsl(var(--muted))]/40">
+          {/* Statement month override */}
+          <div className="flex items-center gap-3 p-3 border rounded-xl bg-[hsl(var(--muted))]/40">
             <span className="text-sm font-medium shrink-0">Statement month</span>
-            <input
-              type="month"
-              value={targetMonth}
-              onChange={(e) => setTargetMonth(e.target.value)}
-              className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))]
-                         text-[hsl(var(--foreground))]"
-            />
+            <input type="month" value={targetMonth} onChange={(e) => setTargetMonth(e.target.value)}
+              className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]" />
             {detectedMonth && detectedMonth !== targetMonth && (
-              <button
-                onClick={() => setTargetMonth(detectedMonth)}
-                className="text-xs text-[hsl(var(--primary))] hover:underline"
-              >
+              <button onClick={() => setTargetMonth(detectedMonth)} className="text-xs text-[hsl(var(--primary))] hover:underline">
                 Reset to detected ({detectedMonth})
               </button>
-            )}
-            {detectedMonth === targetMonth && (
-              <span className="text-xs text-[hsl(var(--muted-foreground))]">
-                Auto-detected from dates
-              </span>
             )}
           </div>
 
           <div className="flex gap-3">
-            <button
-              onClick={handleImport}
-              className="px-6 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
-                         rounded-lg font-medium hover:opacity-90 transition-opacity"
-            >
+            <button onClick={() => wizardGo("wizard:balance", "back")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">← Back</button>
+            <button onClick={handleImport}
+              className="px-6 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg font-medium hover:opacity-90 transition-opacity">
               Import {parsed.rows.length} Transactions
             </button>
-            <button
-              onClick={reset}
-              className="px-6 py-2 border rounded-lg font-medium hover:bg-[hsl(var(--muted))]
-                         transition-colors"
-            >
-              Cancel
-            </button>
+            <button onClick={reset} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">Cancel</button>
           </div>
         </div>
       )}
@@ -704,7 +880,7 @@ export default function ImportPage() {
 
       {/* ── DONE ── */}
       {step === "done" && summary && (
-        <div className="text-center py-12">
+        <div className="text-center py-12 wizard-enter-done">
           {summary.imported === 0 ? (
             <>
               <div className="text-5xl mb-4">ℹ️</div>
@@ -716,7 +892,7 @@ export default function ImportPage() {
             </>
           ) : (
             <>
-              <div className="text-5xl mb-4">✅</div>
+              <div className="text-5xl mb-4 wizard-enter-done inline-block">✅</div>
               <p className="text-xl font-semibold mb-2">Import complete!</p>
               <p className="text-[hsl(var(--muted-foreground))] mb-6">
                 <span className="text-green-600 font-semibold">{summary.imported} transactions</span>{" "}
