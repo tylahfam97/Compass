@@ -79,18 +79,60 @@ jobs:
 
           $zipPath = $nsisExe.FullName -replace '\.exe$', '.nsis.zip'
 
-          # Use .NET ZipArchive directly — guarantees STORE (method 0) compression,
-          # which the Tauri updater's zip crate supports unconditionally
-          Add-Type -AssemblyName System.IO.Compression
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $zipStream   = [System.IO.File]::Create($zipPath)
-          $archive     = New-Object System.IO.Compression.ZipArchive($zipStream, [System.IO.Compression.ZipArchiveMode]::Create, $false)
-          $entry       = $archive.CreateEntry($nsisExe.Name, [System.IO.Compression.CompressionLevel]::NoCompression)
-          $entryStream = $entry.Open()
-          $srcStream   = [System.IO.File]::OpenRead($nsisExe.FullName)
-          $srcStream.CopyTo($entryStream)
-          $srcStream.Dispose(); $entryStream.Dispose(); $archive.Dispose(); $zipStream.Dispose()
-          Write-Host "Created $([IO.Path]::GetFileName($zipPath)) ($([math]::Round((Get-Item $zipPath).Length/1KB))KB)"
+          # Write a raw STORE (method 0) ZIP manually — .NET Framework 4.x always
+          # produces Deflate (method 8) even with NoCompression, which the Tauri
+          # updater's zip crate (compiled without the deflate feature) can't read.
+          $fileBytes = [IO.File]::ReadAllBytes($nsisExe.FullName)
+          $nameBytes = [Text.Encoding]::UTF8.GetBytes($nsisExe.Name)
+          $fileSize  = [uint32]$fileBytes.Length
+
+          # CRC-32
+          $crcTable = 0..255 | ForEach-Object {
+              $c = [uint32]$_
+              for ($j = 0; $j -lt 8; $j++) {
+                  if ($c -band 1) { $c = [uint32]0xEDB88320 -bxor ($c -shr 1) }
+                  else             { $c = $c -shr 1 }
+              }
+              $c
+          }
+          $crc = [uint32]0xFFFFFFFF
+          foreach ($b in $fileBytes) { $crc = $crcTable[($crc -bxor $b) -band 0xFF] -bxor ($crc -shr 8) }
+          $crc = $crc -bxor [uint32]0xFFFFFFFF
+
+          $ms = [IO.MemoryStream]::new()
+          $bw = [IO.BinaryWriter]::new($ms)
+
+          # Local file header — method 0x0000 = STORE
+          $bw.Write([uint32]0x04034B50); $bw.Write([uint16]20); $bw.Write([uint16]0)
+          $bw.Write([uint16]0)                        # compression method: STORE
+          $bw.Write([uint16]0); $bw.Write([uint16]0)  # mod time/date
+          $bw.Write([uint32]$crc)
+          $bw.Write([uint32]$fileSize); $bw.Write([uint32]$fileSize)
+          $bw.Write([uint16]$nameBytes.Length); $bw.Write([uint16]0)
+          $bw.Write($nameBytes)
+          $dataOffset = [uint32]$ms.Position
+          $bw.Write($fileBytes)
+
+          # Central directory entry
+          $cdOffset = [uint32]$ms.Position
+          $bw.Write([uint32]0x02014B50); $bw.Write([uint16]0x0314); $bw.Write([uint16]20)
+          $bw.Write([uint16]0); $bw.Write([uint16]0)  # method: STORE
+          $bw.Write([uint16]0); $bw.Write([uint16]0)
+          $bw.Write([uint32]$crc)
+          $bw.Write([uint32]$fileSize); $bw.Write([uint32]$fileSize)
+          $bw.Write([uint16]$nameBytes.Length); $bw.Write([uint16]0); $bw.Write([uint16]0)
+          $bw.Write([uint16]0); $bw.Write([uint16]0); $bw.Write([uint32]0)
+          $bw.Write([uint32]$dataOffset); $bw.Write($nameBytes)
+          $cdSize = [uint32]($ms.Position - $cdOffset)
+
+          # End of central directory
+          $bw.Write([uint32]0x06054B50); $bw.Write([uint16]0); $bw.Write([uint16]0)
+          $bw.Write([uint16]1); $bw.Write([uint16]1)
+          $bw.Write([uint32]$cdSize); $bw.Write([uint32]$cdOffset); $bw.Write([uint16]0)
+          $bw.Flush()
+
+          [IO.File]::WriteAllBytes($zipPath, $ms.ToArray())
+          Write-Host "Created STORE zip: $([IO.Path]::GetFileName($zipPath)) ($([math]::Round((Get-Item $zipPath).Length/1KB))KB)"
 
           # Write key to temp file under neutral name — TAURI_SIGNING_PRIVATE_KEY must NOT be set
           # or the CLI treats it as --private-key and conflicts with --private-key-path

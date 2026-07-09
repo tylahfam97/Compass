@@ -1,3 +1,5 @@
+Hello, @here !
+
 ## Compass 0.3.75
 
 - Fixed auto-updater: update packages now use STORE compression, resolving the "Compression method not supported" error on install
