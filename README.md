@@ -2,7 +2,7 @@
   <img src="src-tauri/icons/128x128@2x.png" width="128" alt="Compass" />
 </p>
 
-# $${\color{#1C2E54}Compass}$$
+# $${\color{#58a6ff}Compass}$$
 
 ### *Own your financial life — privately, locally, and without judgment.*
 
