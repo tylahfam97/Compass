@@ -1,0 +1,105 @@
+# =============================================================================
+# Compass — Website Deploy (self-hosted runner on nginx server)
+#
+# The GitHub runner runs directly on the nginx box under your admin account,
+# so no SSH or GitHub secrets are needed. The runner pulls the public repo
+# locally and reloads nginx.
+#
+# ── DO YOU NEED GITHUB SECRETS? ─────────────────────────────────────────────
+# No. This workflow uses a self-hosted runner with local filesystem access.
+# The repo is public, so git pull requires no authentication.
+# No secrets are needed in GitHub → Settings → Secrets for this workflow.
+#
+# ── RUNNER SETUP (one-time, on the nginx server) ────────────────────────────
+#
+# 1. Clone the repo as your admin user:
+#      sudo git clone https://github.com/tylahfam97/Compass.git /var/www/compass
+#      sudo chown -R $USER:$USER /var/www/compass
+#
+# 2. Install the GitHub Actions self-hosted runner:
+#    Go to: GitHub repo → Settings → Actions → Runners → New self-hosted runner
+#    Choose Linux x64. Run the download/configure commands shown there.
+#    When prompted for labels, type: nginx
+#    Install and start it as a systemd service under your admin account:
+#      sudo ./svc.sh install $USER
+#      sudo ./svc.sh start
+#
+# 3. Allow your admin account to reload nginx without a password:
+#      echo "$USER ALL=(ALL) NOPASSWD: /bin/systemctl reload nginx" \
+#        | sudo tee /etc/sudoers.d/compass-nginx-reload
+#
+# 4. Copy and enable the nginx config:
+#      sudo cp /var/www/compass/website/nginx.conf /etc/nginx/sites-available/compass.conf
+#      sudo ln -s /etc/nginx/sites-available/compass.conf /etc/nginx/sites-enabled/compass.conf
+#      sudo nginx -t && sudo systemctl reload nginx
+#
+# ── CONFIG ───────────────────────────────────────────────────────────────────
+# Edit the env block below if your paths differ.
+# No GitHub secrets required.
+#
+#   WEBSITE_PATH    Where the repo is cloned (/var/www/compass)
+#   DEPLOY_BRANCH   Branch to pull (main)
+#   NGINX_SERVICE   systemd service name (nginx)
+#
+# =============================================================================
+#
+# 4. Create a deploy SSH key (ed25519 recommended):
+#      ssh-keygen -t ed25519 -C "compass-website-deploy" -f ~/.ssh/compass_deploy
+#      cat ~/.ssh/compass_deploy.pub >> ~/.ssh/authorized_keys   # on the server
+#
+# 5. Add the three GitHub Secrets listed below.
+#
+# 6. Update the YOUR_DOMAIN placeholder in:
+#      - website/index.html  (canonical, og:url, og:image, twitter:image — 5 spots)
+#      - website/nginx.conf  (server_name, ssl_certificate paths — 6 spots)
+#
+# ── GITHUB SECRETS (Settings → Secrets and variables → Actions) ─────────────
+#
+#   WEBSITE_SSH_HOST   IP address or hostname of your nginx server
+#   WEBSITE_SSH_USER   Linux user that owns /var/www/compass
+#   WEBSITE_SSH_KEY    Full contents of the SSH private key (~/.ssh/compass_deploy)
+#
+# ── NON-SENSITIVE CONFIG ─────────────────────────────────────────────────────
+# Edit the env block below directly — no secrets needed for these values.
+#
+#   WEBSITE_PATH    Absolute path on the server where the repo is cloned.
+#                   nginx root = $WEBSITE_PATH/website
+#   DEPLOY_BRANCH   Branch to pull (usually main)
+#   SSH_PORT        SSH port (22 is standard)
+#   NGINX_SERVICE   systemd service name for nginx
+#
+# =============================================================================
+
+name: Deploy Website
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'website/**'
+  workflow_dispatch:
+
+env:
+  WEBSITE_PATH:  /var/www/compass
+  DEPLOY_BRANCH: main
+  NGINX_SERVICE: nginx
+
+jobs:
+  deploy:
+    name: Deploy to nginx server
+    runs-on: [self-hosted, nginx]
+
+    steps:
+      - name: Pull latest from GitHub
+        run: |
+          set -e
+          cd "${{ env.WEBSITE_PATH }}"
+          git fetch --prune origin
+          git checkout "${{ env.DEPLOY_BRANCH }}"
+          git pull origin "${{ env.DEPLOY_BRANCH }}"
+          echo "Deploy complete — $(git log -1 --oneline)"
+
+      - name: Reload nginx
+        run: sudo systemctl reload "${{ env.NGINX_SERVICE }}"
+

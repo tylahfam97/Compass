@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- ── Primary SEO ──────────────────────────────────────────────────────── -->
+  <!-- Domain: privatecompass.app                                              -->
+  <title>Compass | Private Finance Tracker for Windows</title>
+  <meta name="description" content="Track your spending without giving anyone your bank login. Free, open-source, AES-256 encrypted Windows app. CSV import from any bank. No account required.">
+  <meta name="keywords" content="personal finance, budget tracker, Windows, local, private, no cloud, CSV import, free, open source, spending tracker, Mint alternative, YNAB alternative">
+  <meta name="author" content="Compass">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://privatecompass.app/">
+
+  <!-- ── Open Graph (Facebook, LinkedIn, Discord) ─────────────────────────── -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://privatecompass.app/">
+  <meta property="og:title" content="Compass | Private Finance Tracker for Windows">
+  <meta property="og:description" content="Export a CSV from your bank. Drop it in. See where your money went, privately and locally, with no account required.">
+  <meta property="og:image" content="https://privatecompass.app/img/logo.png">
+  <meta property="og:image:width" content="256">
+  <meta property="og:image:height" content="256">
+  <meta property="og:site_name" content="Compass">
+  <meta property="og:locale" content="en_US">
+
+  <!-- ── Twitter / X card ─────────────────────────────────────────────────── -->
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Compass | Private Finance Tracker for Windows">
+  <meta name="twitter:description" content="Track your spending privately. CSV import from any bank. No account, no cloud, no subscription. Free and open source.">
+  <meta name="twitter:image" content="https://privatecompass.app/img/logo.png">
+
+  <!-- ── Theme / PWA ──────────────────────────────────────────────────────── -->
+  <meta name="theme-color" content="#080d1a">
+  <link rel="icon" type="image/png" href="img/favicon.png">
+
+  <!-- ── Security ─────────────────────────────────────────────────────────── -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; img-src 'self' https://github.com https://*.githubusercontent.com; connect-src 'self' https://api.github.com; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ── Navigation ──────────────────────────────────────────────────────────── -->
+<header class="nav" id="nav">
+  <div class="nav-inner container">
+    <a href="#" class="nav-logo" aria-label="Compass home">
+      <img src="img/logo.png" alt="Compass logo" width="28" height="28">
+      <span class="nav-brand">Compass</span>
+    </a>
+
+    <nav aria-label="Main navigation">
+      <ul class="nav-links" role="list">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#compare">Compare</a></li>
+        <li><a href="#security">Security</a></li>
+        <li><a href="#download">Download</a></li>
+      </ul>
+    </nav>
+
+    <div class="nav-actions">
+      <a href="https://github.com/tylahfam97/Compass/releases/latest"
+         class="btn btn-primary btn-sm" target="_blank" rel="noopener noreferrer">
+        Download
+      </a>
+      <button class="nav-toggle" id="navToggle"
+              aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="mobileMenu">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+          <rect y="2"  width="18" height="2" rx="1" fill="currentColor"/>
+          <rect y="8"  width="18" height="2" rx="1" fill="currentColor"/>
+          <rect y="14" width="18" height="2" rx="1" fill="currentColor"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="mobile-menu" id="mobileMenu" aria-hidden="true">
+    <ul role="list">
+      <li><a href="#features">Features</a></li>
+      <li><a href="#compare">Compare</a></li>
+      <li><a href="#security">Security</a></li>
+      <li><a href="#download">Download</a></li>
+    </ul>
+    <a href="https://github.com/tylahfam97/Compass/releases/latest"
+       class="btn btn-primary" target="_blank" rel="noopener noreferrer">
+      Download for Windows
+    </a>
+  </div>
+</header>
+
+<main>
+
+<!-- ── Hero ────────────────────────────────────────────────────────────────── -->
+<section class="hero" id="hero" aria-labelledby="hero-title">
+  <div class="hero-bg" aria-hidden="true">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+    <svg class="compass-bg" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <g fill="none" stroke="currentColor" stroke-width="0.8">
+        <circle cx="200" cy="200" r="185"/>
+        <circle cx="200" cy="200" r="135"/>
+        <circle cx="200" cy="200" r="85"/>
+        <circle cx="200" cy="200" r="35"/>
+        <line x1="200" y1="15"  x2="200" y2="385"/>
+        <line x1="15"  y1="200" x2="385" y2="200"/>
+        <line x1="69"  y1="69"  x2="331" y2="331"/>
+        <line x1="331" y1="69"  x2="69"  y2="331"/>
+        <polygon points="200,22 195,75 200,68 205,75" fill="currentColor" opacity="0.9"/>
+        <text x="200" y="12" text-anchor="middle" font-size="11" font-weight="700" fill="currentColor" opacity="0.9">N</text>
+        <text x="200" y="398" text-anchor="middle" font-size="9" fill="currentColor" opacity="0.5">S</text>
+        <text x="390" y="204" text-anchor="middle" font-size="9" fill="currentColor" opacity="0.5">E</text>
+        <text x="10"  y="204" text-anchor="middle" font-size="9" fill="currentColor" opacity="0.5">W</text>
+      </g>
+    </svg>
+  </div>
+
+  <div class="container hero-content">
+    <div class="badge-row" role="list" aria-label="App highlights">
+      <span class="chip" role="listitem">Free &amp; Open Source</span>
+      <span class="chip" role="listitem">No Account Required</span>
+      <span class="chip chip-blue" role="listitem">Windows 10 / 11</span>
+      <span class="chip chip-gold" role="listitem">v0.4.31</span>
+    </div>
+
+    <h1 class="hero-title" id="hero-title">
+      Your money.<br>
+      <span class="gradient-text">Your machine.</span>
+    </h1>
+
+    <p class="hero-sub">
+      Export a CSV from your bank. Drop it in. See where your money went; privately,
+      locally, without giving anyone your bank credentials or paying a monthly subscription.
+    </p>
+
+    <div class="hero-actions">
+      <a href="https://github.com/tylahfam97/Compass/releases/latest"
+         class="btn btn-primary btn-lg" target="_blank" rel="noopener noreferrer">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M2.5 13.5h11M8 2.5v8m-3-2.5 3 3 3-3"
+                stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Download for Windows
+      </a>
+      <a href="#how" class="btn btn-ghost btn-lg">
+        See how it works
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M3 8h10m-4-4 4 4-4 4"
+                stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </a>
+    </div>
+
+    <div class="trust-row" role="list" aria-label="Trust indicators">
+      <div class="trust-item" role="listitem">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <rect x="3" y="7" width="10" height="8" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span>AES-256 encrypted</span>
+      </div>
+      <div class="trust-item" role="listitem">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M1 1l14 14M6.5 4.5A6 6 0 0 1 14 8s-.7 1.5-2 2.8M4.5 6.5A6 6 0 0 0 2 8s2.5 5 6 5a5.9 5.9 0 0 0 3-.8"
+                stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span>No cloud sync</span>
+      </div>
+      <div class="trust-item" role="listitem">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M14 3.5H2M14 8H2M14 12.5H2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <path d="M1 1l14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span>Zero telemetry</span>
+      </div>
+      <div class="trust-item" role="listitem">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M5.5 8l1.5 1.5 3.5-3.5"
+                stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>Free forever</span>
+      </div>
+      <div class="trust-item" role="listitem">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path d="M8 1C4.13 1 1 4.13 1 8c0 3.09 1.99 5.71 4.76 6.64.35.06.48-.15.48-.33v-1.17c-1.94.42-2.35-.94-2.35-.94-.32-.81-.77-1.02-.77-1.02-.63-.43.05-.42.05-.42.7.05 1.07.72 1.07.72.62 1.06 1.63.75 2.03.58.06-.45.24-.75.44-.92-1.55-.17-3.18-.77-3.18-3.44 0-.76.27-1.38.72-1.87-.07-.18-.31-.88.07-1.84 0 0 .58-.19 1.91.71A6.6 6.6 0 0 1 8 4.8c.59 0 1.18.08 1.73.23 1.33-.9 1.91-.71 1.91-.71.38.96.14 1.66.07 1.84.45.49.72 1.11.72 1.87 0 2.68-1.63 3.27-3.19 3.44.25.22.48.64.48 1.29v1.92c0 .18.13.39.48.33A7.003 7.003 0 0 0 15 8c0-3.87-3.13-7-7-7Z"/>
+        </svg>
+        <span>MIT License</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Why Compass ──────────────────────────────────────────────────────────── -->
+<section class="section why-section" id="why" aria-labelledby="why-title">
+  <div class="container">
+    <div class="section-header">
+      <p class="section-eyebrow">Why it exists</p>
+      <h2 id="why-title">Most finance apps work against you.</h2>
+      <p class="section-sub">They ask for your bank login, upload your transactions to their servers, and charge you monthly for the privilege. If you cancel, your data disappears. Compass was built as the alternative.</p>
+    </div>
+
+    <div class="why-grid">
+      <div class="why-card">
+        <div class="why-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2Z"
+                  stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h3>Privacy by default</h3>
+        <p>No bank login. No credentials. No cloud upload. Your transaction data never leaves your machine. There is no server to receive it, no account to breach, no subscription to cancel.</p>
+      </div>
+      <div class="why-card">
+        <div class="why-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" stroke="currentColor" stroke-width="1.5"/>
+            <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+        </div>
+        <h3>Instant clarity</h3>
+        <p>Drop in a CSV. Categories apply automatically. See your top spending, monthly trends, budget progress, and ghost subscriptions in seconds, with no setup required.</p>
+      </div>
+      <div class="why-card">
+        <div class="why-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2Z" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M12 8v4l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h3>Full control</h3>
+        <p>Your database. Your encryption key. Export everything as CSV at any time. No lock-in, no account deletion risk. The data is a file on your machine, yours to keep.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── How it works ─────────────────────────────────────────────────────────── -->
+<section class="section how-section" id="how" aria-labelledby="how-title">
+  <div class="container">
+    <div class="section-header">
+      <p class="section-eyebrow">How it works</p>
+      <h2 id="how-title">Three steps to get started.</h2>
+    </div>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num" aria-hidden="true">01</div>
+        <div class="step-content">
+          <h3>Export from your bank</h3>
+          <p>Log into your bank's website and go to Transactions, then Download or Export, then CSV. Every bank supports this with no special access, no new account, and no permissions to grant.</p>
+          <div class="step-detail">Works with Chase, Capital One, Wells Fargo, Bank of America, Navy Federal, Discover, Amex, Venmo, Cash App, PayPal, and more.</div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num" aria-hidden="true">02</div>
+        <div class="step-content">
+          <h3>Drop it into Compass</h3>
+          <p>The guided 6-step wizard detects your bank's column layout automatically. Bank presets pre-fill the mapping. Returning users skip straight to preview with one click.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num" aria-hidden="true">03</div>
+        <div class="step-content">
+          <h3>See where your money went</h3>
+          <p>100+ built-in categorization rules apply instantly. Navigate your Dashboard, Trends, Reports, Budgets, and Goals. Everything populates automatically with no manual entry.</p>
+          <div class="step-detail">Try Demo Mode first. It loads about 50 realistic sample transactions instantly with no import needed.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── In Action ────────────────────────────────────────────────────────────── -->
+<section class="section inaction-section" id="inaction" aria-labelledby="inaction-title">
+  <div class="container">
+    <div class="section-header">
+      <p class="section-eyebrow">See it working</p>
+      <h2 id="inaction-title">See it in action.</h2>
+      <p class="section-sub">Recorded at full resolution.</p>
+    </div>
+
+    <div class="showcase-stack">
+      <figure class="showcase-figure">
+        <figcaption>Dashboard &amp; Spending Overview</figcaption>
+        <img src="https://github.com/user-attachments/assets/b544e724-ce78-40bd-8146-8a24eaa7d1c0"
+             alt="Compass dashboard showing monthly spending summary, top categories, and profile overview"
+             referrerpolicy="no-referrer"
+             class="showcase-img">
+      </figure>
+
+      <figure class="showcase-figure">
+        <figcaption>6-Step Import Wizard</figcaption>
+        <img src="https://github.com/user-attachments/assets/48af06bd-c936-412d-aaf0-eb6297f6c9f9"
+             alt="The guided import wizard walking through column detection, date parsing, amount mapping, and import preview"
+             referrerpolicy="no-referrer"
+             class="showcase-img">
+      </figure>
+
+      <figure class="showcase-figure">
+        <figcaption>Insights &amp; Spending Analysis</figcaption>
+        <img src="https://github.com/user-attachments/assets/962bdee8-a336-43b7-8dca-78c0755576b3"
+             alt="The Insights page showing budget pace warnings, top merchant spend, and detected subscription totals"
+             referrerpolicy="no-referrer"
+             class="showcase-img">
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ── Features ─────────────────────────────────────────────────────────────── -->
+<section class="section features-section" id="features" aria-labelledby="features-title">
+  <div class="container">
+    <div class="section-header">
+      <p class="section-eyebrow">Features</p>
+      <h2 id="features-title">Everything you need. Nothing you don't.</h2>
+    </div>
+
+    <div class="features-grid">
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M10 2v11m-4-4 4 4 4-4M3 15h14"
+                  stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h3>6-Step Import Wizard</h3>
+        <p>Guided import with column auto-detection. Bank presets for Chase, Capital One, Wells Fargo, Discover, Amex, Venmo, and more. Batch import multiple files. Duplicate detection via content hash.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M3 5h3l2-2h4l2 2h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"
+                  stroke="currentColor" stroke-width="1.5"/>
+            <circle cx="10" cy="10.5" r="2.5" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+        </div>
+        <h3>Auto-Categorization</h3>
+        <p>100+ built-in rules cover Amazon, Walmart, DoorDash, Starbucks, Netflix, and more. Manual corrections optionally save as rules so future imports self-categorize. Manage all rules from the sidebar.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <rect x="2" y="2"  width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="11" y="2" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="2" y="11" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="11" y="11" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+        </div>
+        <h3>Dashboard &amp; Trends</h3>
+        <p>Monthly income, expenses, and net savings at a glance. 3, 6, or 12-month trend charts showing income vs. expenses and per-category breakdowns. Navigate any month freely, past or future.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M10 6v4l2.5 2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h3>Budgets &amp; Goals</h3>
+        <p>Soft monthly spending limits with on-pace projections so you can catch a potential overspend before month end. Track net savings, spending limits, and income targets as goals with progress bars.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon feature-icon--gold">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M10 2a6 6 0 0 0-6 6v4l-1.5 2.5h15L16 12V8a6 6 0 0 0-6-6Z"
+                  stroke="currentColor" stroke-width="1.5"/>
+            <path d="M8 17a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+        </div>
+        <h3>Ghost Subscription Detector</h3>
+        <p>Finds recurring charges with the exact same description and amount appearing in 2 or more months. Lists monthly and estimated annual totals for every subscription you may have forgotten about.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon feature-icon--blue">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M10 1.5 3 5v5c0 4.1 3 7.9 7 9 4-1.1 7-4.9 7-9V5l-7-3.5Z"
+                  stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M7 10l2 2 4-4"
+                  stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h3>Insights &amp; Privacy</h3>
+        <p>Automatic spending analysis surfaces budget warnings, top merchants, detected subscriptions, paycheck timing, and overdraft alerts, all processed locally. SQLCipher AES-256 encrypted database. Zero telemetry.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── Compare ───────────────────────────────────────────────────────────────── -->
+<section class="section compare-section" id="compare" aria-labelledby="compare-title">
+  <div class="container">
+    <div class="section-header">
+      <p class="section-eyebrow">Compare</p>
+      <h2 id="compare-title">Simpler. More private. No subscription.</h2>
+      <p class="section-sub">Compass owns a specific lane: more private than Monarch, simpler than Firefly, more modern than HomeBank, less budgeting-dogmatic than Actual Budget.</p>
+    </div>
+
+    <div class="table-wrap" role="region" aria-label="Feature comparison table" tabindex="0">
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th scope="col">Feature</th>
+            <th scope="col" class="col-compass">Compass</th>
+            <th scope="col">Monarch / Simplifi</th>
+            <th scope="col">Actual Budget</th>
+            <th scope="col">Firefly III</th>
+            <th scope="col">HomeBank</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Local-only data</td>
+            <td class="col-compass"><span class="check" aria-label="Yes">✓</span></td>
+            <td><span class="cross" aria-label="No">✗</span> Cloud</td>
+            <td><span class="check" aria-label="Yes">✓</span></td>
+            <td><span class="check" aria-label="Yes">✓</span> Self-hosted</td>
+            <td><span class="check" aria-label="Yes">✓</span></td>
+          </tr>
+          <tr>
+            <td>No account required</td>
+            <td class="col-compass"><span class="check" aria-label="Yes">✓</span></td>
+            <td><span class="cross" aria-label="No">✗</span></td>
+            <td><span class="cross" aria-label="No">✗</span></td>
+            <td><span class="cross" aria-label="No">✗</span></td>
+            <td><span class="check" aria-label="Yes">✓</span></td>
+          </tr>
+          <tr>
+            <td>Free, no subscription</td>
+            <td class="col-compass"><span class="check" aria-label="Yes">✓</span></td>
+            <td><span class="cross" aria-label="No">✗</span> $10–20/mo</td>
+            <td><span class="check" aria-label="Yes">✓</span></td>
+            <td><span class="check" aria-label="Yes">✓</span></td>
+            <td><span class="check" aria-label="Yes">✓</span></td>
+          </tr>
+          <tr>
+            <td>No bank login needed</td>
+            <td class="col-compass"><span class="check" aria-label="Yes">✓</span></td>
+            <td><span class="cross" aria-label="No">✗</span></td>
+            <td><span class="cross" aria-label="No">✗</span></td>
+            <td><span class="cross" aria-label="No">✗</span></td>
+            <td><span class="check" aria-label="Yes">✓</span></td>
+          </tr>
+          <tr>
+            <td>Encrypted database</td>
+            <td class="col-compass"><span class="check" aria-label="Yes">✓</span> AES-256</td>
+            <td><span class="check" aria-label="Yes">✓</span></td>
+            <td><span class="check" aria-label="Yes">✓</span></td>
+            <td><span class="check" aria-label="Yes">✓</span></td>
+            <td><span class="cross" aria-label="No">✗</span></td>
+          </tr>
+          <tr>
+            <td>Modern Windows desktop UI</td>
+            <td class="col-compass"><span class="check" aria-label="Yes">✓</span></td>
+            <td><span class="cross" aria-label="No">✗</span> Web only</td>
+            <td><span class="check" aria-label="Yes">✓</span></td>
+            <td><span class="cross" aria-label="No">✗</span> Web only</td>
+            <td><span class="warn" aria-label="Partial">~</span></td>
+          </tr>
+          <tr>
+            <td>Ghost subscription detection</td>
+            <td class="col-compass"><span class="check" aria-label="Yes">✓</span></td>
+            <td><span class="warn" aria-label="Partial">~</span></td>
+            <td><span class="cross" aria-label="No">✗</span></td>
+            <td><span class="cross" aria-label="No">✗</span></td>
+            <td><span class="cross" aria-label="No">✗</span></td>
+          </tr>
+          <tr>
+            <td>Try before importing</td>
+            <td class="col-compass"><span class="check" aria-label="Yes">✓</span> Demo Mode</td>
+            <td><span class="cross" aria-label="No">✗</span></td>
+            <td><span class="cross" aria-label="No">✗</span></td>
+            <td><span class="cross" aria-label="No">✗</span></td>
+            <td><span class="cross" aria-label="No">✗</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ── Security ──────────────────────────────────────────────────────────────── -->
+<section class="section security-section" id="security" aria-labelledby="security-title">
+  <div class="container">
+    <div class="section-header">
+      <p class="section-eyebrow">Security &amp; Privacy</p>
+      <h2 id="security-title">Questions you should ask before trusting any finance app.</h2>
+    </div>
+
+    <div class="security-grid">
+      <div class="qa-card">
+        <div class="qa-q">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M8 5v.5M8 7.5v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          Where is my data stored?
+        </div>
+        <div class="qa-a">
+          In a local SQLite database at <code>%APPDATA%\com.compass.app\</code> on your Windows machine. Only your user account can access it. No other location, no remote copy.
+        </div>
+      </div>
+
+      <div class="qa-card qa-card--highlight">
+        <div class="qa-q">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <rect x="3" y="7" width="10" height="8" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          Is the database encrypted?
+        </div>
+        <div class="qa-a">
+          Yes. <strong>SQLCipher AES-256</strong> encrypts the database at rest. The key is a 32-byte random value stored in <strong>Windows Credential Manager</strong> (DPAPI-backed), bound to your Windows user account. It is never visible in the app UI.
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="qa-q">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M13 3H3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1Z"
+                  stroke="currentColor" stroke-width="1.5"/>
+            <path d="m2 5 6 4 6-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          What data leaves my device?
+        </div>
+        <div class="qa-a">
+          <strong>Nothing financial.</strong> The only outbound request is an optional update check against the GitHub Releases API (version numbers only, no personal data). The app works fully offline after installation.
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="qa-q">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M8 2a2.5 2.5 0 0 0-2.5 2.5v1h5v-1A2.5 2.5 0 0 0 8 2Z"
+                  stroke="currentColor" stroke-width="1.5"/>
+            <rect x="2.5" y="5.5" width="11" height="8" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+          Does Compass collect telemetry?
+        </div>
+        <div class="qa-a">
+          No. There is no telemetry SDK, analytics library, or error reporting service in the codebase. Zero background network calls beyond the optional update check.
+        </div>
+      </div>
+
+      <div class="qa-card qa-card--answer">
+        <div class="qa-q">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M8 1C4.13 1 1 4.13 1 8c0 3.09 1.99 5.71 4.76 6.64.35.06.48-.15.48-.33v-1.17c-1.94.42-2.35-.94-2.35-.94-.32-.81-.77-1.02-.77-1.02-.63-.43.05-.42.05-.42.7.05 1.07.72 1.07.72.62 1.06 1.63.75 2.03.58.06-.45.24-.75.44-.92-1.55-.17-3.18-.77-3.18-3.44 0-.76.27-1.38.72-1.87-.07-.18-.31-.88.07-1.84 0 0 .58-.19 1.91.71A6.6 6.6 0 0 1 8 4.8c.59 0 1.18.08 1.73.23 1.33-.9 1.91-.71 1.91-.71.38.96.14 1.66.07 1.84.45.49.72 1.11.72 1.87 0 2.68-1.63 3.27-3.19 3.44.25.22.48.64.48 1.29v1.92c0 .18.13.39.48.33A7.003 7.003 0 0 0 15 8c0-3.87-3.13-7-7-7Z"/>
+          </svg>
+          Can the developer see my data?
+        </div>
+        <div class="qa-a">
+          <span class="answer-no">No.</span>
+          There is no server. No sync. No account. No mechanism by which anyone other than you can access data stored on your own machine. The developer has zero visibility into your financial data, ever.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Download ───────────────────────────────────────────────────────────────── -->
+<section class="section download-section" id="download" aria-labelledby="download-title">
+  <div class="container">
+    <div class="download-card">
+      <div class="version-badge">v0.4.31</div>
+      <div class="download-header">
+        <img src="img/logo.png" alt="Compass application icon" width="56" height="56" class="download-logo">
+        <div>
+          <h2 id="download-title">Compass for Windows</h2>
+          <p class="download-sub">Free. Private. Yours.</p>
+        </div>
+      </div>
+
+      <div class="download-options">
+        <a href="https://github.com/tylahfam97/Compass/releases/latest"
+           class="btn btn-primary btn-lg download-btn" target="_blank" rel="noopener noreferrer">
+          <span class="btn-row">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+              <path d="M3 14.5h12M9 3v9m-3.5-3 3.5 3.5 3.5-3.5"
+                    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Download .exe installer
+          </span>
+          <span class="btn-tag">Recommended</span>
+        </a>
+        <a href="https://github.com/tylahfam97/Compass/releases/latest"
+           class="btn btn-outline btn-lg download-btn" target="_blank" rel="noopener noreferrer">
+          <span class="btn-row">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+              <path d="M3 14.5h12M9 3v9m-3.5-3 3.5 3.5 3.5-3.5"
+                    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Download .msi
+          </span>
+          <span class="btn-tag btn-tag--dim">Enterprise / IT</span>
+        </a>
+      </div>
+
+      <div class="download-meta">
+        <div class="req-item">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <rect x="1" y="1" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.3"/>
+            <path d="M4 13h6M7 11v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+          </svg>
+          Windows 10 / 11 (64-bit)
+        </div>
+        <div class="req-item">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <path d="M7 1.5a5.5 5.5 0 1 0 0 11A5.5 5.5 0 0 0 7 1.5Z" stroke="currentColor" stroke-width="1.3"/>
+            <path d="M4.5 7l1.5 1.5 3.5-3.5"
+                  stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          No prerequisites required
+        </div>
+        <div class="req-item">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+            <path d="M7 1C3.69 1 1 3.69 1 7c0 2.65 1.71 4.9 4.08 5.69.3.05.41-.13.41-.28v-1c-1.66.36-2.01-.8-2.01-.8-.27-.7-.67-.88-.67-.88-.55-.37.04-.37.04-.37.6.04.92.62.92.62.53.91 1.4.65 1.74.5.05-.38.21-.65.38-.8-1.33-.15-2.73-.67-2.73-2.96 0-.65.23-1.19.62-1.6-.06-.15-.27-.76.06-1.58 0 0 .5-.16 1.64.61A5.68 5.68 0 0 1 7 4.12c.5.01 1.01.07 1.48.2 1.14-.77 1.64-.61 1.64-.61.33.82.12 1.43.06 1.58.39.41.62.95.62 1.6 0 2.3-1.4 2.8-2.74 2.95.22.19.41.55.41 1.11v1.64c0 .16.11.34.41.28C11.29 11.9 13 9.65 13 7c0-3.31-2.69-6-6-6Z"/>
+          </svg>
+          Open source, MIT License
+        </div>
+      </div>
+
+      <a href="https://github.com/tylahfam97/Compass"
+         class="github-link" target="_blank" rel="noopener noreferrer"
+         aria-label="View Compass source code on GitHub">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path d="M8 1C4.13 1 1 4.13 1 8c0 3.09 1.99 5.71 4.76 6.64.35.06.48-.15.48-.33v-1.17c-1.94.42-2.35-.94-2.35-.94-.32-.81-.77-1.02-.77-1.02-.63-.43.05-.42.05-.42.7.05 1.07.72 1.07.72.62 1.06 1.63.75 2.03.58.06-.45.24-.75.44-.92-1.55-.17-3.18-.77-3.18-3.44 0-.76.27-1.38.72-1.87-.07-.18-.31-.88.07-1.84 0 0 .58-.19 1.91.71A6.6 6.6 0 0 1 8 4.8c.59 0 1.18.08 1.73.23 1.33-.9 1.91-.71 1.91-.71.38.96.14 1.66.07 1.84.45.49.72 1.11.72 1.87 0 2.68-1.63 3.27-3.19 3.44.25.22.48.64.48 1.29v1.92c0 .18.13.39.48.33A7.003 7.003 0 0 0 15 8c0-3.87-3.13-7-7-7Z"/>
+        </svg>
+        View source on GitHub
+      </a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ── Footer ────────────────────────────────────────────────────────────────── -->
+<footer class="footer" role="contentinfo">
+  <div class="container footer-inner">
+    <a href="#" class="footer-logo" aria-label="Back to top">
+      <img src="img/logo.png" alt="" width="20" height="20" aria-hidden="true">
+      <span>Compass</span>
+    </a>
+    <p class="footer-copy">
+      Free &amp; open source &middot; MIT License &middot; Built with Tauri, React, Rust, SQLite
+    </p>
+    <nav class="footer-links" aria-label="Footer navigation">
+      <a href="https://github.com/tylahfam97/Compass" target="_blank" rel="noopener noreferrer">GitHub</a>
+      <a href="https://github.com/tylahfam97/Compass/releases" target="_blank" rel="noopener noreferrer">Releases</a>
+      <a href="https://github.com/tylahfam97/Compass/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+  // Dynamic version from GitHub Releases API
+  fetch('https://api.github.com/repos/tylahfam97/Compass/releases/latest')
+    .then(r => r.json())
+    .then(d => {
+      if (d.tag_name) {
+        document.querySelectorAll('.version-badge').forEach(el => el.textContent = d.tag_name);
+      }
+    })
+    .catch(() => {}); // Falls back to hardcoded version silently
+
+  // Placeholder boxes for images that fail to load (e.g. when previewing locally)
+  // (removed: error handler was swallowing GIFs before they finished loading)
+
+  // Mobile nav toggle
+  const toggle = document.getElementById('navToggle');
+  const menu   = document.getElementById('mobileMenu');
+  toggle?.addEventListener('click', () => {
+    const open = menu.classList.toggle('is-open');
+    toggle.setAttribute('aria-expanded', String(open));
+    menu.setAttribute('aria-hidden', String(!open));
+  });
+  menu?.querySelectorAll('a').forEach(a => a.addEventListener('click', () => {
+    menu.classList.remove('is-open');
+    toggle.setAttribute('aria-expanded', 'false');
+    menu.setAttribute('aria-hidden', 'true');
+  }));
+
+  // Nav scrolled state
+  const nav    = document.getElementById('nav');
+  const heroEl = document.getElementById('hero');
+  if (nav && heroEl) {
+    new IntersectionObserver(
+      ([e]) => nav.classList.toggle('nav--scrolled', !e.isIntersecting),
+      { threshold: 0.1 }
+    ).observe(heroEl);
+  }
+</script>
+</body>
+</html>
