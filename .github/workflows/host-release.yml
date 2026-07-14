@@ -5,12 +5,12 @@
 # self-hosted runner, downloads the .exe and .msi from the GitHub release,
 # places them in /var/www/compass/downloads/, and updates the stable symlinks:
 #
-#   latest.exe  ->  Compass_x.x.x_x64-setup.exe
-#   latest.msi  ->  Compass_x.x.x_x64_en-US.msi
+#   Compass.exe  ->  Compass_x.x.x_x64-setup.exe
+#   Compass.msi  ->  Compass_x.x.x_x64_en-US.msi
 #
 # The website download buttons point directly to:
-#   https://privatecompass.app/downloads/latest.exe
-#   https://privatecompass.app/downloads/latest.msi
+#   https://privatecompass.app/downloads/Compass.exe
+#   https://privatecompass.app/downloads/Compass.msi
 #
 # Pre-releases (dev/feature branch builds) are ignored — only stable
 # releases (IS_PRERELEASE=false in build.yml) trigger this workflow.
@@ -112,10 +112,10 @@ jobs:
           curl -L --progress-bar -o "$DOWNLOADS_DIR/$MSI_NAME" "$MSI_URL"
 
           # Update the stable symlinks (atomic for nginx — no 404 window)
-          ln -sf "$DOWNLOADS_DIR/$EXE_NAME" "$DOWNLOADS_DIR/latest.exe"
-          ln -sf "$DOWNLOADS_DIR/$MSI_NAME" "$DOWNLOADS_DIR/latest.msi"
+          ln -sf "$DOWNLOADS_DIR/$EXE_NAME" "$DOWNLOADS_DIR/Compass.exe"
+          ln -sf "$DOWNLOADS_DIR/$MSI_NAME" "$DOWNLOADS_DIR/Compass.msi"
 
           echo ""
           echo "Done."
-          echo "  $DOWNLOADS_DIR/latest.exe  ->  $EXE_NAME"
-          echo "  $DOWNLOADS_DIR/latest.msi  ->  $MSI_NAME"
+          echo "  $DOWNLOADS_DIR/Compass.exe  ->  $EXE_NAME"
+          echo "  $DOWNLOADS_DIR/Compass.msi  ->  $MSI_NAME"
