@@ -1,0 +1,72 @@
+<svg width="1080" height="128" viewBox="0 0 1080 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style><![CDATA[
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=block');
+      text { font-family: 'Inter', Arial, Helvetica, sans-serif; }
+    ]]></style>
+
+    <linearGradient id="bg" x1="0" y1="0" x2="1080" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#0d1828"/>
+      <stop offset="35%"  stop-color="#080d1a"/>
+      <stop offset="100%" stop-color="#060b16"/>
+    </linearGradient>
+    <radialGradient id="blueOrb" cx="64" cy="64" r="160" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#4f8fff" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#4f8fff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="goldOrb" cx="1028" cy="64" r="180" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#d4a832" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#d4a832" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="nameGrad" x1="124" y1="0" x2="360" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#6aaeff"/>
+      <stop offset="100%" stop-color="#d4a832"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1080" height="128" fill="url(#bg)"/>
+  <rect width="1080" height="128" fill="url(#blueOrb)"/>
+  <rect width="1080" height="128" fill="url(#goldOrb)"/>
+
+  <!-- Top and bottom border lines -->
+  <rect width="1080" height="1"   y="0"   fill="#1c2a3e"/>
+  <rect width="1080" height="1"   y="127" fill="#1c2a3e"/>
+
+  <!-- ── Compass Rose Icon ──────────────────────────────────────────── -->
+  <circle cx="64" cy="64" r="44" fill="none" stroke="#1c2a3e" stroke-width="1.2"/>
+  <circle cx="64" cy="64" r="32" fill="none" stroke="#131e30" stroke-width="0.6"/>
+  <line x1="64" y1="20" x2="64" y2="108" stroke="#131e30" stroke-width="0.6"/>
+  <line x1="20" y1="64" x2="108" y2="64" stroke="#131e30" stroke-width="0.6"/>
+  <line x1="64" y1="20" x2="64" y2="26"  stroke="#2a3c54" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="64" y1="102" x2="64" y2="108" stroke="#2a3c54" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="20" y1="64" x2="26" y2="64"  stroke="#2a3c54" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="102" y1="64" x2="108" y2="64" stroke="#2a3c54" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="95" y1="33" x2="92" y2="36" stroke="#1c2a3e" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="95" y1="95" x2="92" y2="92" stroke="#1c2a3e" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="33" y1="95" x2="36" y2="92" stroke="#1c2a3e" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="33" y1="33" x2="36" y2="36" stroke="#1c2a3e" stroke-width="1.2" stroke-linecap="round"/>
+  <polygon points="64,22 59,63 64,56 69,63" fill="#4f8fff"/>
+  <polygon points="64,106 59,65 64,72 69,65" fill="#1e2d42"/>
+  <polygon points="106,64 65,59 72,64 65,69" fill="#1e2d42"/>
+  <polygon points="22,64 63,59 56,64 63,69" fill="#1e2d42"/>
+  <circle cx="64" cy="64" r="4"   fill="#080d1a"/>
+  <circle cx="64" cy="64" r="2.5" fill="#4f8fff"/>
+  <text x="64" y="15" text-anchor="middle" fill="#4f8fff" font-size="8" font-weight="700">N</text>
+
+  <!-- ── Brand Text ─────────────────────────────────────────────────── -->
+  <text x="124" y="53" fill="url(#nameGrad)" font-size="34" font-weight="800" letter-spacing="-0.6">Compass</text>
+  <text x="126" y="73" fill="#8896b0" font-size="12.5">Private finance for Windows. No account, no cloud, no subscription.</text>
+  <text x="126" y="91" fill="#364d68" font-size="10.5">Free  ·  Open Source  ·  AES-256 Encrypted  ·  CSV import from any bank</text>
+
+  <line x1="890" y1="22" x2="890" y2="106" stroke="#1c2a3e" stroke-width="1"/>
+  <text x="906" y="47" fill="#364d68" font-size="10" font-weight="500">Download &amp; learn more</text>
+  <text x="906" y="67" fill="#4f8fff" font-size="15.5" font-weight="700">privatecompass.app</text>
+  <text x="906" y="83" fill="#4f607a" font-size="11">r/PrivateCompass</text>
+
+  <!-- Subtle right compass decoration -->
+  <circle cx="1064" cy="64" r="28" fill="none" stroke="#111b2c" stroke-width="0.8"/>
+  <circle cx="1064" cy="64" r="18" fill="none" stroke="#0d1525" stroke-width="0.6"/>
+  <line x1="1064" y1="36" x2="1064" y2="92" stroke="#0d1525" stroke-width="0.5"/>
+  <line x1="1036" y1="64" x2="1092" y2="64" stroke="#0d1525" stroke-width="0.5"/>
+</svg>
