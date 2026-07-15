@@ -21,6 +21,46 @@ function monthBounds(ym: string): [string, string] {
   ];
 }
 
+/** Build the WHERE clause + params array shared by loadRows and exportCsv. */
+function buildQueryParts(opts: {
+  profileId: number;
+  allTime: boolean;
+  month: string;
+  search: string;
+  filterCategory: string;          // "" = all, "uncategorized", or stringified id
+  filterType: "all" | "income" | "expense";
+  filterAmountMin: string;         // dollar string, empty = no bound
+  filterAmountMax: string;         // dollar string, empty = no bound
+}): { where: string; params: unknown[] } {
+  const conditions: string[] = ["t.profile_id=?"];
+  const params: unknown[] = [opts.profileId];
+
+  if (!opts.allTime) {
+    const [start, end] = monthBounds(opts.month);
+    conditions.push("t.date>=? AND t.date<?");
+    params.push(start, end);
+  }
+  if (opts.search.trim()) {
+    conditions.push("UPPER(t.description) LIKE ?");
+    params.push(`%${opts.search.toUpperCase().trim()}%`);
+  }
+  if (opts.filterCategory === "uncategorized") {
+    conditions.push("(t.category_id = 15 OR t.category_id IS NULL)");
+  } else if (opts.filterCategory) {
+    conditions.push("t.category_id = ?");
+    params.push(parseInt(opts.filterCategory, 10));
+  }
+  if (opts.filterType === "income")  conditions.push("t.amount_cents > 0");
+  if (opts.filterType === "expense") conditions.push("t.amount_cents < 0");
+
+  const minCents = opts.filterAmountMin.trim() ? Math.round(parseFloat(opts.filterAmountMin) * 100) : NaN;
+  const maxCents = opts.filterAmountMax.trim() ? Math.round(parseFloat(opts.filterAmountMax) * 100) : NaN;
+  if (!isNaN(minCents) && minCents >= 0) { conditions.push("ABS(t.amount_cents) >= ?"); params.push(minCents); }
+  if (!isNaN(maxCents) && maxCents >= 0) { conditions.push("ABS(t.amount_cents) <= ?"); params.push(maxCents); }
+
+  return { where: conditions.join(" AND "), params };
+}
+
 /** Extract a clean merchant key from a raw bank description for rule creation. */
 function extractMerchantKey(description: string): string {
   let s = description.toUpperCase().trim();
@@ -56,31 +96,39 @@ export default function TransactionsPage() {
   const activeProfile = useProfileStore((s) => s.activeProfile);
   const profileId = activeProfile?.id ?? 1;
 
+  // Extended filters
+  const [filterCategory, setFilterCategory] = useState("");           // "" | "uncategorized" | "<id>"
+  const [filterType, setFilterType]         = useState<"all" | "income" | "expense">("all");
+  const [filterAmountMin, setFilterAmountMin] = useState("");
+  const [filterAmountMax, setFilterAmountMax] = useState("");
+
+  const hasActiveFilters =
+    filterCategory !== "" || filterType !== "all" ||
+    filterAmountMin !== "" || filterAmountMax !== "";
+
+  const clearFilters = () => {
+    setFilterCategory(""); setFilterType("all");
+    setFilterAmountMin(""); setFilterAmountMax("");
+  };
+
   const loadRows = useCallback(async () => {
     setLoading(true);
     const db = await getDb();
-    const hasSearch = search.trim().length > 0;
-    let params: unknown[];
-    let dateWhere = "";
-    if (!allTime) {
-      const [start, end] = monthBounds(month);
-      dateWhere = "AND t.date>=? AND t.date<? ";
-      params = hasSearch ? [profileId, start, end, `%${search.toUpperCase()}%`] : [profileId, start, end];
-    } else {
-      params = hasSearch ? [profileId, `%${search.toUpperCase()}%`] : [profileId];
-    }
-    const searchWhere = hasSearch ? "AND UPPER(t.description) LIKE ?" : "";
+    const { where, params } = buildQueryParts({
+      profileId, allTime, month, search,
+      filterCategory, filterType, filterAmountMin, filterAmountMax,
+    });
     const data = await db.select<Transaction[]>(
       `SELECT t.*, c.name as category_name, c.color as category_color
        FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-       WHERE t.profile_id=? ${dateWhere}${searchWhere}
+       WHERE ${where}
        ORDER BY t.date DESC, t.id DESC
        LIMIT ${MAX_ROWS + 1}`,
       params
     );
     setRows(data);
     setLoading(false);
-  }, [month, allTime, search, profileId]);
+  }, [month, allTime, search, profileId, filterCategory, filterType, filterAmountMin, filterAmountMax]);
 
   useEffect(() => {
     loadRows().catch(console.error);
@@ -120,21 +168,14 @@ export default function TransactionsPage() {
 
   const exportCsv = async () => {
     const db = await getDb();
-    const hasSearch = search.trim().length > 0;
-    let params: unknown[];
-    let dateWhere = "";
-    if (!allTime) {
-      const [start, end] = monthBounds(month);
-      dateWhere = "AND t.date>=? AND t.date<? ";
-      params = hasSearch ? [profileId, start, end, `%${search.toUpperCase()}%`] : [profileId, start, end];
-    } else {
-      params = hasSearch ? [profileId, `%${search.toUpperCase()}%`] : [profileId];
-    }
-    const searchWhere = hasSearch ? "AND UPPER(t.description) LIKE ?" : "";
+    const { where, params } = buildQueryParts({
+      profileId, allTime, month, search,
+      filterCategory, filterType, filterAmountMin, filterAmountMax,
+    });
     const data = await db.select<Transaction[]>(
       `SELECT t.*, c.name as category_name
        FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-       WHERE t.profile_id=? ${dateWhere}${searchWhere}
+       WHERE ${where}
        ORDER BY t.date DESC, t.id DESC`,
       params
     );
@@ -279,36 +320,112 @@ export default function TransactionsPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-3 mb-4 flex-wrap">
-        {!allTime && (
+      <div className="space-y-2 mb-4">
+        {/* Row 1 — date + search */}
+        <div className="flex gap-3 flex-wrap">
+          {!allTime && (
+            <input
+              ref={monthInputRef}
+              type="month"
+              value={month}
+              onChange={(e) => setMonth(e.target.value)}
+              onClick={() => { try { monthInputRef.current?.showPicker(); } catch { /* unsupported */ } }}
+              className="cursor-pointer border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))]
+                         text-[hsl(var(--foreground))]"
+            />
+          )}
+          <button
+            onClick={() => setAllTime((v) => !v)}
+            className={`text-sm px-3 py-1.5 border rounded-lg transition-colors ${
+              allTime
+                ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent"
+                : "hover:bg-[hsl(var(--muted))]"
+            }`}
+          >
+            All time
+          </button>
           <input
-            ref={monthInputRef}
-            type="month"
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            onClick={() => { try { monthInputRef.current?.showPicker(); } catch { /* unsupported */ } }}
-            className="cursor-pointer border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))]
-                       text-[hsl(var(--foreground))]"
+            type="text"
+            placeholder="Search descriptions…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="flex-1 min-w-40 border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))]
+                       text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]"
           />
-        )}
-        <button
-          onClick={() => setAllTime((v) => !v)}
-          className={`text-sm px-3 py-1.5 border rounded-lg transition-colors ${
-            allTime
-              ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent"
-              : "hover:bg-[hsl(var(--muted))]"
-          }`}
-        >
-          All time
-        </button>
-        <input
-          type="text"
-          placeholder="Search descriptions…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="flex-1 min-w-40 border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))]
-                     text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]"
-        />
+        </div>
+
+        {/* Row 2 — category + type + amount */}
+        <div className="flex gap-3 flex-wrap items-center">
+          {/* Category */}
+          <select
+            value={filterCategory}
+            onChange={(e) => setFilterCategory(e.target.value)}
+            className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))]
+                       text-[hsl(var(--foreground))] cursor-pointer"
+          >
+            <option value="">All categories</option>
+            <option value="uncategorized">Uncategorized</option>
+            {categories.filter((c) => c.id !== 15).map((c) => (
+              <option key={c.id} value={String(c.id)}>{c.name}</option>
+            ))}
+          </select>
+
+          {/* Income / Expense / All toggle */}
+          <div className="flex border rounded-lg overflow-hidden text-sm">
+            {(["all", "income", "expense"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setFilterType(t)}
+                className={`px-3 py-1.5 transition-colors ${
+                  filterType === t
+                    ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
+                    : "hover:bg-[hsl(var(--muted))]"
+                } ${
+                  t === "income" ? "border-x" : ""
+                }`}
+              >
+                {t === "all" ? "All" : t === "income" ? "Income" : "Expenses"}
+              </button>
+            ))}
+          </div>
+
+          {/* Amount range */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-[hsl(var(--muted-foreground))]">$</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="Min"
+              value={filterAmountMin}
+              onChange={(e) => setFilterAmountMin(e.target.value)}
+              className="w-20 border rounded-lg px-2 py-1.5 text-sm bg-[hsl(var(--background))]
+                         text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]"
+            />
+            <span className="text-[hsl(var(--muted-foreground))] text-sm">—</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="Max"
+              value={filterAmountMax}
+              onChange={(e) => setFilterAmountMax(e.target.value)}
+              className="w-24 border rounded-lg px-2 py-1.5 text-sm bg-[hsl(var(--background))]
+                         text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]"
+            />
+          </div>
+
+          {/* Clear filters */}
+          {hasActiveFilters && (
+            <button
+              onClick={clearFilters}
+              className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]
+                         transition-colors px-1"
+            >
+              × Clear filters
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Summary strip */}

@@ -156,13 +156,25 @@ Automatic analysis surfaced from your data — no configuration required:
 
 ### 🔍 Transactions
 
-Full searchable, filterable transaction list. Filter by month or view all-time history. Search by description, re-categorize in one click, and view the running account balance alongside each transaction.
+Full searchable, filterable transaction list. Filter by month or view all-time history. Re-categorize in one click, and view the running account balance alongside each transaction.
 
-- **Edit** any transaction's date, description, amount, category, or notes
-- **Delete** transactions you don't need
+**Filter row 1 — date & search:**
+- Filter by month or toggle to **All time**
+- Free-text description search (case-insensitive contains match)
+
+**Filter row 2 — advanced filters:**
+- **Category** — narrow to any specific category, or Uncategorized
+- **All / Income / Expenses** toggle — quickly isolate credits or debits
+- **Amount range** — Min $ and Max $ to find transactions by dollar value
+- **× Clear filters** resets all in one click
+
+**Other actions:**
+- **Edit** any transaction’s date, description, amount, category, or notes
+- **Delete** transactions you don’t need
 - **＋ Add** manual transactions for cash, Venmo, or anything not in a bank export
-- **↓ Export** the current filtered view as a CSV (works with month, all-time, and search filters)
-- **✦ Auto-Categorize** re-runs all rules against uncategorized transactions in one click
+- **↓ Export** opens an OS save dialog — choose filename and location; exports exactly the current filtered view as CSV
+- **✦ Auto-Categorize** applies your rules to all transactions, then system rules fill remaining uncategorized ones
+- **Drag a CSV** onto the Transactions page to jump straight to the import wizard
 
 ### 💼 All Accounts Overview
 
