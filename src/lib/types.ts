@@ -46,6 +46,24 @@ export interface Insight {
   actionLabel?: string;
   action?: InsightAction;
   dismissKey: string;
+  richData?: InsightRichData;
+}
+
+export interface InsightRichData {
+  streakMonths?: number;
+  budgetAmountCents?: number;
+  currentRate?: number;
+  targetRate?: number;
+  beforeAmount?: number;
+  afterAmount?: number;
+  paceMonthly?: number;
+  avgMonthly?: number;
+  runwayMonths?: number;
+  projectedSavings?: number;
+  overCount?: number;
+  avgMonthlyCents?: number;
+  potentialLabel?: string;
+  potentialValue?: number;
 }
 
 export interface Account {
@@ -98,4 +116,23 @@ export interface CategorizationRule {
   priority: number;
   min_abs_cents?: number | null;
   max_abs_cents?: number | null;
+}
+
+export interface HealthScoreComponent {
+  score: number;
+  max: number;
+  pct: number;
+}
+
+export interface HealthScore {
+  total: number;
+  grade: string;
+  label: string;
+  color: string;
+  components: {
+    savingsRate:     HealthScoreComponent;
+    budgetHealth:    HealthScoreComponent;
+    balanceRunway:   HealthScoreComponent;
+    incomeStability: HealthScoreComponent;
+  };
 }
