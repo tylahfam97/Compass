@@ -1,5 +1,5 @@
 import { getDb } from "./db";
-import type { Insight } from "./types";
+import type { Insight, HealthScore } from "./types";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -901,4 +901,101 @@ function formatCents(cents: number): string {
 
 function truncate(s: string, n: number): string {
   return s.length <= n ? s : s.slice(0, n - 1) + "…";
+}
+
+// ─── Financial Health Score ───────────────────────────────────────────────────
+
+export async function computeHealthScore(profileIds: number[]): Promise<HealthScore> {
+  const db = await getDb();
+  const ph = profileIds.map(() => "?").join(",");
+
+  const now = new Date();
+  const threeAgo = (() => { const d = new Date(now); d.setMonth(d.getMonth() - 3); d.setDate(1); return d.toISOString().split("T")[0]; })();
+  const sixAgo   = (() => { const d = new Date(now); d.setMonth(d.getMonth() - 6); d.setDate(1); return d.toISOString().split("T")[0]; })();
+  const msStart  = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  const msEnd    = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().split("T")[0];
+
+  // ── 1. Savings Rate (40 pts) — 3-month avg ──────────────────────────────
+  const srRows = await db.select<{ income: number; expenses: number }[]>(
+    `SELECT
+       SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income,
+       SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as expenses
+     FROM transactions WHERE profile_id IN (${ph}) AND date>=?
+     GROUP BY strftime('%Y-%m', date) LIMIT 3`,
+    [...profileIds, threeAgo]
+  );
+  const validSR = srRows.filter(r => r.income > 0);
+  const avgRate = validSR.length > 0
+    ? validSR.reduce((s, r) => s + (r.income - r.expenses) / r.income, 0) / validSR.length : 0;
+  const savingsScore = avgRate >= 0.20 ? 40 : avgRate >= 0.15 ? 30 : avgRate >= 0.10 ? 20 : avgRate >= 0.05 ? 10 : 0;
+
+  // ── 2. Budget Health (30 pts) — this month ──────────────────────────────
+  const budgets = await db.select<{ category_id: number; amount_cents: number }[]>(
+    `SELECT category_id, amount_cents FROM budgets WHERE profile_id IN (${ph}) OR is_global=1`,
+    [...profileIds]
+  );
+  let budgetScore = 15;
+  if (budgets.length > 0) {
+    const spendRows = await db.select<{ category_id: number; spent: number }[]>(
+      `SELECT category_id, SUM(ABS(amount_cents)) as spent
+       FROM transactions WHERE profile_id IN (${ph}) AND date>=? AND date<? AND amount_cents<0
+       GROUP BY category_id`,
+      [...profileIds, msStart, msEnd]
+    );
+    const sm = new Map(spendRows.map(s => [s.category_id, s.spent]));
+    const over = budgets.filter(b => (sm.get(b.category_id) ?? 0) > b.amount_cents).length;
+    const pct = (budgets.length - over) / budgets.length;
+    budgetScore = pct >= 1.0 ? 30 : pct >= 0.8 ? 24 : pct >= 0.6 ? 18 : pct >= 0.4 ? 12 : 6;
+  }
+
+  // ── 3. Balance Runway (20 pts) ─────────────────────────────────────────
+  const [balRow] = await db.select<{ balance_cents: number | null }[]>(
+    `SELECT balance_cents FROM transactions WHERE profile_id IN (${ph}) AND balance_cents IS NOT NULL ORDER BY date DESC, id DESC LIMIT 1`,
+    [...profileIds]
+  );
+  let balanceScore = 10;
+  if ((balRow?.balance_cents ?? 0) > 0) {
+    const [expRow] = await db.select<{ avg_exp: number }[]>(
+      `SELECT AVG(me) as avg_exp FROM (
+         SELECT SUM(ABS(amount_cents)) as me FROM transactions
+         WHERE profile_id IN (${ph}) AND amount_cents<0 AND (category_id IS NULL OR category_id!=20) AND date>=?
+         GROUP BY strftime('%Y-%m', date))`,
+      [...profileIds, threeAgo]
+    );
+    const avgExp = expRow?.avg_exp ?? 0;
+    if (avgExp > 0) {
+      const rw = balRow!.balance_cents! / avgExp;
+      balanceScore = rw >= 6 ? 20 : rw >= 3 ? 15 : rw >= 1 ? 8 : 2;
+    }
+  }
+
+  // ── 4. Income Stability (10 pts) — 6-month variance ───────────────────
+  const incRows = await db.select<{ income: number }[]>(
+    `SELECT SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income
+     FROM transactions WHERE profile_id IN (${ph}) AND date>=?
+     GROUP BY strftime('%Y-%m', date)`,
+    [...profileIds, sixAgo]
+  );
+  const incomes = incRows.filter(r => r.income > 0).map(r => r.income);
+  let incomeScore = 5;
+  if (incomes.length >= 2) {
+    const avg = incomes.reduce((a, b) => a + b, 0) / incomes.length;
+    const maxDev = Math.max(...incomes.map(v => Math.abs(v - avg) / avg));
+    incomeScore = maxDev < 0.10 ? 10 : maxDev < 0.25 ? 7 : maxDev < 0.40 ? 4 : 1;
+  }
+
+  const total = savingsScore + budgetScore + balanceScore + incomeScore;
+  const grade = total >= 85 ? "A" : total >= 70 ? "B" : total >= 55 ? "C" : total >= 40 ? "D" : "—";
+  const label = total >= 85 ? "Excellent" : total >= 70 ? "Good" : total >= 55 ? "Building" : total >= 40 ? "Developing" : "Getting Started";
+  const color = total >= 85 ? "#059669" : total >= 70 ? "#2563eb" : total >= 55 ? "#d97706" : total >= 40 ? "#ea580c" : "#6b7280";
+
+  return {
+    total, grade, label, color,
+    components: {
+      savingsRate:     { score: savingsScore,  max: 40, pct: Math.round((savingsScore / 40)  * 100) },
+      budgetHealth:    { score: budgetScore,   max: 30, pct: Math.round((budgetScore / 30)   * 100) },
+      balanceRunway:   { score: balanceScore,  max: 20, pct: Math.round((balanceScore / 20)  * 100) },
+      incomeStability: { score: incomeScore,   max: 10, pct: Math.round((incomeScore / 10)   * 100) },
+    },
+  };
 }

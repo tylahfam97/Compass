@@ -1,14 +1,16 @@
-﻿import { useState, useEffect, useMemo, useCallback } from "react";
+﻿import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, CheckCircle, Target, Info } from "lucide-react";
 import {
-  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
+  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import { getDb } from "@/lib/db";
 import { formatCurrency } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
-import { generateInsights, getSpendingProfile, getSavingsHistory } from "@/lib/agent";
-import type { Insight, Profile } from "@/lib/types";
+import {
+  generateInsights, getSpendingProfile, getSavingsHistory, computeHealthScore,
+} from "@/lib/agent";
+import type { Insight, Profile, HealthScore } from "@/lib/types";
 import InsightCard from "@/components/InsightCard";
 import PinModal from "@/components/PinModal";
 
@@ -19,7 +21,6 @@ interface SubItem {
   category_name: string;
   category_color: string;
 }
-
 interface CatDelta {
   category_name: string;
   category_color: string;
@@ -32,30 +33,25 @@ function currentYM(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
-
 function monthBounds(ym: string): [string, string] {
   const [y, m] = ym.split("-").map(Number);
-  return [
-    `${y}-${String(m).padStart(2, "0")}-01`,
-    new Date(y, m, 1).toISOString().split("T")[0],
-  ];
+  return [`${y}-${String(m).padStart(2, "0")}-01`, new Date(y, m, 1).toISOString().split("T")[0]];
 }
-
 function prevYM(ym: string): string {
   const [y, m] = ym.split("-").map(Number);
   const d = new Date(y, m - 2, 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
-
 function viewKey(profileId: number) { return `compass_insight_view_${profileId}`; }
 
-function loadExpandedSections(): { trends: boolean; subs: boolean } {
+function loadGroupState(): Record<string, boolean> {
   try {
-    const saved = localStorage.getItem("compass_insight_sections");
-    return saved ? JSON.parse(saved) : { trends: false, subs: false };
-  } catch { return { trends: false, subs: false }; }
+    const s = localStorage.getItem("compass_insight_groups");
+    return s ? JSON.parse(s) : {};
+  } catch { return {}; }
 }
 
+// ── Scope toggle ──────────────────────────────────────────────────────────────
 interface ScopeToggleProps { isGlobal: boolean; onToggle: () => void; }
 function ScopeToggle({ isGlobal, onToggle }: ScopeToggleProps) {
   return (
@@ -63,8 +59,8 @@ function ScopeToggle({ isGlobal, onToggle }: ScopeToggleProps) {
       style={{
         width: 52, height: 28, borderRadius: 14, padding: 3,
         backgroundColor: isGlobal ? "#C08A1C" : "#3b82f6",
-        transition: "background-color 0.3s",
-        cursor: "pointer", display: "inline-flex", alignItems: "center",
+        transition: "background-color 0.3s", cursor: "pointer",
+        display: "inline-flex", alignItems: "center",
         border: "none", flexShrink: 0, boxShadow: "inset 0 1px 3px rgba(0,0,0,0.18)",
       }}>
       <div style={{
@@ -77,32 +73,95 @@ function ScopeToggle({ isGlobal, onToggle }: ScopeToggleProps) {
   );
 }
 
+// ── Collapsible data section ──────────────────────────────────────────────────
 interface CollapsibleSectionProps {
-  title: string;
-  subtitle?: string;
-  expanded: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
+  title: string; subtitle?: string; expanded: boolean;
+  onToggle: () => void; children: React.ReactNode;
 }
 function CollapsibleSection({ title, subtitle, expanded, onToggle, children }: CollapsibleSectionProps) {
   return (
-    <section className="border rounded-xl overflow-hidden">
-      <button
-        onClick={onToggle}
-        className="w-full px-5 py-3.5 bg-[hsl(var(--muted))] flex items-center justify-between
-                   hover:bg-[hsl(var(--muted))/80] transition-colors text-left"
-      >
+    <section className="border rounded-2xl overflow-hidden">
+      <button onClick={onToggle}
+        className="w-full px-5 py-4 bg-[hsl(var(--muted))] flex items-center justify-between
+                   hover:bg-[hsl(var(--muted))/80] transition-colors text-left">
         <div className="flex items-center gap-3">
-          <h2 className="font-semibold text-sm">{title}</h2>
+          <span className="font-semibold text-sm">{title}</span>
           {subtitle && <span className="text-xs text-[hsl(var(--muted-foreground))]">{subtitle}</span>}
         </div>
-        {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+        {expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
       </button>
       {expanded && children}
     </section>
   );
 }
 
+// ── Insight severity accordion ────────────────────────────────────────────────
+interface InsightGroupProps {
+  label: string;
+  severity: "warning" | "info" | "success";
+  items: Insight[];
+  onApply: (i: Insight) => void;
+  open: boolean;
+  onToggle: () => void;
+}
+function InsightGroup({ label, severity, items, onApply, open, onToggle }: InsightGroupProps) {
+  if (items.length === 0) return null;
+
+  type StyleMap = { wrap: string; header: string; iconCls: string; labelCls: string; badgeCls: string; };
+  const styles: Record<string, StyleMap> = {
+    success: {
+      wrap:     "border-emerald-300 dark:border-emerald-700/60",
+      header:   "bg-emerald-600 dark:bg-emerald-700 hover:bg-emerald-600/90 dark:hover:bg-emerald-700/90",
+      iconCls:  "text-white",
+      labelCls: "text-white",
+      badgeCls: "bg-white/20 text-white",
+    },
+    info: {
+      wrap:     "border-[hsl(var(--border))]",
+      header:   "bg-[hsl(var(--muted))] hover:bg-[hsl(var(--muted))/70]",
+      iconCls:  "text-blue-500",
+      labelCls: "text-[hsl(var(--foreground))]",
+      badgeCls: "bg-blue-100/80 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300",
+    },
+    warning: {
+      wrap:     "border-amber-200 dark:border-amber-800/50",
+      header:   "bg-amber-50 dark:bg-amber-950/25 hover:bg-amber-100/80 dark:hover:bg-amber-950/35",
+      iconCls:  "text-amber-500",
+      labelCls: "text-amber-900 dark:text-amber-200",
+      badgeCls: "bg-amber-200/80 dark:bg-amber-800/60 text-amber-800 dark:text-amber-100",
+    },
+  };
+  const s = styles[severity];
+  const GroupIcon = severity === "success" ? CheckCircle : severity === "info" ? Info : Target;
+
+  return (
+    <div className={`rounded-2xl border overflow-hidden ${s.wrap}`}>
+      <button onClick={onToggle}
+        className={`w-full flex items-center justify-between px-5 py-4 transition-colors ${s.header}`}>
+        <div className="flex items-center gap-3">
+          <GroupIcon size={15} className={s.iconCls} />
+          <span className={`font-semibold text-sm ${s.labelCls}`}>{label}</span>
+          <span className={`text-xs font-bold px-2 py-0.5 rounded-full tabular-nums ${s.badgeCls}`}>
+            {items.length}
+          </span>
+        </div>
+        <ChevronDown
+          size={15}
+          className={`${s.iconCls} transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div className="bg-[hsl(var(--background))]">
+          {items.map((ins) => (
+            <InsightCard key={ins.id} insight={ins} onApply={onApply} variant="row" />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function AgentPage() {
   const navigate = useNavigate();
   const { activeProfile, profiles, unlockedIds, unlockProfile, dismissedInsights, clearDismissed } = useProfileStore();
@@ -115,15 +174,22 @@ export default function AgentPage() {
   const [pinQueue, setPinQueue] = useState<Profile[]>([]);
   const [pinQueueIdx, setPinQueueIdx] = useState(0);
 
-  const [loading, setLoading] = useState(true);
-  const [insights, setInsights] = useState<Insight[]>([]);
+  const [loading, setLoading]               = useState(true);
+  const [insights, setInsights]             = useState<Insight[]>([]);
+  const [healthScore, setHealthScore]       = useState<HealthScore | null>(null);
   const [savingsHistory, setSavingsHistory] = useState<{ month: string; rate: number; net: number }[]>([]);
   const [spendingProfile, setSpendingProfile] = useState<Awaited<ReturnType<typeof getSpendingProfile>>>(null);
-  const [subscriptions, setSubscriptions] = useState<SubItem[]>([]);
-  const [catDeltas, setCatDeltas] = useState<CatDelta[]>([]);
-  const [hasEnoughData, setHasEnoughData] = useState(true);
-  const [refreshedAt, setRefreshedAt] = useState<Date | null>(null);
-  const [expanded, setExpanded] = useState<{ trends: boolean; subs: boolean }>(loadExpandedSections);
+  const [subscriptions, setSubscriptions]   = useState<SubItem[]>([]);
+  const [catDeltas, setCatDeltas]           = useState<CatDelta[]>([]);
+  const [hasEnoughData, setHasEnoughData]   = useState(true);
+  const [refreshedAt, setRefreshedAt]       = useState<Date | null>(null);
+
+  const [sectExpanded, setSectExpanded] = useState<{ trends: boolean; subs: boolean }>(() => {
+    try { const s = localStorage.getItem("compass_insight_sections"); return s ? JSON.parse(s) : { trends: false, subs: false }; }
+    catch { return { trends: false, subs: false }; }
+  });
+  const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>(loadGroupState);
+  const didSetDefaults = useRef(false);
 
   useEffect(() => {
     const saved = localStorage.getItem(viewKey(profileId));
@@ -131,24 +197,16 @@ export default function AgentPage() {
   }, [profileId]);
 
   const unlockedProfileIds = useMemo(
-    () => profiles
-      .filter((p) => !p.pin_hash || p.id === profileId || unlockedIds.has(p.id))
-      .map((p) => p.id),
+    () => profiles.filter((p) => !p.pin_hash || p.id === profileId || unlockedIds.has(p.id)).map((p) => p.id),
     [profiles, profileId, unlockedIds]
   );
 
   const handleSwitchToGlobal = () => {
-    const locked = profiles.filter(
-      (p) => p.pin_hash && p.id !== profileId && !unlockedIds.has(p.id)
-    );
+    const locked = profiles.filter((p) => p.pin_hash && p.id !== profileId && !unlockedIds.has(p.id));
     if (locked.length > 0) { setPinQueue(locked); setPinQueueIdx(0); }
     else { localStorage.setItem(viewKey(profileId), "global"); setViewMode("global"); }
   };
-
-  const handleSwitchToProfile = () => {
-    localStorage.setItem(viewKey(profileId), "profile"); setViewMode("profile");
-  };
-
+  const handleSwitchToProfile = () => { localStorage.setItem(viewKey(profileId), "profile"); setViewMode("profile"); };
   const advancePinQueue = (unlockedId?: number) => {
     if (unlockedId !== undefined) unlockProfile(unlockedId);
     const next = pinQueueIdx + 1;
@@ -158,47 +216,61 @@ export default function AgentPage() {
     } else { setPinQueueIdx(next); }
   };
 
-  const toggleSection = useCallback((key: "trends" | "subs") => {
-    setExpanded((prev) => {
-      const next = { ...prev, [key]: !prev[key] };
+  const toggleSection = useCallback((k: "trends" | "subs") => {
+    setSectExpanded((prev) => {
+      const next = { ...prev, [k]: !prev[k] };
       localStorage.setItem("compass_insight_sections", JSON.stringify(next));
       return next;
     });
   }, []);
 
-  const pinTarget = pinQueue.length > 0 && pinQueueIdx < pinQueue.length
-    ? pinQueue[pinQueueIdx] : null;
+  const toggleGroup = useCallback((k: string) => {
+    setGroupOpen((prev) => {
+      const next = { ...prev, [k]: !prev[k] };
+      localStorage.setItem("compass_insight_groups", JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  // Adaptive defaults — open the right group after first data load
+  useEffect(() => {
+    if (insights.length === 0 || didSetDefaults.current) return;
+    if (localStorage.getItem("compass_insight_groups")) return; // user has custom state
+    didSetDefaults.current = true;
+    const visible = insights.filter((i) => !dismissedInsights.includes(i.dismissKey));
+    const wins = visible.filter((i) => i.severity === "success").length;
+    const obs  = visible.filter((i) => i.severity === "info").length;
+    setGroupOpen({ success: wins > 0, info: wins === 0 && obs > 0, warning: wins === 0 && obs === 0 });
+  }, [insights, dismissedInsights]);
+
+  const pinTarget = pinQueue.length > 0 && pinQueueIdx < pinQueue.length ? pinQueue[pinQueueIdx] : null;
   const lockedExcluded = viewMode === "global"
-    ? profiles.filter((p) => p.pin_hash && p.id !== profileId && !unlockedIds.has(p.id))
-    : [];
+    ? profiles.filter((p) => p.pin_hash && p.id !== profileId && !unlockedIds.has(p.id)) : [];
 
   useEffect(() => {
     if (!activeProfile) return;
     let cancelled = false;
-    const ids = viewMode === "global"
-      ? (unlockedProfileIds.length > 0 ? unlockedProfileIds : [profileId])
-      : [profileId];
+    const ids = viewMode === "global" ? (unlockedProfileIds.length > 0 ? unlockedProfileIds : [profileId]) : [profileId];
 
     async function load() {
       setLoading(true);
       const db = await getDb();
       const ph = ids.map(() => "?").join(",");
 
-      const [allInsights, history, profile] = await Promise.all([
+      const [allInsights, history, profile, score] = await Promise.all([
         generateInsights(ids),
         getSavingsHistory(ids, 12),
         getSpendingProfile(ids),
+        computeHealthScore(ids),
       ]);
-
       if (cancelled) return;
 
-      if (!profile || history.length < 2) {
-        setHasEnoughData(false); setLoading(false); return;
-      }
+      if (!profile || history.length < 2) { setHasEnoughData(false); setLoading(false); return; }
       setHasEnoughData(true);
       setInsights(allInsights);
       setSavingsHistory(history);
       setSpendingProfile(profile);
+      setHealthScore(score);
 
       const thisMonth = currentYM();
       const lMonth = prevYM(thisMonth);
@@ -235,62 +307,70 @@ export default function AgentPage() {
           [...ids, ls, le]
         ),
       ]);
-
       if (cancelled) return;
       setSubscriptions(subs);
-
       const lastMap = new Map(lastCats.map((c) => [c.category_id, c.total]));
-      setCatDeltas(thisCats.map((c) => {
-        const prev = lastMap.get(c.category_id) ?? 0;
-        return {
-          category_name: c.category_name,
-          category_color: c.category_color,
-          this_month: c.total,
-          last_month: prev,
-          delta_pct: prev > 0 ? Math.round(((c.total - prev) / prev) * 100) : 100,
-        };
-      }));
+      setCatDeltas(thisCats.map((c) => ({
+        category_name: c.category_name, category_color: c.category_color,
+        this_month: c.total, last_month: lastMap.get(c.category_id) ?? 0,
+        delta_pct: (lastMap.get(c.category_id) ?? 0) > 0
+          ? Math.round(((c.total - (lastMap.get(c.category_id) ?? 0)) / (lastMap.get(c.category_id) ?? 1)) * 100)
+          : 100,
+      })));
       setRefreshedAt(new Date());
       setLoading(false);
     }
-
     load().catch(console.error);
     return () => { cancelled = true; };
   }, [profileId, activeProfile, viewMode, unlockedProfileIds]);
 
   const visibleInsights  = insights.filter((i) => !dismissedInsights.includes(i.dismissKey));
-  const warningInsights  = visibleInsights.filter((i) => i.severity === "warning");
-  const infoInsights     = visibleInsights.filter((i) => i.severity === "info");
   const successInsights  = visibleInsights.filter((i) => i.severity === "success");
+  const infoInsights     = visibleInsights.filter((i) => i.severity === "info");
+  const warningInsights  = visibleInsights.filter((i) => i.severity === "warning");
 
   const handleApply = (insight: Insight) => {
     if (!insight.action) return;
-    if (insight.action.type === "create_budget") {
-      navigate("/budgets", { state: { prefillBudget: insight.action.payload } });
-    } else { navigate("/goals"); }
+    if (insight.action.type === "create_budget") navigate("/budgets", { state: { prefillBudget: insight.action.payload } });
+    else navigate("/goals");
   };
 
-  // ── Header (shared across all render states) ──────────────────────────────
+  const avgSavingsRatePct = spendingProfile ? Math.round(spendingProfile.avgSavingsRate * 100) : 0;
+  const totalSubCost = subscriptions.reduce((s, r) => s + Math.abs(r.amount_cents), 0);
+  const annualSubCost = totalSubCost * 12;
+
+  // ── Shared sticky header ─────────────────────────────────────────────────
   const PageHeader = (
     <div className="sticky top-0 z-20 border-b px-8 py-4 flex items-center justify-between gap-6"
       style={{ backgroundColor: "hsl(var(--background))", backdropFilter: "blur(8px)" }}>
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Insights</h1>
-        <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">
-          {refreshedAt
-            ? `Last updated ${refreshedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
-            : "Rule-based analysis of your financial habits."}
-        </p>
+      <div className="flex items-center gap-3 min-w-0">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Insights</h1>
+          <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">
+            {refreshedAt
+              ? `Updated ${refreshedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+              : "Rule-based analysis of your financial habits."}
+          </p>
+        </div>
+        {healthScore && (
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full shrink-0"
+            style={{ backgroundColor: healthScore.color + "20", border: `1px solid ${healthScore.color}50` }}>
+            <span className="text-xs font-bold tabular-nums" style={{ color: healthScore.color }}>
+              {healthScore.total}
+            </span>
+            <span className="text-xs font-semibold" style={{ color: healthScore.color }}>
+              · {healthScore.label}
+            </span>
+          </div>
+        )}
       </div>
       <div className="flex items-center gap-3 shrink-0">
         <span className="text-sm font-semibold select-none"
           style={{ color: viewMode !== "profile" ? "hsl(var(--muted-foreground))" : "#3b82f6", transition: "color 0.3s" }}>
           Profile
         </span>
-        <ScopeToggle
-          isGlobal={viewMode === "global"}
-          onToggle={() => viewMode === "global" ? handleSwitchToProfile() : handleSwitchToGlobal()}
-        />
+        <ScopeToggle isGlobal={viewMode === "global"}
+          onToggle={() => viewMode === "global" ? handleSwitchToProfile() : handleSwitchToGlobal()} />
         <span className="text-sm font-semibold select-none"
           style={{ color: viewMode === "global" ? "#C08A1C" : "hsl(var(--muted-foreground))", transition: "color 0.3s" }}>
           Global
@@ -324,7 +404,7 @@ export default function AgentPage() {
             <p className="text-4xl mb-4">📊</p>
             <p className="font-semibold text-lg mb-2">Not enough data yet</p>
             <p className="text-sm text-[hsl(var(--muted-foreground))] mb-6">
-              Import at least 2 months of transactions to unlock all insights, spending profiles, and trend analysis.
+              Import at least 2 months of transactions to unlock insights, the health score, and trend analysis.
             </p>
             <Link to="/import"
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium">
@@ -335,10 +415,6 @@ export default function AgentPage() {
       </>
     );
   }
-
-  const totalSubCost = subscriptions.reduce((s, r) => s + Math.abs(r.amount_cents), 0);
-  const annualSubCost = totalSubCost * 12;
-  const avgSavingsRatePct = spendingProfile ? Math.round(spendingProfile.avgSavingsRate * 100) : 0;
 
   return (
     <>
@@ -353,13 +429,13 @@ export default function AgentPage() {
             style={{ border: "1px solid rgba(245,158,11,0.35)", backgroundColor: "rgba(245,158,11,0.07)" }}>
             <p className="text-sm font-semibold" style={{ color: "#b45309" }}>
               {lockedExcluded.length === 1 ? "1 profile is PIN-locked" : `${lockedExcluded.length} profiles are PIN-locked`}
-              {" "}-- their data is excluded from global insights.
+              {" "}— their data is excluded from global insights.
             </p>
             <div className="flex flex-wrap gap-2">
               {lockedExcluded.map((p) => (
                 <button key={p.id} onClick={() => { setPinQueue([p]); setPinQueueIdx(0); }}
                   className="text-xs px-3 py-1.5 rounded-lg transition-colors"
-                  style={{ border: "1px solid rgba(245,158,11,0.5)", color: "#92400e", backgroundColor: "transparent" }}>
+                  style={{ border: "1px solid rgba(245,158,11,0.5)", color: "#92400e" }}>
                   🔒 Unlock {p.name}
                 </button>
               ))}
@@ -373,87 +449,96 @@ export default function AgentPage() {
             style={{ border: "1px solid rgba(192,138,28,0.35)", backgroundColor: "rgba(192,138,28,0.07)" }}>
             <span className="font-semibold text-sm" style={{ color: "#C08A1C" }}>Global view</span>
             <span className="text-xs text-[hsl(var(--muted-foreground))]">
-              -- insights and data aggregated across {profiles.length} profile{profiles.length !== 1 ? "s" : ""}
+              — insights and data aggregated across {profiles.length} profile{profiles.length !== 1 ? "s" : ""}
             </span>
           </div>
         )}
 
-        {/* ── Financial Health Summary (KPIs + sparkline) ── */}
+        {/* ── KPI Strip ── */}
         {spendingProfile && (
-          <section className="border rounded-xl overflow-hidden">
-            <div className="px-5 py-3 border-b bg-[hsl(var(--muted))/50]">
-              <h2 className="font-semibold text-sm">Financial Health Summary</h2>
-              <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                Based on {spendingProfile.monthsAnalysed} months of data
-              </p>
-            </div>
-            <div className="grid sm:grid-cols-[1fr_200px] divide-y sm:divide-y-0 sm:divide-x">
-              {/* KPI tiles */}
-              <div className="grid grid-cols-2 divide-x divide-y">
-                {[
-                  {
-                    label: "Avg monthly income",
-                    value: formatCurrency(spendingProfile.avgMonthlyIncome),
-                    valueColor: "text-green-600",
-                  },
-                  {
-                    label: "Avg monthly spend",
-                    value: formatCurrency(spendingProfile.avgMonthlyExpenses),
-                    valueColor: "text-red-500",
-                  },
-                  {
-                    label: "Avg savings rate",
-                    value: `${avgSavingsRatePct}%`,
-                    valueColor: avgSavingsRatePct >= 20 ? "text-green-600" : avgSavingsRatePct >= 10 ? "text-amber-500" : "text-red-500",
-                    sub: avgSavingsRatePct >= 20 ? "Healthy" : avgSavingsRatePct >= 10 ? "Building" : "Below target",
-                  },
-                  {
-                    label: "Top spending category",
-                    value: spendingProfile.topCategory,
-                    valueColor: "text-[hsl(var(--foreground))]",
-                  },
-                ].map(({ label, value, valueColor, sub }) => (
-                  <div key={label} className="px-4 py-4">
-                    <p className="text-xs text-[hsl(var(--muted-foreground))] mb-1">{label}</p>
-                    <p className={`text-base font-bold ${valueColor}`}>{value}</p>
-                    {sub && <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">{sub}</p>}
-                  </div>
-                ))}
-              </div>
-              {/* Sparkline */}
-              {savingsHistory.length >= 2 && (
-                <div className="px-4 py-4">
-                  <p className="text-xs text-[hsl(var(--muted-foreground))] mb-2">Savings rate (12 mo)</p>
-                  <ResponsiveContainer width="100%" height={90}>
-                    <LineChart data={savingsHistory} margin={{ left: 0, right: 4, top: 4, bottom: 0 }}>
-                      <XAxis dataKey="month" tick={false} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fontSize: 9 }} tickFormatter={(v: number) => `${v}%`} width={28} />
-                      <Tooltip
-                        formatter={(v) => [`${v ?? 0}%`, "Rate"]}
-                        contentStyle={{
-                          backgroundColor: "hsl(var(--background))",
-                          border: "1px solid hsl(var(--border))",
-                          borderRadius: "6px",
-                          fontSize: "11px",
-                        }}
-                      />
-                      <ReferenceLine y={20} stroke="#f59e0b" strokeDasharray="3 3" />
-                      <Line type="monotone" dataKey="rate" stroke="#6366f1" strokeWidth={2} dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                  <p className="text-[10px] text-[hsl(var(--muted-foreground))] mt-1 text-center">
-                    Dashed = 20% target
+          <section className="border rounded-2xl overflow-hidden shadow-sm">
+            <div className="flex divide-x">
+              {[
+                {
+                  label: "Avg Monthly Income",
+                  value: formatCurrency(spendingProfile.avgMonthlyIncome),
+                  color: "text-green-600",
+                  sub: null,
+                },
+                {
+                  label: "Avg Monthly Spend",
+                  value: formatCurrency(spendingProfile.avgMonthlyExpenses),
+                  color: "text-red-500",
+                  sub: null,
+                },
+                {
+                  label: "Avg Savings Rate",
+                  value: `${avgSavingsRatePct}%`,
+                  color: avgSavingsRatePct >= 20 ? "text-green-600" : avgSavingsRatePct >= 10 ? "text-amber-500" : "text-red-500",
+                  sub: avgSavingsRatePct >= 20 ? "Healthy" : avgSavingsRatePct >= 10 ? "Building" : "Below target",
+                },
+                {
+                  label: "Top Category",
+                  value: spendingProfile.topCategory,
+                  color: "text-[hsl(var(--foreground))]",
+                  sub: null,
+                },
+              ].map(({ label, value, color, sub }) => (
+                <div key={label} className="flex-1 px-6 py-6">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2">
+                    {label}
                   </p>
+                  <p className={`text-xl font-bold tabular-nums ${color}`}>{value}</p>
+                  {sub && <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">{sub}</p>}
                 </div>
-              )}
+              ))}
             </div>
           </section>
         )}
 
-        {/* ── Insights ── */}
-        <section className="space-y-4">
+        {/* ── Savings Rate Sparkline ── */}
+        {savingsHistory.length >= 2 && (
+          <section className="border rounded-2xl overflow-hidden">
+            <div className="px-6 pt-5 pb-0 flex items-center justify-between">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">
+                Savings Rate · 12 months
+              </p>
+              <p className="text-[10px] text-[hsl(var(--muted-foreground))]">— 20% target</p>
+            </div>
+            <ResponsiveContainer width="100%" height={110}>
+              <AreaChart data={savingsHistory} margin={{ left: 0, right: 20, top: 8, bottom: 4 }}>
+                <defs>
+                  <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.18} />
+                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="month" tick={{ fontSize: 9 }} tickFormatter={(v: string) => v.slice(5)}
+                       axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 9 }} tickFormatter={(v: number) => `${v}%`} width={30}
+                       axisLine={false} tickLine={false} />
+                <Tooltip
+                  formatter={(v) => [`${v ?? 0}%`, "Rate"]}
+                  contentStyle={{
+                    backgroundColor: "hsl(var(--background))",
+                    border: "1px solid hsl(var(--border))",
+                    borderRadius: "6px", fontSize: "11px",
+                  }}
+                />
+                <ReferenceLine y={20} stroke="#f59e0b" strokeDasharray="4 4" strokeOpacity={0.6} />
+                <Area type="monotone" dataKey="rate" stroke="#6366f1" strokeWidth={2}
+                      fill="url(#sparkGrad)" dot={false} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </section>
+        )}
+
+        {/* ── Insights section ── */}
+        <section className="space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="font-semibold text-base">Insights</h2>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">
+              Insights
+            </p>
             {dismissedInsights.length > 0 && (
               <button onClick={clearDismissed}
                 className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors">
@@ -463,48 +548,35 @@ export default function AgentPage() {
           </div>
 
           {visibleInsights.length === 0 && (
-            <div className="border-2 border-dashed border-emerald-200 dark:border-emerald-900 rounded-xl py-10 text-center">
-              <p className="text-3xl mb-3">🎉</p>
-              <p className="font-semibold text-emerald-700 dark:text-emerald-400">All clear!</p>
-              <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">
-                No active insights. Your finances look healthy.
+            <div className="border-2 border-dashed border-emerald-200 dark:border-emerald-900/60 rounded-2xl py-14 text-center">
+              <p className="text-4xl mb-3">🎉</p>
+              <p className="font-semibold text-base text-emerald-700 dark:text-emerald-400">All clear!</p>
+              <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1.5">
+                No active insights — your finances are looking healthy.
               </p>
             </div>
           )}
 
-          {[
-            { label: "Needs attention", items: warningInsights, count: warningInsights.length },
-            { label: "Observations",   items: infoInsights,    count: infoInsights.length },
-            { label: "Wins",           items: successInsights, count: successInsights.length },
-          ].map(({ label, items, count }) =>
-            count > 0 ? (
-              <div key={label}>
-                <div className="flex items-center gap-2 mb-2">
-                  <p className="text-xs font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider">
-                    {label}
-                  </p>
-                  <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]">
-                    {count}
-                  </span>
-                </div>
-                <div className="space-y-2">
-                  {items.map((insight) => (
-                    <InsightCard key={insight.id} insight={insight} onApply={handleApply} />
-                  ))}
-                </div>
-              </div>
-            ) : null
-          )}
+          {/* Wins first — positive reinforcement anchor */}
+          <InsightGroup label="Wins" severity="success"
+            items={successInsights} onApply={handleApply}
+            open={!!groupOpen.success} onToggle={() => toggleGroup("success")} />
+
+          {/* Observations — neutral information */}
+          <InsightGroup label="Observations" severity="info"
+            items={infoInsights} onApply={handleApply}
+            open={!!groupOpen.info} onToggle={() => toggleGroup("info")} />
+
+          {/* Action Items — constructive, not alarming */}
+          <InsightGroup label="Action Items" severity="warning"
+            items={warningInsights} onApply={handleApply}
+            open={!!groupOpen.warning} onToggle={() => toggleGroup("warning")} />
         </section>
 
-        {/* ── Category Trends (collapsible) ── */}
+        {/* ── Category Trends ── */}
         {catDeltas.length > 0 && (
-          <CollapsibleSection
-            title="Category Trends"
-            subtitle="this vs last month"
-            expanded={expanded.trends}
-            onToggle={() => toggleSection("trends")}
-          >
+          <CollapsibleSection title="Category Trends" subtitle="this vs last month"
+            expanded={sectExpanded.trends} onToggle={() => toggleSection("trends")}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left">
@@ -525,12 +597,11 @@ export default function AgentPage() {
                     </td>
                     <td className="px-5 py-2.5 text-right font-mono">{formatCurrency(r.this_month)}</td>
                     <td className="px-5 py-2.5 text-right font-mono text-[hsl(var(--muted-foreground))]">
-                      {r.last_month > 0 ? formatCurrency(r.last_month) : "--"}
+                      {r.last_month > 0 ? formatCurrency(r.last_month) : "—"}
                     </td>
                     <td className={`px-5 py-2.5 text-right font-semibold ${
                       r.last_month === 0 ? "text-[hsl(var(--muted-foreground))]"
-                      : r.delta_pct > 0  ? "text-red-500"
-                      :                   "text-green-600"}`}>
+                      : r.delta_pct > 0  ? "text-red-500" : "text-green-600"}`}>
                       {r.last_month === 0 ? "New" : `${r.delta_pct > 0 ? "+" : ""}${r.delta_pct}%`}
                     </td>
                   </tr>
@@ -540,14 +611,11 @@ export default function AgentPage() {
           </CollapsibleSection>
         )}
 
-        {/* ── Subscription Inventory (collapsible) ── */}
+        {/* ── Subscription Inventory ── */}
         {subscriptions.length > 0 && (
-          <CollapsibleSection
-            title="Subscription Inventory"
+          <CollapsibleSection title="Subscription Inventory"
             subtitle={`~${formatCurrency(annualSubCost)}/year`}
-            expanded={expanded.subs}
-            onToggle={() => toggleSection("subs")}
-          >
+            expanded={sectExpanded.subs} onToggle={() => toggleSection("subs")}>
             <table className="w-full text-sm">
               <tbody>
                 {subscriptions.map((s) => (

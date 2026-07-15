@@ -99,3 +99,22 @@ export interface CategorizationRule {
   min_abs_cents?: number | null;
   max_abs_cents?: number | null;
 }
+
+export interface HealthScoreComponent {
+  score: number;
+  max: number;
+  pct: number;
+}
+
+export interface HealthScore {
+  total: number;
+  grade: string;
+  label: string;
+  color: string;
+  components: {
+    savingsRate:     HealthScoreComponent;
+    budgetHealth:    HealthScoreComponent;
+    balanceRunway:   HealthScoreComponent;
+    incomeStability: HealthScoreComponent;
+  };
+}

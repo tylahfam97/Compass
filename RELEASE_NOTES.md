@@ -2,6 +2,45 @@
 
 # Hello! Another release just dropped 🧭 
 
+## Compass 0.5.4 — Psychology-Driven Insights Redesign + Financial Health Score
+
+### Financial Health Score
+A new **0–100 Health Score** is computed from four signals every time you open the Insights page and displayed as a colored pill in the sticky header:
+- **Savings Rate** (40 pts) — based on your 3-month average
+- **Budget Health** (30 pts) — % of budgets not overspent this month
+- **Balance Runway** (20 pts) — months of expenses covered by current balance
+- **Income Stability** (10 pts) — variance across the last 6 months of income
+
+Grades: **A · Excellent** (85+), **B · Good** (70+), **C · Building** (55+), **D · Developing** (40+). Score color changes with grade: emerald → blue → amber → orange.
+
+### Insights: Wins First
+The insight groups are now ordered **Wins → Observations → Action Items**. Positive reinforcement anchors the experience — you see what’s working before what needs fixing. Opening the page after a good month now feels rewarding.
+
+### Adaptive Group Expansion
+- Wins exist → Wins accordion opens, everything else collapsed
+- No wins but observations exist → Observations opens
+- Only action items → Action Items opens
+
+Your last manual expand/collapse state is remembered per-session.
+
+### Grouped Severity Accordions
+The flat card list is replaced with three collapsible accordion groups. Each group is a single visual container with a colored header, count badge, and slim row items inside:
+- **Wins**: Emerald header (celebration green) with `CheckCircle` icon
+- **Observations**: Neutral muted header with `Info` icon
+- **Action Items**: Warm amber header with `Target` icon (constructive, not alarming)
+
+Dismiss buttons are invisible at rest and appear only on hover — reducing clutter while staying accessible.
+
+### Gradient Sparkline
+The savings rate sparkline is now an `AreaChart` with a gradient fill under the curve, no axis lines, and more height — feels like a financial analytics tool, not a debug chart.
+
+### Cleaner KPI Strip
+The Financial Health Summary uses generous padding, `tracking-widest` uppercase labels, and larger bold values — luxury whitespace.
+
+---
+
+## Compass 0.5.3 — Insights Overhaul & Window Improvements
+
 
 ## Check us out at https://privatecompass.app
 
