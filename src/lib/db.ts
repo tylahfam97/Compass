@@ -657,6 +657,37 @@ async function runMigrations(db: CompassDb): Promise<void> {
     }
     await db.execute("PRAGMA user_version = 8");
   }
+
+  // ── v9: Expanded goal types + target_months column ────────────────────────
+  // SQLite cannot ALTER TABLE to modify a CHECK constraint, so we recreate the
+  // goals table with the expanded type set and a new target_months column.
+  if (version < 9) {
+    const hasTM = await colExists(db, "goals", "target_months");
+    if (!hasTM) {
+      // Rename → recreate with expanded constraint → copy → drop old
+      await db.execute("ALTER TABLE goals RENAME TO goals_v8");
+      await db.execute(`
+        CREATE TABLE goals (
+          id            INTEGER PRIMARY KEY AUTOINCREMENT,
+          name          TEXT    NOT NULL,
+          type          TEXT    NOT NULL,
+          category_id   INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+          target_cents  INTEGER NOT NULL DEFAULT 0,
+          target_months INTEGER,
+          active        INTEGER NOT NULL DEFAULT 1,
+          created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+          profile_id    INTEGER DEFAULT 1
+        )
+      `);
+      await db.execute(`
+        INSERT INTO goals (id, name, type, category_id, target_cents, target_months, active, created_at, profile_id)
+        SELECT id, name, type, category_id, target_cents, NULL, active, created_at, profile_id
+        FROM goals_v8
+      `);
+      await db.execute("DROP TABLE goals_v8");
+    }
+    await db.execute("PRAGMA user_version = 9");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────

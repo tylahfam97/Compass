@@ -1,8 +1,47 @@
 # Created by @tylahfam97 
 
-# Hello! Another release just dropped 🧭
+# Hello! Another release just dropped 🧭 
 
-## Compass 0.5.1 — Global Budgets
+## Check us out at https://privatecompass.app
+
+## Compass 0.5.2 — Smarter Insights & Holistic Goals
+
+### Insights: Transfers Excluded
+Internal bank transfers (same-institution moves, Zelle, Venmo, Cash App tagged as Transfers) no longer appear in the **Ghost Subscriptions** or **Frequent Small Purchases** insights. Recurring transfers were showing as phantom subscriptions — this is now fixed.
+
+### Insights: 5 New Analyses
+
+#### Category Creep
+If spending in any category has grown more than 30% comparing the last 3 months to the 3 months before that, you’ll see a warning with the annualised cost of that drift. Gradual increases are easy to miss — this surfaces them automatically.
+
+#### Year-End Projection
+Based on your recent average monthly net savings, Compass now projects how much you’ll have saved (or overspent) by December 31st. Updates each month as your data changes.
+
+#### Most Improved Category
+If any spending category drops more than 20% month-over-month with at least a $30 absolute difference, a success card highlights the improvement and encourages you to keep going.
+
+#### Under-Budget Streak (improved)
+The existing positive-streak insight now includes an actionable nudge: if you’ve been consistently under budget on a category, it suggests tightening the limit to capture those savings permanently.
+
+#### Weekend Spending Pattern
+If 35%+ of your monthly spending happens on weekends, Compass surfaces the split (weekend vs. weekday dollars) and names your top weekend merchant. Triggers a warning if the weekend share exceeds 50%.
+
+### Goals: 4 New Holistic Goal Types
+The Goals page now supports 7 types total — the original 3 plus 4 new multi-month, longitudinal types that Budgets cannot cover:
+
+#### Savings Target
+Set a cumulative dollar amount to save (e.g. $5,000 emergency fund). Progress tracks the sum of all positive monthly nets since the goal was created — not just this month’s net.
+
+#### Balance Floor
+Set a minimum account balance to maintain (e.g. keep at least $1,000 in checking). Requires a balance column to be imported. Shows your current balance against the target in real time.
+
+#### Under-Budget Streak
+Choose a budget category and a target number of consecutive months. Compass counts how many months in a row you’ve stayed under that budget and shows a segmented progress track — one segment per month.
+
+#### Savings Rate Habit
+Set a target savings rate (e.g. 20%) and a number of consecutive months to maintain it. Progress shows how many months in a row you’ve hit the rate, with the same segmented track.
+
+All streak/habit goals show a visual month-dot track rather than a fill bar, making the longitudinal nature obvious at a glance.
 
 ### New Feature: Global vs. Profile-Specific Budgets
 
