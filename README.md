@@ -92,18 +92,22 @@ A guided import flow that handles any bank's CSV format:
 
 | Step | What happens |
 |---|---|
-| **1 · Find Data** | Auto-detects your header row; adjust with +/− if needed |
+| **1 · Find Data** | Auto-detects your header row; adjust with +/− if needed. **Skip to Preview ↗** is always available once you're happy with the columns |
 | **2 · Date** | Pick the date column; Compass parses dates live and warns on invalid values |
 | **3 · Description** | Pick the merchant/payee column with sample values shown |
 | **4 · Amount** | Pick the amount column; supports banks that use separate Debit/Credit columns |
 | **5 · Balance** *(optional)* | Import your running balance to unlock sparklines and balance charts |
 | **6 · Preview** | Row count, detected month, 5-row preview — then import |
 
-Returning users whose bank layout was previously saved skip straight to Preview. Duplicate transactions are silently skipped using a content hash. **Batch import:** drop multiple CSVs at once — Compass queues and processes each in sequence.
+Returning users whose bank layout was previously saved skip straight to Preview. Duplicate transactions are silently skipped using a content hash. **Batch import:** drop multiple CSVs at once — Compass queues them. At the Preview step, **"⚡ Import All (N files)"** applies your current column settings to every remaining file and imports them automatically without further wizard interaction.
 
 ### 🏷️ Automatic Categorization
 
-100+ built-in rules cover Amazon, Walmart, DoorDash, Instacart, CVS, Waffle House, Progressive, and more. Bank-format noise is stripped automatically. Re-categorize any transaction with one click, and optionally save that correction as a new rule so future imports apply it automatically. Manage all rules from **⚙ Rules** in the sidebar.
+150+ built-in rules cover Amazon, Walmart, DoorDash, Instacart, Coinbase, Fidelity, DraftKings, and more. Bank-format noise is stripped automatically. Rules now support optional **amount conditions** (min/max dollar value) so you can create precise rules like "ZELLE over $1,000 → Rent". Re-categorize any transaction with one click, and optionally save that correction as a new rule.
+
+The **⚙ Rules** modal has a two-tier editor: a simple "contains" field for everyday use, and an expandable Advanced section with regex support and a cheat-sheet for power users. All your rules can be edited inline.
+
+**Transfers** are reserved for same-institution internal moves (checking ↔ savings). Zelle, Venmo, and Cash App are intentionally left uncategorized so you can create rules that match your actual usage.
 
 ### 📅 Dashboard & Trends
 

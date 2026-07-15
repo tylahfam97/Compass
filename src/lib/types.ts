@@ -87,4 +87,6 @@ export interface CategorizationRule {
   match_type: "contains" | "starts_with" | "regex";
   category_id: number;
   priority: number;
+  min_abs_cents?: number | null;
+  max_abs_cents?: number | null;
 }

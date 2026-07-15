@@ -88,7 +88,15 @@ export default function TransactionsPage() {
       txn.id,
     ]);
     setEditingId(null);
-    await loadRows();
+    // Update the row in-place so scroll position is preserved (no full reload)
+    const cat = categories.find((c) => c.id === categoryId);
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === txn.id
+          ? { ...r, category_id: categoryId, category_name: cat?.name, category_color: cat?.color }
+          : r
+      )
+    );
     // Offer to create a rule so future imports are auto-categorized
     setRulePrompt({ txn, newCatId: categoryId });
   };

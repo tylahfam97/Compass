@@ -506,6 +506,130 @@ async function runMigrations(db: CompassDb): Promise<void> {
 
     await db.execute("PRAGMA user_version = 6");
   }
+
+  // ── v7: New categories (Debt, Business Expenses, Gambling, Crypto, Investments, Emergency)
+  //       + amount-condition columns on rules + Transfer rule cleanup ──────────────────────
+  if (version < 7) {
+    // Add optional amount-range columns to categorization_rules
+    assertSafeMigrationIdentifiers("categorization_rules", "min_abs_cents");
+    if (!(await colExists(db, "categorization_rules", "min_abs_cents"))) {
+      await db.execute(
+        "ALTER TABLE categorization_rules ADD COLUMN min_abs_cents INTEGER"
+      );
+    }
+    assertSafeMigrationIdentifiers("categorization_rules", "max_abs_cents");
+    if (!(await colExists(db, "categorization_rules", "max_abs_cents"))) {
+      await db.execute(
+        "ALTER TABLE categorization_rules ADD COLUMN max_abs_cents INTEGER"
+      );
+    }
+
+    // Insert new system categories first — they must exist before the merge
+    // so FK references in the UPDATE statements below are valid.
+    await db.execute(`
+      INSERT OR IGNORE INTO categories (id, name, parent_id, color, icon, is_system) VALUES
+        (22, 'Debt',              NULL, '#ef4444', 'credit-card',    1),
+        (23, 'Business Expenses', NULL, '#0d9488', 'briefcase',      1),
+        (24, 'Gambling',          NULL, '#dc2626', 'dice-5',         1),
+        (25, 'Crypto',            NULL, '#f59e0b', 'bitcoin',        1),
+        (26, 'Investments',       NULL, '#10b981', 'trending-up',    1),
+        (27, 'Emergency',         NULL, '#f97316', 'alert-triangle', 1)
+    `);
+
+    // Generic user-category merge: for every newly introduced system category, find
+    // any user-created category whose name matches case-insensitively, re-point all
+    // FK references to the canonical system ID, then delete the duplicate.
+    // ─────────────────────────────────────────────────────────────────────────────
+    // MAINTAINER NOTE: repeat this pattern in every future release that adds new
+    // system categories — just extend the array below.
+    const mergeTargets: { newId: number; upperName: string }[] = [
+      { newId: 22, upperName: "DEBT" },
+      { newId: 23, upperName: "BUSINESS EXPENSES" },
+      { newId: 24, upperName: "GAMBLING" },
+      { newId: 25, upperName: "CRYPTO" },
+      { newId: 26, upperName: "INVESTMENTS" },
+      { newId: 27, upperName: "EMERGENCY" },
+    ];
+    for (const { newId, upperName } of mergeTargets) {
+      const duplicates = await db.select<{ id: number }[]>(
+        "SELECT id FROM categories WHERE UPPER(name)=? AND is_system=0",
+        [upperName]
+      );
+      for (const dup of duplicates) {
+        await db.execute(
+          "UPDATE transactions SET category_id=? WHERE category_id=?",
+          [newId, dup.id]
+        );
+        await db.execute(
+          "UPDATE categorization_rules SET category_id=? WHERE category_id=?",
+          [newId, dup.id]
+        );
+        await db.execute(
+          "UPDATE budgets SET category_id=? WHERE category_id=?",
+          [newId, dup.id]
+        );
+        await db.execute(
+          "UPDATE goals SET category_id=? WHERE category_id=?",
+          [newId, dup.id]
+        );
+        await db.execute("DELETE FROM categories WHERE id=?", [dup.id]);
+      }
+    }
+
+    // Remove Zelle / Venmo / Cash App from Transfer auto-rules.
+    // Transfer (id 20) is reserved for same-institution internal moves only
+    // (e.g. "ONLINE BANKING TRANSFER", "ACH TRANSFER"). External payment-service
+    // transactions are left Uncategorized so users can create purpose-specific rules.
+    await db.execute(
+      "DELETE FROM categorization_rules WHERE pattern IN ('ZELLE','VENMO','CASH APP') AND profile_id IS NULL"
+    );
+
+    // New system rules for the new categories
+    const v7Rules: [string, string, number, number][] = [
+      // ── Debt ────────────────────────────────────────────────────────────────
+      ["STUDENT LOAN",   "contains", 22, 88],
+      ["NAVIENT",        "contains", 22, 88],
+      ["NELNET",         "contains", 22, 88],
+      ["MOHELA",         "contains", 22, 88],
+      ["SALLIE MAE",     "contains", 22, 88],
+      ["AUTO LOAN",      "contains", 22, 88],
+      ["LOAN PAYMENT",   "contains", 22, 88],
+      // ── Gambling ─────────────────────────────────────────────────────────────
+      ["DRAFTKINGS",     "contains", 24, 85],
+      ["FANDUEL",        "contains", 24, 85],
+      ["BETMGM",         "contains", 24, 85],
+      ["CAESARS",        "contains", 24, 85],
+      ["POINTSBET",      "contains", 24, 85],
+      ["HARD ROCK BET",  "contains", 24, 85],
+      ["BETRIVERS",      "contains", 24, 85],
+      // ── Crypto ───────────────────────────────────────────────────────────────
+      ["COINBASE",       "contains", 25, 85],
+      ["BINANCE",        "contains", 25, 85],
+      ["KRAKEN",         "contains", 25, 85],
+      ["GEMINI",         "contains", 25, 85],
+      ["CRYPTO.COM",     "contains", 25, 85],
+      ["BITCOIN",        "contains", 25, 85],
+      ["ETHEREUM",       "contains", 25, 85],
+      // ── Investments ──────────────────────────────────────────────────────────
+      ["FIDELITY",       "contains", 26, 80],
+      ["VANGUARD",       "contains", 26, 80],
+      ["SCHWAB",         "contains", 26, 80],
+      ["TD AMERITRADE",  "contains", 26, 80],
+      ["ETRADE",         "contains", 26, 80],
+      ["MERRILL LYNCH",  "contains", 26, 80],
+      ["MORGAN STANLEY", "contains", 26, 80],
+      ["ROBINHOOD",      "contains", 26, 80],
+      ["SOFI INVEST",    "contains", 26, 80],
+    ];
+    for (const [pattern, matchType, categoryId, priority] of v7Rules) {
+      await db.execute(
+        "INSERT OR IGNORE INTO categorization_rules (pattern, match_type, category_id, priority) VALUES (?,?,?,?)",
+        [pattern, matchType, categoryId, priority]
+      );
+    }
+
+    await db.execute("PRAGMA user_version = 7");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────
@@ -558,29 +682,46 @@ function normalizeDescription(desc: string): string {
 
 export function applyCategorizationRules(
   description: string,
-  rules: CategorizationRule[]
+  rules: CategorizationRule[],
+  amountCents?: number
 ): number {
   const upper = description.toUpperCase();
   const normalized = normalizeDescription(description);
 
   for (const rule of rules) {
     const pattern = rule.pattern.toUpperCase();
+    let patternMatched = false;
     // Test against both raw and normalized string so existing rules keep working
     for (const text of [upper, normalized]) {
       if (rule.match_type === "contains" && text.includes(pattern)) {
-        return rule.category_id;
+        patternMatched = true;
+        break;
       }
       if (rule.match_type === "starts_with" && text.startsWith(pattern)) {
-        return rule.category_id;
+        patternMatched = true;
+        break;
       }
       if (rule.match_type === "regex") {
         try {
-          if (new RegExp(rule.pattern, "i").test(text)) return rule.category_id;
+          if (new RegExp(rule.pattern, "i").test(text)) {
+            patternMatched = true;
+            break;
+          }
         } catch {
           // invalid stored regex — skip
         }
       }
     }
+    if (!patternMatched) continue;
+
+    // Check optional amount-range conditions (absolute value of transaction amount)
+    if (amountCents !== undefined) {
+      const absAmt = Math.abs(amountCents);
+      if (rule.min_abs_cents != null && absAmt < rule.min_abs_cents) continue;
+      if (rule.max_abs_cents != null && absAmt > rule.max_abs_cents) continue;
+    }
+
+    return rule.category_id;
   }
   return 15; // Uncategorized
 }
@@ -602,7 +743,7 @@ export async function reapplyCategorizationRules(
 
   // Fetch rules ordered by priority so the loop mirrors import behaviour
   const rules = await db.select<CategorizationRule[]>(
-    `SELECT id, pattern, match_type, category_id, priority
+    `SELECT id, pattern, match_type, category_id, priority, min_abs_cents, max_abs_cents
      FROM categorization_rules
      WHERE profile_id=? OR profile_id IS NULL
      ORDER BY priority DESC`,
@@ -615,8 +756,8 @@ export async function reapplyCategorizationRules(
       ? "AND (category_id IS NULL OR category_id = 15)"
       : "";
 
-  const transactions = await db.select<{ id: number; description: string }[]>(
-    `SELECT id, description FROM transactions
+  const transactions = await db.select<{ id: number; description: string; amount_cents: number }[]>(
+    `SELECT id, description, amount_cents FROM transactions
      WHERE profile_id=? ${whereClause}
      ORDER BY id`,
     [profileId]
@@ -628,7 +769,7 @@ export async function reapplyCategorizationRules(
   let matched = 0;
 
   for (const txn of transactions) {
-    const newCatId = applyCategorizationRules(txn.description, rules);
+    const newCatId = applyCategorizationRules(txn.description, rules, txn.amount_cents);
     // In "uncategorized" mode only apply if a real category was found
     if (mode === "uncategorized" && newCatId === 15) continue;
     const bucket = byCategory.get(newCatId) ?? [];
