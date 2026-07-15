@@ -540,39 +540,55 @@ async function runMigrations(db: CompassDb): Promise<void> {
     // any user-created category whose name matches case-insensitively, re-point all
     // FK references to the canonical system ID, then delete the duplicate.
     // ─────────────────────────────────────────────────────────────────────────────
+    // EDGE CASE: if the user's category coincidentally has the same database ID as
+    // the new system category (e.g. it was the 22nd category ever created), we must
+    // NOT delete it — we upgrade it in-place instead. Deleting then re-inserting
+    // would leave dangling FK references in any database with FK enforcement on.
+    // ─────────────────────────────────────────────────────────────────────────────
     // MAINTAINER NOTE: repeat this pattern in every future release that adds new
     // system categories — just extend the array below.
-    const mergeTargets: { newId: number; upperName: string }[] = [
-      { newId: 22, upperName: "DEBT" },
-      { newId: 23, upperName: "BUSINESS EXPENSES" },
-      { newId: 24, upperName: "GAMBLING" },
-      { newId: 25, upperName: "CRYPTO" },
-      { newId: 26, upperName: "INVESTMENTS" },
-      { newId: 27, upperName: "EMERGENCY" },
+    const mergeTargets: { newId: number; upperName: string; color: string; icon: string }[] = [
+      { newId: 22, upperName: "DEBT",              color: "#ef4444", icon: "credit-card"    },
+      { newId: 23, upperName: "BUSINESS EXPENSES", color: "#0d9488", icon: "briefcase"       },
+      { newId: 24, upperName: "GAMBLING",          color: "#dc2626", icon: "dice-5"          },
+      { newId: 25, upperName: "CRYPTO",            color: "#f59e0b", icon: "bitcoin"         },
+      { newId: 26, upperName: "INVESTMENTS",       color: "#10b981", icon: "trending-up"     },
+      { newId: 27, upperName: "EMERGENCY",         color: "#f97316", icon: "alert-triangle"  },
     ];
-    for (const { newId, upperName } of mergeTargets) {
+    for (const { newId, upperName, color, icon } of mergeTargets) {
       const duplicates = await db.select<{ id: number }[]>(
         "SELECT id FROM categories WHERE UPPER(name)=? AND is_system=0",
         [upperName]
       );
       for (const dup of duplicates) {
-        await db.execute(
-          "UPDATE transactions SET category_id=? WHERE category_id=?",
-          [newId, dup.id]
-        );
-        await db.execute(
-          "UPDATE categorization_rules SET category_id=? WHERE category_id=?",
-          [newId, dup.id]
-        );
-        await db.execute(
-          "UPDATE budgets SET category_id=? WHERE category_id=?",
-          [newId, dup.id]
-        );
-        await db.execute(
-          "UPDATE goals SET category_id=? WHERE category_id=?",
-          [newId, dup.id]
-        );
-        await db.execute("DELETE FROM categories WHERE id=?", [dup.id]);
+        if (dup.id === newId) {
+          // Same ID: the user category IS the slot we want. Upgrade it to a system
+          // category in-place — no reference migration needed, no delete needed.
+          await db.execute(
+            "UPDATE categories SET is_system=1, color=?, icon=? WHERE id=?",
+            [color, icon, dup.id]
+          );
+        } else {
+          // Different ID: remap every reference from the old user ID to the new
+          // system ID, then delete the now-orphaned user category row.
+          await db.execute(
+            "UPDATE transactions SET category_id=? WHERE category_id=?",
+            [newId, dup.id]
+          );
+          await db.execute(
+            "UPDATE categorization_rules SET category_id=? WHERE category_id=?",
+            [newId, dup.id]
+          );
+          await db.execute(
+            "UPDATE budgets SET category_id=? WHERE category_id=?",
+            [newId, dup.id]
+          );
+          await db.execute(
+            "UPDATE goals SET category_id=? WHERE category_id=?",
+            [newId, dup.id]
+          );
+          await db.execute("DELETE FROM categories WHERE id=?", [dup.id]);
+        }
       }
     }
 
@@ -741,9 +757,10 @@ export async function reapplyCategorizationRules(
 ): Promise<number> {
   const db = await getDb();
 
-  // Fetch rules ordered by priority so the loop mirrors import behaviour
-  const rules = await db.select<CategorizationRule[]>(
-    `SELECT id, pattern, match_type, category_id, priority, min_abs_cents, max_abs_cents
+  // Fetch rules ordered by priority so the loop mirrors import behaviour.
+  // Also select profile_id so we can distinguish user rules from system rules.
+  const rules = await db.select<(CategorizationRule & { profile_id: number | null })[]>(
+    `SELECT id, pattern, match_type, category_id, priority, min_abs_cents, max_abs_cents, profile_id
      FROM categorization_rules
      WHERE profile_id=? OR profile_id IS NULL
      ORDER BY priority DESC`,
@@ -751,27 +768,46 @@ export async function reapplyCategorizationRules(
   );
   console.debug(`[autoCat] ${rules.length} rules loaded`);
 
-  const whereClause =
-    mode === "uncategorized"
-      ? "AND (category_id IS NULL OR category_id = 15)"
-      : "";
+  // Split into user rules (created by this profile) and system rules (profile_id IS NULL).
+  // User rules always override system-rule categorizations.
+  // System rules only fill the gap when no user rule applies.
+  const userRules   = rules.filter((r) => r.profile_id !== null);
+  const systemRules = rules.filter((r) => r.profile_id === null);
 
-  const transactions = await db.select<{ id: number; description: string; amount_cents: number }[]>(
-    `SELECT id, description, amount_cents FROM transactions
-     WHERE profile_id=? ${whereClause}
-     ORDER BY id`,
+  // Fetch ALL transactions for this profile so user rules can override anything.
+  const transactions = await db.select<{ id: number; description: string; amount_cents: number; category_id: number | null }[]>(
+    `SELECT id, description, amount_cents, category_id FROM transactions WHERE profile_id=? ORDER BY id`,
     [profileId]
   );
-  console.debug(`[autoCat] ${transactions.length} transactions to process (mode=${mode})`);
+  console.debug(`[autoCat] ${transactions.length} transactions to evaluate (mode=${mode})`);
 
   // ── Group by matched category (pure JS — no IPC inside the loop) ──────────
   const byCategory = new Map<number, number[]>(); // catId → [txnId, …]
   let matched = 0;
 
   for (const txn of transactions) {
-    const newCatId = applyCategorizationRules(txn.description, rules, txn.amount_cents);
-    // In "uncategorized" mode only apply if a real category was found
-    if (mode === "uncategorized" && newCatId === 15) continue;
+    const currentCat = txn.category_id;
+    let newCatId: number;
+
+    if (mode === "all") {
+      // Apply every rule (user first by priority ordering) to every transaction.
+      newCatId = applyCategorizationRules(txn.description, rules, txn.amount_cents);
+    } else {
+      // mode = "uncategorized" with smart user-rule override:
+      //   • User rules → applied to ALL transactions (override prior system categorizations)
+      //   • System rules → only fill truly uncategorized (NULL / id 15) transactions
+      const userMatch = applyCategorizationRules(txn.description, userRules, txn.amount_cents);
+      if (userMatch !== 15) {
+        newCatId = userMatch;
+      } else if (currentCat === null || currentCat === 15) {
+        newCatId = applyCategorizationRules(txn.description, systemRules, txn.amount_cents);
+      } else {
+        continue; // no user rule matched + already categorized → leave it alone
+      }
+    }
+
+    if (newCatId === 15) continue;         // no rule produced a real category
+    if (newCatId === currentCat) continue; // already correct
     const bucket = byCategory.get(newCatId) ?? [];
     bucket.push(txn.id);
     byCategory.set(newCatId, bucket);

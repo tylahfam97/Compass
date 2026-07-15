@@ -45,7 +45,7 @@ interface RuleFormState {
 }
 
 function makeEmptyForm(defaultCatId: number): RuleFormState {
-  return { description: "", matchType: "contains", rawPattern: "", catId: defaultCatId, priority: 75, minAbs: "", maxAbs: "", showAdvanced: false };
+  return { description: "", matchType: "contains", rawPattern: "", catId: defaultCatId, priority: 250, minAbs: "", maxAbs: "", showAdvanced: false };
 }
 
 function formPattern(f: RuleFormState): string {

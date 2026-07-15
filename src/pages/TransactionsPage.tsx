@@ -108,7 +108,7 @@ export default function TransactionsPage() {
     const db = await getDb();
     await db.execute(
       "INSERT OR IGNORE INTO categorization_rules (pattern, match_type, category_id, priority, profile_id) VALUES (?,?,?,?,?)",
-      [pattern, "contains", rulePrompt.newCatId, 75, profileId]
+      [pattern, "contains", rulePrompt.newCatId, 250, profileId]
     );
     setRulePrompt(null);
   };
@@ -196,7 +196,7 @@ export default function TransactionsPage() {
         <button
           onClick={() => runAutoCategorize("uncategorized")}
           disabled={autoCatRunning}
-          title="Re-run rules on uncategorized transactions only"
+          title="Apply your rules to all transactions; system rules fill remaining uncategorized ones"
           className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
                      transition-colors disabled:opacity-50"
         >

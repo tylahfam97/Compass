@@ -301,6 +301,7 @@ export default function ImportPage() {
   const [batchQueue, setBatchQueue] = useState<File[]>([]);
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
   const [batchAutoMode, setBatchAutoMode] = useState(false);
+  const [totalBatchCount, setTotalBatchCount] = useState(0);
   const batchSavedColMapRef = useRef<ColMap | null>(null);
 
   // Auto-detect the dominant month whenever the parsed data or date column changes
@@ -629,6 +630,7 @@ export default function ImportPage() {
     }
     const [next, ...rest] = batchQueue;
     setBatchQueue(rest);
+    setStep("importing"); // show loading immediately before async work starts
     if (batchSavedColMapRef.current) autoImportFile(next, batchSavedColMapRef.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, batchAutoMode]);
@@ -647,6 +649,7 @@ export default function ImportPage() {
     setBatchQueue([]);
     setSelectedPresetId(null);
     setBatchAutoMode(false);
+    setTotalBatchCount(0);
     batchSavedColMapRef.current = null;
   };
 
@@ -1184,6 +1187,8 @@ export default function ImportPage() {
             {batchQueue.length > 0 && (
               <button
                 onClick={() => {
+                  const total = batchQueue.length + 1;
+                  setTotalBatchCount(total);
                   batchSavedColMapRef.current = { ...colMap };
                   setBatchAutoMode(true);
                   handleImport();
@@ -1205,7 +1210,24 @@ export default function ImportPage() {
       {step === "importing" && (
         <div className="text-center py-16">
           <div className="text-5xl mb-4 animate-pulse">⚙️</div>
-          <p className="font-medium">Importing and categorizing transactions…</p>
+          {batchAutoMode && totalBatchCount > 1 ? (
+            <>
+              <p className="font-medium mb-1">
+                Importing file {totalBatchCount - batchQueue.length} of {totalBatchCount}…
+              </p>
+              <p className="text-sm text-[hsl(var(--muted-foreground))] mb-4 truncate max-w-sm mx-auto">
+                {currentFilename}
+              </p>
+              <div className="w-64 mx-auto bg-[hsl(var(--muted))] rounded-full h-1.5">
+                <div
+                  className="bg-[hsl(var(--primary))] h-1.5 rounded-full transition-all duration-300"
+                  style={{ width: `${((totalBatchCount - batchQueue.length) / totalBatchCount) * 100}%` }}
+                />
+              </div>
+            </>
+          ) : (
+            <p className="font-medium">Importing and categorizing transactions…</p>
+          )}
         </div>
       )}
 
