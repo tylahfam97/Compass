@@ -164,6 +164,8 @@ function InsightGroup({ label, severity, items, onApply, open, onToggle }: Insig
 
 // Module-level flag: resets on every app restart, never written to localStorage
 let scoreIntroShownThisSession = false;
+// Tracks which profile IDs have seen their personal score intro this session
+const profileScoreShownThisSession = new Set<number>();
 
 // ── Health Score Hero Card ────────────────────────────────────────────────────
 function ScoreHeroCard({ score, onOpen }: { score: HealthScore; onOpen: () => void }) {
@@ -298,6 +300,63 @@ function ScoreIntroModal({ score, onClose }: { score: HealthScore; onClose: () =
   );
 }
 
+// ── Profile Health Score Intro Modal ─────────────────────────────────────────
+function ProfileScoreIntroModal({ score, profileName, onClose }: { score: HealthScore; profileName: string; onClose: () => void }) {
+  const comps = [
+    { label: "Savings Rate",     detail: "3-month avg net vs income",          s: score.components.savingsRate.score,     max: 40 },
+    { label: "Budget Health",    detail: "% of budgets on track this month",    s: score.components.budgetHealth.score,    max: 30 },
+    { label: "Balance Runway",   detail: "Months of expenses in account",       s: score.components.balanceRunway.score,   max: 20 },
+    { label: "Income Stability", detail: "Variance across 6 months of income",  s: score.components.incomeStability.score, max: 10 },
+  ];
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6"
+         style={{ backgroundColor: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }}
+         onClick={onClose}>
+      <div className="bg-[hsl(var(--background))] border rounded-2xl shadow-2xl max-w-sm w-full max-h-[90vh] overflow-y-auto"
+           onClick={(e) => e.stopPropagation()}>
+        <div className="px-6 pt-6 pb-5 border-b text-center" style={{ backgroundColor: score.color + "0A" }}>
+          <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: score.color }}>
+            {profileName}&apos;s Score
+          </p>
+          <div className="flex items-baseline justify-center gap-3 mb-1">
+            <span className="text-5xl font-black tabular-nums" style={{ color: score.color }}>{score.total}</span>
+            <div className="text-left">
+              <div className="text-xl font-bold" style={{ color: score.color }}>{score.grade}</div>
+              <div className="text-sm text-[hsl(var(--muted-foreground))]">{score.label}</div>
+            </div>
+          </div>
+          <p className="text-xs text-[hsl(var(--muted-foreground))] mt-2">
+            This profile&apos;s individual financial health
+          </p>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          <div className="space-y-3">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">Breakdown</p>
+            {comps.map(({ label, detail, s, max }) => (
+              <div key={label}>
+                <div className="flex justify-between text-sm mb-0.5">
+                  <span className="font-medium">{label}</span>
+                  <span className="text-[hsl(var(--muted-foreground))] tabular-nums">{s} / {max} pts</span>
+                </div>
+                <p className="text-xs text-[hsl(var(--muted-foreground))] mb-1">{detail}</p>
+                <div className="h-2 rounded-full bg-[hsl(var(--muted))] overflow-hidden">
+                  <div className="h-full rounded-full"
+                       style={{ width: `${(s / max) * 100}%`, backgroundColor: score.color }} />
+                </div>
+              </div>
+            ))}
+          </div>
+          <button onClick={onClose}
+            className="w-full py-2.5 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-90"
+            style={{ backgroundColor: score.color }}>
+            Got it
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function AgentPage() {
   const navigate = useNavigate();
@@ -311,15 +370,16 @@ export default function AgentPage() {
   const [pinQueue, setPinQueue] = useState<Profile[]>([]);
   const [pinQueueIdx, setPinQueueIdx] = useState(0);
 
-  const [loading, setLoading]               = useState(true);
-  const [insights, setInsights]             = useState<Insight[]>([]);
-  const [healthScore, setHealthScore]       = useState<HealthScore | null>(null);
-  const [savingsHistory, setSavingsHistory] = useState<{ month: string; rate: number; net: number }[]>([]);
-  const [spendingProfile, setSpendingProfile] = useState<Awaited<ReturnType<typeof getSpendingProfile>>>(null);
-  const [subscriptions, setSubscriptions]   = useState<SubItem[]>([]);
-  const [catDeltas, setCatDeltas]           = useState<CatDelta[]>([]);
-  const [hasEnoughData, setHasEnoughData]   = useState(true);
-  const [refreshedAt, setRefreshedAt]       = useState<Date | null>(null);
+  const [loading, setLoading]                   = useState(true);
+  const [insights, setInsights]                 = useState<Insight[]>([]);
+  const [globalHealthScore, setGlobalHealthScore] = useState<HealthScore | null>(null);
+  const [profileHealthScore, setProfileHealthScore] = useState<HealthScore | null>(null);
+  const [savingsHistory, setSavingsHistory]     = useState<{ month: string; rate: number; net: number }[]>([]);
+  const [spendingProfile, setSpendingProfile]   = useState<Awaited<ReturnType<typeof getSpendingProfile>>>(null);
+  const [subscriptions, setSubscriptions]       = useState<SubItem[]>([]);
+  const [catDeltas, setCatDeltas]               = useState<CatDelta[]>([]);
+  const [hasEnoughData, setHasEnoughData]       = useState(true);
+  const [refreshedAt, setRefreshedAt]           = useState<Date | null>(null);
 
   const [sectExpanded, setSectExpanded] = useState<{ trends: boolean; subs: boolean }>(() => {
     try { const s = localStorage.getItem("compass_insight_sections"); return s ? JSON.parse(s) : { trends: false, subs: false }; }
@@ -328,19 +388,33 @@ export default function AgentPage() {
   const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>(loadGroupState);
   const didSetDefaults = useRef(false);
   const [showScoreIntro, setShowScoreIntro] = useState(false);
+  const [showProfileScoreIntro, setShowProfileScoreIntro] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem(viewKey(profileId));
     setViewMode(saved === "global" ? "global" : "profile");
   }, [profileId]);
 
-  // Show intro modal once per app session (not persisted)
+  // Global score intro: once per app session
   useEffect(() => {
-    if (healthScore && !scoreIntroShownThisSession) {
+    if (globalHealthScore && !scoreIntroShownThisSession) {
       scoreIntroShownThisSession = true;
       setShowScoreIntro(true);
     }
-  }, [healthScore]);
+  }, [globalHealthScore]);
+
+  // Profile score intro: once per profile per session (fires after global is dismissed)
+  useEffect(() => {
+    if (
+      profileHealthScore &&
+      scoreIntroShownThisSession &&
+      !showScoreIntro &&
+      !profileScoreShownThisSession.has(profileId)
+    ) {
+      profileScoreShownThisSession.add(profileId);
+      setShowProfileScoreIntro(true);
+    }
+  }, [profileId, profileHealthScore, showScoreIntro]);
 
   const unlockedProfileIds = useMemo(
     () => profiles.filter((p) => !p.pin_hash || p.id === profileId || unlockedIds.has(p.id)).map((p) => p.id),
@@ -403,11 +477,12 @@ export default function AgentPage() {
       const db = await getDb();
       const ph = ids.map(() => "?").join(",");
 
-      const [allInsights, history, profile, score] = await Promise.all([
+      const [allInsights, history, profile, globalScore, profileScore] = await Promise.all([
         generateInsights(ids),
         getSavingsHistory(ids, 12),
         getSpendingProfile(ids),
-        computeHealthScore(ids),
+        computeHealthScore(unlockedProfileIds.length > 0 ? unlockedProfileIds : [profileId]), // always global
+        computeHealthScore([profileId]),  // always this profile only
       ]);
       if (cancelled) return;
 
@@ -416,7 +491,8 @@ export default function AgentPage() {
       setInsights(allInsights);
       setSavingsHistory(history);
       setSpendingProfile(profile);
-      setHealthScore(score);
+      setGlobalHealthScore(globalScore);
+      setProfileHealthScore(profileScore);
 
       const thisMonth = currentYM();
       const lMonth = prevYM(thisMonth);
@@ -498,15 +574,15 @@ export default function AgentPage() {
               : "Rule-based analysis of your financial habits."}
           </p>
         </div>
-        {healthScore && (
+        {globalHealthScore && (
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full shrink-0 cursor-pointer"
             onClick={() => setShowScoreIntro(true)}
-            style={{ backgroundColor: healthScore.color + "20", border: `1px solid ${healthScore.color}50` }}>
-            <span className="text-xs font-bold tabular-nums" style={{ color: healthScore.color }}>
-              {healthScore.total}
+            style={{ backgroundColor: globalHealthScore.color + "20", border: `1px solid ${globalHealthScore.color}50` }}>
+            <span className="text-xs font-bold tabular-nums" style={{ color: globalHealthScore.color }}>
+              {globalHealthScore.total}
             </span>
-            <span className="text-xs font-semibold" style={{ color: healthScore.color }}>
-              · {healthScore.label}
+            <span className="text-xs font-semibold" style={{ color: globalHealthScore.color }}>
+              · {globalHealthScore.label}
             </span>
           </div>
         )}
@@ -566,8 +642,15 @@ export default function AgentPage() {
   return (
     <>
       {pinTarget && <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />}
-      {showScoreIntro && healthScore && (
-        <ScoreIntroModal score={healthScore} onClose={() => setShowScoreIntro(false)} />
+      {showScoreIntro && globalHealthScore && (
+        <ScoreIntroModal score={globalHealthScore} onClose={() => setShowScoreIntro(false)} />
+      )}
+      {showProfileScoreIntro && profileHealthScore && activeProfile && (
+        <ProfileScoreIntroModal
+          score={profileHealthScore}
+          profileName={activeProfile.name}
+          onClose={() => setShowProfileScoreIntro(false)}
+        />
       )}
       {PageHeader}
 
@@ -605,8 +688,8 @@ export default function AgentPage() {
         )}
 
         {/* ── Score Hero ── */}
-        {healthScore && (
-          <ScoreHeroCard score={healthScore} onOpen={() => setShowScoreIntro(true)} />
+        {globalHealthScore && (
+          <ScoreHeroCard score={globalHealthScore} onOpen={() => setShowScoreIntro(true)} />
         )}
 
         {/* ── KPI Strip ── */}
