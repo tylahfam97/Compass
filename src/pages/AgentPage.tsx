@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ChevronDown, ChevronRight, CheckCircle, Target, Info } from "lucide-react";
+import { ChevronDown, ChevronRight, CheckCircle, Target, Info, HelpCircle } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
@@ -162,6 +162,180 @@ function InsightGroup({ label, severity, items, onApply, open, onToggle }: Insig
   );
 }
 
+// Module-level flag: resets on every app restart, never written to localStorage
+let scoreIntroShownThisSession = false;
+
+// ── Health Score Hero Card ────────────────────────────────────────────────────
+function ScoreHeroCard({ score, scopeLabel, onOpen }: { score: HealthScore; scopeLabel?: string; onOpen: () => void }) {
+  const comps = [
+    { label: "Savings Rate",     s: score.components.savingsRate.score,     max: 40 },
+    { label: "Budget Health",    s: score.components.budgetHealth.score,    max: 30 },
+    { label: "Balance Runway",   s: score.components.balanceRunway.score,   max: 20 },
+    { label: "Income Stability", s: score.components.incomeStability.score, max: 10 },
+  ];
+  return (
+    <button
+      onClick={onOpen}
+      className="w-full text-left border rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow"
+      style={{ borderColor: score.color + "40" }}
+    >
+      <div className="px-6 pt-5 pb-5" style={{ backgroundColor: score.color + "08" }}>
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-widest mb-2"
+               style={{ color: score.color }}>{scopeLabel ?? "Financial Health Score"}</p>
+            <div className="flex items-baseline gap-3">
+              <span className="text-6xl font-black tabular-nums leading-none"
+                    style={{ color: score.color }}>{score.total}</span>
+              <div className="flex flex-col">
+                <span className="text-xl font-bold" style={{ color: score.color }}>{score.grade}</span>
+                <span className="text-sm font-medium text-[hsl(var(--muted-foreground))]">{score.label}</span>
+              </div>
+            </div>
+          </div>
+          <div className="shrink-0 p-1.5 rounded-full border mt-1"
+               style={{ borderColor: score.color + "50", color: score.color }}>
+            <HelpCircle size={14} />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-2.5">
+          {comps.map(({ label, s, max }) => (
+            <div key={label}>
+              <div className="flex justify-between text-[10px] mb-1">
+                <span className="text-[hsl(var(--muted-foreground))]">{label}</span>
+                <span className="font-semibold" style={{ color: score.color }}>{s}/{max}</span>
+              </div>
+              <div className="h-1.5 rounded-full bg-[hsl(var(--muted))] overflow-hidden">
+                <div className="h-full rounded-full"
+                     style={{ width: `${(s / max) * 100}%`, backgroundColor: score.color }} />
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="text-[10px] text-[hsl(var(--muted-foreground))] mt-3.5 text-center">
+          Tap to learn how this score is calculated
+        </p>
+      </div>
+    </button>
+  );
+}
+
+// ── Health Score Intro Modal ──────────────────────────────────────────────────
+function ScoreIntroModal({
+  globalScore, profileScore, profileName, onClose,
+}: {
+  globalScore: HealthScore;
+  profileScore: HealthScore | null;
+  profileName: string;
+  onClose: () => void;
+}) {
+  const [tab, setTab] = useState<"global" | "profile">("global");
+  const score = tab === "global" ? globalScore : (profileScore ?? globalScore);
+
+  const grades = [
+    { g: "A", r: "85–100", l: "Excellent",       c: "#059669" },
+    { g: "B", r: "70–84",  l: "Good",             c: "#2563eb" },
+    { g: "C", r: "55–69",  l: "Building",         c: "#d97706" },
+    { g: "D", r: "40–54",  l: "Developing",       c: "#ea580c" },
+    { g: "—", r: "< 40",   l: "Getting Started",  c: "#6b7280" },
+  ];
+  const comps = [
+    { label: "Savings Rate",     detail: "3-month avg net vs income",          s: score.components.savingsRate.score,     max: 40 },
+    { label: "Budget Health",    detail: "% of budgets on track this month",    s: score.components.budgetHealth.score,    max: 30 },
+    { label: "Balance Runway",   detail: "Months of expenses in account",       s: score.components.balanceRunway.score,   max: 20 },
+    { label: "Income Stability", detail: "Variance across 6 months of income",  s: score.components.incomeStability.score, max: 10 },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6"
+         style={{ backgroundColor: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
+         onClick={onClose}>
+      <div className="bg-[hsl(var(--background))] border rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto"
+           onClick={(e) => e.stopPropagation()}>
+
+        {/* Global / Profile tab toggle */}
+        <div className="flex border-b">
+          <button onClick={() => setTab("global")}
+            className="flex-1 py-3 text-xs font-semibold transition-colors"
+            style={{
+              backgroundColor: tab === "global" ? "rgba(192,138,28,0.08)" : "transparent",
+              color: tab === "global" ? "#C08A1C" : "hsl(var(--muted-foreground))",
+              borderBottom: tab === "global" ? "2px solid #C08A1C" : "2px solid transparent",
+            }}>
+            🌐 Global
+          </button>
+          <button onClick={() => setTab("profile")}
+            className="flex-1 py-3 text-xs font-semibold transition-colors"
+            style={{
+              backgroundColor: tab === "profile" ? "rgba(59,130,246,0.08)" : "transparent",
+              color: tab === "profile" ? "#3b82f6" : "hsl(var(--muted-foreground))",
+              borderBottom: tab === "profile" ? "2px solid #3b82f6" : "2px solid transparent",
+            }}>
+            👤 {profileName}
+          </button>
+        </div>
+
+        {/* Score hero */}
+        <div className="px-6 pt-6 pb-5 border-b text-center" style={{ backgroundColor: score.color + "0A" }}>
+          <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: score.color }}>
+            Financial Health Score
+          </p>
+          <div className="flex items-baseline justify-center gap-3 mb-1">
+            <span className="text-7xl font-black tabular-nums" style={{ color: score.color }}>{score.total}</span>
+            <div className="text-left">
+              <div className="text-2xl font-bold" style={{ color: score.color }}>{score.grade}</div>
+              <div className="text-sm text-[hsl(var(--muted-foreground))]">{score.label}</div>
+            </div>
+          </div>
+          <p className="text-xs text-[hsl(var(--muted-foreground))] mt-2">
+            {tab === "global"
+              ? "All profiles aggregated · auto-computed each visit"
+              : `${profileName}'s individual financial health`}
+          </p>
+        </div>
+
+        <div className="px-6 py-5 space-y-5">
+          <div className="space-y-3">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">
+              Breakdown
+            </p>
+            {comps.map(({ label, detail, s, max }) => (
+              <div key={label}>
+                <div className="flex justify-between text-sm mb-0.5">
+                  <span className="font-medium">{label}</span>
+                  <span className="text-[hsl(var(--muted-foreground))] tabular-nums">{s} / {max} pts</span>
+                </div>
+                <p className="text-xs text-[hsl(var(--muted-foreground))] mb-1">{detail}</p>
+                <div className="h-2 rounded-full bg-[hsl(var(--muted))] overflow-hidden">
+                  <div className="h-full rounded-full"
+                       style={{ width: `${(s / max) * 100}%`, backgroundColor: score.color, transition: "width 0.35s ease" }} />
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">
+              Grade Scale
+            </p>
+            {grades.map(({ g, r, l, c }) => (
+              <div key={g} className="flex items-center gap-3 text-sm">
+                <span className="font-bold w-5 shrink-0" style={{ color: c }}>{g}</span>
+                <span className="text-[hsl(var(--muted-foreground))] w-16 shrink-0 tabular-nums text-xs">{r}</span>
+                <span className="font-medium" style={{ color: c }}>{l}</span>
+              </div>
+            ))}
+          </div>
+          <button onClick={onClose}
+            className="w-full py-2.5 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-90"
+            style={{ backgroundColor: score.color }}>
+            Got it
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function AgentPage() {
   const navigate = useNavigate();
@@ -175,15 +349,16 @@ export default function AgentPage() {
   const [pinQueue, setPinQueue] = useState<Profile[]>([]);
   const [pinQueueIdx, setPinQueueIdx] = useState(0);
 
-  const [loading, setLoading]               = useState(true);
-  const [insights, setInsights]             = useState<Insight[]>([]);
-  const [healthScore, setHealthScore]       = useState<HealthScore | null>(null);
-  const [savingsHistory, setSavingsHistory] = useState<{ month: string; rate: number; net: number }[]>([]);
-  const [spendingProfile, setSpendingProfile] = useState<Awaited<ReturnType<typeof getSpendingProfile>>>(null);
-  const [subscriptions, setSubscriptions]   = useState<SubItem[]>([]);
-  const [catDeltas, setCatDeltas]           = useState<CatDelta[]>([]);
-  const [hasEnoughData, setHasEnoughData]   = useState(true);
-  const [refreshedAt, setRefreshedAt]       = useState<Date | null>(null);
+  const [loading, setLoading]                   = useState(true);
+  const [insights, setInsights]                 = useState<Insight[]>([]);
+  const [globalHealthScore, setGlobalHealthScore] = useState<HealthScore | null>(null);
+  const [profileHealthScore, setProfileHealthScore] = useState<HealthScore | null>(null);
+  const [savingsHistory, setSavingsHistory]     = useState<{ month: string; rate: number; net: number }[]>([]);
+  const [spendingProfile, setSpendingProfile]   = useState<Awaited<ReturnType<typeof getSpendingProfile>>>(null);
+  const [subscriptions, setSubscriptions]       = useState<SubItem[]>([]);
+  const [catDeltas, setCatDeltas]               = useState<CatDelta[]>([]);
+  const [hasEnoughData, setHasEnoughData]       = useState(true);
+  const [refreshedAt, setRefreshedAt]           = useState<Date | null>(null);
 
   const [sectExpanded, setSectExpanded] = useState<{ trends: boolean; subs: boolean }>(() => {
     try { const s = localStorage.getItem("compass_insight_sections"); return s ? JSON.parse(s) : { trends: false, subs: false }; }
@@ -191,11 +366,20 @@ export default function AgentPage() {
   });
   const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>(loadGroupState);
   const didSetDefaults = useRef(false);
+  const [showScoreIntro, setShowScoreIntro] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem(viewKey(profileId));
     setViewMode(saved === "global" ? "global" : "profile");
   }, [profileId]);
+
+  // Score intro: once per app session (shows tabbed global+profile modal)
+  useEffect(() => {
+    if (globalHealthScore && !scoreIntroShownThisSession) {
+      scoreIntroShownThisSession = true;
+      setShowScoreIntro(true);
+    }
+  }, [globalHealthScore]);
 
   const unlockedProfileIds = useMemo(
     () => profiles.filter((p) => !p.pin_hash || p.id === profileId || unlockedIds.has(p.id)).map((p) => p.id),
@@ -258,11 +442,12 @@ export default function AgentPage() {
       const db = await getDb();
       const ph = ids.map(() => "?").join(",");
 
-      const [allInsights, history, profile, score] = await Promise.all([
+      const [allInsights, history, profile, globalScore, profileScore] = await Promise.all([
         generateInsights(ids),
         getSavingsHistory(ids, 12),
         getSpendingProfile(ids),
-        computeHealthScore(ids),
+        computeHealthScore(unlockedProfileIds.length > 0 ? unlockedProfileIds : [profileId]), // always global
+        computeHealthScore([profileId]),  // always this profile only
       ]);
       if (cancelled) return;
 
@@ -271,7 +456,8 @@ export default function AgentPage() {
       setInsights(allInsights);
       setSavingsHistory(history);
       setSpendingProfile(profile);
-      setHealthScore(score);
+      setGlobalHealthScore(globalScore);
+      setProfileHealthScore(profileScore);
 
       const thisMonth = currentYM();
       const lMonth = prevYM(thisMonth);
@@ -353,14 +539,20 @@ export default function AgentPage() {
               : "Rule-based analysis of your financial habits."}
           </p>
         </div>
-        {healthScore && (
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full shrink-0"
-            style={{ backgroundColor: healthScore.color + "20", border: `1px solid ${healthScore.color}50` }}>
-            <span className="text-xs font-bold tabular-nums" style={{ color: healthScore.color }}>
-              {healthScore.total}
+        {globalHealthScore && (
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full shrink-0 cursor-pointer"
+            onClick={() => setShowScoreIntro(true)}
+            style={{
+              backgroundColor: (viewMode === "global" ? globalHealthScore : (profileHealthScore ?? globalHealthScore)).color + "20",
+              border: `1px solid ${(viewMode === "global" ? globalHealthScore : (profileHealthScore ?? globalHealthScore)).color}50`,
+            }}>
+            <span className="text-xs font-bold tabular-nums"
+              style={{ color: (viewMode === "global" ? globalHealthScore : (profileHealthScore ?? globalHealthScore)).color }}>
+              {(viewMode === "global" ? globalHealthScore : (profileHealthScore ?? globalHealthScore)).total}
             </span>
-            <span className="text-xs font-semibold" style={{ color: healthScore.color }}>
-              · {healthScore.label}
+            <span className="text-xs font-semibold"
+              style={{ color: (viewMode === "global" ? globalHealthScore : (profileHealthScore ?? globalHealthScore)).color }}>
+              · {(viewMode === "global" ? globalHealthScore : (profileHealthScore ?? globalHealthScore)).label}
             </span>
           </div>
         )}
@@ -420,6 +612,14 @@ export default function AgentPage() {
   return (
     <>
       {pinTarget && <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />}
+      {showScoreIntro && globalHealthScore && (
+        <ScoreIntroModal
+          globalScore={globalHealthScore}
+          profileScore={profileHealthScore}
+          profileName={activeProfile?.name ?? "Profile"}
+          onClose={() => setShowScoreIntro(false)}
+        />
+      )}
       {PageHeader}
 
       <div className="p-6 max-w-3xl space-y-6 mx-auto w-full">
@@ -453,6 +653,17 @@ export default function AgentPage() {
               — insights and data aggregated across {profiles.length} profile{profiles.length !== 1 ? "s" : ""}
             </span>
           </div>
+        )}
+
+        {/* ── Score Hero ── */}
+        {(viewMode === "global" ? globalHealthScore : profileHealthScore) && (
+          <ScoreHeroCard
+            score={(viewMode === "global" ? globalHealthScore : profileHealthScore)!}
+            scopeLabel={viewMode === "global"
+              ? "Global Health Score"
+              : `${activeProfile?.name ?? "Profile"} Score`}
+            onOpen={() => setShowScoreIntro(true)}
+          />
         )}
 
         {/* ── KPI Strip ── */}

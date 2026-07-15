@@ -245,15 +245,15 @@ function App() {
         <main className="flex-1 overflow-y-auto">
           <div className="max-w-[1200px] mx-auto w-full min-h-full">
             <Routes>
-              <Route path="/overview" element={<OverviewPage />} />
+              <Route path="/overview" element={<div className="py-6"><OverviewPage /></div>} />
               <Route path="/" element={<DashboardPage />} />
-              <Route path="/transactions" element={<TransactionsPage />} />
-              <Route path="/import" element={<ImportPage />} />
-              <Route path="/trends" element={<TrendsPage />} />
-              <Route path="/budgets" element={<BudgetsPage />} />
-              <Route path="/goals" element={<GoalsPage />} />
-              <Route path="/reports" element={<ReportsPage />} />
-              <Route path="/agent" element={<AgentPage />} />
+              <Route path="/transactions" element={<div className="py-6"><TransactionsPage /></div>} />
+              <Route path="/import" element={<div className="py-6"><ImportPage /></div>} />
+              <Route path="/trends" element={<div className="py-6"><TrendsPage /></div>} />
+              <Route path="/budgets" element={<div className="py-6"><BudgetsPage /></div>} />
+              <Route path="/goals" element={<div className="py-6"><GoalsPage /></div>} />
+              <Route path="/reports" element={<div className="py-6"><ReportsPage /></div>} />
+              <Route path="/agent" element={<div className="py-6"><AgentPage /></div>} />
             </Routes>
           </div>
         </main>
