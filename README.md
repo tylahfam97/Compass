@@ -129,7 +129,11 @@ Reports support **month navigation** or a **custom date range** with presets: Th
 
 ### 💰 Budgets
 
-Set soft monthly spending limits per category. Each budget shows a live progress bar, amount spent vs. limit, and an **On pace for $X** projection so you can see a potential overspend before the month ends. No enforcement, no penalties — just awareness.
+Set soft spending limits per category — monthly or weekly. Each budget shows a live progress bar, amount spent vs. limit, and an **On pace for $X** projection so you can see a potential overspend before the month ends. No enforcement, no penalties — just awareness.
+
+**Global vs. Profile budgets:** A **Profile / Global toggle** at the top-right of the Budgets page lets you switch between views. Profile budgets track spending for the active profile only. Global budgets aggregate transactions across all profiles and are visible to every profile — useful for shared household expenses. Any budget can be flipped between the two scopes after creation with the **↑ Global / ↓ Profile** button on its card. When switching to Global view, Compass walks you through unlocking any PIN-protected profiles so their data is included in the totals.
+
+> **Transfers** (same-institution internal moves) are excluded from all budget totals regardless of scope.
 
 ### 🎯 Goals
 

@@ -79,6 +79,7 @@ export interface Budget {
   amount_cents: number;
   period: "monthly" | "weekly";
   start_date: string;
+  is_global: number;
 }
 
 export interface CategorizationRule {
