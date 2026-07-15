@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import { useLocation } from "react-router-dom";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { getDb, reapplyCategorizationRules } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
@@ -9,6 +9,7 @@ import { useProfileStore } from "@/stores/profileStore";
 import CategoryModal from "@/components/CategoryModal";
 import CategorizationRulesModal from "@/components/CategorizationRulesModal";
 import EditTransactionModal from "@/components/EditTransactionModal";
+import { setPendingImportFiles } from "@/lib/pendingImport";
 
 const MAX_ROWS = 500;
 
@@ -32,12 +33,15 @@ function extractMerchantKey(description: string): string {
 
 export default function TransactionsPage() {
   const location = useLocation();
+  const navigate = useNavigate();
   const initialMonth = (location.state as { month?: string } | null)?.month;
   const [month, setMonth] = useAutoMonth(initialMonth);
   const [allTime, setAllTime] = useState(false);
   const [search, setSearch] = useState("");
   const [rows, setRows] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const monthInputRef = useRef<HTMLInputElement>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [catModalOpen, setCatModalOpen] = useState(false);
   const [rulesModalOpen, setRulesModalOpen] = useState(false);
@@ -174,8 +178,32 @@ export default function TransactionsPage() {
   const totalExpenses = rows.filter((r) => r.amount_cents < 0)
     .reduce((s, r) => s + r.amount_cents, 0);
 
+  const handlePageDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const files = Array.from(e.dataTransfer.files).filter((f) => f.name.endsWith(".csv"));
+    if (files.length === 0) return;
+    setPendingImportFiles(files);
+    navigate("/import");
+  };
+
   return (
-    <div className="p-6 flex flex-col h-full">
+    <div
+      className="p-6 flex flex-col h-full relative"
+      onDrop={handlePageDrop}
+      onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false); }}
+    >
+      {/* CSV drop overlay */}
+      {isDragOver && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center
+                        bg-[hsl(var(--background)/0.9)] border-2 border-dashed
+                        border-[hsl(var(--primary))] rounded-xl pointer-events-none">
+          <div className="text-5xl mb-3">📄</div>
+          <p className="font-semibold text-[hsl(var(--primary))] text-lg">Drop CSV to import</p>
+          <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">Opens the import wizard</p>
+        </div>
+      )}
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-semibold">Transactions</h1>
         <button
@@ -222,10 +250,12 @@ export default function TransactionsPage() {
       <div className="flex gap-3 mb-4 flex-wrap">
         {!allTime && (
           <input
+            ref={monthInputRef}
             type="month"
             value={month}
             onChange={(e) => setMonth(e.target.value)}
-            className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))]
+            onClick={() => { try { monthInputRef.current?.showPicker(); } catch { /* unsupported */ } }}
+            className="cursor-pointer border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))]
                        text-[hsl(var(--foreground))]"
           />
         )}

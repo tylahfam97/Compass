@@ -5,6 +5,7 @@ import { getDb, getOrCreateAccountForProfile, applyCategorizationRules } from "@
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type { CategorizationRule } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
+import { takePendingImportFiles } from "@/lib/pendingImport";
 
 type Step =
   | "upload" | "checking"
@@ -326,6 +327,16 @@ export default function ImportPage() {
 
   useEffect(() => { loadHistory().catch(console.error); }, [loadHistory]);
 
+  // On mount: drain any files queued by other pages (e.g. CSV drop on Transactions tab)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const pending = takePendingImportFiles();
+    if (pending.length === 0) return;
+    const [first, ...rest] = pending;
+    setBatchQueue(rest);
+    processFile(first);
+  }, []); // intentionally empty — runs once on mount only
+
   /** Navigate between wizard steps with direction tracking for the slide animation. */
   const wizardGo = (target: Step, dir: "forward" | "back" = "forward") => {
     setWizardDir(dir);
@@ -451,6 +462,9 @@ export default function ImportPage() {
   const handleImport = async () => {
     if (!parsed) return;
     setStep("importing");
+    // Yield one animation frame so React can paint the loading UI before the
+    // import loop starts — prevents the UI appearing frozen on large files.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     try {
       const db = await getDb();
       const accountId = await getOrCreateAccountForProfile(profileId);
