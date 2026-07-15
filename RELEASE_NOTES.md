@@ -2,6 +2,7 @@
 
 # Hello! Another release just dropped 🧭 
 
+
 ## Check us out at https://privatecompass.app
 
 ## Compass 0.5.3 — Insights Overhaul & Window Improvements
