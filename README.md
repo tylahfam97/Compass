@@ -151,7 +151,7 @@ Each goal shows a progress bar, current vs. target amount, and an "On track ✓"
 
 Automatic analysis surfaced from your data — no configuration required. The page opens with your most vital insights front-and-center.
 
-**Financial Health Score** — A 0–100 score computed from four signals: savings rate (40 pts), budget adherence (30 pts), account balance runway (20 pts), and income stability (10 pts). Displayed as a color-coded pill (A · Excellent through D · Developing) in the sticky header every time you open the page.
+**Financial Health Score** — A 0–100 score computed from four signals: savings rate (40 pts), budget adherence (30 pts), account balance runway (20 pts), and income stability (10 pts). The score hero card and header pill reflect the **currently active view** (Global = all-profiles aggregated, Profile = active profile only). On first visit each session a tabbed modal opens — the **🌐 Global** tab (golden) and **👤 Profile** tab (blue) let you compare both scores side-by-side before dismissing. Grades: A Excellent · B Good · C Building · D Developing.
 
 **Spotlight Cards** — Up to two of your most actionable insights are promoted to full-width featured cards with inline data visualizations:
 - **StreakTrack** — dot row showing consecutive under-budget months

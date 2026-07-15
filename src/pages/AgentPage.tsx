@@ -164,11 +164,9 @@ function InsightGroup({ label, severity, items, onApply, open, onToggle }: Insig
 
 // Module-level flag: resets on every app restart, never written to localStorage
 let scoreIntroShownThisSession = false;
-// Tracks which profile IDs have seen their personal score intro this session
-const profileScoreShownThisSession = new Set<number>();
 
 // ── Health Score Hero Card ────────────────────────────────────────────────────
-function ScoreHeroCard({ score, onOpen }: { score: HealthScore; onOpen: () => void }) {
+function ScoreHeroCard({ score, scopeLabel, onOpen }: { score: HealthScore; scopeLabel?: string; onOpen: () => void }) {
   const comps = [
     { label: "Savings Rate",     s: score.components.savingsRate.score,     max: 40 },
     { label: "Budget Health",    s: score.components.budgetHealth.score,    max: 30 },
@@ -185,7 +183,7 @@ function ScoreHeroCard({ score, onOpen }: { score: HealthScore; onOpen: () => vo
         <div className="flex items-start justify-between mb-4">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-widest mb-2"
-               style={{ color: score.color }}>Financial Health Score</p>
+               style={{ color: score.color }}>{scopeLabel ?? "Financial Health Score"}</p>
             <div className="flex items-baseline gap-3">
               <span className="text-6xl font-black tabular-nums leading-none"
                     style={{ color: score.color }}>{score.total}</span>
@@ -223,7 +221,17 @@ function ScoreHeroCard({ score, onOpen }: { score: HealthScore; onOpen: () => vo
 }
 
 // ── Health Score Intro Modal ──────────────────────────────────────────────────
-function ScoreIntroModal({ score, onClose }: { score: HealthScore; onClose: () => void }) {
+function ScoreIntroModal({
+  globalScore, profileScore, profileName, onClose,
+}: {
+  globalScore: HealthScore;
+  profileScore: HealthScore | null;
+  profileName: string;
+  onClose: () => void;
+}) {
+  const [tab, setTab] = useState<"global" | "profile">("global");
+  const score = tab === "global" ? globalScore : (profileScore ?? globalScore);
+
   const grades = [
     { g: "A", r: "85–100", l: "Excellent",       c: "#059669" },
     { g: "B", r: "70–84",  l: "Good",             c: "#2563eb" },
@@ -237,12 +245,37 @@ function ScoreIntroModal({ score, onClose }: { score: HealthScore; onClose: () =
     { label: "Balance Runway",   detail: "Months of expenses in account",       s: score.components.balanceRunway.score,   max: 20 },
     { label: "Income Stability", detail: "Variance across 6 months of income",  s: score.components.incomeStability.score, max: 10 },
   ];
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6"
          style={{ backgroundColor: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
          onClick={onClose}>
       <div className="bg-[hsl(var(--background))] border rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto"
            onClick={(e) => e.stopPropagation()}>
+
+        {/* Global / Profile tab toggle */}
+        <div className="flex border-b">
+          <button onClick={() => setTab("global")}
+            className="flex-1 py-3 text-xs font-semibold transition-colors"
+            style={{
+              backgroundColor: tab === "global" ? "rgba(192,138,28,0.08)" : "transparent",
+              color: tab === "global" ? "#C08A1C" : "hsl(var(--muted-foreground))",
+              borderBottom: tab === "global" ? "2px solid #C08A1C" : "2px solid transparent",
+            }}>
+            🌐 Global
+          </button>
+          <button onClick={() => setTab("profile")}
+            className="flex-1 py-3 text-xs font-semibold transition-colors"
+            style={{
+              backgroundColor: tab === "profile" ? "rgba(59,130,246,0.08)" : "transparent",
+              color: tab === "profile" ? "#3b82f6" : "hsl(var(--muted-foreground))",
+              borderBottom: tab === "profile" ? "2px solid #3b82f6" : "2px solid transparent",
+            }}>
+            👤 {profileName}
+          </button>
+        </div>
+
+        {/* Score hero */}
         <div className="px-6 pt-6 pb-5 border-b text-center" style={{ backgroundColor: score.color + "0A" }}>
           <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: score.color }}>
             Financial Health Score
@@ -255,9 +288,12 @@ function ScoreIntroModal({ score, onClose }: { score: HealthScore; onClose: () =
             </div>
           </div>
           <p className="text-xs text-[hsl(var(--muted-foreground))] mt-2">
-            Auto-computed from 4 signals each time you open Insights
+            {tab === "global"
+              ? "All profiles aggregated · auto-computed each visit"
+              : `${profileName}'s individual financial health`}
           </p>
         </div>
+
         <div className="px-6 py-5 space-y-5">
           <div className="space-y-3">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">
@@ -272,7 +308,7 @@ function ScoreIntroModal({ score, onClose }: { score: HealthScore; onClose: () =
                 <p className="text-xs text-[hsl(var(--muted-foreground))] mb-1">{detail}</p>
                 <div className="h-2 rounded-full bg-[hsl(var(--muted))] overflow-hidden">
                   <div className="h-full rounded-full"
-                       style={{ width: `${(s / max) * 100}%`, backgroundColor: score.color }} />
+                       style={{ width: `${(s / max) * 100}%`, backgroundColor: score.color, transition: "width 0.35s ease" }} />
                 </div>
               </div>
             ))}
@@ -286,63 +322,6 @@ function ScoreIntroModal({ score, onClose }: { score: HealthScore; onClose: () =
                 <span className="font-bold w-5 shrink-0" style={{ color: c }}>{g}</span>
                 <span className="text-[hsl(var(--muted-foreground))] w-16 shrink-0 tabular-nums text-xs">{r}</span>
                 <span className="font-medium" style={{ color: c }}>{l}</span>
-              </div>
-            ))}
-          </div>
-          <button onClick={onClose}
-            className="w-full py-2.5 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-90"
-            style={{ backgroundColor: score.color }}>
-            Got it
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Profile Health Score Intro Modal ─────────────────────────────────────────
-function ProfileScoreIntroModal({ score, profileName, onClose }: { score: HealthScore; profileName: string; onClose: () => void }) {
-  const comps = [
-    { label: "Savings Rate",     detail: "3-month avg net vs income",          s: score.components.savingsRate.score,     max: 40 },
-    { label: "Budget Health",    detail: "% of budgets on track this month",    s: score.components.budgetHealth.score,    max: 30 },
-    { label: "Balance Runway",   detail: "Months of expenses in account",       s: score.components.balanceRunway.score,   max: 20 },
-    { label: "Income Stability", detail: "Variance across 6 months of income",  s: score.components.incomeStability.score, max: 10 },
-  ];
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-6"
-         style={{ backgroundColor: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }}
-         onClick={onClose}>
-      <div className="bg-[hsl(var(--background))] border rounded-2xl shadow-2xl max-w-sm w-full max-h-[90vh] overflow-y-auto"
-           onClick={(e) => e.stopPropagation()}>
-        <div className="px-6 pt-6 pb-5 border-b text-center" style={{ backgroundColor: score.color + "0A" }}>
-          <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: score.color }}>
-            {profileName}&apos;s Score
-          </p>
-          <div className="flex items-baseline justify-center gap-3 mb-1">
-            <span className="text-5xl font-black tabular-nums" style={{ color: score.color }}>{score.total}</span>
-            <div className="text-left">
-              <div className="text-xl font-bold" style={{ color: score.color }}>{score.grade}</div>
-              <div className="text-sm text-[hsl(var(--muted-foreground))]">{score.label}</div>
-            </div>
-          </div>
-          <p className="text-xs text-[hsl(var(--muted-foreground))] mt-2">
-            This profile&apos;s individual financial health
-          </p>
-        </div>
-        <div className="px-6 py-5 space-y-4">
-          <div className="space-y-3">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">Breakdown</p>
-            {comps.map(({ label, detail, s, max }) => (
-              <div key={label}>
-                <div className="flex justify-between text-sm mb-0.5">
-                  <span className="font-medium">{label}</span>
-                  <span className="text-[hsl(var(--muted-foreground))] tabular-nums">{s} / {max} pts</span>
-                </div>
-                <p className="text-xs text-[hsl(var(--muted-foreground))] mb-1">{detail}</p>
-                <div className="h-2 rounded-full bg-[hsl(var(--muted))] overflow-hidden">
-                  <div className="h-full rounded-full"
-                       style={{ width: `${(s / max) * 100}%`, backgroundColor: score.color }} />
-                </div>
               </div>
             ))}
           </div>
@@ -388,33 +367,19 @@ export default function AgentPage() {
   const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>(loadGroupState);
   const didSetDefaults = useRef(false);
   const [showScoreIntro, setShowScoreIntro] = useState(false);
-  const [showProfileScoreIntro, setShowProfileScoreIntro] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem(viewKey(profileId));
     setViewMode(saved === "global" ? "global" : "profile");
   }, [profileId]);
 
-  // Global score intro: once per app session
+  // Score intro: once per app session (shows tabbed global+profile modal)
   useEffect(() => {
     if (globalHealthScore && !scoreIntroShownThisSession) {
       scoreIntroShownThisSession = true;
       setShowScoreIntro(true);
     }
   }, [globalHealthScore]);
-
-  // Profile score intro: once per profile per session (fires after global is dismissed)
-  useEffect(() => {
-    if (
-      profileHealthScore &&
-      scoreIntroShownThisSession &&
-      !showScoreIntro &&
-      !profileScoreShownThisSession.has(profileId)
-    ) {
-      profileScoreShownThisSession.add(profileId);
-      setShowProfileScoreIntro(true);
-    }
-  }, [profileId, profileHealthScore, showScoreIntro]);
 
   const unlockedProfileIds = useMemo(
     () => profiles.filter((p) => !p.pin_hash || p.id === profileId || unlockedIds.has(p.id)).map((p) => p.id),
@@ -577,12 +542,17 @@ export default function AgentPage() {
         {globalHealthScore && (
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full shrink-0 cursor-pointer"
             onClick={() => setShowScoreIntro(true)}
-            style={{ backgroundColor: globalHealthScore.color + "20", border: `1px solid ${globalHealthScore.color}50` }}>
-            <span className="text-xs font-bold tabular-nums" style={{ color: globalHealthScore.color }}>
-              {globalHealthScore.total}
+            style={{
+              backgroundColor: (viewMode === "global" ? globalHealthScore : (profileHealthScore ?? globalHealthScore)).color + "20",
+              border: `1px solid ${(viewMode === "global" ? globalHealthScore : (profileHealthScore ?? globalHealthScore)).color}50`,
+            }}>
+            <span className="text-xs font-bold tabular-nums"
+              style={{ color: (viewMode === "global" ? globalHealthScore : (profileHealthScore ?? globalHealthScore)).color }}>
+              {(viewMode === "global" ? globalHealthScore : (profileHealthScore ?? globalHealthScore)).total}
             </span>
-            <span className="text-xs font-semibold" style={{ color: globalHealthScore.color }}>
-              · {globalHealthScore.label}
+            <span className="text-xs font-semibold"
+              style={{ color: (viewMode === "global" ? globalHealthScore : (profileHealthScore ?? globalHealthScore)).color }}>
+              · {(viewMode === "global" ? globalHealthScore : (profileHealthScore ?? globalHealthScore)).label}
             </span>
           </div>
         )}
@@ -643,13 +613,11 @@ export default function AgentPage() {
     <>
       {pinTarget && <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />}
       {showScoreIntro && globalHealthScore && (
-        <ScoreIntroModal score={globalHealthScore} onClose={() => setShowScoreIntro(false)} />
-      )}
-      {showProfileScoreIntro && profileHealthScore && activeProfile && (
-        <ProfileScoreIntroModal
-          score={profileHealthScore}
-          profileName={activeProfile.name}
-          onClose={() => setShowProfileScoreIntro(false)}
+        <ScoreIntroModal
+          globalScore={globalHealthScore}
+          profileScore={profileHealthScore}
+          profileName={activeProfile?.name ?? "Profile"}
+          onClose={() => setShowScoreIntro(false)}
         />
       )}
       {PageHeader}
@@ -688,8 +656,14 @@ export default function AgentPage() {
         )}
 
         {/* ── Score Hero ── */}
-        {globalHealthScore && (
-          <ScoreHeroCard score={globalHealthScore} onOpen={() => setShowScoreIntro(true)} />
+        {(viewMode === "global" ? globalHealthScore : profileHealthScore) && (
+          <ScoreHeroCard
+            score={(viewMode === "global" ? globalHealthScore : profileHealthScore)!}
+            scopeLabel={viewMode === "global"
+              ? "Global Health Score"
+              : `${activeProfile?.name ?? "Profile"} Score`}
+            onOpen={() => setShowScoreIntro(true)}
+          />
         )}
 
         {/* ── KPI Strip ── */}
