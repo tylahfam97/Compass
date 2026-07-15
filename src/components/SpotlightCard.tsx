@@ -1,7 +1,26 @@
 import type { Insight } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
-import { CheckCircle, Target, Info, X } from "lucide-react";
+import {
+  CheckCircle, Target, Info, X,
+  TrendingUp, TrendingDown, Percent, Zap,
+  RefreshCw, ShoppingBag, Calendar, Shield, DollarSign, AlertTriangle,
+} from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
+
+// Type-specific icons (shared logic with InsightCard)
+const TYPE_ICONS: Record<string, React.ElementType> = {
+  budget_gap: Target, overspend_streak: Target, positive_streak: Target,
+  savings_rate_low: Percent, expense_ratio_drift: Percent, weekend_spending: Percent,
+  unusual_spike: TrendingUp, category_creep: TrendingUp, year_end_projection: TrendingUp,
+  most_improved: TrendingDown,
+  spending_velocity: Zap,
+  ghost_subscription: RefreshCw, subscription_total: RefreshCw, redundant_spending: RefreshCw,
+  top_merchants: ShoppingBag, food_delivery_spend: ShoppingBag,
+  bill_due_soon: DollarSign,
+  income_expected: Calendar, income_irregular: Calendar,
+  emergency_fund_runway: Shield,
+  overdraft_alert: AlertTriangle,
+};
 
 // ── Visualizers ───────────────────────────────────────────────────────────────
 
@@ -205,15 +224,16 @@ export default function SpotlightCard({ insight, onApply }: SpotlightCardProps) 
 
   const isSuccess = insight.severity === "success";
   const isWarning = insight.severity === "warning";
+  // Use type-specific icon if available, otherwise fall back to severity default
+  const Icon = TYPE_ICONS[insight.type]
+    ?? (isSuccess ? CheckCircle : isWarning ? Target : Info);
 
   const wrapStyle = isSuccess
     ? "border-emerald-200 dark:border-emerald-800/50 bg-emerald-50/50 dark:bg-emerald-950/20"
     : isWarning
     ? "border-amber-200 dark:border-amber-800/50 bg-amber-50/50 dark:bg-amber-950/20"
     : "border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.4)]";
-
   const accentCls = isSuccess ? "text-emerald-600" : isWarning ? "text-amber-500" : "text-blue-500";
-  const Icon = isSuccess ? CheckCircle : isWarning ? Target : Info;
   const actionCls = isSuccess
     ? "border border-emerald-400 text-emerald-700 hover:bg-emerald-100 dark:hover:bg-emerald-900/30"
     : isWarning

@@ -1,6 +1,48 @@
 ﻿import type { Insight } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
-import { AlertTriangle, CheckCircle, Target, Info, X } from "lucide-react";
+import {
+  AlertTriangle, CheckCircle, Target, Info, X,
+  TrendingUp, TrendingDown, Percent, Zap,
+  RefreshCw, ShoppingBag, Calendar, Shield, DollarSign,
+} from "lucide-react";
+
+// Maps insight type to a descriptive icon for row/scannable contexts.
+// Groups: budget (Target), rate/% (Percent), trend-up (TrendingUp),
+// improved (TrendingDown), velocity (Zap), recurring (RefreshCw),
+// merchant/spend (ShoppingBag/$), time (Calendar), safety (Shield).
+const TYPE_ICONS: Record<string, React.ElementType> = {
+  // ━━ Budget discipline ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  budget_gap:             Target,
+  overspend_streak:       Target,
+  positive_streak:        Target,
+  // ━━ Rate / percentage ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  savings_rate_low:       Percent,
+  expense_ratio_drift:    Percent,
+  weekend_spending:       Percent,
+  // ━━ Trending up (notable / bad in spend context) ━━━━━━━━━━━━━━━━━━━━━━
+  unusual_spike:          TrendingUp,
+  category_creep:         TrendingUp,
+  year_end_projection:    TrendingUp,
+  // ━━ Improved / trending down (good) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  most_improved:          TrendingDown,
+  // ━━ Velocity / pace ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  spending_velocity:      Zap,
+  // ━━ Recurring charges / subscriptions ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ghost_subscription:     RefreshCw,
+  subscription_total:     RefreshCw,
+  redundant_spending:     RefreshCw,
+  // ━━ Merchant / shopping spend ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  top_merchants:          ShoppingBag,
+  food_delivery_spend:    ShoppingBag,
+  // ━━ Cost / money ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  bill_due_soon:          DollarSign,
+  // ━━ Time / calendar ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  income_expected:        Calendar,
+  income_irregular:       Calendar,
+  // ━━ Account safety / health ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  emergency_fund_runway:  Shield,
+  overdraft_alert:        AlertTriangle,
+};
 
 const CARD_STYLES: Record<string, string> = {
   warning: "border-l-[5px] border-l-amber-400 bg-amber-50 dark:bg-amber-950/20",
@@ -42,7 +84,12 @@ interface InsightCardProps {
 
 export default function InsightCard({ insight, onApply, compact = false, variant = "card" }: InsightCardProps) {
   const dismissInsight = useProfileStore((s) => s.dismissInsight);
-  const Icon = (variant === "row" ? ROW_ICONS : CARD_ICONS)[insight.severity];
+  // Row variant: use the type-specific icon for instant scannability;
+  // fall back to the severity default if no mapping exists.
+  const typeIcon = TYPE_ICONS[insight.type];
+  const Icon = variant === "row"
+    ? (typeIcon ?? ROW_ICONS[insight.severity])
+    : CARD_ICONS[insight.severity];
 
   if (variant === "row") {
     return (
