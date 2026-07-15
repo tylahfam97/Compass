@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import { useLocation } from "react-router-dom";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { getDb, reapplyCategorizationRules } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
@@ -9,6 +9,7 @@ import { useProfileStore } from "@/stores/profileStore";
 import CategoryModal from "@/components/CategoryModal";
 import CategorizationRulesModal from "@/components/CategorizationRulesModal";
 import EditTransactionModal from "@/components/EditTransactionModal";
+import { setPendingImportFiles } from "@/lib/pendingImport";
 
 const MAX_ROWS = 500;
 
@@ -18,6 +19,46 @@ function monthBounds(ym: string): [string, string] {
     `${y}-${String(m).padStart(2, "0")}-01`,
     new Date(y, m, 1).toISOString().split("T")[0],
   ];
+}
+
+/** Build the WHERE clause + params array shared by loadRows and exportCsv. */
+function buildQueryParts(opts: {
+  profileId: number;
+  allTime: boolean;
+  month: string;
+  search: string;
+  filterCategory: string;          // "" = all, "uncategorized", or stringified id
+  filterType: "all" | "income" | "expense";
+  filterAmountMin: string;         // dollar string, empty = no bound
+  filterAmountMax: string;         // dollar string, empty = no bound
+}): { where: string; params: unknown[] } {
+  const conditions: string[] = ["t.profile_id=?"];
+  const params: unknown[] = [opts.profileId];
+
+  if (!opts.allTime) {
+    const [start, end] = monthBounds(opts.month);
+    conditions.push("t.date>=? AND t.date<?");
+    params.push(start, end);
+  }
+  if (opts.search.trim()) {
+    conditions.push("UPPER(t.description) LIKE ?");
+    params.push(`%${opts.search.toUpperCase().trim()}%`);
+  }
+  if (opts.filterCategory === "uncategorized") {
+    conditions.push("(t.category_id = 15 OR t.category_id IS NULL)");
+  } else if (opts.filterCategory) {
+    conditions.push("t.category_id = ?");
+    params.push(parseInt(opts.filterCategory, 10));
+  }
+  if (opts.filterType === "income")  conditions.push("t.amount_cents > 0");
+  if (opts.filterType === "expense") conditions.push("t.amount_cents < 0");
+
+  const minCents = opts.filterAmountMin.trim() ? Math.round(parseFloat(opts.filterAmountMin) * 100) : NaN;
+  const maxCents = opts.filterAmountMax.trim() ? Math.round(parseFloat(opts.filterAmountMax) * 100) : NaN;
+  if (!isNaN(minCents) && minCents >= 0) { conditions.push("ABS(t.amount_cents) >= ?"); params.push(minCents); }
+  if (!isNaN(maxCents) && maxCents >= 0) { conditions.push("ABS(t.amount_cents) <= ?"); params.push(maxCents); }
+
+  return { where: conditions.join(" AND "), params };
 }
 
 /** Extract a clean merchant key from a raw bank description for rule creation. */
@@ -32,12 +73,16 @@ function extractMerchantKey(description: string): string {
 
 export default function TransactionsPage() {
   const location = useLocation();
+  const navigate = useNavigate();
   const initialMonth = (location.state as { month?: string } | null)?.month;
   const [month, setMonth] = useAutoMonth(initialMonth);
   const [allTime, setAllTime] = useState(false);
   const [search, setSearch] = useState("");
   const [rows, setRows] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const dragCounterRef = useRef(0);
+  const monthInputRef = useRef<HTMLInputElement>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [catModalOpen, setCatModalOpen] = useState(false);
   const [rulesModalOpen, setRulesModalOpen] = useState(false);
@@ -51,31 +96,39 @@ export default function TransactionsPage() {
   const activeProfile = useProfileStore((s) => s.activeProfile);
   const profileId = activeProfile?.id ?? 1;
 
+  // Extended filters
+  const [filterCategory, setFilterCategory] = useState("");           // "" | "uncategorized" | "<id>"
+  const [filterType, setFilterType]         = useState<"all" | "income" | "expense">("all");
+  const [filterAmountMin, setFilterAmountMin] = useState("");
+  const [filterAmountMax, setFilterAmountMax] = useState("");
+
+  const hasActiveFilters =
+    filterCategory !== "" || filterType !== "all" ||
+    filterAmountMin !== "" || filterAmountMax !== "";
+
+  const clearFilters = () => {
+    setFilterCategory(""); setFilterType("all");
+    setFilterAmountMin(""); setFilterAmountMax("");
+  };
+
   const loadRows = useCallback(async () => {
     setLoading(true);
     const db = await getDb();
-    const hasSearch = search.trim().length > 0;
-    let params: unknown[];
-    let dateWhere = "";
-    if (!allTime) {
-      const [start, end] = monthBounds(month);
-      dateWhere = "AND t.date>=? AND t.date<? ";
-      params = hasSearch ? [profileId, start, end, `%${search.toUpperCase()}%`] : [profileId, start, end];
-    } else {
-      params = hasSearch ? [profileId, `%${search.toUpperCase()}%`] : [profileId];
-    }
-    const searchWhere = hasSearch ? "AND UPPER(t.description) LIKE ?" : "";
+    const { where, params } = buildQueryParts({
+      profileId, allTime, month, search,
+      filterCategory, filterType, filterAmountMin, filterAmountMax,
+    });
     const data = await db.select<Transaction[]>(
       `SELECT t.*, c.name as category_name, c.color as category_color
        FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-       WHERE t.profile_id=? ${dateWhere}${searchWhere}
+       WHERE ${where}
        ORDER BY t.date DESC, t.id DESC
        LIMIT ${MAX_ROWS + 1}`,
       params
     );
     setRows(data);
     setLoading(false);
-  }, [month, allTime, search, profileId]);
+  }, [month, allTime, search, profileId, filterCategory, filterType, filterAmountMin, filterAmountMax]);
 
   useEffect(() => {
     loadRows().catch(console.error);
@@ -88,7 +141,15 @@ export default function TransactionsPage() {
       txn.id,
     ]);
     setEditingId(null);
-    await loadRows();
+    // Update the row in-place so scroll position is preserved (no full reload)
+    const cat = categories.find((c) => c.id === categoryId);
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === txn.id
+          ? { ...r, category_id: categoryId, category_name: cat?.name, category_color: cat?.color }
+          : r
+      )
+    );
     // Offer to create a rule so future imports are auto-categorized
     setRulePrompt({ txn, newCatId: categoryId });
   };
@@ -100,28 +161,21 @@ export default function TransactionsPage() {
     const db = await getDb();
     await db.execute(
       "INSERT OR IGNORE INTO categorization_rules (pattern, match_type, category_id, priority, profile_id) VALUES (?,?,?,?,?)",
-      [pattern, "contains", rulePrompt.newCatId, 75, profileId]
+      [pattern, "contains", rulePrompt.newCatId, 250, profileId]
     );
     setRulePrompt(null);
   };
 
   const exportCsv = async () => {
     const db = await getDb();
-    const hasSearch = search.trim().length > 0;
-    let params: unknown[];
-    let dateWhere = "";
-    if (!allTime) {
-      const [start, end] = monthBounds(month);
-      dateWhere = "AND t.date>=? AND t.date<? ";
-      params = hasSearch ? [profileId, start, end, `%${search.toUpperCase()}%`] : [profileId, start, end];
-    } else {
-      params = hasSearch ? [profileId, `%${search.toUpperCase()}%`] : [profileId];
-    }
-    const searchWhere = hasSearch ? "AND UPPER(t.description) LIKE ?" : "";
+    const { where, params } = buildQueryParts({
+      profileId, allTime, month, search,
+      filterCategory, filterType, filterAmountMin, filterAmountMax,
+    });
     const data = await db.select<Transaction[]>(
       `SELECT t.*, c.name as category_name
        FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-       WHERE t.profile_id=? ${dateWhere}${searchWhere}
+       WHERE ${where}
        ORDER BY t.date DESC, t.id DESC`,
       params
     );
@@ -137,13 +191,28 @@ export default function TransactionsPage() {
       ].join(",")
     );
     const csv = [header, ...lines].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `compass-${allTime ? "all-time" : month}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const suggestedName = `compass-${allTime ? "all-time" : month}.csv`;
+
+    // Use the native File System Access API (available in WebView2 / Chromium).
+    // This opens the OS save-file dialog so the user can choose location and name.
+    try {
+      const handle = await (window as unknown as {
+        showSaveFilePicker: (opts: unknown) => Promise<{
+          createWritable: () => Promise<{ write: (data: string) => Promise<void>; close: () => Promise<void> }>;
+        }>;
+      }).showSaveFilePicker({
+        suggestedName,
+        types: [{ description: "CSV file", accept: { "text/csv": [".csv"] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(csv);
+      await writable.close();
+    } catch (err: unknown) {
+      // AbortError = user dismissed the dialog — that's fine, do nothing.
+      if ((err as { name?: string })?.name !== "AbortError") {
+        console.error("Export failed:", err);
+      }
+    }
   };
 
   const runAutoCategorize = async (mode: "uncategorized" | "all") => {
@@ -166,8 +235,48 @@ export default function TransactionsPage() {
   const totalExpenses = rows.filter((r) => r.amount_cents < 0)
     .reduce((s, r) => s + r.amount_cents, 0);
 
+  const handlePageDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDragOver(false);
+    const files = Array.from(e.dataTransfer.files).filter((f) => f.name.endsWith(".csv"));
+    if (files.length === 0) return;
+    setPendingImportFiles(files);
+    navigate("/import");
+  };
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current++;
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = () => {
+    dragCounterRef.current--;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDragOver(false);
+    }
+  };
+
   return (
-    <div className="p-6 flex flex-col h-full">
+    <div
+      className="p-6 flex flex-col h-full relative"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={handlePageDrop}
+    >
+      {/* CSV drop overlay */}
+      {isDragOver && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center
+                        bg-black/20 backdrop-blur-sm border-2 border-dashed
+                        border-[hsl(var(--primary))] rounded-xl pointer-events-none">
+          <div className="text-5xl mb-3">📄</div>
+          <p className="font-semibold text-[hsl(var(--primary))] text-lg">Drop CSV to import</p>
+          <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">Opens the import wizard</p>
+        </div>
+      )}
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-semibold">Transactions</h1>
         <button
@@ -188,7 +297,7 @@ export default function TransactionsPage() {
         <button
           onClick={() => runAutoCategorize("uncategorized")}
           disabled={autoCatRunning}
-          title="Re-run rules on uncategorized transactions only"
+          title="Apply your rules to all transactions; system rules fill remaining uncategorized ones"
           className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
                      transition-colors disabled:opacity-50"
         >
@@ -211,34 +320,112 @@ export default function TransactionsPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-3 mb-4 flex-wrap">
-        {!allTime && (
+      <div className="space-y-2 mb-4">
+        {/* Row 1 — date + search */}
+        <div className="flex gap-3 flex-wrap">
+          {!allTime && (
+            <input
+              ref={monthInputRef}
+              type="month"
+              value={month}
+              onChange={(e) => setMonth(e.target.value)}
+              onClick={() => { try { monthInputRef.current?.showPicker(); } catch { /* unsupported */ } }}
+              className="cursor-pointer border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))]
+                         text-[hsl(var(--foreground))]"
+            />
+          )}
+          <button
+            onClick={() => setAllTime((v) => !v)}
+            className={`text-sm px-3 py-1.5 border rounded-lg transition-colors ${
+              allTime
+                ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent"
+                : "hover:bg-[hsl(var(--muted))]"
+            }`}
+          >
+            All time
+          </button>
           <input
-            type="month"
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))]
-                       text-[hsl(var(--foreground))]"
+            type="text"
+            placeholder="Search descriptions…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="flex-1 min-w-40 border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))]
+                       text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]"
           />
-        )}
-        <button
-          onClick={() => setAllTime((v) => !v)}
-          className={`text-sm px-3 py-1.5 border rounded-lg transition-colors ${
-            allTime
-              ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent"
-              : "hover:bg-[hsl(var(--muted))]"
-          }`}
-        >
-          All time
-        </button>
-        <input
-          type="text"
-          placeholder="Search descriptions…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="flex-1 min-w-40 border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))]
-                     text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]"
-        />
+        </div>
+
+        {/* Row 2 — category + type + amount */}
+        <div className="flex gap-3 flex-wrap items-center">
+          {/* Category */}
+          <select
+            value={filterCategory}
+            onChange={(e) => setFilterCategory(e.target.value)}
+            className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))]
+                       text-[hsl(var(--foreground))] cursor-pointer"
+          >
+            <option value="">All categories</option>
+            <option value="uncategorized">Uncategorized</option>
+            {categories.filter((c) => c.id !== 15).map((c) => (
+              <option key={c.id} value={String(c.id)}>{c.name}</option>
+            ))}
+          </select>
+
+          {/* Income / Expense / All toggle */}
+          <div className="flex border rounded-lg overflow-hidden text-sm">
+            {(["all", "income", "expense"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setFilterType(t)}
+                className={`px-3 py-1.5 transition-colors ${
+                  filterType === t
+                    ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
+                    : "hover:bg-[hsl(var(--muted))]"
+                } ${
+                  t === "income" ? "border-x" : ""
+                }`}
+              >
+                {t === "all" ? "All" : t === "income" ? "Income" : "Expenses"}
+              </button>
+            ))}
+          </div>
+
+          {/* Amount range */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-[hsl(var(--muted-foreground))]">$</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="Min"
+              value={filterAmountMin}
+              onChange={(e) => setFilterAmountMin(e.target.value)}
+              className="w-20 border rounded-lg px-2 py-1.5 text-sm bg-[hsl(var(--background))]
+                         text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]"
+            />
+            <span className="text-[hsl(var(--muted-foreground))] text-sm">—</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="Max"
+              value={filterAmountMax}
+              onChange={(e) => setFilterAmountMax(e.target.value)}
+              className="w-24 border rounded-lg px-2 py-1.5 text-sm bg-[hsl(var(--background))]
+                         text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]"
+            />
+          </div>
+
+          {/* Clear filters */}
+          {hasActiveFilters && (
+            <button
+              onClick={clearFilters}
+              className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]
+                         transition-colors px-1"
+            >
+              × Clear filters
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Summary strip */}

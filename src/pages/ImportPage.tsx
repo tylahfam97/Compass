@@ -1,10 +1,11 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import Papa from "papaparse";
 import { useNavigate } from "react-router-dom";
 import { getDb, getOrCreateAccountForProfile, applyCategorizationRules } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type { CategorizationRule } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
+import { takePendingImportFiles } from "@/lib/pendingImport";
 
 type Step =
   | "upload" | "checking"
@@ -300,6 +301,9 @@ export default function ImportPage() {
   const [wizardDir, setWizardDir] = useState<"forward" | "back">("forward");
   const [batchQueue, setBatchQueue] = useState<File[]>([]);
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
+  const [batchAutoMode, setBatchAutoMode] = useState(false);
+  const [totalBatchCount, setTotalBatchCount] = useState(0);
+  const batchSavedColMapRef = useRef<ColMap | null>(null);
 
   // Auto-detect the dominant month whenever the parsed data or date column changes
   const detectedMonth = useMemo(
@@ -322,6 +326,16 @@ export default function ImportPage() {
   }, [profileId]);
 
   useEffect(() => { loadHistory().catch(console.error); }, [loadHistory]);
+
+  // On mount: drain any files queued by other pages (e.g. CSV drop on Transactions tab)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const pending = takePendingImportFiles();
+    if (pending.length === 0) return;
+    const [first, ...rest] = pending;
+    setBatchQueue(rest);
+    processFile(first);
+  }, []); // intentionally empty — runs once on mount only
 
   /** Navigate between wizard steps with direction tracking for the slide animation. */
   const wizardGo = (target: Step, dir: "forward" | "back" = "forward") => {
@@ -448,6 +462,9 @@ export default function ImportPage() {
   const handleImport = async () => {
     if (!parsed) return;
     setStep("importing");
+    // Yield one animation frame so React can paint the loading UI before the
+    // import loop starts — prevents the UI appearing frozen on large files.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     try {
       const db = await getDb();
       const accountId = await getOrCreateAccountForProfile(profileId);
@@ -485,7 +502,7 @@ export default function ImportPage() {
 
         const amountCents = Math.round(amount * 100);
         const hash = await hashRow(row);
-        const categoryId = applyCategorizationRules(description, rules);
+        const categoryId = applyCategorizationRules(description, rules, amountCents);
         const balanceCents = colMap.balanceCol >= 0 && row[colMap.balanceCol]
           ? Math.round(parseAmount(row[colMap.balanceCol]) * 100)
           : null;
@@ -539,6 +556,99 @@ export default function ImportPage() {
     }
   };
 
+  /** Silently import a file using a previously approved column mapping (batch auto-mode). */
+  const autoImportFile = useCallback(async (file: File, savedColMap: ColMap) => {
+    setError(null);
+    setCurrentFilename(file.name);
+    setStep("importing");
+    const data: string[][] = await new Promise((resolve, reject) => {
+      Papa.parse<string[]>(file, {
+        skipEmptyLines: true,
+        complete: (r) => resolve(r.data as string[][]),
+        error: (e) => reject(e),
+      });
+    });
+    if (data.length < 2) { setStep("done"); setSummary({ imported: 0, skipped: 0 }); return; }
+    const skip = findRealHeaderRow(data);
+    const derived = deriveHeaders(data, skip);
+    if (!derived) { setStep("done"); setSummary({ imported: 0, skipped: 0 }); return; }
+    setRawData(data); setSkipRows(skip); setParsed(derived);
+    try {
+      const db = await getDb();
+      const accountId = await getOrCreateAccountForProfile(profileId);
+      const rules = await db.select<CategorizationRule[]>(
+        "SELECT * FROM categorization_rules WHERE profile_id=? OR profile_id IS NULL ORDER BY priority DESC",
+        [profileId]
+      );
+      const sessionResult = await db.execute(
+        "INSERT INTO import_sessions (filename, row_count, skipped_count, profile_id) VALUES (?, 0, 0, ?)",
+        [file.name, profileId]
+      );
+      const sessionId = sessionResult.lastInsertId as number;
+      let imported = 0; let skipped = 0;
+      for (const row of derived.rows) {
+        const reqCols = [savedColMap.dateCol, savedColMap.descCol, savedColMap.amountCol];
+        if (savedColMap.typeCol >= 0) reqCols.push(savedColMap.typeCol);
+        if (row.length <= Math.max(...reqCols)) continue;
+        const date = parseDate(row[savedColMap.dateCol] ?? "");
+        const description = (row[savedColMap.descCol] ?? "").trim();
+        const rawAmount = parseAmount(row[savedColMap.amountCol] ?? "0");
+        let amount = rawAmount;
+        if (savedColMap.typeCol >= 0) {
+          const tv = (row[savedColMap.typeCol] ?? "").trim().toLowerCase();
+          if (tv === "debit") amount = -Math.abs(rawAmount);
+          else if (tv === "credit") amount = Math.abs(rawAmount);
+        }
+        if (savedColMap.invertAmounts) amount = -amount;
+        if (!date || !description || amount === 0) continue;
+        const amountCents = Math.round(amount * 100);
+        const hash = await hashRow(row);
+        const categoryId = applyCategorizationRules(description, rules, amountCents);
+        const balanceCents = savedColMap.balanceCol >= 0 && row[savedColMap.balanceCol]
+          ? Math.round(parseAmount(row[savedColMap.balanceCol]) * 100) : null;
+        try {
+          await db.execute(
+            `INSERT INTO transactions (account_id, date, amount_cents, description, category_id,
+               import_hash, balance_cents, profile_id, import_session_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [accountId, date, amountCents, description, categoryId, hash, balanceCents, profileId, sessionId]
+          );
+          imported++;
+        } catch { skipped++; }
+      }
+      if (imported === 0) {
+        await db.execute("DELETE FROM import_sessions WHERE id=?", [sessionId]);
+      } else {
+        await db.execute(
+          "UPDATE import_sessions SET row_count=?, skipped_count=? WHERE id=?",
+          [imported, skipped, sessionId]
+        );
+      }
+      await loadHistory();
+      setSummary({ imported, skipped });
+      setStep("done");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setSummary({ imported: 0, skipped: 0 });
+      setStep("done");
+    }
+  }, [profileId, loadHistory]);
+
+  // When an import finishes in batch-auto mode, silently process the next queued file.
+  useEffect(() => {
+    if (step !== "done" || !batchAutoMode) return;
+    if (batchQueue.length === 0) {
+      setBatchAutoMode(false);
+      batchSavedColMapRef.current = null;
+      return;
+    }
+    const [next, ...rest] = batchQueue;
+    setBatchQueue(rest);
+    setStep("importing"); // show loading immediately before async work starts
+    if (batchSavedColMapRef.current) autoImportFile(next, batchSavedColMapRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, batchAutoMode]);
+
   const reset = () => {
     setStep("upload");
     setRawData(null);
@@ -552,6 +662,9 @@ export default function ImportPage() {
     setConfirmDeleteId(null);
     setBatchQueue([]);
     setSelectedPresetId(null);
+    setBatchAutoMode(false);
+    setTotalBatchCount(0);
+    batchSavedColMapRef.current = null;
   };
 
   return (
@@ -669,13 +782,6 @@ export default function ImportPage() {
       {/* ── WIZARD STEP 1: Find Data ── */}
       {step === "wizard:data" && parsed && (
         <div key="wizard:data" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
-          {profileFound && (
-            <div className="px-4 py-2.5 rounded-lg text-sm border border-green-300 bg-green-50
-                            text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
-              ✓ Column layout recognized from a previous import — you can skip straight to Preview.
-            </div>
-          )}
-
           <p className="text-sm text-[hsl(var(--muted-foreground))]">
             Compass detected the column headers below. If they don't look right, use − / + to shift to the correct row.
           </p>
@@ -710,14 +816,19 @@ export default function ImportPage() {
             </span>
           </div>
 
+          {profileFound && (
+            <div className="px-4 py-2.5 rounded-lg text-sm border border-green-300 bg-green-50
+                            text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
+              ✓ Column layout recognized from a previous import.
+            </div>
+          )}
+
           <div className="flex gap-3 justify-center">
-            {profileFound && (
-              <button onClick={() => wizardGo("wizard:preview", "forward")}
-                className="px-5 py-2 border rounded-lg text-sm font-medium hover:bg-[hsl(var(--muted))] transition-colors">
-                Skip to Preview
-              </button>
-            )}
-              <button onClick={() => wizardGo("wizard:date", "forward")}
+            <button onClick={() => wizardGo("wizard:preview", "forward")}
+              className="px-5 py-2 border rounded-lg text-sm font-medium hover:bg-[hsl(var(--muted))] transition-colors">
+              Skip to Preview ↗
+            </button>
+            <button onClick={() => wizardGo("wizard:date", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
               Looks good → Next
             </button>
@@ -771,6 +882,10 @@ export default function ImportPage() {
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
               Next →
             </button>
+            <button onClick={() => wizardGo("wizard:preview", "forward")}
+              className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
+              Skip to Preview ↗
+            </button>
           </div>
         </div>
       )}
@@ -809,6 +924,10 @@ export default function ImportPage() {
             <button onClick={() => wizardGo("wizard:amount", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
               Next →
+            </button>
+            <button onClick={() => wizardGo("wizard:preview", "forward")}
+              className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
+              Skip to Preview ↗
             </button>
           </div>
         </div>
@@ -916,6 +1035,10 @@ export default function ImportPage() {
             <button onClick={() => wizardGo("wizard:balance", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
               Next →
+            </button>
+            <button onClick={() => wizardGo("wizard:preview", "forward")}
+              className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
+              Skip to Preview ↗
             </button>
           </div>
         </div>
@@ -1069,12 +1192,29 @@ export default function ImportPage() {
             )}
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex gap-3 flex-wrap">
             <button onClick={() => wizardGo("wizard:balance", "back")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">← Back</button>
             <button onClick={handleImport}
               className="px-6 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg font-medium hover:opacity-90 transition-opacity">
               Import {parsed.rows.length} Transactions
             </button>
+            {batchQueue.length > 0 && (
+              <button
+                onClick={() => {
+                  const total = batchQueue.length + 1;
+                  setTotalBatchCount(total);
+                  batchSavedColMapRef.current = { ...colMap };
+                  setBatchAutoMode(true);
+                  handleImport();
+                }}
+                className="px-5 py-2 bg-[hsl(var(--primary)/0.15)] text-[hsl(var(--primary))]
+                           border border-[hsl(var(--primary)/0.4)] rounded-lg text-sm font-medium
+                           hover:bg-[hsl(var(--primary)/0.25)] transition-colors"
+                title="Import this file then automatically import all remaining files using the same column settings"
+              >
+                ⚡ Import All ({batchQueue.length + 1} files)
+              </button>
+            )}
             <button onClick={reset} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">Cancel</button>
           </div>
         </div>
@@ -1084,7 +1224,24 @@ export default function ImportPage() {
       {step === "importing" && (
         <div className="text-center py-16">
           <div className="text-5xl mb-4 animate-pulse">⚙️</div>
-          <p className="font-medium">Importing and categorizing transactions…</p>
+          {batchAutoMode && totalBatchCount > 1 ? (
+            <>
+              <p className="font-medium mb-1">
+                Importing file {totalBatchCount - batchQueue.length} of {totalBatchCount}…
+              </p>
+              <p className="text-sm text-[hsl(var(--muted-foreground))] mb-4 truncate max-w-sm mx-auto">
+                {currentFilename}
+              </p>
+              <div className="w-64 mx-auto bg-[hsl(var(--muted))] rounded-full h-1.5">
+                <div
+                  className="bg-[hsl(var(--primary))] h-1.5 rounded-full transition-all duration-300"
+                  style={{ width: `${((totalBatchCount - batchQueue.length) / totalBatchCount) * 100}%` }}
+                />
+              </div>
+            </>
+          ) : (
+            <p className="font-medium">Importing and categorizing transactions…</p>
+          )}
         </div>
       )}
 
