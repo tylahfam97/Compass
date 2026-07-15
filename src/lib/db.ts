@@ -646,6 +646,17 @@ async function runMigrations(db: CompassDb): Promise<void> {
 
     await db.execute("PRAGMA user_version = 7");
   }
+
+  // ── v8: Global budgets — is_global flag on budgets table ─────────────────
+  if (version < 8) {
+    assertSafeMigrationIdentifiers("budgets", "is_global");
+    if (!(await colExists(db, "budgets", "is_global"))) {
+      await db.execute(
+        "ALTER TABLE budgets ADD COLUMN is_global INTEGER NOT NULL DEFAULT 0"
+      );
+    }
+    await db.execute("PRAGMA user_version = 8");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────

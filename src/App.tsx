@@ -227,7 +227,7 @@ function App() {
                 onClick={() => openUrl("https://github.com/tylahfam97/Compass/issues/new").catch(() => {})}
                 className="w-full text-xs px-3 py-1.5 rounded-md text-[hsl(var(--muted-foreground))]
                            hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--border))]
-                           transition-colors flex items-center gap-1.5"
+                           transition-colors flex items-center justify-center gap-1.5"
               >
                 <MessageSquare size={12} />
                 Report an issue
