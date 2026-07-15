@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+﻿import { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
@@ -7,8 +7,9 @@ import { getDb } from "@/lib/db";
 import { formatCurrency } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
 import { generateInsights, getSpendingProfile, getSavingsHistory } from "@/lib/agent";
-import type { Insight } from "@/lib/types";
+import type { Insight, Profile } from "@/lib/types";
 import InsightCard from "@/components/InsightCard";
+import PinModal from "@/components/PinModal";
 
 interface SubItem {
   description: string;
@@ -45,10 +46,51 @@ function prevYM(ym: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function viewKey(profileId: number) {
+  return `compass_insight_view_${profileId}`;
+}
+
+interface ScopeToggleProps {
+  isGlobal: boolean;
+  onToggle: () => void;
+}
+function ScopeToggle({ isGlobal, onToggle }: ScopeToggleProps) {
+  return (
+    <button
+      role="switch"
+      aria-checked={isGlobal}
+      onClick={onToggle}
+      style={{
+        width: 52, height: 28, borderRadius: 14, padding: 3,
+        backgroundColor: isGlobal ? "#C08A1C" : "#3b82f6",
+        transition: "background-color 0.3s",
+        cursor: "pointer", display: "inline-flex", alignItems: "center",
+        border: "none", flexShrink: 0,
+        boxShadow: "inset 0 1px 3px rgba(0,0,0,0.18)",
+      }}
+    >
+      <div style={{
+        width: 22, height: 22, borderRadius: 11, backgroundColor: "white",
+        transition: "transform 0.25s cubic-bezier(0.4,0,0.2,1)",
+        transform: isGlobal ? "translateX(24px)" : "translateX(0)",
+        boxShadow: "0 1px 4px rgba(0,0,0,0.28)", flexShrink: 0,
+      }} />
+    </button>
+  );
+}
+
 export default function AgentPage() {
   const navigate = useNavigate();
-  const { activeProfile, dismissedInsights, clearDismissed } = useProfileStore();
+  const { activeProfile, profiles, unlockedIds, unlockProfile, dismissedInsights, clearDismissed } = useProfileStore();
   const profileId = activeProfile?.id ?? 1;
+
+  const [viewMode, setViewMode] = useState<"profile" | "global">(() => {
+    const saved = localStorage.getItem(viewKey(activeProfile?.id ?? 1));
+    return saved === "global" ? "global" : "profile";
+  });
+
+  const [pinQueue, setPinQueue] = useState<Profile[]>([]);
+  const [pinQueueIdx, setPinQueueIdx] = useState(0);
 
   const [loading, setLoading] = useState(true);
   const [insights, setInsights] = useState<Insight[]>([]);
@@ -59,17 +101,71 @@ export default function AgentPage() {
   const [hasEnoughData, setHasEnoughData] = useState(true);
 
   useEffect(() => {
+    const saved = localStorage.getItem(viewKey(profileId));
+    setViewMode(saved === "global" ? "global" : "profile");
+  }, [profileId]);
+
+  const unlockedProfileIds = useMemo(
+    () => profiles
+      .filter((p) => !p.pin_hash || p.id === profileId || unlockedIds.has(p.id))
+      .map((p) => p.id),
+    [profiles, profileId, unlockedIds]
+  );
+
+  const handleSwitchToGlobal = () => {
+    const locked = profiles.filter(
+      (p) => p.pin_hash && p.id !== profileId && !unlockedIds.has(p.id)
+    );
+    if (locked.length > 0) {
+      setPinQueue(locked);
+      setPinQueueIdx(0);
+    } else {
+      localStorage.setItem(viewKey(profileId), "global");
+      setViewMode("global");
+    }
+  };
+
+  const handleSwitchToProfile = () => {
+    localStorage.setItem(viewKey(profileId), "profile");
+    setViewMode("profile");
+  };
+
+  const advancePinQueue = (unlockedId?: number) => {
+    if (unlockedId !== undefined) unlockProfile(unlockedId);
+    const next = pinQueueIdx + 1;
+    if (next >= pinQueue.length) {
+      setPinQueue([]);
+      setPinQueueIdx(0);
+      localStorage.setItem(viewKey(profileId), "global");
+      setViewMode("global");
+    } else {
+      setPinQueueIdx(next);
+    }
+  };
+
+  const pinTarget = pinQueue.length > 0 && pinQueueIdx < pinQueue.length
+    ? pinQueue[pinQueueIdx] : null;
+
+  const lockedExcluded = viewMode === "global"
+    ? profiles.filter((p) => p.pin_hash && p.id !== profileId && !unlockedIds.has(p.id))
+    : [];
+
+  useEffect(() => {
     if (!activeProfile) return;
     let cancelled = false;
+    const ids = viewMode === "global"
+      ? (unlockedProfileIds.length > 0 ? unlockedProfileIds : [profileId])
+      : [profileId];
 
     async function load() {
       setLoading(true);
       const db = await getDb();
+      const ph = ids.map(() => "?").join(",");
 
       const [allInsights, history, profile] = await Promise.all([
-        generateInsights(profileId),
-        getSavingsHistory(profileId, 12),
-        getSpendingProfile(profileId),
+        generateInsights(ids),
+        getSavingsHistory(ids, 12),
+        getSpendingProfile(ids),
       ]);
 
       if (cancelled) return;
@@ -84,20 +180,21 @@ export default function AgentPage() {
       setSavingsHistory(history);
       setSpendingProfile(profile);
 
-      // Subscription inventory
+      // Subscription inventory -- exclude transfers (cat 20)
       const subs = await db.select<SubItem[]>(
         `SELECT t.description, t.amount_cents,
                 COUNT(DISTINCT strftime('%Y-%m', t.date)) as month_count,
                 c.name as category_name, c.color as category_color
          FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-         WHERE t.profile_id=? AND t.amount_cents<0
+         WHERE t.profile_id IN (${ph}) AND t.amount_cents<0
+           AND (t.category_id IS NULL OR t.category_id != 20)
          GROUP BY t.description, t.amount_cents HAVING month_count>=2
          ORDER BY month_count DESC, ABS(t.amount_cents) DESC LIMIT 10`,
-        [profileId]
+        [...ids]
       );
       if (!cancelled) setSubscriptions(subs);
 
-      // Category MoM deltas
+      // Category MoM deltas -- exclude transfers (cat 20)
       const thisMonth = currentYM();
       const lMonth = prevYM(thisMonth);
       const [ts, te] = monthBounds(thisMonth);
@@ -108,15 +205,18 @@ export default function AgentPage() {
           `SELECT t.category_id, c.name as category_name, c.color as category_color,
                   SUM(ABS(t.amount_cents)) as total
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-           WHERE t.profile_id=? AND t.date>=? AND t.date<? AND t.amount_cents<0 AND t.category_id!=15
+           WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<? AND t.amount_cents<0
+             AND t.category_id!=15 AND (t.category_id IS NULL OR t.category_id != 20)
            GROUP BY t.category_id ORDER BY total DESC LIMIT 8`,
-          [profileId, ts, te]
+          [...ids, ts, te]
         ),
         db.select<{ category_id: number; total: number }[]>(
           `SELECT category_id, SUM(ABS(amount_cents)) as total
-           FROM transactions WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0
+           FROM transactions
+           WHERE profile_id IN (${ph}) AND date>=? AND date<? AND amount_cents<0
+             AND (category_id IS NULL OR category_id != 20)
            GROUP BY category_id`,
-          [profileId, ls, le]
+          [...ids, ls, le]
         ),
       ]);
 
@@ -138,11 +238,11 @@ export default function AgentPage() {
 
     load().catch(console.error);
     return () => { cancelled = true; };
-  }, [profileId, activeProfile]);
+  }, [profileId, activeProfile, viewMode, unlockedProfileIds]);
 
   const visibleInsights = insights.filter((i) => !dismissedInsights.includes(i.dismissKey));
   const warningInsights = visibleInsights.filter((i) => i.severity === "warning");
-  const infoInsights = visibleInsights.filter((i) => i.severity === "info");
+  const infoInsights   = visibleInsights.filter((i) => i.severity === "info");
   const successInsights = visibleInsights.filter((i) => i.severity === "success");
 
   const handleApply = async (insight: Insight) => {
@@ -156,34 +256,62 @@ export default function AgentPage() {
 
   if (loading) {
     return (
-      <div className="p-6">
-        <h1 className="text-2xl font-semibold mb-6">Agent</h1>
-        <p className="text-[hsl(var(--muted-foreground))]">Analysing your data…</p>
-      </div>
+      <>
+        {pinTarget && (
+          <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />
+        )}
+        <div className="sticky top-0 z-20 border-b px-8 py-4 flex items-center justify-between gap-6"
+          style={{ backgroundColor: "hsl(var(--background))" }}>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Insights</h1>
+            <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">Rule-based analysis of your financial habits.</p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <span className="text-sm font-semibold select-none"
+              style={{ color: viewMode !== "profile" ? "hsl(var(--muted-foreground))" : "#3b82f6", transition: "color 0.3s" }}>Profile</span>
+            <ScopeToggle isGlobal={viewMode === "global"} onToggle={() => viewMode === "global" ? handleSwitchToProfile() : handleSwitchToGlobal()} />
+            <span className="text-sm font-semibold select-none"
+              style={{ color: viewMode === "global" ? "#C08A1C" : "hsl(var(--muted-foreground))", transition: "color 0.3s" }}>Global</span>
+          </div>
+        </div>
+        <div className="p-6"><p className="text-[hsl(var(--muted-foreground))]">Analysing your data...</p></div>
+      </>
     );
   }
 
   if (!hasEnoughData) {
     return (
-      <div className="p-6 max-w-2xl">
-        <h1 className="text-2xl font-semibold mb-2">Agent</h1>
-        <p className="text-sm text-[hsl(var(--muted-foreground))] mb-8">
-          Smart, rule-based analysis of your habits.
-        </p>
-        <div className="border-2 border-dashed rounded-xl p-14 text-center">
-          <p className="font-medium mb-2">Not enough data yet</p>
-          <p className="text-sm text-[hsl(var(--muted-foreground))] mb-6">
-            Import at least 2 months of transactions to unlock insights.
-          </p>
-          <Link
-            to="/import"
-            className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
-                       rounded-lg text-sm font-medium"
-          >
-            Import Transactions
-          </Link>
+      <>
+        {pinTarget && (
+          <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />
+        )}
+        <div className="sticky top-0 z-20 border-b px-8 py-4 flex items-center justify-between gap-6"
+          style={{ backgroundColor: "hsl(var(--background))" }}>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Insights</h1>
+            <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">Rule-based analysis of your financial habits.</p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <span className="text-sm font-semibold select-none"
+              style={{ color: viewMode !== "profile" ? "hsl(var(--muted-foreground))" : "#3b82f6", transition: "color 0.3s" }}>Profile</span>
+            <ScopeToggle isGlobal={viewMode === "global"} onToggle={() => viewMode === "global" ? handleSwitchToProfile() : handleSwitchToGlobal()} />
+            <span className="text-sm font-semibold select-none"
+              style={{ color: viewMode === "global" ? "#C08A1C" : "hsl(var(--muted-foreground))", transition: "color 0.3s" }}>Global</span>
+          </div>
         </div>
-      </div>
+        <div className="p-6 max-w-2xl">
+          <div className="border-2 border-dashed rounded-xl p-14 text-center mt-6">
+            <p className="font-medium mb-2">Not enough data yet</p>
+            <p className="text-sm text-[hsl(var(--muted-foreground))] mb-6">
+              Import at least 2 months of transactions to unlock insights.
+            </p>
+            <Link to="/import"
+              className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium">
+              Import Transactions
+            </Link>
+          </div>
+        </div>
+      </>
     );
   }
 
@@ -191,223 +319,232 @@ export default function AgentPage() {
   const annualSubCost = totalSubCost * 12;
 
   return (
-    <div className="p-6 max-w-3xl space-y-8 mx-auto w-full">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <>
+      {pinTarget && (
+        <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />
+      )}
+
+      {/* Sticky header */}
+      <div className="sticky top-0 z-20 border-b px-8 py-4 flex items-center justify-between gap-6"
+        style={{ backgroundColor: "hsl(var(--background))", backdropFilter: "blur(8px)" }}>
         <div>
-          <h1 className="text-2xl font-semibold">Agent</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Insights</h1>
           <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">
             Rule-based analysis of your financial habits.
           </p>
         </div>
-        {dismissedInsights.length > 0 && (
-          <button
-            onClick={clearDismissed}
-            className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]
-                       transition-colors"
-          >
-            Restore {dismissedInsights.length} dismissed
-          </button>
-        )}
+        <div className="flex items-center gap-3 shrink-0">
+          <span className="text-sm font-semibold select-none"
+            style={{ color: viewMode !== "profile" ? "hsl(var(--muted-foreground))" : "#3b82f6", transition: "color 0.3s" }}>
+            Profile
+          </span>
+          <ScopeToggle
+            isGlobal={viewMode === "global"}
+            onToggle={() => viewMode === "global" ? handleSwitchToProfile() : handleSwitchToGlobal()}
+          />
+          <span className="text-sm font-semibold select-none"
+            style={{ color: viewMode === "global" ? "#C08A1C" : "hsl(var(--muted-foreground))", transition: "color 0.3s" }}>
+            Global
+          </span>
+        </div>
       </div>
 
-      {/* ── Section 1: Insights ── */}
-      <section className="space-y-4">
-        <h2 className="font-semibold text-base">Insights</h2>
+      <div className="p-6 max-w-3xl space-y-8 mx-auto w-full">
 
-        {visibleInsights.length === 0 && (
-          <p className="text-sm text-[hsl(var(--muted-foreground))] py-4 text-center border rounded-xl">
-            No active insights. Great shape!
-          </p>
-        )}
-
-        {[
-          { label: "Needs attention", items: warningInsights },
-          { label: "Observations", items: infoInsights },
-          { label: "Wins", items: successInsights },
-        ].map(({ label, items }) =>
-          items.length > 0 ? (
-            <div key={label}>
-              <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-2">
-                {label}
-              </p>
-              <div className="space-y-2">
-                {items.map((insight) => (
-                  <InsightCard
-                    key={insight.id}
-                    insight={insight}
-                    onApply={handleApply}
-                  />
-                ))}
-              </div>
-            </div>
-          ) : null
-        )}
-      </section>
-
-      {/* ── Section 2: Spending Profile ── */}
-      {spendingProfile && (
-        <section className="border rounded-xl p-5 space-y-4">
-          <h2 className="font-semibold text-base">Spending Profile</h2>
-          <p className="text-xs text-[hsl(var(--muted-foreground))]">
-            Based on the last {spendingProfile.monthsAnalysed} months of data
-          </p>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            {[
-              {
-                label: "Avg monthly income",
-                value: formatCurrency(spendingProfile.avgMonthlyIncome),
-                cls: "text-green-600",
-              },
-              {
-                label: "Avg monthly spend",
-                value: formatCurrency(spendingProfile.avgMonthlyExpenses),
-                cls: "text-red-500",
-              },
-              {
-                label: "Avg savings rate",
-                value: `${Math.round(spendingProfile.avgSavingsRate * 100)}%`,
-                cls: spendingProfile.avgSavingsRate >= 0.2 ? "text-green-600" : "text-amber-500",
-              },
-              {
-                label: "Top category",
-                value: spendingProfile.topCategory,
-                cls: "text-[hsl(var(--foreground))]",
-              },
-            ].map(({ label, value, cls }) => (
-              <div key={label}>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">{label}</p>
-                <p className={`text-lg font-bold ${cls}`}>{value}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* ── Section 3: Savings Rate Sparkline ── */}
-      {savingsHistory.length >= 2 && (
-        <section className="border rounded-xl p-5">
-          <h2 className="font-semibold text-base mb-4">Savings Rate (12 months)</h2>
-          <ResponsiveContainer width="100%" height={120}>
-            <LineChart data={savingsHistory} margin={{ left: 0, right: 8, top: 4, bottom: 0 }}>
-              <XAxis
-                dataKey="month"
-                tick={{ fontSize: 10 }}
-                tickFormatter={(v: string) => v.slice(5)}
-              />
-              <YAxis
-                tick={{ fontSize: 10 }}
-                tickFormatter={(v: number) => `${v}%`}
-                width={32}
-              />
-              <Tooltip
-                formatter={(v) => [`${v ?? 0}%`, "Savings rate"]}
-                contentStyle={{
-                  backgroundColor: "hsl(var(--background))",
-                  border: "1px solid hsl(var(--border))",
-                  borderRadius: "8px",
-                  fontSize: "12px",
-                }}
-              />
-              <ReferenceLine y={20} stroke="#f59e0b" strokeDasharray="3 3" />
-              <Line
-                type="monotone"
-                dataKey="rate"
-                stroke="#6366f1"
-                strokeWidth={2}
-                dot={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-          <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
-            Dashed line = 20% target
-          </p>
-        </section>
-      )}
-
-      {/* ── Section 4: Category MoM Deltas ── */}
-      {catDeltas.length > 0 && (
-        <section className="border rounded-xl overflow-hidden">
-          <div className="px-5 py-3 bg-[hsl(var(--muted))] border-b">
-            <h2 className="font-semibold text-base">Category Trends (this vs last month)</h2>
-          </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left">
-                <th className="px-5 py-2.5 font-medium text-[hsl(var(--muted-foreground))]">Category</th>
-                <th className="px-5 py-2.5 font-medium text-[hsl(var(--muted-foreground))] text-right">This month</th>
-                <th className="px-5 py-2.5 font-medium text-[hsl(var(--muted-foreground))] text-right">Last month</th>
-                <th className="px-5 py-2.5 font-medium text-[hsl(var(--muted-foreground))] text-right">Change</th>
-              </tr>
-            </thead>
-            <tbody>
-              {catDeltas.map((r) => (
-                <tr key={r.category_name} className="border-b last:border-0 hover:bg-[hsl(var(--muted))]">
-                  <td className="px-5 py-2.5">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full shrink-0"
-                        style={{ backgroundColor: r.category_color }} />
-                      {r.category_name}
-                    </div>
-                  </td>
-                  <td className="px-5 py-2.5 text-right font-mono">{formatCurrency(r.this_month)}</td>
-                  <td className="px-5 py-2.5 text-right font-mono text-[hsl(var(--muted-foreground))]">
-                    {r.last_month > 0 ? formatCurrency(r.last_month) : "—"}
-                  </td>
-                  <td className={`px-5 py-2.5 text-right font-medium ${
-                    r.last_month === 0
-                      ? "text-[hsl(var(--muted-foreground))]"
-                      : r.delta_pct > 0
-                      ? "text-red-500"
-                      : "text-green-600"
-                  }`}>
-                    {r.last_month === 0
-                      ? "New"
-                      : `${r.delta_pct > 0 ? "+" : ""}${r.delta_pct}%`}
-                  </td>
-                </tr>
+        {/* Locked-profile notice */}
+        {lockedExcluded.length > 0 && (
+          <div className="rounded-2xl px-5 py-3 flex flex-col gap-2"
+            style={{ border: "1px solid rgba(245,158,11,0.35)", backgroundColor: "rgba(245,158,11,0.07)" }}>
+            <p className="text-sm font-semibold" style={{ color: "#b45309" }}>
+              {lockedExcluded.length === 1 ? "1 profile is PIN-locked" : `${lockedExcluded.length} profiles are PIN-locked`}
+              {" "}-- their data is excluded from global insights.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {lockedExcluded.map((p) => (
+                <button key={p.id} onClick={() => { setPinQueue([p]); setPinQueueIdx(0); }}
+                  className="text-xs px-3 py-1.5 rounded-lg transition-colors"
+                  style={{ border: "1px solid rgba(245,158,11,0.5)", color: "#92400e", backgroundColor: "transparent" }}>
+                  Lock {p.name}
+                </button>
               ))}
-            </tbody>
-          </table>
-        </section>
-      )}
+            </div>
+          </div>
+        )}
 
-      {/* ── Section 5: Subscription Inventory ── */}
-      {subscriptions.length > 0 && (
-        <section className="border rounded-xl overflow-hidden">
-          <div className="px-5 py-3 bg-[hsl(var(--muted))] border-b flex items-center justify-between">
-            <h2 className="font-semibold text-base">Subscription Inventory</h2>
-            <span className="text-sm text-[hsl(var(--muted-foreground))]">
-              ~{formatCurrency(annualSubCost)}/year
+        {/* Global mode chip */}
+        {viewMode === "global" && lockedExcluded.length === 0 && (
+          <div className="rounded-2xl px-5 py-2.5 flex items-center gap-3"
+            style={{ border: "1px solid rgba(192,138,28,0.35)", backgroundColor: "rgba(192,138,28,0.07)" }}>
+            <span className="font-semibold text-sm" style={{ color: "#C08A1C" }}>Global view</span>
+            <span className="text-xs text-[hsl(var(--muted-foreground))]">
+              -- insights and data aggregated across {profiles.length} profile{profiles.length !== 1 ? "s" : ""}
             </span>
           </div>
-          <table className="w-full text-sm">
-            <tbody>
-              {subscriptions.map((s) => (
-                <tr key={`${s.description}_${s.amount_cents}`}
-                  className="border-b last:border-0 hover:bg-[hsl(var(--muted))]">
-                  <td className="px-5 py-2.5 max-w-xs truncate">{s.description}</td>
-                  <td className="px-5 py-2.5">
-                    <span className="text-xs px-2 py-0.5 rounded-full text-white"
-                      style={{ backgroundColor: s.category_color ?? "#9ca3af" }}>
-                      {s.category_name ?? "Uncategorized"}
-                    </span>
-                  </td>
-                  <td className="px-5 py-2.5 text-[hsl(var(--muted-foreground))]">
-                    {s.month_count} months
-                  </td>
-                  <td className="px-5 py-2.5 text-right font-mono text-red-500">
-                    {formatCurrency(Math.abs(s.amount_cents))}/mo
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="px-5 py-3 border-t text-xs text-[hsl(var(--muted-foreground))]">
-            {formatCurrency(totalSubCost)}/month · {formatCurrency(annualSubCost)}/year
+        )}
+
+        {/* Restore dismissed button */}
+        {dismissedInsights.length > 0 && (
+          <div className="flex justify-end">
+            <button onClick={clearDismissed}
+              className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors">
+              Restore {dismissedInsights.length} dismissed
+            </button>
           </div>
+        )}
+
+        {/* Section 1: Insights */}
+        <section className="space-y-4">
+          <h2 className="font-semibold text-base">Insights</h2>
+
+          {visibleInsights.length === 0 && (
+            <p className="text-sm text-[hsl(var(--muted-foreground))] py-4 text-center border rounded-xl">
+              No active insights. Great shape!
+            </p>
+          )}
+
+          {[
+            { label: "Needs attention", items: warningInsights },
+            { label: "Observations",   items: infoInsights },
+            { label: "Wins",           items: successInsights },
+          ].map(({ label, items }) =>
+            items.length > 0 ? (
+              <div key={label}>
+                <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-2">
+                  {label}
+                </p>
+                <div className="space-y-2">
+                  {items.map((insight) => (
+                    <InsightCard key={insight.id} insight={insight} onApply={handleApply} />
+                  ))}
+                </div>
+              </div>
+            ) : null
+          )}
         </section>
-      )}
-    </div>
+
+        {/* Section 2: Spending Profile */}
+        {spendingProfile && (
+          <section className="border rounded-xl p-5 space-y-4">
+            <h2 className="font-semibold text-base">Spending Profile</h2>
+            <p className="text-xs text-[hsl(var(--muted-foreground))]">
+              Based on the last {spendingProfile.monthsAnalysed} months of data
+            </p>
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              {[
+                { label: "Avg monthly income",  value: formatCurrency(spendingProfile.avgMonthlyIncome),    cls: "text-green-600" },
+                { label: "Avg monthly spend",   value: formatCurrency(spendingProfile.avgMonthlyExpenses),  cls: "text-red-500" },
+                { label: "Avg savings rate",    value: `${Math.round(spendingProfile.avgSavingsRate * 100)}%`,
+                  cls: spendingProfile.avgSavingsRate >= 0.2 ? "text-green-600" : "text-amber-500" },
+                { label: "Top category",        value: spendingProfile.topCategory,                        cls: "text-[hsl(var(--foreground))]" },
+              ].map(({ label, value, cls }) => (
+                <div key={label}>
+                  <p className="text-xs text-[hsl(var(--muted-foreground))]">{label}</p>
+                  <p className={`text-lg font-bold ${cls}`}>{value}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Section 3: Savings Rate Sparkline */}
+        {savingsHistory.length >= 2 && (
+          <section className="border rounded-xl p-5">
+            <h2 className="font-semibold text-base mb-4">Savings Rate (12 months)</h2>
+            <ResponsiveContainer width="100%" height={120}>
+              <LineChart data={savingsHistory} margin={{ left: 0, right: 8, top: 4, bottom: 0 }}>
+                <XAxis dataKey="month" tick={{ fontSize: 10 }} tickFormatter={(v: string) => v.slice(5)} />
+                <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => `${v}%`} width={32} />
+                <Tooltip
+                  formatter={(v) => [`${v ?? 0}%`, "Savings rate"]}
+                  contentStyle={{
+                    backgroundColor: "hsl(var(--background))",
+                    border: "1px solid hsl(var(--border))",
+                    borderRadius: "8px",
+                    fontSize: "12px",
+                  }}
+                />
+                <ReferenceLine y={20} stroke="#f59e0b" strokeDasharray="3 3" />
+                <Line type="monotone" dataKey="rate" stroke="#6366f1" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+            <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">Dashed line = 20% target</p>
+          </section>
+        )}
+
+        {/* Section 4: Category MoM Deltas */}
+        {catDeltas.length > 0 && (
+          <section className="border rounded-xl overflow-hidden">
+            <div className="px-5 py-3 bg-[hsl(var(--muted))] border-b">
+              <h2 className="font-semibold text-base">Category Trends (this vs last month)</h2>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left">
+                  <th className="px-5 py-2.5 font-medium text-[hsl(var(--muted-foreground))]">Category</th>
+                  <th className="px-5 py-2.5 font-medium text-[hsl(var(--muted-foreground))] text-right">This month</th>
+                  <th className="px-5 py-2.5 font-medium text-[hsl(var(--muted-foreground))] text-right">Last month</th>
+                  <th className="px-5 py-2.5 font-medium text-[hsl(var(--muted-foreground))] text-right">Change</th>
+                </tr>
+              </thead>
+              <tbody>
+                {catDeltas.map((r) => (
+                  <tr key={r.category_name} className="border-b last:border-0 hover:bg-[hsl(var(--muted))]">
+                    <td className="px-5 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0"
+                          style={{ backgroundColor: r.category_color }} />
+                        {r.category_name}
+                      </div>
+                    </td>
+                    <td className="px-5 py-2.5 text-right font-mono">{formatCurrency(r.this_month)}</td>
+                    <td className="px-5 py-2.5 text-right font-mono text-[hsl(var(--muted-foreground))]">
+                      {r.last_month > 0 ? formatCurrency(r.last_month) : "--"}
+                    </td>
+                    <td className={`px-5 py-2.5 text-right font-medium ${
+                      r.last_month === 0 ? "text-[hsl(var(--muted-foreground))]"
+                      : r.delta_pct > 0 ? "text-red-500" : "text-green-600"}`}>
+                      {r.last_month === 0 ? "New" : `${r.delta_pct > 0 ? "+" : ""}${r.delta_pct}%`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        )}
+
+        {/* Section 5: Subscription Inventory */}
+        {subscriptions.length > 0 && (
+          <section className="border rounded-xl overflow-hidden">
+            <div className="px-5 py-3 bg-[hsl(var(--muted))] border-b flex items-center justify-between">
+              <h2 className="font-semibold text-base">Subscription Inventory</h2>
+              <span className="text-sm text-[hsl(var(--muted-foreground))]">~{formatCurrency(annualSubCost)}/year</span>
+            </div>
+            <table className="w-full text-sm">
+              <tbody>
+                {subscriptions.map((s) => (
+                  <tr key={`${s.description}_${s.amount_cents}`}
+                    className="border-b last:border-0 hover:bg-[hsl(var(--muted))]">
+                    <td className="px-5 py-2.5 max-w-xs truncate">{s.description}</td>
+                    <td className="px-5 py-2.5">
+                      <span className="text-xs px-2 py-0.5 rounded-full text-white"
+                        style={{ backgroundColor: s.category_color ?? "#9ca3af" }}>
+                        {s.category_name ?? "Uncategorized"}
+                      </span>
+                    </td>
+                    <td className="px-5 py-2.5 text-[hsl(var(--muted-foreground))]">{s.month_count} months</td>
+                    <td className="px-5 py-2.5 text-right font-mono text-red-500">
+                      {formatCurrency(Math.abs(s.amount_cents))}/mo
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="px-5 py-3 border-t text-xs text-[hsl(var(--muted-foreground))]">
+              {formatCurrency(totalSubCost)}/month  {formatCurrency(annualSubCost)}/year
+            </div>
+          </section>
+        )}
+      </div>
+    </>
   );
 }

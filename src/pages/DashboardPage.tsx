@@ -144,7 +144,7 @@ export default function DashboardPage() {
   // Load insights separately (not tied to month selection)
   useEffect(() => {
     if (!activeProfile) return;
-    generateInsights(profileId).then(setInsights).catch(console.error);
+    generateInsights([profileId]).then(setInsights).catch(console.error);
   }, [profileId, activeProfile]);
 
   const visibleInsights = insights

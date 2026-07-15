@@ -26,7 +26,7 @@ function recentMonths(n: number): string[] {
 
 // ─── Main analysis function ───────────────────────────────────────────────────
 
-export async function generateInsights(profileId: number): Promise<Insight[]> {
+async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   const db = await getDb();
   const insights: Insight[] = [];
 
@@ -647,6 +647,29 @@ export async function generateInsights(profileId: number): Promise<Insight[]> {
   return insights.sort((a, b) => order[a.severity] - order[b.severity]);
 }
 
+/**
+ * Public entry-point. Pass one or more profile IDs.
+ * In single-profile mode this is a thin pass-through.
+ * In multi-profile mode, insights are gathered per-profile and merged/deduped.
+ */
+export async function generateInsights(profileIds: number[]): Promise<Insight[]> {
+  if (profileIds.length === 1) return _insightsForProfile(profileIds[0]);
+
+  const results = await Promise.all(profileIds.map((id) => _insightsForProfile(id)));
+  const merged: Insight[] = [];
+  const seen = new Set<string>();
+  for (const list of results) {
+    for (const ins of list) {
+      if (!seen.has(ins.id)) {
+        seen.add(ins.id);
+        merged.push(ins);
+      }
+    }
+  }
+  const ord = { warning: 0, info: 1, success: 2 };
+  return merged.sort((a, b) => ord[a.severity] - ord[b.severity]);
+}
+
 // ─── Spending Profile summary ─────────────────────────────────────────────────
 
 export interface SpendingProfile {
@@ -658,11 +681,12 @@ export interface SpendingProfile {
   monthsAnalysed: number;
 }
 
-export async function getSpendingProfile(profileId: number): Promise<SpendingProfile | null> {
+export async function getSpendingProfile(profileIds: number[]): Promise<SpendingProfile | null> {
   const db = await getDb();
+  const ph = profileIds.map(() => "?").join(",");
   const [dataRange] = await db.select<{ months: number }[]>(
-    "SELECT COUNT(DISTINCT strftime('%Y-%m', date)) as months FROM transactions WHERE profile_id=?",
-    [profileId]
+    `SELECT COUNT(DISTINCT strftime('%Y-%m', date)) as months FROM transactions WHERE profile_id IN (${ph})`,
+    [...profileIds]
   );
   const months = dataRange?.months ?? 0;
   if (months < 1) return null;
@@ -677,24 +701,25 @@ export async function getSpendingProfile(profileId: number): Promise<SpendingPro
   const [summary] = await db.select<{ avg_income: number; avg_expenses: number }[]>(
     `SELECT AVG(income) as avg_income, AVG(expenses) as avg_expenses
      FROM (
-       SELECT SUM(CASE WHEN amount_cents>0 THEN amount_cents ELSE 0 END) as income,
-              SUM(CASE WHEN amount_cents<0 THEN ABS(amount_cents) ELSE 0 END) as expenses
-       FROM transactions WHERE profile_id=? AND date>=?
+       SELECT SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income,
+              SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as expenses
+       FROM transactions WHERE profile_id IN (${ph}) AND date>=?
        GROUP BY strftime('%Y-%m', date)
      )`,
-    [profileId, startDate]
+    [...profileIds, startDate]
   );
 
   const [topCat] = await db.select<{ name: string; avg_spend: number }[]>(
     `SELECT c.name, CAST(AVG(monthly_spend) AS INTEGER) as avg_spend
      FROM (
        SELECT category_id, SUM(ABS(amount_cents)) as monthly_spend
-       FROM transactions WHERE profile_id=? AND amount_cents<0 AND date>=?
+       FROM transactions WHERE profile_id IN (${ph}) AND amount_cents<0 AND date>=?
+         AND (category_id IS NULL OR category_id!=20)
        GROUP BY category_id, strftime('%Y-%m', date)
      ) t JOIN categories c ON t.category_id=c.id
      WHERE c.id != 15
      GROUP BY t.category_id ORDER BY avg_spend DESC LIMIT 1`,
-    [profileId, startDate]
+    [...profileIds, startDate]
   );
 
   const avgInc = summary?.avg_income ?? 0;
@@ -714,10 +739,11 @@ export async function getSpendingProfile(profileId: number): Promise<SpendingPro
 // ─── Savings rate history (for sparkline) ────────────────────────────────────
 
 export async function getSavingsHistory(
-  profileId: number,
+  profileIds: number[],
   months = 12
 ): Promise<{ month: string; rate: number; net: number }[]> {
   const db = await getDb();
+  const ph = profileIds.map(() => "?").join(",");
   const startDate = (() => {
     const d = new Date();
     d.setMonth(d.getMonth() - (months - 1));
@@ -726,11 +752,11 @@ export async function getSavingsHistory(
   })();
   const rows = await db.select<{ month: string; income: number; expenses: number }[]>(
     `SELECT strftime('%Y-%m', date) as month,
-            SUM(CASE WHEN amount_cents>0 THEN amount_cents ELSE 0 END) as income,
-            SUM(CASE WHEN amount_cents<0 THEN ABS(amount_cents) ELSE 0 END) as expenses
-     FROM transactions WHERE profile_id=? AND date>=?
+            SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income,
+            SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as expenses
+     FROM transactions WHERE profile_id IN (${ph}) AND date>=?
      GROUP BY month ORDER BY month`,
-    [profileId, startDate]
+    [...profileIds, startDate]
   );
   return rows.map((r) => ({
     month: r.month,

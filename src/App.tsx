@@ -83,7 +83,7 @@ function App() {
       [profile.id]
     );
     setCategories(cats);
-    generateInsights(profile.id)
+    generateInsights([profile.id])
       .then((ins) => setInsightWarnings(ins.filter((i) => i.severity === "warning").length))
       .catch(() => {});
     setPinTarget(null);
