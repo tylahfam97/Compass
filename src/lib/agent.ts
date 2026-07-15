@@ -140,6 +140,10 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
           },
         },
         dismissKey: `budget_gap_${cat.category_id}`,
+        richData: {
+          avgMonthlyCents: cat.avg_monthly,
+          potentialLabel: `Track ${formatCents(cat.avg_monthly)}/mo → stay in control of ${cat.category_name}`,
+        },
       });
     }
   }
@@ -173,6 +177,9 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
       }, 0) / recentSummaries.length;
       const avgIncome = recentSummaries.reduce((s, r) => s + r.income, 0) / recentSummaries.length;
       const suggestedSavings = Math.round(avgIncome * 0.2);
+      const avgExpenses = recentSummaries.reduce((s, r) => s + r.expenses, 0) / recentSummaries.length;
+      const cutPct = avgExpenses > avgIncome * 0.8
+        ? Math.round(((avgExpenses - avgIncome * 0.8) / avgExpenses) * 100) : 0;
       insights.push({
         id: "savings_rate_low",
         type: "savings_rate_low",
@@ -189,6 +196,14 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
           },
         },
         dismissKey: "savings_rate_low",
+        richData: {
+          currentRate: avgRate,
+          targetRate: 0.2,
+          potentialLabel: cutPct > 0
+            ? `Cut expenses by ${cutPct}% → savings rate reaches 20%`
+            : undefined,
+          potentialValue: cutPct > 0 ? cutPct : undefined,
+        },
       });
     }
   }
@@ -222,6 +237,11 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         description: `You've exceeded this budget ${row.over_count} months in a row. Consider adjusting the limit.`,
         severity: "warning",
         dismissKey: `overspend_streak_${row.category_id}`,
+        richData: {
+          budgetAmountCents: row.budget_cents,
+          overCount: row.over_count,
+          potentialLabel: `Staying under → ${formatCents(row.budget_cents)}/mo limit fully tracked`,
+        },
       });
     }
   }
@@ -232,8 +252,9 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
       category_id: number;
       category_name: string;
       under_count: number;
+      budget_cents: number;
     }[]>(
-      `SELECT b.category_id, c.name as category_name, COUNT(*) as under_count
+      `SELECT b.category_id, c.name as category_name, COUNT(*) as under_count, b.amount_cents as budget_cents
        FROM budgets b
        JOIN categories c ON b.category_id=c.id
        JOIN (
@@ -253,6 +274,14 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         description: `Great discipline. Consider tightening the limit slightly to lock in more savings.`,
         severity: "success",
         dismissKey: `positive_streak_${row.category_id}`,
+        richData: {
+          streakMonths: row.under_count,
+          budgetAmountCents: row.budget_cents,
+          potentialLabel: row.budget_cents > 0
+            ? `Tighten by 10% → save ~${formatCents(Math.round(row.budget_cents * 0.1 * 12))}/yr`
+            : undefined,
+          potentialValue: row.budget_cents > 0 ? Math.round(row.budget_cents * 0.1 * 12) : undefined,
+        },
       });
     }
   }
@@ -560,6 +589,9 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         description: `Based on your ${recentNets.length}-month avg net of ${formatCents(avgNet)}/mo · ${monthsLeft} month${monthsLeft > 1 ? "s" : ""} remaining in ${now.getFullYear()}.`,
         severity: projected >= 0 ? "info" : "warning",
         dismissKey: `year_end_projection_${now.getFullYear()}`,
+        richData: {
+          projectedSavings: projected,
+        },
       });
     }
   }
@@ -597,6 +629,10 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
           description: `Last month: ${formatCents(bestCat.prevTotal)} · This month so far: ${formatCents(bestCat.thisTotal)}. Great progress — keep it up.`,
           severity: "success",
           dismissKey: `most_improved_${thisMonth}`,
+          richData: {
+            beforeAmount: bestCat.prevTotal,
+            afterAmount: bestCat.thisTotal,
+          },
         });
       }
     }
@@ -663,6 +699,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         ? Math.round(((pacedMonthly - avgMonthly) / avgMonthly) * 100)
         : 0;
       if (avgMonthly > 5000 && pacedMonthly > avgMonthly * 1.15) {
+        const daysLeft = daysInMonth - elapsed;
         insights.push({
           id: `spending_velocity_${thisMonth}`,
           type: "spending_velocity",
@@ -670,6 +707,13 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
           description: `${elapsed} days in: ${formatCents(currentSpend)} spent — on pace for ${formatCents(pacedMonthly)} vs your avg ${formatCents(avgMonthly)}.`,
           severity: overshootPct >= 30 ? "warning" : "info",
           dismissKey: `spending_velocity_${thisMonth}`,
+          richData: {
+            paceMonthly: pacedMonthly,
+            avgMonthly: Math.round(avgMonthly),
+            potentialLabel: daysLeft > 0
+              ? `Spend ${formatCents(Math.round((pacedMonthly - Math.round(avgMonthly)) / daysLeft))}/day less → finish on track`
+              : undefined,
+          },
         });
       }
     }
@@ -694,6 +738,12 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         description: `Balance: ${formatCents(balanceRow.balance_cents)} · Avg monthly spend: ${formatCents(avgExp)}.${runway < 3 ? " Financial advisors typically recommend 3–6 months." : runway >= 6 ? " You have a healthy emergency cushion." : ""}`,
         severity: runway < 1 ? "warning" : runway < 3 ? "warning" : runway < 6 ? "info" : "success",
         dismissKey: `emergency_fund_runway_${balanceRow.date}`,
+        richData: {
+          runwayMonths: parseFloat(runway.toFixed(1)),
+          potentialLabel: runway < 3
+            ? `Save ${formatCents(Math.max(0, Math.round(avgExp * 3 - balanceRow.balance_cents)))} more → reach 3-month runway`
+            : undefined,
+        },
       });
     }
   }

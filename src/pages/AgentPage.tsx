@@ -12,6 +12,7 @@ import {
 } from "@/lib/agent";
 import type { Insight, Profile, HealthScore } from "@/lib/types";
 import InsightCard from "@/components/InsightCard";
+import SpotlightCard from "@/components/SpotlightCard";
 import PinModal from "@/components/PinModal";
 
 interface SubItem {
@@ -532,6 +533,29 @@ export default function AgentPage() {
             </ResponsiveContainer>
           </section>
         )}
+
+        {/* ── Spotlight ── */}
+        {(() => {
+          const SPOTLIGHT_WINS    = new Set(["positive_streak", "most_improved"]);
+          const SPOTLIGHT_ACTIONS = new Set(["savings_rate_low", "spending_velocity", "emergency_fund_runway"]);
+          const spotWin    = successInsights.find((i) => SPOTLIGHT_WINS.has(i.type)    && !!i.richData);
+          const spotAction = [...warningInsights, ...infoInsights]
+            .find((i) => SPOTLIGHT_ACTIONS.has(i.type) && !!i.richData);
+          const cards = [spotWin, spotAction].filter(Boolean) as typeof visibleInsights;
+          if (cards.length === 0) return null;
+          return (
+            <section className="space-y-3">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">
+                Spotlight
+              </p>
+              <div className={`grid gap-3 ${cards.length > 1 ? "sm:grid-cols-2" : ""}`}>
+                {cards.map((ins) => (
+                  <SpotlightCard key={ins.id} insight={ins} onApply={handleApply} />
+                ))}
+              </div>
+            </section>
+          );
+        })()}
 
         {/* ── Insights section ── */}
         <section className="space-y-3">

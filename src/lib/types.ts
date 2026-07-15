@@ -46,6 +46,24 @@ export interface Insight {
   actionLabel?: string;
   action?: InsightAction;
   dismissKey: string;
+  richData?: InsightRichData;
+}
+
+export interface InsightRichData {
+  streakMonths?: number;
+  budgetAmountCents?: number;
+  currentRate?: number;
+  targetRate?: number;
+  beforeAmount?: number;
+  afterAmount?: number;
+  paceMonthly?: number;
+  avgMonthly?: number;
+  runwayMonths?: number;
+  projectedSavings?: number;
+  overCount?: number;
+  avgMonthlyCents?: number;
+  potentialLabel?: string;
+  potentialValue?: number;
 }
 
 export interface Account {
