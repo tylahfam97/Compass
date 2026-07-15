@@ -155,7 +155,9 @@ export default function TransactionsPage() {
     const a = document.createElement("a");
     a.href = url;
     a.download = `compass-${allTime ? "all-time" : month}.csv`;
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
