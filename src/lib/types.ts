@@ -23,7 +23,11 @@ export type InsightType =
   | "category_creep"
   | "year_end_projection"
   | "most_improved"
-  | "weekend_spending";
+  | "weekend_spending"
+  | "spending_velocity"
+  | "emergency_fund_runway"
+  | "bill_due_soon"
+  | "expense_ratio_drift";
 
 /** Category ID reserved for internal bank transfers — excluded from expense totals. */
 export const TRANSFER_CATEGORY_ID = 20;

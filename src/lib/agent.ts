@@ -642,6 +642,130 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     }
   }
 
+  // ── INSIGHT: spending_velocity ────────────────────────────────────────────
+  // Are we spending faster than normal so far this month?
+  {
+    const now = new Date();
+    const elapsed = now.getDate(); // days elapsed in current month
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    if (elapsed >= 5 && monthlySummaries.length >= 2) {
+      const [currentSpendRow] = await db.select<{ total: number }[]>(
+        `SELECT COALESCE(SUM(ABS(amount_cents)),0) as total
+         FROM transactions WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0
+           AND (category_id IS NULL OR category_id != 20)`,
+        [profileId, thisStart, thisEnd]
+      );
+      const currentSpend = currentSpendRow?.total ?? 0;
+      const avgMonthly = monthlySummaries.slice(1).reduce((s, m) => s + m.expenses, 0)
+        / Math.max(monthlySummaries.slice(1).length, 1);
+      const pacedMonthly = Math.round((currentSpend / elapsed) * daysInMonth);
+      const overshootPct = avgMonthly > 0
+        ? Math.round(((pacedMonthly - avgMonthly) / avgMonthly) * 100)
+        : 0;
+      if (avgMonthly > 5000 && pacedMonthly > avgMonthly * 1.15) {
+        insights.push({
+          id: `spending_velocity_${thisMonth}`,
+          type: "spending_velocity",
+          title: `Spending ${overshootPct}% above your normal pace this month`,
+          description: `${elapsed} days in: ${formatCents(currentSpend)} spent — on pace for ${formatCents(pacedMonthly)} vs your avg ${formatCents(avgMonthly)}.`,
+          severity: overshootPct >= 30 ? "warning" : "info",
+          dismissKey: `spending_velocity_${thisMonth}`,
+        });
+      }
+    }
+  }
+
+  // ── INSIGHT: emergency_fund_runway ───────────────────────────────────────
+  if (balanceRow?.balance_cents != null && balanceRow.balance_cents > 0) {
+    const avgExp = monthlySummaries.length > 0
+      ? monthlySummaries.reduce((s, m) => s + m.expenses, 0) / monthlySummaries.length
+      : 0;
+    if (avgExp > 0) {
+      const runway = balanceRow.balance_cents / avgExp;
+      const runwayStr = runway < 1
+        ? `less than 1 month`
+        : runway < 6
+        ? `~${runway.toFixed(1)} months`
+        : `${Math.floor(runway)} months`;
+      insights.push({
+        id: `emergency_fund_runway_${balanceRow.date}`,
+        type: "emergency_fund_runway",
+        title: `Your balance covers ${runwayStr} of expenses`,
+        description: `Balance: ${formatCents(balanceRow.balance_cents)} · Avg monthly spend: ${formatCents(avgExp)}.${runway < 3 ? " Financial advisors typically recommend 3–6 months." : runway >= 6 ? " You have a healthy emergency cushion." : ""}`,
+        severity: runway < 1 ? "warning" : runway < 3 ? "warning" : runway < 6 ? "info" : "success",
+        dismissKey: `emergency_fund_runway_${balanceRow.date}`,
+      });
+    }
+  }
+
+  // ── INSIGHT: bill_due_soon ────────────────────────────────────────────────
+  // Find recurring fixed expenses and predict next occurrence within 7 days
+  if (monthCount >= 2) {
+    const recurring = await db.select<{
+      description: string;
+      amount_cents: number;
+      last_date: string;
+      count: number;
+      span_days: number;
+    }[]>(
+      `SELECT description, amount_cents, MAX(date) as last_date,
+              COUNT(*) as count,
+              CAST(MAX(julianday(date)) - MIN(julianday(date)) AS INTEGER) as span_days
+       FROM transactions
+       WHERE profile_id=? AND amount_cents<0 AND amount_cents<-500
+         AND (category_id IS NULL OR category_id NOT IN (15, 20))
+       GROUP BY description, amount_cents
+       HAVING count >= 2 AND span_days >= 10
+       ORDER BY ABS(amount_cents) DESC LIMIT 10`,
+      [profileId]
+    );
+    const today = new Date();
+    for (const r of recurring) {
+      const avgIntervalDays = r.span_days / (r.count - 1);
+      if (avgIntervalDays < 5 || avgIntervalDays > 40) continue; // skip daily or very infrequent
+      const lastDate = new Date(r.last_date);
+      const nextDate = new Date(lastDate);
+      nextDate.setDate(lastDate.getDate() + Math.round(avgIntervalDays));
+      const daysUntil = Math.round((nextDate.getTime() - today.getTime()) / 86_400_000);
+      if (daysUntil >= 0 && daysUntil <= 7) {
+        insights.push({
+          id: `bill_due_${r.description.slice(0, 20)}_${thisMonth}`,
+          type: "bill_due_soon",
+          title: daysUntil === 0
+            ? `${truncate(r.description, 30)} due today`
+            : `${truncate(r.description, 30)} due in ${daysUntil} day${daysUntil > 1 ? "s" : ""}`,
+          description: `${formatCents(Math.abs(r.amount_cents))} · Recurs every ~${Math.round(avgIntervalDays)} days based on ${r.count} past charges.`,
+          severity: "info",
+          dismissKey: `bill_due_${r.description.slice(0, 20)}_${thisMonth}`,
+        });
+        break; // max 1 bill-due insight to avoid flooding
+      }
+    }
+  }
+
+  // ── INSIGHT: expense_ratio_drift ─────────────────────────────────────────
+  // Is the expense/income ratio getting worse over time?
+  if (monthCount >= 6) {
+    const recent3 = monthlySummaries.slice(0, 3).filter((m) => m.income > 0);
+    const older3  = monthlySummaries.slice(3, 6).filter((m) => m.income > 0);
+    if (recent3.length >= 2 && older3.length >= 2) {
+      const recentRatio = recent3.reduce((s, m) => s + m.expenses / m.income, 0) / recent3.length;
+      const olderRatio  = older3.reduce((s, m) => s + m.expenses / m.income, 0) / older3.length;
+      const driftPts = Math.round((recentRatio - olderRatio) * 100); // percentage points
+      if (driftPts >= 8) {
+        const recentSavingsPct = Math.round((1 - recentRatio) * 100);
+        insights.push({
+          id: `expense_ratio_drift_${thisMonth}`,
+          type: "expense_ratio_drift",
+          title: `Savings margin compressed by ${driftPts} points over 6 months`,
+          description: `Your expenses now take ${Math.round(recentRatio * 100)}% of income (was ${Math.round(olderRatio * 100)}% 3–6 months ago). Current savings rate: ${recentSavingsPct}%.`,
+          severity: driftPts >= 15 ? "warning" : "info",
+          dismissKey: `expense_ratio_drift_${thisMonth}`,
+        });
+      }
+    }
+  }
+
   // ── Sort: warnings → info → success ─────────────────────────────────────
   const order = { warning: 0, info: 1, success: 2 };
   return insights.sort((a, b) => order[a.severity] - order[b.severity]);

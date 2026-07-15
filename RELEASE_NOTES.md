@@ -4,7 +4,45 @@
 
 ## Check us out at https://privatecompass.app
 
-## Compass 0.5.2 — Smarter Insights & Holistic Goals
+## Compass 0.5.3 — Insights Overhaul & Window Improvements
+
+### App: Opens Maximized
+Compass now opens in a maximized window by default, giving your data the most canvas possible. It still respects the minimum size constraints and can be resized freely.
+
+### Insights: Completely Redesigned Cards
+Insight cards now use **Lucide icons** instead of ASCII symbols, giving warnings, observations, and wins a distinct visual identity. Warning cards are heavier — a wider colored left border and bolder title make them easy to spot at a glance. Action CTAs (**"Set budget →"**, **"Set goal →"**) are now proper pill buttons rather than small text links.
+
+### Insights: Financial Health Summary (new top panel)
+A **Financial Health Summary** panel now appears above the insight list on every visit, showing at a glance:
+- Average monthly income and spend
+- Average savings rate with a health label (Healthy / Building / Below target)
+- Top spending category
+- An inline **12-month savings rate sparkline** in the same panel
+
+This gives you immediate orientation before reading the individual insights.
+
+### Insights: Count Badges + Last-Updated Timestamp
+Each severity group (**Needs attention**, **Observations**, **Wins**) now shows a count badge. The page subtitle shows the exact time the analysis was last run, so you know the data is fresh after an import.
+
+### Insights: Collapsible Secondary Sections
+**Category Trends** and **Subscription Inventory** are now collapsible panels — collapsed by default so the insight cards and health summary get full focus. Your expand/collapse preference is remembered per session.
+
+### Insights: Celebrations
+When all insights are dismissed or there’s nothing to flag, the page now shows a proper all-clear state instead of a flat text message.
+
+### 4 New Insight Types
+
+#### Spending Velocity
+If you’re spending faster than your normal monthly pace mid-month, a warning surfaces: *“On pace for $X this month — Y% above your avg $Z.”* Catches runaway spending early rather than at month-end.
+
+#### Emergency Fund Runway
+If you have balance data imported, Compass now shows how many months of expenses your current balance covers. Under 3 months triggers a warning; 6+ months shows a success card.
+
+#### Bill Due Soon
+Detects recurring fixed expenses (same description, same amount, 2+ occurrences) and predicts the next due date. If a recurring charge is expected within 7 days, you get an early heads-up so you don’t get caught off-guard.
+
+#### Expense Ratio Drift
+Compares your expense/income ratio over the last 3 months vs the 3 months before that. If your savings margin has compressed by 8+ percentage points, a warning flags that expenses are eating into income faster than before.
 
 ### Insights: Transfers Excluded
 Internal bank transfers (same-institution moves, Zelle, Venmo, Cash App tagged as Transfers) no longer appear in the **Ghost Subscriptions** or **Frequent Small Purchases** insights. Recurring transfers were showing as phantom subscriptions — this is now fixed.
