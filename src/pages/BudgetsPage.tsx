@@ -19,11 +19,9 @@ interface BudgetRow {
   spent_cents: number;
   earned_cents: number;
   is_global: number;
-  /** Daily amounts Mon-Sun in cents for the current week */
   weeklyAmounts: number[];
 }
 
-/** localStorage key for view mode per profile */
 function viewModeKey(profileId: number) {
   return `compass_budget_view_${profileId}`;
 }
@@ -36,18 +34,14 @@ function monthBounds(ym: string): [string, string] {
   ];
 }
 
-/** Start (Mon) and end (Sun+1) of the current ISO week as ISO strings */
 function currentWeekBounds(): [string, string] {
   const now = new Date();
-  const dow = (now.getDay() + 6) % 7; // 0=Mon
+  const dow = (now.getDay() + 6) % 7;
   const mon = new Date(now);
   mon.setDate(now.getDate() - dow);
   const sun = new Date(mon);
   sun.setDate(mon.getDate() + 7);
-  return [
-    mon.toISOString().split("T")[0],
-    sun.toISOString().split("T")[0],
-  ];
+  return [mon.toISOString().split("T")[0], sun.toISOString().split("T")[0]];
 }
 
 function daysInMonth(ym: string): number {
@@ -63,6 +57,52 @@ function daysElapsed(ym: string): number {
   return now.getDate();
 }
 
+interface ScopeToggleProps {
+  isGlobal: boolean;
+  onToggle: () => void;
+  size?: "sm" | "md";
+}
+function ScopeToggle({ isGlobal, onToggle, size = "md" }: ScopeToggleProps) {
+  const trackW = size === "sm" ? 40 : 52;
+  const trackH = size === "sm" ? 22 : 28;
+  const thumbS = size === "sm" ? 16 : 22;
+  const travel = trackW - 6 - thumbS;
+  return (
+    <button
+      role="switch"
+      aria-checked={isGlobal}
+      onClick={onToggle}
+      style={{
+        width: trackW,
+        height: trackH,
+        borderRadius: trackH / 2,
+        padding: 3,
+        backgroundColor: isGlobal ? "#C08A1C" : "#3b82f6",
+        transition: "background-color 0.3s",
+        cursor: "pointer",
+        display: "inline-flex",
+        alignItems: "center",
+        border: "none",
+        flexShrink: 0,
+        boxShadow: "inset 0 1px 3px rgba(0,0,0,0.18)",
+      }}
+    >
+      <div
+        style={{
+          width: thumbS,
+          height: thumbS,
+          borderRadius: thumbS / 2,
+          backgroundColor: "white",
+          transition: "transform 0.25s cubic-bezier(0.4,0,0.2,1)",
+          transform: isGlobal ? `translateX(${travel}px)` : "translateX(0)",
+          boxShadow: "0 1px 4px rgba(0,0,0,0.28)",
+          flexShrink: 0,
+        }}
+      />
+    </button>
+  );
+}
+
 export default function BudgetsPage() {
   const [month, setMonth] = useAutoMonth();
   const [budgets, setBudgets] = useState<BudgetRow[]>([]);
@@ -71,24 +111,20 @@ export default function BudgetsPage() {
   const { activeProfile, profiles, unlockedIds, unlockProfile } = useProfileStore();
   const profileId = activeProfile?.id ?? 1;
 
-  // View mode: "profile" | "global" -- persisted in localStorage per profile
   const [viewMode, setViewMode] = useState<"profile" | "global">(() => {
     const saved = localStorage.getItem(viewModeKey(activeProfile?.id ?? 1));
     return saved === "global" ? "global" : "profile";
   });
 
-  // New budget form state
   const [formCatId, setFormCatId] = useState<number>(0);
   const [formAmount, setFormAmount] = useState("");
   const [formPeriod, setFormPeriod] = useState<"monthly" | "weekly">("monthly");
   const [formIsGlobal, setFormIsGlobal] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // PIN unlock sequence for global view
   const [pinQueue, setPinQueue] = useState<Profile[]>([]);
   const [pinQueueIdx, setPinQueueIdx] = useState(0);
 
-  // Re-sync viewMode from localStorage whenever the active profile changes
   useEffect(() => {
     const saved = localStorage.getItem(viewModeKey(profileId));
     setViewMode(saved === "global" ? "global" : "profile");
@@ -100,16 +136,10 @@ export default function BudgetsPage() {
     setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
   };
 
-  /** IDs of profiles whose transaction data is visible (no PIN, already unlocked, or active) */
   const unlockedProfileIds = useMemo(
     () =>
       profiles
-        .filter(
-          (p) =>
-            !p.pin_hash ||
-            p.id === profileId ||
-            unlockedIds.has(p.id)
-        )
+        .filter((p) => !p.pin_hash || p.id === profileId || unlockedIds.has(p.id))
         .map((p) => p.id),
     [profiles, profileId, unlockedIds]
   );
@@ -126,7 +156,6 @@ export default function BudgetsPage() {
     if (viewMode === "global") {
       const ids = unlockedProfileIds.length > 0 ? unlockedProfileIds : [profileId];
       const ph = ids.map(() => "?").join(",");
-
       rawBudgets = await db.select<Omit<BudgetRow, "weeklyAmounts">[]>(
         `SELECT b.id, b.category_id, c.parent_id as category_parent_id,
                 c.name as category_name, c.color as category_color,
@@ -138,15 +167,11 @@ export default function BudgetsPage() {
          LEFT JOIN transactions t ON t.category_id=b.category_id
            AND t.date>=? AND t.date<? AND t.profile_id IN (${ph})
          WHERE b.is_global=1
-         GROUP BY b.id
-         ORDER BY c.name`,
+         GROUP BY b.id ORDER BY c.name`,
         [start, end, ...ids]
       );
-
       weeklyRows = await db.select<{ category_id: number; dow: number; total: number }[]>(
-        `SELECT category_id,
-                (strftime('%w', date) + 6) % 7 as dow,
-                SUM(ABS(amount_cents)) as total
+        `SELECT category_id, (strftime('%w',date)+6)%7 as dow, SUM(ABS(amount_cents)) as total
          FROM transactions
          WHERE date>=? AND date<? AND profile_id IN (${ph}) AND amount_cents<0
          GROUP BY category_id, dow`,
@@ -163,16 +188,12 @@ export default function BudgetsPage() {
          JOIN categories c ON b.category_id=c.id
          LEFT JOIN transactions t ON t.category_id=b.category_id
            AND t.date>=? AND t.date<? AND t.profile_id=?
-         WHERE b.profile_id=? AND b.is_global=0
-         GROUP BY b.id
-         ORDER BY c.name`,
+         WHERE b.profile_id=?
+         GROUP BY b.id ORDER BY c.name`,
         [start, end, profileId, profileId]
       );
-
       weeklyRows = await db.select<{ category_id: number; dow: number; total: number }[]>(
-        `SELECT category_id,
-                (strftime('%w', date) + 6) % 7 as dow,
-                SUM(ABS(amount_cents)) as total
+        `SELECT category_id, (strftime('%w',date)+6)%7 as dow, SUM(ABS(amount_cents)) as total
          FROM transactions
          WHERE date>=? AND date<? AND profile_id=? AND amount_cents<0
          GROUP BY category_id, dow`,
@@ -185,27 +206,18 @@ export default function BudgetsPage() {
       if (!weeklyMap[row.category_id]) weeklyMap[row.category_id] = Array(7).fill(0);
       weeklyMap[row.category_id][row.dow] = row.total;
     }
-
     setBudgets(
-      rawBudgets.map((b) => ({
-        ...b,
-        weeklyAmounts: weeklyMap[b.category_id] ?? Array(7).fill(0),
-      }))
+      rawBudgets.map((b) => ({ ...b, weeklyAmounts: weeklyMap[b.category_id] ?? Array(7).fill(0) }))
     );
     setLoading(false);
   }, [month, profileId, viewMode, unlockedProfileIds]);
 
-  useEffect(() => {
-    loadBudgets().catch(console.error);
-  }, [loadBudgets]);
+  useEffect(() => { loadBudgets().catch(console.error); }, [loadBudgets]);
 
   useEffect(() => {
-    if (categories.length > 0 && formCatId === 0) {
-      setFormCatId(categories[0].id);
-    }
+    if (categories.length > 0 && formCatId === 0) setFormCatId(categories[0].id);
   }, [categories, formCatId]);
 
-  /** Switch to global view -- prompt PIN for any locked+not-yet-unlocked profiles first */
   const handleSwitchToGlobal = () => {
     const locked = profiles.filter(
       (p) => p.pin_hash && p.id !== profileId && !unlockedIds.has(p.id)
@@ -224,7 +236,6 @@ export default function BudgetsPage() {
     setViewMode("profile");
   };
 
-  /** Advance through the PIN queue (success = pass id, skip = omit id) */
   const advancePinQueue = (unlockedId?: number) => {
     if (unlockedId !== undefined) unlockProfile(unlockedId);
     const next = pinQueueIdx + 1;
@@ -246,14 +257,7 @@ export default function BudgetsPage() {
     const [start] = monthBounds(month);
     await db.execute(
       "INSERT INTO budgets (category_id, amount_cents, period, start_date, profile_id, is_global) VALUES (?,?,?,?,?,?)",
-      [
-        formCatId,
-        Math.round(amount * 100),
-        formPeriod,
-        start,
-        formIsGlobal ? null : profileId,
-        formIsGlobal ? 1 : 0,
-      ]
+      [formCatId, Math.round(amount * 100), formPeriod, start, profileId, formIsGlobal ? 1 : 0]
     );
     setFormAmount("");
     setSaving(false);
@@ -269,36 +273,25 @@ export default function BudgetsPage() {
   const toggleBudgetScope = async (b: BudgetRow) => {
     const db = await getDb();
     if (b.is_global) {
-      await db.execute(
-        "UPDATE budgets SET is_global=0, profile_id=? WHERE id=?",
-        [profileId, b.id]
-      );
+      await db.execute("UPDATE budgets SET is_global=0, profile_id=? WHERE id=?", [profileId, b.id]);
     } else {
-      await db.execute(
-        "UPDATE budgets SET is_global=1, profile_id=NULL WHERE id=?",
-        [b.id]
-      );
+      await db.execute("UPDATE budgets SET is_global=1 WHERE id=?", [b.id]);
     }
     await loadBudgets();
   };
 
-  // Current PIN target during the unlock sequence
   const pinTarget =
-    pinQueue.length > 0 && pinQueueIdx < pinQueue.length
-      ? pinQueue[pinQueueIdx]
-      : null;
+    pinQueue.length > 0 && pinQueueIdx < pinQueue.length ? pinQueue[pinQueueIdx] : null;
 
-  // Profiles that are still locked while in global mode (shown in the notice banner)
   const lockedExcluded =
     viewMode === "global"
-      ? profiles.filter(
-          (p) => p.pin_hash && p.id !== profileId && !unlockedIds.has(p.id)
-        )
+      ? profiles.filter((p) => p.pin_hash && p.id !== profileId && !unlockedIds.has(p.id))
       : [];
+
+  const isGlobalActive = viewMode === "global";
 
   return (
     <>
-      {/* PIN unlock sequence modal */}
       {pinTarget && (
         <PinModal
           profile={pinTarget}
@@ -307,234 +300,247 @@ export default function BudgetsPage() {
         />
       )}
 
-      <div className="p-6 max-w-2xl space-y-6 mx-auto w-full">
-        {/* Header: title + view toggle + month nav */}
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-semibold">Budgets</h1>
-            <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">
-              Soft limits — no penalties, just awareness.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3 flex-wrap">
-            {/* Global / Profile view toggle */}
-            <div
-              className="flex rounded-lg border overflow-hidden text-xs font-semibold shrink-0"
-              style={{ height: "34px" }}
-            >
-              <button
-                onClick={handleSwitchToProfile}
-                style={{
-                  backgroundColor: viewMode === "profile" ? "#3b82f6" : undefined,
-                  color: viewMode === "profile" ? "#fff" : undefined,
-                  padding: "0 14px",
-                  transition: "background-color 0.15s, color 0.15s",
-                  whiteSpace: "nowrap",
-                }}
-                className={
-                  viewMode !== "profile"
-                    ? "text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] transition-colors"
-                    : ""
-                }
-              >
-                Profile
-              </button>
-              <button
-                onClick={handleSwitchToGlobal}
-                style={{
-                  backgroundColor: viewMode === "global" ? "#C08A1C" : undefined,
-                  color: viewMode === "global" ? "#fff" : undefined,
-                  padding: "0 14px",
-                  transition: "background-color 0.15s, color 0.15s",
-                  borderLeft: "1px solid hsl(var(--border))",
-                  whiteSpace: "nowrap",
-                }}
-                className={
-                  viewMode !== "global"
-                    ? "text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] transition-colors"
-                    : ""
-                }
-              >
-                Global
-              </button>
-            </div>
-
-            {/* Month navigation */}
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => navMonth(-1)}
-                aria-label="Previous month"
-                className="p-1.5 border rounded-lg text-base leading-none
-                           hover:bg-[hsl(var(--muted))] transition-colors"
-              >
-                ‹
-              </button>
-              <input
-                type="month"
-                value={month}
-                onChange={(e) => setMonth(e.target.value)}
-                className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))]
-                           text-[hsl(var(--foreground))]"
-              />
-              <button
-                onClick={() => navMonth(1)}
-                aria-label="Next month"
-                className="p-1.5 border rounded-lg text-base leading-none
-                           hover:bg-[hsl(var(--muted))] transition-colors"
-              >
-                ›
-              </button>
-            </div>
-          </div>
+      {/* Sticky page header */}
+      <div
+        className="sticky top-0 z-20 border-b px-8 py-4 flex items-center justify-between gap-6"
+        style={{ backgroundColor: "hsl(var(--background))", backdropFilter: "blur(8px)" }}
+      >
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Budgets</h1>
+          <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">
+            Soft limits — no penalties, just awareness.
+          </p>
         </div>
 
-        {/* Locked-profile warning in global mode */}
+        {/* Animated scope toggle */}
+        <div className="flex items-center gap-3 shrink-0">
+          <span
+            className="text-sm font-semibold select-none"
+            style={{
+              color: !isGlobalActive ? "#3b82f6" : "hsl(var(--muted-foreground))",
+              transition: "color 0.3s",
+            }}
+          >
+            Profile
+          </span>
+          <ScopeToggle
+            isGlobal={isGlobalActive}
+            onToggle={() => isGlobalActive ? handleSwitchToProfile() : handleSwitchToGlobal()}
+          />
+          <span
+            className="text-sm font-semibold select-none"
+            style={{
+              color: isGlobalActive ? "#C08A1C" : "hsl(var(--muted-foreground))",
+              transition: "color 0.3s",
+            }}
+          >
+            Global
+          </span>
+        </div>
+      </div>
+
+      {/* Scrollable content */}
+      <div className="max-w-3xl mx-auto px-8 py-8 space-y-6">
+
+        {/* Month navigation */}
+        <div className="flex items-center justify-end gap-1.5">
+          <button
+            onClick={() => navMonth(-1)}
+            aria-label="Previous month"
+            className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors"
+          >
+            ‹
+          </button>
+          <input
+            type="month"
+            value={month}
+            onChange={(e) => setMonth(e.target.value)}
+            className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
+          />
+          <button
+            onClick={() => navMonth(1)}
+            aria-label="Next month"
+            className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors"
+          >
+            ›
+          </button>
+        </div>
+
+        {/* Locked-profile warning */}
         {lockedExcluded.length > 0 && (
-          <div className="border border-amber-500/40 bg-amber-500/10 rounded-xl px-4 py-3 text-sm flex flex-col gap-2">
-            <p className="font-medium" style={{ color: "#b45309" }}>
-              {lockedExcluded.length === 1
-                ? "1 profile is PIN-locked"
-                : `${lockedExcluded.length} profiles are PIN-locked`}{" "}
-              — their transactions are excluded from global totals.
+          <div
+            className="rounded-2xl px-5 py-4 flex flex-col gap-3"
+            style={{ border: "1px solid rgba(245,158,11,0.35)", backgroundColor: "rgba(245,158,11,0.07)" }}
+          >
+            <p className="text-sm font-semibold" style={{ color: "#b45309" }}>
+              {lockedExcluded.length === 1 ? "1 profile is PIN-locked" : `${lockedExcluded.length} profiles are PIN-locked`}
+              {" "}— their transactions are excluded from global totals.
             </p>
             <div className="flex flex-wrap gap-2">
               {lockedExcluded.map((p) => (
                 <button
                   key={p.id}
-                  onClick={() => {
-                    setPinQueue([p]);
-                    setPinQueueIdx(0);
+                  onClick={() => { setPinQueue([p]); setPinQueueIdx(0); }}
+                  className="text-xs px-3 py-1.5 rounded-lg transition-colors"
+                  style={{
+                    border: "1px solid rgba(245,158,11,0.5)",
+                    color: "#92400e",
+                    backgroundColor: "transparent",
                   }}
-                  className="text-xs px-3 py-1 rounded-md border border-amber-500/60
-                             hover:bg-amber-500/20 transition-colors"
-                  style={{ color: "#92400e" }}
+                  onMouseOver={(e) => (e.currentTarget.style.backgroundColor = "rgba(245,158,11,0.12)")}
+                  onMouseOut={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
                 >
-                  🔒 Unlock {p.name}
+                  Lock {p.name}
                 </button>
               ))}
             </div>
           </div>
         )}
 
-        {/* Global mode info chip (all profiles unlocked) */}
-        {viewMode === "global" && lockedExcluded.length === 0 && (
+        {/* Global mode info banner */}
+        {isGlobalActive && lockedExcluded.length === 0 && (
           <div
-            className="border rounded-xl px-4 py-2.5 text-sm flex items-center gap-2"
-            style={{ borderColor: "#C08A1C55", backgroundColor: "#C08A1C12" }}
+            className="rounded-2xl px-5 py-3 flex items-center gap-3"
+            style={{ border: "1px solid rgba(192,138,28,0.35)", backgroundColor: "rgba(192,138,28,0.07)" }}
           >
-            <span className="font-medium" style={{ color: "#C08A1C" }}>
-              Global view
-            </span>
-            <span className="text-[hsl(var(--muted-foreground))]">
-              — budgets shared across all profiles
-              {profiles.length > 1 && `, aggregating ${profiles.length} profiles`}
-            </span>
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-base"
+              style={{ backgroundColor: "rgba(192,138,28,0.15)" }}
+            >
+              &#127760;
+            </div>
+            <div>
+              <p className="text-sm font-semibold" style={{ color: "#C08A1C" }}>Global view active</p>
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                Showing budgets shared across all profiles
+                {profiles.length > 1 ? ` — aggregating ${profiles.length} profiles` : ""}
+              </p>
+            </div>
           </div>
         )}
 
-        {/* Add budget form */}
-        <div className="border rounded-xl p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold">Add Budget</h2>
-            {/* Scope toggle */}
-            <div
-              className="flex rounded-lg border overflow-hidden text-xs font-semibold"
-              style={{ height: "28px" }}
-            >
-              <button
-                onClick={() => setFormIsGlobal(false)}
+        {/* Add Budget form */}
+        <div className="border rounded-2xl overflow-hidden">
+          <div className="px-6 py-4 border-b flex items-center justify-between">
+            <h2 className="font-semibold text-base">New Budget</h2>
+            <div className="flex items-center gap-2.5">
+              <span
+                className="text-xs font-semibold select-none"
                 style={{
-                  backgroundColor: !formIsGlobal ? "#3b82f6" : undefined,
-                  color: !formIsGlobal ? "#fff" : undefined,
-                  padding: "0 10px",
-                  transition: "background-color 0.15s, color 0.15s",
-                  whiteSpace: "nowrap",
+                  color: !formIsGlobal ? "#3b82f6" : "hsl(var(--muted-foreground))",
+                  transition: "color 0.3s",
                 }}
-                className={
-                  formIsGlobal
-                    ? "text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] transition-colors"
-                    : ""
-                }
               >
                 Profile
-              </button>
-              <button
-                onClick={() => setFormIsGlobal(true)}
+              </span>
+              <ScopeToggle
+                isGlobal={formIsGlobal}
+                onToggle={() => setFormIsGlobal((v) => !v)}
+                size="sm"
+              />
+              <span
+                className="text-xs font-semibold select-none"
                 style={{
-                  backgroundColor: formIsGlobal ? "#C08A1C" : undefined,
-                  color: formIsGlobal ? "#fff" : undefined,
-                  padding: "0 10px",
-                  transition: "background-color 0.15s, color 0.15s",
-                  borderLeft: "1px solid hsl(var(--border))",
-                  whiteSpace: "nowrap",
+                  color: formIsGlobal ? "#C08A1C" : "hsl(var(--muted-foreground))",
+                  transition: "color 0.3s",
                 }}
-                className={
-                  !formIsGlobal
-                    ? "text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] transition-colors"
-                    : ""
-                }
               >
                 Global
+              </span>
+            </div>
+          </div>
+          <div className="px-6 py-5">
+            <div className="flex gap-3 flex-wrap items-end">
+              <div className="flex-1 min-w-40 space-y-1.5">
+                <label className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Category</label>
+                <select
+                  value={formCatId}
+                  onChange={(e) => setFormCatId(parseInt(e.target.value))}
+                  className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
+                >
+                  {categories
+                    .filter((c) => !c.is_system || c.id !== 15)
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                </select>
+              </div>
+              <div className="w-36 space-y-1.5">
+                <label className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Amount</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="0.01"
+                  placeholder="$0.00"
+                  value={formAmount}
+                  onChange={(e) => setFormAmount(e.target.value)}
+                  className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]"
+                />
+              </div>
+              <div className="w-32 space-y-1.5">
+                <label className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Period</label>
+                <select
+                  value={formPeriod}
+                  onChange={(e) => setFormPeriod(e.target.value as "monthly" | "weekly")}
+                  className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
+                >
+                  <option value="monthly">Monthly</option>
+                  <option value="weekly">Weekly</option>
+                </select>
+              </div>
+              <button
+                onClick={addBudget}
+                disabled={saving || !formAmount}
+                className="px-6 py-2 rounded-lg text-sm font-semibold disabled:opacity-40 transition-opacity hover:opacity-90"
+                style={{
+                  backgroundColor: formIsGlobal ? "#C08A1C" : "hsl(var(--primary))",
+                  color: "hsl(var(--primary-foreground))",
+                  paddingTop: "0.5rem",
+                  paddingBottom: "0.5rem",
+                  marginBottom: "0",
+                  alignSelf: "flex-end",
+                }}
+              >
+                {saving ? "Saving..." : "Add"}
               </button>
             </div>
           </div>
-          <div className="flex gap-3 flex-wrap">
-            <select
-              value={formCatId}
-              onChange={(e) => setFormCatId(parseInt(e.target.value))}
-              className="border rounded-lg px-3 py-2 text-sm flex-1 min-w-36
-                         bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
-            >
-              {categories
-                .filter((c) => !c.is_system || c.id !== 15)
-                .map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-            </select>
-            <input
-              type="number"
-              min="1"
-              step="0.01"
-              placeholder="Amount ($)"
-              value={formAmount}
-              onChange={(e) => setFormAmount(e.target.value)}
-              className="border rounded-lg px-3 py-2 text-sm w-36
-                         bg-[hsl(var(--background))] text-[hsl(var(--foreground))]
-                         placeholder:text-[hsl(var(--muted-foreground))]"
-            />
-            <select
-              value={formPeriod}
-              onChange={(e) => setFormPeriod(e.target.value as "monthly" | "weekly")}
-              className="border rounded-lg px-3 py-2 text-sm
-                         bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
-            >
-              <option value="monthly">Monthly</option>
-              <option value="weekly">Weekly</option>
-            </select>
-            <button
-              onClick={addBudget}
-              disabled={saving || !formAmount}
-              className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
-                         rounded-lg text-sm font-medium disabled:opacity-50 hover:opacity-90
-                         transition-opacity"
-            >
-              {saving ? "Saving..." : "Add"}
-            </button>
-          </div>
         </div>
 
-        {/* Budget list */}
-        {loading && <p className="text-[hsl(var(--muted-foreground))]">Loading...</p>}
-
-        {!loading && budgets.length === 0 && (
-          <p className="text-[hsl(var(--muted-foreground))] text-center py-8">
-            {viewMode === "global"
-              ? "No global budgets yet. Add one above using the Global toggle."
-              : "No budgets set. Add one above to start tracking."}
-          </p>
+        {/* Loading state */}
+        {loading && (
+          <div className="flex items-center justify-center py-16">
+            <div className="flex flex-col items-center gap-3 text-[hsl(var(--muted-foreground))]">
+              <div
+                className="w-8 h-8 rounded-full border-2 border-current border-t-transparent animate-spin"
+                style={{ borderTopColor: "transparent" }}
+              />
+              <p className="text-sm">Loading budgets...</p>
+            </div>
+          </div>
         )}
 
+        {/* Empty state */}
+        {!loading && budgets.length === 0 && (
+          <div className="flex flex-col items-center gap-3 py-20 text-center">
+            <div
+              className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl mb-1"
+              style={{ backgroundColor: isGlobalActive ? "rgba(192,138,28,0.1)" : "hsl(var(--muted))" }}
+            >
+              &#128176;
+            </div>
+            <p className="font-semibold text-[hsl(var(--foreground))]">
+              {isGlobalActive ? "No global budgets yet" : "No budgets yet"}
+            </p>
+            <p className="text-sm text-[hsl(var(--muted-foreground))] max-w-xs">
+              {isGlobalActive
+                ? "Create a budget above and toggle it to Global to track spending across all profiles."
+                : "Set your first spending limit above to start tracking your progress."}
+            </p>
+          </div>
+        )}
+
+        {/* Budget cards */}
         {!loading && budgets.map((b) => {
           const isIncome = b.category_id === 1 || b.category_parent_id === 1;
           const displayCents = isIncome ? b.earned_cents : b.spent_cents;
@@ -549,109 +555,149 @@ export default function BudgetsPage() {
           const elapsed = daysElapsed(month);
           const remaining = totalDays - elapsed;
           const dailyLimit = b.amount_cents / totalDays;
-          const dailyRemaining = remaining > 0
-            ? (b.amount_cents - displayCents) / remaining
-            : 0;
-          const projectedEnd = elapsed > 0
-            ? Math.round((displayCents / elapsed) * totalDays)
-            : 0;
+          const dailyRemaining = remaining > 0 ? (b.amount_cents - displayCents) / remaining : 0;
+          const projectedEnd = elapsed > 0 ? Math.round((displayCents / elapsed) * totalDays) : 0;
           const projectedOver = !isIncome && projectedEnd > b.amount_cents;
           const projectedOverBy = projectedEnd - b.amount_cents;
 
-          const barColor = over ? "#ef4444" : b.is_global ? "#C08A1C" : b.category_color;
+          const accentColor = over ? "#ef4444" : b.is_global ? "#C08A1C" : b.category_color;
 
           return (
-            <div key={b.id} className="border rounded-xl p-5">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span
-                    className="w-3 h-3 rounded-full shrink-0"
-                    style={{ backgroundColor: b.category_color }}
+            <div
+              key={b.id}
+              className="group border rounded-2xl overflow-hidden"
+              style={{ borderLeft: `4px solid ${accentColor}` }}
+            >
+              <div className="px-6 pt-5 pb-4">
+                {/* Card header row */}
+                <div className="flex items-start justify-between gap-4 mb-4">
+                  <div className="flex items-center gap-2.5 flex-wrap min-w-0">
+                    <span
+                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                      style={{ backgroundColor: b.category_color }}
+                    />
+                    <span className="font-semibold text-base">{b.category_name}</span>
+                    <span className="text-xs text-[hsl(var(--muted-foreground))] capitalize">
+                      {b.period}
+                    </span>
+                    {b.is_global ? (
+                      <span
+                        className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                        style={{ backgroundColor: "rgba(192,138,28,0.15)", color: "#C08A1C" }}
+                      >
+                        Global
+                      </span>
+                    ) : (
+                      <span
+                        className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                        style={{ backgroundColor: "rgba(59,130,246,0.12)", color: "#3b82f6" }}
+                      >
+                        Profile
+                      </span>
+                    )}
+                    {projectedOver && remaining > 0 && (
+                      <span className="text-xs font-semibold text-red-500">
+                        +{formatCurrency(projectedOverBy)} projected over
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Action buttons — always visible but subtle */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => toggleBudgetScope(b)}
+                      title={b.is_global ? "Make profile-specific" : "Make global"}
+                      className="text-xs px-2.5 py-1 rounded-lg border transition-all opacity-0 group-hover:opacity-100"
+                      style={{
+                        color: b.is_global ? "#3b82f6" : "#C08A1C",
+                        borderColor: b.is_global ? "rgba(59,130,246,0.3)" : "rgba(192,138,28,0.3)",
+                        backgroundColor: "transparent",
+                      }}
+                      onMouseOver={(e) => {
+                        e.currentTarget.style.backgroundColor = b.is_global
+                          ? "rgba(59,130,246,0.08)"
+                          : "rgba(192,138,28,0.08)";
+                      }}
+                      onMouseOut={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
+                    >
+                      {b.is_global ? "↓ Profile" : "↑ Global"}
+                    </button>
+                    <button
+                      onClick={() => deleteBudget(b.id)}
+                      className="text-xs px-2.5 py-1 rounded-lg border transition-all opacity-0 group-hover:opacity-100"
+                      style={{ color: "#ef4444", borderColor: "rgba(239,68,68,0.3)", backgroundColor: "transparent" }}
+                      onMouseOver={(e) => { e.currentTarget.style.backgroundColor = "rgba(239,68,68,0.07)"; }}
+                      onMouseOut={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+
+                {/* Progress bar */}
+                <div className="relative h-2.5 rounded-full bg-[hsl(var(--muted))] overflow-hidden mb-3">
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${pct}%`,
+                      backgroundColor: accentColor,
+                      transition: "width 0.5s cubic-bezier(0.4,0,0.2,1)",
+                    }}
                   />
-                  <span className="font-medium">{b.category_name}</span>
-                  <span className="text-xs text-[hsl(var(--muted-foreground))] capitalize">
-                    ({b.period})
+                </div>
+
+                {/* Amounts row */}
+                <div className="flex items-baseline justify-between text-sm">
+                  <span
+                    className="font-medium"
+                    style={{
+                      color: over ? "#ef4444" : under ? "#f97316" : "hsl(var(--muted-foreground))",
+                    }}
+                  >
+                    {formatCurrency(displayCents)}{" "}
+                    <span className="font-normal">{displayLabel}</span>
+                    {over && (
+                      <span className="ml-1.5 text-xs font-semibold text-red-500">over budget</span>
+                    )}
+                    {under && (
+                      <span className="ml-1.5 text-xs font-semibold text-orange-500">below target</span>
+                    )}
                   </span>
-                  {b.is_global ? (
-                    <span
-                      className="text-xs px-1.5 py-0.5 rounded font-medium"
-                      style={{ backgroundColor: "#C08A1C22", color: "#C08A1C" }}
-                    >
-                      Global
-                    </span>
-                  ) : (
-                    <span
-                      className="text-xs px-1.5 py-0.5 rounded font-medium"
-                      style={{ backgroundColor: "#3b82f622", color: "#3b82f6" }}
-                    >
-                      Profile
-                    </span>
-                  )}
+                  <span className="text-[hsl(var(--muted-foreground))] tabular-nums">
+                    {isIncome ? "Target" : "Limit"}: {formatCurrency(b.amount_cents)}
+                    <span className="ml-2 font-semibold" style={{ color: accentColor }}>{pct}%</span>
+                  </span>
                 </div>
-                <div className="flex items-center gap-3 shrink-0">
-                  {projectedOver && remaining > 0 && (
-                    <span className="text-xs text-red-500 font-medium hidden sm:inline">
-                      Projected +{formatCurrency(projectedOverBy)} over
-                    </span>
-                  )}
-                  <button
-                    onClick={() => toggleBudgetScope(b)}
-                    title={b.is_global ? "Make profile-specific" : "Make global"}
-                    className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]
-                               transition-colors whitespace-nowrap"
+
+                {/* On-pace projection */}
+                {!isIncome && elapsed > 0 && projectedEnd > 0 && (
+                  <p
+                    className="text-xs mt-2"
+                    style={{
+                      color: projectedOver
+                        ? over ? "#ef4444" : "#f59e0b"
+                        : "hsl(var(--muted-foreground))",
+                      fontWeight: projectedOver ? 500 : 400,
+                    }}
                   >
-                    {b.is_global ? "↓ Profile" : "↑ Global"}
-                  </button>
-                  <button
-                    onClick={() => deleteBudget(b.id)}
-                    className="text-xs text-[hsl(var(--muted-foreground))] hover:text-red-500
-                               transition-colors"
-                  >
-                    Remove
-                  </button>
-                </div>
+                    On pace for {formatCurrency(projectedEnd)} by month-end
+                    {projectedOver && !over && " — approaching limit"}
+                  </p>
+                )}
               </div>
 
-              <div className="h-3 rounded-full bg-[hsl(var(--muted))] overflow-hidden mb-2">
-                <div
-                  className="h-full rounded-full transition-all"
-                  style={{ width: `${pct}%`, backgroundColor: barColor }}
-                />
-              </div>
-
-              <div className="flex justify-between text-sm mb-1">
-                <span className={
-                  over ? "text-red-500 font-medium"
-                  : under ? "text-orange-500 font-medium"
-                  : "text-[hsl(var(--muted-foreground))]"
-                }>
-                  {formatCurrency(displayCents)} {displayLabel}
-                  {over && " — over budget"}
-                  {under && " — below target"}
-                </span>
-                <span className="text-[hsl(var(--muted-foreground))]">
-                  {isIncome ? "Target:" : "Limit:"} {formatCurrency(b.amount_cents)} · {pct}%
-                </span>
-              </div>
-
-              {!isIncome && elapsed > 0 && projectedEnd > 0 && (
-                <p className={`text-xs mb-3 ${
-                  projectedOver
-                    ? over ? "text-red-500 font-medium" : "text-amber-500 font-medium"
-                    : "text-[hsl(var(--muted-foreground))]"
-                }`}>
-                  On pace for {formatCurrency(projectedEnd)} by month-end
-                  {projectedOver && !over && " — approaching limit"}
-                </p>
-              )}
-
+              {/* Footer: daily remaining + weekly bar */}
               {!isIncome && remaining > 0 && (
-                <div className="flex items-end justify-between gap-4 pt-2 border-t">
+                <div
+                  className="px-6 py-3 flex items-center justify-between gap-4 border-t"
+                  style={{ backgroundColor: "hsl(var(--muted)/0.4)" }}
+                >
                   <div>
-                    <p className="text-xs text-[hsl(var(--muted-foreground))]">Daily remaining</p>
-                    <p className={`text-sm font-semibold ${
-                      dailyRemaining < 0 ? "text-red-500" : "text-[hsl(var(--foreground))]"
-                    }`}>
+                    <p className="text-xs text-[hsl(var(--muted-foreground))] mb-0.5">Daily remaining</p>
+                    <p
+                      className="text-sm font-semibold"
+                      style={{ color: dailyRemaining < 0 ? "#ef4444" : "hsl(var(--foreground))" }}
+                    >
                       {dailyRemaining < 0
                         ? `Over by ${formatCurrency(Math.abs(dailyRemaining))}/day`
                         : `${formatCurrency(Math.max(0, dailyRemaining))}/day`}
@@ -668,6 +714,9 @@ export default function BudgetsPage() {
             </div>
           );
         })}
+
+        {/* Bottom padding */}
+        <div className="h-8" />
       </div>
     </>
   );
