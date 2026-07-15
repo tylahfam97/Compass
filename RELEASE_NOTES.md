@@ -1,6 +1,6 @@
 # Created by @tylahfam97 
 
-Hello!
+# Hello! Another release just dropped 🧭
 
 ## Compass 0.5.0 - Smart Categorization & Import Overhaul
 

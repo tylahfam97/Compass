@@ -41,6 +41,7 @@ export default function TransactionsPage() {
   const [rows, setRows] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDragOver, setIsDragOver] = useState(false);
+  const dragCounterRef = useRef(0);
   const monthInputRef = useRef<HTMLInputElement>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [catModalOpen, setCatModalOpen] = useState(false);
@@ -180,6 +181,7 @@ export default function TransactionsPage() {
 
   const handlePageDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    dragCounterRef.current = 0;
     setIsDragOver(false);
     const files = Array.from(e.dataTransfer.files).filter((f) => f.name.endsWith(".csv"));
     if (files.length === 0) return;
@@ -187,17 +189,32 @@ export default function TransactionsPage() {
     navigate("/import");
   };
 
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current++;
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = () => {
+    dragCounterRef.current--;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDragOver(false);
+    }
+  };
+
   return (
     <div
       className="p-6 flex flex-col h-full relative"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={(e) => e.preventDefault()}
       onDrop={handlePageDrop}
-      onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false); }}
     >
       {/* CSV drop overlay */}
       {isDragOver && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center
-                        bg-[hsl(var(--background)/0.9)] border-2 border-dashed
+                        bg-black/20 backdrop-blur-sm border-2 border-dashed
                         border-[hsl(var(--primary))] rounded-xl pointer-events-none">
           <div className="text-5xl mb-3">📄</div>
           <p className="font-semibold text-[hsl(var(--primary))] text-lg">Drop CSV to import</p>
