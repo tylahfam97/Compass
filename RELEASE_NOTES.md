@@ -54,5 +54,20 @@ Dismiss buttons are invisible at rest and appear only on hover — reducing clut
 ### Gradient Sparkline
 The savings rate sparkline is now an `AreaChart` with a gradient fill under the curve, no axis lines, and more height — feels like a financial analytics tool, not a debug chart.
 
+### Type-Specific Icons for Instant Scannability
+Instead of a single icon per severity group, each insight type now renders its own meaningful icon in the accordion rows and spotlight cards:
+- **Target** — budget discipline (budget gaps, over/under-budget streaks)
+- **Percent (%)** — rate-based insights (savings rate, expense ratio drift, weekend spending %)
+- **TrendingUp / TrendingDown** — directional spend trends (category creep, unusual spikes, most improved)
+- **Zap** — spending velocity / pace alerts
+- **RefreshCw** — recurring charges and subscriptions
+- **ShoppingBag** — merchant and delivery spend
+- **DollarSign** — imminent bills and cost events
+- **Calendar** — timing-based insights (paycheck prediction, income irregularity)
+- **Shield** — account safety (emergency fund runway)
+- **AlertTriangle** — critical bank alerts (overdraft)
+
+Scanning a list of 8+ insights is now much faster — the icon tells you the category before you read the title.
+
 ### Cleaner KPI Strip
 The Financial Health Summary uses generous padding, `tracking-widest` uppercase labels, and larger bold values — luxury whitespace.
