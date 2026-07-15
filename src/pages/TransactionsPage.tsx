@@ -150,15 +150,28 @@ export default function TransactionsPage() {
       ].join(",")
     );
     const csv = [header, ...lines].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `compass-${allTime ? "all-time" : month}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const suggestedName = `compass-${allTime ? "all-time" : month}.csv`;
+
+    // Use the native File System Access API (available in WebView2 / Chromium).
+    // This opens the OS save-file dialog so the user can choose location and name.
+    try {
+      const handle = await (window as unknown as {
+        showSaveFilePicker: (opts: unknown) => Promise<{
+          createWritable: () => Promise<{ write: (data: string) => Promise<void>; close: () => Promise<void> }>;
+        }>;
+      }).showSaveFilePicker({
+        suggestedName,
+        types: [{ description: "CSV file", accept: { "text/csv": [".csv"] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(csv);
+      await writable.close();
+    } catch (err: unknown) {
+      // AbortError = user dismissed the dialog — that's fine, do nothing.
+      if ((err as { name?: string })?.name !== "AbortError") {
+        console.error("Export failed:", err);
+      }
+    }
   };
 
   const runAutoCategorize = async (mode: "uncategorized" | "all") => {
