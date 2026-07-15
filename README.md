@@ -200,7 +200,7 @@ Check for updates from the sidebar. Updates are cryptographically signed, verifi
 
 ---
 
-## $${\color{#C08A1C}Security and Privacy}$$
+## $${\color{#C08A1C}Security \space and \space Privacy}$$
 
 This section answers every question a new user should ask before importing financial data into any app.
 
