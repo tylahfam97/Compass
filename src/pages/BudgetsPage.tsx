@@ -143,8 +143,8 @@ export default function BudgetsPage() {
     setFormPeriod((prefill.period === "weekly" ? "weekly" : "monthly") as "monthly" | "weekly");
     // Clear the navigation state so it doesn't re-apply on back/forward
     navigate("/budgets", { replace: true, state: {} });
-    // Scroll the form into view
-    setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+    // Scroll the main content area back to top so the pre-filled form is immediately visible
+    setTimeout(() => document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' }), 100);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state]);
 
@@ -233,8 +233,12 @@ export default function BudgetsPage() {
   useEffect(() => { loadBudgets().catch(console.error); }, [loadBudgets]);
 
   useEffect(() => {
-    if (categories.length > 0 && formCatId === 0) setFormCatId(categories[0].id);
-  }, [categories, formCatId]);
+    // Don't clobber a prefill that was just applied — only default-init when truly empty
+    const hasPrefill = !!(location.state as { prefillBudget?: unknown } | null)?.prefillBudget;
+    if (categories.length > 0 && formCatId === 0 && !hasPrefill) {
+      setFormCatId(categories[0].id);
+    }
+  }, [categories, formCatId, location.state]);
 
   const handleSwitchToGlobal = () => {
     const locked = profiles.filter(
