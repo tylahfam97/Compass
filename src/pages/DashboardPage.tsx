@@ -65,17 +65,18 @@ export default function DashboardPage() {
     const [start, end] = monthBounds(month);
     const [incRow, expRow, catRows, recentRows, monthCountRow, totalCountRow, balanceRow, balancePointRows] = await Promise.all([
       db.select<{ total: number }[]>(
-        "SELECT COALESCE(SUM(amount_cents),0) as total FROM transactions WHERE date>=? AND date<? AND amount_cents>0 AND profile_id=?",
+        "SELECT COALESCE(SUM(amount_cents),0) as total FROM transactions WHERE date>=? AND date<? AND amount_cents>0 AND (category_id IS NULL OR category_id!=20) AND profile_id=?",
         [start, end, profileId]
       ),
       db.select<{ total: number }[]>(
-        "SELECT COALESCE(SUM(amount_cents),0) as total FROM transactions WHERE date>=? AND date<? AND amount_cents<0 AND profile_id=?",
+        "SELECT COALESCE(SUM(amount_cents),0) as total FROM transactions WHERE date>=? AND date<? AND amount_cents<0 AND (category_id IS NULL OR category_id!=20) AND profile_id=?",
         [start, end, profileId]
       ),
       db.select<{ name: string; color: string; total: number }[]>(
         `SELECT c.name, c.color, SUM(t.amount_cents) as total
          FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
          WHERE t.date>=? AND t.date<? AND t.amount_cents<0 AND t.profile_id=?
+           AND (t.category_id IS NULL OR t.category_id != 20)
          GROUP BY t.category_id ORDER BY total ASC LIMIT 7`,
         [start, end, profileId]
       ),
