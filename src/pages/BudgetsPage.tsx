@@ -1,4 +1,5 @@
-﻿import { useState, useEffect, useCallback, useMemo } from "react";
+﻿import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { getDb } from "@/lib/db";
 import { formatCurrency } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
@@ -110,6 +111,9 @@ export default function BudgetsPage() {
   const categories = useCategoryStore((s) => s.categories);
   const { activeProfile, profiles, unlockedIds, unlockProfile } = useProfileStore();
   const profileId = activeProfile?.id ?? 1;
+  const location = useLocation();
+  const navigate = useNavigate();
+  const formRef = useRef<HTMLDivElement>(null);
 
   const [viewMode, setViewMode] = useState<"profile" | "global">(() => {
     const saved = localStorage.getItem(viewModeKey(activeProfile?.id ?? 1));
@@ -129,6 +133,20 @@ export default function BudgetsPage() {
     const saved = localStorage.getItem(viewModeKey(profileId));
     setViewMode(saved === "global" ? "global" : "profile");
   }, [profileId]);
+
+  // Prefill form from insight navigation state (e.g. "Set $X budget" action)
+  useEffect(() => {
+    const prefill = (location.state as { prefillBudget?: { category_id: number; amount_cents: number; period: string } } | null)?.prefillBudget;
+    if (!prefill) return;
+    setFormCatId(prefill.category_id);
+    setFormAmount(String((prefill.amount_cents / 100).toFixed(2)));
+    setFormPeriod((prefill.period === "weekly" ? "weekly" : "monthly") as "monthly" | "weekly");
+    // Clear the navigation state so it doesn't re-apply on back/forward
+    navigate("/budgets", { replace: true, state: {} });
+    // Scroll the form into view
+    setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
 
   const navMonth = (dir: -1 | 1) => {
     const [y, m] = month.split("-").map(Number);
@@ -274,10 +292,18 @@ export default function BudgetsPage() {
     const db = await getDb();
     if (b.is_global) {
       await db.execute("UPDATE budgets SET is_global=0, profile_id=? WHERE id=?", [profileId, b.id]);
+      // In global view the budget is no longer global — remove it from the list.
+      // In profile view just flip the badge; the budget still belongs to this profile.
+      if (viewMode === "global") {
+        setBudgets((prev) => prev.filter((row) => row.id !== b.id));
+      } else {
+        setBudgets((prev) => prev.map((row) => row.id === b.id ? { ...row, is_global: 0 } : row));
+      }
     } else {
       await db.execute("UPDATE budgets SET is_global=1 WHERE id=?", [b.id]);
+      // Flip the badge in place; budget remains visible in this profile's view.
+      setBudgets((prev) => prev.map((row) => row.id === b.id ? { ...row, is_global: 1 } : row));
     }
-    await loadBudgets();
   };
 
   const pinTarget =
@@ -420,7 +446,7 @@ export default function BudgetsPage() {
         )}
 
         {/* Add Budget form */}
-        <div className="border rounded-2xl overflow-hidden">
+        <div ref={formRef} className="border rounded-2xl overflow-hidden">
           <div className="px-6 py-4 border-b flex items-center justify-between">
             <h2 className="font-semibold text-base">New Budget</h2>
             <div className="flex items-center gap-2.5">

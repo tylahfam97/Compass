@@ -147,7 +147,11 @@ export default function AgentPage() {
 
   const handleApply = async (insight: Insight) => {
     if (!insight.action) return;
-    navigate(insight.action.type === "create_budget" ? "/budgets" : "/goals");
+    if (insight.action.type === "create_budget") {
+      navigate("/budgets", { state: { prefillBudget: insight.action.payload } });
+    } else {
+      navigate("/goals");
+    }
   };
 
   if (loading) {
