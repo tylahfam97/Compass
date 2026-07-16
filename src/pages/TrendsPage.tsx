@@ -6,7 +6,7 @@ import {
 } from "recharts";
 import { motion, AnimatePresence } from "motion/react";
 import { getDb } from "@/lib/db";
-import { formatCurrency, combineAccountBalances } from "@/lib/utils";
+import { formatCurrency, combineAccountBalances, lightenHex } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
 import type { Profile } from "@/lib/types";
 import PinModal from "@/components/PinModal";
@@ -303,10 +303,10 @@ export default function TrendsPage() {
                 >
                   <XAxis dataKey="month" tick={{ fontSize:11 }} />
                   <YAxis tickFormatter={v => `$${Math.round(v/100)}`} tick={{ fontSize:11 }} />
-                  <Tooltip contentStyle={tooltipStyle} formatter={v => formatCurrency(v as number)} />
+                  <Tooltip cursor={false} contentStyle={tooltipStyle} formatter={v => formatCurrency(v as number)} />
                   <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize:"11px",paddingTop:"8px" }} />
-                  <Bar dataKey="income" name="Income" fill="#22c55e" radius={[4,4,0,0]} cursor="pointer" />
-                  <Bar dataKey="expenses" name="Expenses" fill="#ef4444" radius={[4,4,0,0]} cursor="pointer" />
+                  <Bar dataKey="income" name="Income" fill="#22c55e" radius={[4,4,0,0]} cursor="pointer" background={false} activeBar={{ fill: lightenHex("#22c55e") }} />
+                  <Bar dataKey="expenses" name="Expenses" fill="#ef4444" radius={[4,4,0,0]} cursor="pointer" background={false} activeBar={{ fill: lightenHex("#ef4444") }} />
                 </BarChart>
               </ResponsiveContainer>
 
@@ -360,7 +360,7 @@ export default function TrendsPage() {
                   <BarChart data={stacked} margin={{ left:8,right:8,top:4,bottom:4 }}>
                     <XAxis dataKey="month" tick={{ fontSize:11 }} />
                     <YAxis tickFormatter={v => `$${Math.round(v/100)}`} tick={{ fontSize:11 }} />
-                    <Tooltip contentStyle={tooltipStyle} formatter={v => formatCurrency(v as number)} />
+                    <Tooltip cursor={false} contentStyle={tooltipStyle} formatter={v => formatCurrency(v as number)} />
                     <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize:"11px",paddingTop:"8px",lineHeight:"20px" }} />
                     {catNames.map(cat => (
                       <Bar
@@ -369,6 +369,8 @@ export default function TrendsPage() {
                         stackId="cats"
                         fill={catColors[cat] ?? "#9ca3af"}
                         cursor="pointer"
+                        background={false}
+                        activeBar={{ fill: lightenHex(catColors[cat] ?? "#9ca3af") }}
                         onClick={() => toggleCatSegmentExpand(cat)}
                         opacity={expandedCatName && expandedCatName !== cat ? 0.4 : 1}
                       />

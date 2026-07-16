@@ -2,11 +2,11 @@ import { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, Cell, AreaChart, Area,
+  ResponsiveContainer, Cell, AreaChart, Area, Rectangle,
 } from "recharts";
 import { motion, AnimatePresence } from "motion/react";
 import { getDb } from "@/lib/db";
-import { formatCurrency, formatDate, combineAccountBalances } from "@/lib/utils";
+import { formatCurrency, formatDate, combineAccountBalances, lightenHex } from "@/lib/utils";
 import type { Transaction, Insight } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
@@ -386,6 +386,7 @@ export default function DashboardPage() {
                     width={110}
                   />
                   <Tooltip
+                    cursor={false}
                     contentStyle={{
                       backgroundColor: "hsl(var(--background))",
                       border: "1px solid hsl(var(--border))",
@@ -396,7 +397,18 @@ export default function DashboardPage() {
                     itemStyle={{ color: "hsl(var(--foreground))" }}
                     formatter={(v) => formatCurrency(v as number)}
                   />
-                  <Bar dataKey="total" radius={[0, 4, 4, 0]} cursor="pointer" onClick={(data) => toggleCatExpand(data as unknown as CatStat)}>
+                  <Bar
+                    dataKey="total"
+                    radius={[0, 4, 4, 0]}
+                    cursor="pointer"
+                    background={false}
+                    onClick={(data) => toggleCatExpand(data as unknown as CatStat)}
+                    activeBar={(props: unknown) => {
+                      const p = props as { payload?: CatStat } & React.SVGProps<SVGPathElement> & Record<string, unknown>;
+                      const fill = lightenHex(p.payload?.color ?? "#9ca3af");
+                      return <Rectangle {...(p as object)} fill={fill} />;
+                    }}
+                  >
                     {cats.map((c, i) => (
                       <Cell key={i} fill={c.color} opacity={expandedCat && expandedCat.name !== c.name ? 0.45 : 1} />
                     ))}
