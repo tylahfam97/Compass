@@ -5,6 +5,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
 import type { Transaction } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
+import CategoryOptions from "@/components/CategoryOptions";
 import { useProfileStore } from "@/stores/profileStore";
 import CategoryModal from "@/components/CategoryModal";
 import CategorizationRulesModal from "@/components/CategorizationRulesModal";
@@ -365,9 +366,7 @@ export default function TransactionsPage() {
           >
             <option value="">All categories</option>
             <option value="uncategorized">Uncategorized</option>
-            {categories.filter((c) => c.id !== 15).map((c) => (
-              <option key={c.id} value={String(c.id)}>{c.name}</option>
-            ))}
+            <CategoryOptions categories={categories.filter((c) => c.id !== 15)} />
           </select>
 
           {/* Income / Expense / All toggle */}
@@ -475,9 +474,7 @@ export default function TransactionsPage() {
                         className="border rounded px-2 py-1 text-xs bg-[hsl(var(--background))]
                                    text-[hsl(var(--foreground))]"
                       >
-                        {categories.map((c) => (
-                          <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
+                        <CategoryOptions categories={categories} />
                       </select>
                     ) : (
                       <button

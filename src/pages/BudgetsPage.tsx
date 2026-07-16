@@ -5,6 +5,7 @@ import { formatCurrency } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
+import CategoryOptions from "@/components/CategoryOptions";
 import WeeklyMiniBar from "@/components/WeeklyMiniBar";
 import PinModal from "@/components/PinModal";
 import type { Profile } from "@/lib/types";
@@ -488,11 +489,7 @@ export default function BudgetsPage() {
                   onChange={(e) => setFormCatId(parseInt(e.target.value))}
                   className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
                 >
-                  {categories
-                    .filter((c) => !c.is_system || c.id !== 15)
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
+                  <CategoryOptions categories={categories.filter((c) => !c.is_system || c.id !== 15)} />
                 </select>
               </div>
               <div className="w-36 space-y-1.5">

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { getDb } from "@/lib/db";
 import { useCategoryStore } from "@/stores/categoryStore";
+import CategoryOptions from "@/components/CategoryOptions";
 import type { Category } from "@/lib/types";
 
 const PRESET_COLORS = [
@@ -105,7 +106,7 @@ export default function CategoryModal({ category, onClose }: Props) {
               onChange={(e) => setParentId(e.target.value ? Number(e.target.value) : "")}
               className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))]">
               <option value="">— None (top level) —</option>
-              {topLevel.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              <CategoryOptions categories={topLevel} />
             </select>
           </div>
         </div>

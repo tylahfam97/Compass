@@ -4,6 +4,7 @@ import { formatCurrency } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
+import CategoryOptions from "@/components/CategoryOptions";
 import WeeklyMiniBar from "@/components/WeeklyMiniBar";
 
 type GoalType =
@@ -416,7 +417,7 @@ export default function GoalsPage() {
           {showCatPicker && formCats.length > 0 && (
             <select value={formCatId} onChange={(e) => setFormCatId(parseInt(e.target.value))}
               className="border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
-              {formCats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              <CategoryOptions categories={formCats} />
             </select>
           )}
           <div className="flex items-center gap-1">
