@@ -766,6 +766,22 @@ async function runMigrations(db: CompassDb): Promise<void> {
     }
     await db.execute("PRAGMA user_version = 13");
   }
+
+  // ── v14: Retroactively fix credit card balances imported/calculated before
+  //         the sign-inversion fix - a credit card balance is a liability and
+  //         should never be stored (or displayed) as a positive number.
+  if (version < 14) {
+    await db.execute(`
+      UPDATE transactions SET balance_cents = -balance_cents
+      WHERE balance_cents IS NOT NULL AND balance_cents > 0
+        AND account_id IN (SELECT id FROM accounts WHERE account_type='credit')
+    `);
+    await db.execute(`
+      UPDATE accounts SET balance_anchor_cents = -balance_anchor_cents
+      WHERE balance_anchor_cents IS NOT NULL AND balance_anchor_cents > 0 AND account_type='credit'
+    `);
+    await db.execute("PRAGMA user_version = 14");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────
