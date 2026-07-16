@@ -50,6 +50,7 @@ const ALLOWED_MIGRATION_TABLES = new Set([
   "column_profiles",
   "profiles",
   "import_sessions",
+  "holdings",
 ]);
 
 const SAFE_COLUMN_NAME_RE = /^[a-z_][a-z0-9_]*$/i;
@@ -688,21 +689,66 @@ async function runMigrations(db: CompassDb): Promise<void> {
     }
     await db.execute("PRAGMA user_version = 9");
   }
+
+  // ── v10: Investment portfolio imports — holdings snapshots + session kind ──
+  if (version < 10) {
+    assertSafeMigrationIdentifiers("import_sessions", "kind");
+    if (!(await colExists(db, "import_sessions", "kind"))) {
+      await db.execute(
+        "ALTER TABLE import_sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'bank'"
+      );
+    }
+
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS holdings (
+        id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+        account_id              INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        profile_id              INTEGER NOT NULL,
+        import_session_id       INTEGER REFERENCES import_sessions(id) ON DELETE CASCADE,
+        as_of_date              TEXT    NOT NULL,
+        security_type           TEXT    NOT NULL, -- stock | etf | mutual_fund | cash | other
+        symbol                  TEXT,
+        description             TEXT    NOT NULL DEFAULT '',
+        shares                  REAL,
+        price_cents             INTEGER,
+        market_value_cents      INTEGER,
+        cost_basis_cents        INTEGER,
+        trade_date              TEXT,
+        dividend_per_share_cents INTEGER,
+        est_annual_income_cents INTEGER,
+        created_at              TEXT    NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+    await db.execute(
+      "CREATE INDEX IF NOT EXISTS idx_holdings_account_date ON holdings(account_id, as_of_date)"
+    );
+
+    await db.execute("PRAGMA user_version = 10");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────
 
-/** Returns the account ID for a profile, creating one if it doesn't exist. */
-export async function getOrCreateAccountForProfile(profileId: number): Promise<number> {
+/**
+ * Returns the account ID for a profile+type, creating one if it doesn't exist.
+ * A profile can hold multiple accounts of different types (e.g. a "checking"
+ * account for bank imports and a separate "investment" account for portfolio
+ * imports) - each type gets its own row so totals never mix accidentally.
+ */
+export async function getOrCreateAccountForProfile(
+  profileId: number,
+  accountType: string = "checking"
+): Promise<number> {
   const db = await getDb();
   const rows = await db.select<{ id: number }[]>(
-    "SELECT id FROM accounts WHERE profile_id=? LIMIT 1",
-    [profileId]
+    "SELECT id FROM accounts WHERE profile_id=? AND account_type=? LIMIT 1",
+    [profileId, accountType]
   );
   if (rows.length > 0) return rows[0].id;
+  const name = accountType === "investment" ? "Investment Account" : "My Account";
   const result = await db.execute(
     "INSERT INTO accounts (name, account_type, institution, profile_id) VALUES (?, ?, ?, ?)",
-    ["My Account", "checking", "Imported", profileId]
+    [name, accountType, "Imported", profileId]
   );
   return result.lastInsertId as number;
 }

@@ -14,7 +14,10 @@ interface ProfileData {
   expenses: number;
   sparkline: { date: string; balance: number }[];
   hasTransactions: boolean;
+  portfolioValue: number;
 }
+
+const INCLUDE_INVESTMENTS_KEY = "compass_include_investments";
 
 function monthBounds(ym: string): [string, string] {
   const [y, m] = ym.split("-").map(Number);
@@ -30,6 +33,17 @@ export default function OverviewPage() {
   const [month, setMonth] = useAutoMonth();
   const [data, setData] = useState<Map<number, ProfileData>>(new Map());
   const [loading, setLoading] = useState(true);
+  const [includeInvestments, setIncludeInvestments] = useState(
+    () => localStorage.getItem(INCLUDE_INVESTMENTS_KEY) !== "false"
+  );
+
+  const toggleIncludeInvestments = () => {
+    setIncludeInvestments((prev) => {
+      const next = !prev;
+      localStorage.setItem(INCLUDE_INVESTMENTS_KEY, String(next));
+      return next;
+    });
+  };
 
   const navMonth = (dir: -1 | 1) => {
     const [y, m] = month.split("-").map(Number);
@@ -45,7 +59,7 @@ export default function OverviewPage() {
       const [start, end] = monthBounds(month);
       const entries = await Promise.all(
         profiles.map(async (p) => {
-          const [balRow, incRow, expRow, txRow, sparkRows] = await Promise.all([
+          const [balRow, incRow, expRow, txRow, sparkRows, portfolioRow] = await Promise.all([
             db.select<{ balance_cents: number }[]>(
               "SELECT balance_cents FROM transactions WHERE profile_id=? AND balance_cents IS NOT NULL ORDER BY date DESC, id DESC LIMIT 1",
               [p.id]
@@ -66,6 +80,11 @@ export default function OverviewPage() {
               `SELECT date, balance_cents FROM transactions WHERE profile_id=? AND balance_cents IS NOT NULL AND date >= date('now','-60 days') ORDER BY date ASC, id ASC`,
               [p.id]
             ),
+            db.select<{ total: number | null }[]>(
+              `SELECT SUM(market_value_cents) as total FROM holdings
+               WHERE profile_id=? AND as_of_date=(SELECT MAX(as_of_date) FROM holdings WHERE profile_id=?)`,
+              [p.id, p.id]
+            ),
           ]);
           return [p.id, {
             profileId: p.id,
@@ -74,6 +93,7 @@ export default function OverviewPage() {
             expenses: expRow[0]?.total ?? 0,
             sparkline: sparkRows.map((r) => ({ date: r.date, balance: r.balance_cents / 100 })),
             hasTransactions: (txRow[0]?.n ?? 0) > 0,
+            portfolioValue: portfolioRow[0]?.total ?? 0,
           }] as [number, ProfileData];
         })
       );
@@ -84,7 +104,10 @@ export default function OverviewPage() {
 
   const allData = [...data.values()];
   const hasAnyBalance = allData.some((d) => d.balance !== null);
-  const totalBalance = hasAnyBalance ? allData.reduce((s, d) => s + (d.balance ?? 0), 0) : null;
+  const totalPortfolioValue = allData.reduce((s, d) => s + d.portfolioValue, 0);
+  const totalBalance = hasAnyBalance
+    ? allData.reduce((s, d) => s + (d.balance ?? 0) + (includeInvestments ? d.portfolioValue : 0), 0)
+    : null;
   const totalIncome = allData.reduce((s, d) => s + d.income, 0);
   const totalExpenses = allData.reduce((s, d) => s + d.expenses, 0);
   const totalNet = totalIncome + totalExpenses;
@@ -117,13 +140,28 @@ export default function OverviewPage() {
       {/* Aggregate banner */}
       {!loading && allData.some((d) => d.hasTransactions) && (
         <div className="border rounded-2xl p-5 bg-[hsl(var(--muted))]/40">
-          <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wide font-medium mb-3">
-            Combined — all accounts
-          </p>
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+            <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wide font-medium">
+              Combined — all accounts
+            </p>
+            {totalPortfolioValue > 0 && (
+              <button
+                onClick={toggleIncludeInvestments}
+                title="Toggle whether investments are included in these totals"
+                className={`text-[10px] px-2 py-0.5 rounded-full border font-medium transition-colors ${
+                  includeInvestments
+                    ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent"
+                    : "hover:bg-[hsl(var(--muted))]"
+                }`}
+              >
+                + Investments
+              </button>
+            )}
+          </div>
           <div className="flex gap-8 flex-wrap">
             {totalBalance !== null && (
               <div>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">Total Balance</p>
+                <p className="text-xs text-[hsl(var(--muted-foreground))]">{totalPortfolioValue > 0 && includeInvestments ? "Total Net Worth" : "Total Balance"}</p>
                 <p className={`text-2xl font-bold ${totalBalance >= 0 ? "text-green-600" : "text-red-500"}`}>
                   {formatCurrency(totalBalance)}
                 </p>
@@ -185,9 +223,11 @@ export default function OverviewPage() {
                   <>
                     {d.balance !== null && (
                       <div className="mb-3">
-                        <p className="text-xs text-[hsl(var(--muted-foreground))] mb-0.5">Current Balance</p>
-                        <p className={`text-2xl font-bold ${d.balance >= 0 ? "text-green-600" : "text-red-500"}`}>
-                          {formatCurrency(d.balance)}
+                        <p className="text-xs text-[hsl(var(--muted-foreground))] mb-0.5">
+                          {d.portfolioValue > 0 && includeInvestments ? "Net Worth" : "Current Balance"}
+                        </p>
+                        <p className={`text-2xl font-bold ${(d.balance + (includeInvestments ? d.portfolioValue : 0)) >= 0 ? "text-green-600" : "text-red-500"}`}>
+                          {formatCurrency(d.balance + (includeInvestments ? d.portfolioValue : 0))}
                         </p>
                       </div>
                     )}

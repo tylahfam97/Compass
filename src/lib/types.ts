@@ -99,6 +99,30 @@ export interface Category {
   is_system: boolean;
 }
 
+/** Broad security classification used to group holdings in the Investments page. */
+export type SecurityType = "stock" | "etf" | "mutual_fund" | "cash" | "other";
+
+/** A single lot/position row imported from a brokerage portfolio-positions export. */
+export interface Holding {
+  id: number;
+  account_id: number;
+  profile_id: number;
+  import_session_id: number | null;
+  as_of_date: string;
+  security_type: SecurityType;
+  symbol: string | null;
+  description: string;
+  shares: number | null;
+  price_cents: number | null;
+  market_value_cents: number | null;
+  cost_basis_cents: number | null;
+  trade_date: string | null;
+  dividend_per_share_cents: number | null;
+  est_annual_income_cents: number | null;
+  created_at: string;
+}
+
+
 export interface Budget {
   id: number;
   category_id: number;

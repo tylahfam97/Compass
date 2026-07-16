@@ -2,7 +2,7 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
-## Compass 0.6.0 — Import Overhaul, Sortable Transactions & Trends Expansion
+## Compass 0.6.1 — Import Overhaul, Sortable Transactions & Trends Expansion
 
 ### Import Wizard: Full Overhaul
 
