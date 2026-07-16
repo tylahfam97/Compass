@@ -318,7 +318,7 @@ export default function TrendsPage() {
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: "auto", opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.25, ease: "easeOut" }}
+                    transition={{ type: "spring", stiffness: 420, damping: 42, mass: 0.9 }}
                     className="overflow-hidden"
                   >
                     <div className="mt-1 pt-3 border-t">
@@ -386,7 +386,7 @@ export default function TrendsPage() {
                       initial={{ height: 0, opacity: 0 }}
                       animate={{ height: "auto", opacity: 1 }}
                       exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.25, ease: "easeOut" }}
+                      transition={{ type: "spring", stiffness: 420, damping: 42, mass: 0.9 }}
                       className="overflow-hidden"
                     >
                       <div className="mt-1 pt-3 border-t">
