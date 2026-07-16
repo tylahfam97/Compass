@@ -2,7 +2,13 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
-## Compass 0.7.1 — Smarter Profiles, Fixable Columns & Credit Card Fixes
+## Compass 0.7.0 — Calculated Running Balances
+
+### New: Running Balance Without a Balance Column
+Statements that don't export a running balance (most plain Date/Description/Amount CSVs) can now still get one. On the import wizard's Balance step, when you choose "No balance column," an optional **Starting balance** field appears. Enter your real account balance right before these transactions and Compass calculates an accurate running balance for every transaction, chronologically, on top of it. Leave it blank and Compass still calculates a relative running total starting from $0, so balance charts and low-balance alerts always have something to work with.
+
+The starting balance is saved on the account, so future imports without a balance column keep the running total going automatically — no need to re-enter it every time (though you can update it any time by re-entering a new value on your next import).
+
 
 ### Import Wizard: Manual Column Fix-Up for Investments
 Each section of a parsed investment statement (Stocks, ETFs, Cash, Other) now has a **Fix columns** control. It shows every column detected in that section's header row, pre-selected to Compass's best guess, and lets you remap any field (Description, Symbol, Shares, Price, Market Value, Cost Basis, Trade Date, Dividend/Share, Est. Annual Income) on the spot — the preview table and totals update immediately. Each option also shows how many rows actually have data in that column (e.g. "Market Value — 0/34 filled"), so you can tell at a glance whether a column is worth mapping instead of guessing.

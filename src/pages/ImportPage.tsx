@@ -6,7 +6,7 @@ import {
   Landmark, CreditCard, TrendingUp,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { getDb, getOrCreateAccountForProfile, applyCategorizationRules } from "@/lib/db";
+import { getDb, getOrCreateAccountForProfile, applyCategorizationRules, recomputeCalculatedBalances } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type { CategorizationRule, Profile, SecurityType } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
@@ -635,6 +635,7 @@ export default function ImportPage() {
   const [profileSuggestionDecided, setProfileSuggestionDecided] = useState(false);
   const [currentFilename, setCurrentFilename] = useState("");
   const [colMap, setColMap] = useState<ColMap>({ dateCol: 0, descCol: 1, amountCol: 2, typeCol: -1, balanceCol: -1, invertAmounts: false });
+  const [startingBalanceInput, setStartingBalanceInput] = useState("");
   const [profileFound, setProfileFound] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -661,6 +662,25 @@ export default function ImportPage() {
   useEffect(() => {
     if (detectedMonth) setTargetMonth(detectedMonth);
   }, [detectedMonth]);
+
+  // When there's no balance column, prefill any previously-set starting balance for this
+  // account/type so returning to the step (or importing again later) shows the current anchor.
+  useEffect(() => {
+    if (step !== "wizard:balance" || colMap.balanceCol >= 0) return;
+    (async () => {
+      try {
+        const db = await getDb();
+        const accountType = importKind === "credit" ? "credit" : "checking";
+        const rows = await db.select<{ starting_balance_cents: number | null }[]>(
+          "SELECT starting_balance_cents FROM accounts WHERE profile_id=? AND account_type=?",
+          [profileId, accountType]
+        );
+        const cents = rows[0]?.starting_balance_cents;
+        setStartingBalanceInput(cents != null ? (cents / 100).toFixed(2) : "");
+      } catch { /* leave blank */ }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
 
   // Re-derives each section's holding rows after applying any manual column-map overrides
   // the user made in the "Fix columns" panel, falling back to the auto-detected mapping.
@@ -1077,6 +1097,10 @@ export default function ImportPage() {
     try {
       const db = await getDb();
       const accountId = await getOrCreateAccountForProfile(profileId, importKind === "credit" ? "credit" : "checking");
+      if (colMap.balanceCol < 0 && startingBalanceInput.trim()) {
+        const startingCents = Math.round(parseAmount(startingBalanceInput) * 100);
+        await db.execute("UPDATE accounts SET starting_balance_cents=? WHERE id=?", [startingCents, accountId]);
+      }
       const rules = await db.select<CategorizationRule[]>(
         "SELECT * FROM categorization_rules WHERE profile_id=? OR profile_id IS NULL ORDER BY priority DESC",
         [profileId]
@@ -1156,6 +1180,12 @@ export default function ImportPage() {
         [sig, colMap.dateCol, colMap.descCol, colMap.amountCol, colMap.typeCol, colMap.balanceCol, profileId]
       );
 
+      // No native balance column - (re)calculate a running balance for every transaction on
+      // this account from its starting balance (or 0), so charts/dashboards still have a value.
+      if (colMap.balanceCol < 0) {
+        await recomputeCalculatedBalances(accountId);
+      }
+
       setSummary({ imported, skipped });
       await loadHistory();
       setStep("done");
@@ -1233,6 +1263,9 @@ export default function ImportPage() {
           [imported, skipped, sessionId]
         );
       }
+      if (savedColMap.balanceCol < 0) {
+        await recomputeCalculatedBalances(accountId);
+      }
       await loadHistory();
       setSummary({ imported, skipped });
       setStep("done");
@@ -1266,6 +1299,7 @@ export default function ImportPage() {
     setInvParsed(null);
     setColMapOverrides({});
     setFixColumnsOpen(new Set());
+    setStartingBalanceInput("");
     setHasDedicatedAccount(null);
     setProfileSuggestion(null);
     setProfileSuggestionDecided(false);
@@ -1750,6 +1784,28 @@ export default function ImportPage() {
                   </div>
                 </div>
               </>
+            )}
+
+            {colMap.balanceCol === -1 && (
+              <div className="pt-3 border-t space-y-2">
+                <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
+                  Starting balance <span className="font-normal">(optional)</span>
+                </p>
+                <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                  Know your real account balance right before these transactions? Enter it and Compass will calculate a running balance for every transaction. Leave it blank and Compass will still calculate a relative running total starting from $0.
+                </p>
+                <div className="relative max-w-xs">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[hsl(var(--muted-foreground))]">$</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={startingBalanceInput}
+                    onChange={(e) => setStartingBalanceInput(e.target.value)}
+                    className="w-full border rounded-lg pl-7 pr-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
+                  />
+                </div>
+              </div>
             )}
           </div>
 

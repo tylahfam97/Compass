@@ -72,6 +72,7 @@ export interface Account {
   account_type: string;
   institution: string;
   created_at: string;
+  starting_balance_cents?: number | null;
 }
 
 export interface Transaction {

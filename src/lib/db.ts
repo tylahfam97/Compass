@@ -741,6 +741,16 @@ async function runMigrations(db: CompassDb): Promise<void> {
     }
     await db.execute("PRAGMA user_version = 11");
   }
+
+  // ── v12: Manually-anchored running balance for accounts whose imports have
+  //         no native balance column ────────────────────────────────────────
+  if (version < 12) {
+    assertSafeMigrationIdentifiers("accounts", "starting_balance_cents");
+    if (!(await colExists(db, "accounts", "starting_balance_cents"))) {
+      await db.execute("ALTER TABLE accounts ADD COLUMN starting_balance_cents INTEGER");
+    }
+    await db.execute("PRAGMA user_version = 12");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────
@@ -767,6 +777,29 @@ export async function getOrCreateAccountForProfile(
     [name, accountType, "Imported", profileId]
   );
   return result.lastInsertId as number;
+}
+
+/**
+ * Recalculates `balance_cents` for every transaction on an account by walking them in
+ * chronological order and accumulating amounts on top of the account's manually-set
+ * `starting_balance_cents` (or 0, if never set - a "pure" relative running total).
+ * Used for imports whose source file has no native running-balance column.
+ */
+export async function recomputeCalculatedBalances(accountId: number): Promise<void> {
+  const db = await getDb();
+  const [acct] = await db.select<{ starting_balance_cents: number | null }[]>(
+    "SELECT starting_balance_cents FROM accounts WHERE id=?",
+    [accountId]
+  );
+  let running = acct?.starting_balance_cents ?? 0;
+  const rows = await db.select<{ id: number; amount_cents: number }[]>(
+    "SELECT id, amount_cents FROM transactions WHERE account_id=? ORDER BY date ASC, id ASC",
+    [accountId]
+  );
+  for (const row of rows) {
+    running += row.amount_cents;
+    await db.execute("UPDATE transactions SET balance_cents=? WHERE id=?", [running, row.id]);
+  }
 }
 
 /** @deprecated use getOrCreateAccountForProfile */
