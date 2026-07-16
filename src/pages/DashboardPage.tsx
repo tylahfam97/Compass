@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, Cell, AreaChart, Area,
+  ResponsiveContainer, Cell, AreaChart, Area, Rectangle,
 } from "recharts";
+import { motion, AnimatePresence } from "motion/react";
 import { getDb } from "@/lib/db";
-import { formatCurrency, formatDate, combineAccountBalances } from "@/lib/utils";
+import { formatCurrency, formatDate, combineAccountBalances, lightenHex } from "@/lib/utils";
 import type { Transaction, Insight } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
@@ -19,6 +20,7 @@ interface MonthStats {
 }
 
 interface CatStat {
+  categoryId: number | null;
   name: string;
   color: string;
   total: number;
@@ -55,6 +57,8 @@ export default function DashboardPage() {
   const [currentBalance, setCurrentBalance] = useState<number | null>(null);
   const [balancePoints, setBalancePoints] = useState<BalancePoint[]>([]);
   const [portfolioValueCents, setPortfolioValueCents] = useState(0);
+  const [expandedCat, setExpandedCat] = useState<CatStat | null>(null);
+  const [expandedCatTxns, setExpandedCatTxns] = useState<Transaction[] | null>(null);
   const [includeInvestments, setIncludeInvestments] = useState(
     () => localStorage.getItem(INCLUDE_INVESTMENTS_KEY) !== "false"
   );
@@ -86,8 +90,8 @@ export default function DashboardPage() {
         "SELECT COALESCE(SUM(amount_cents),0) as total FROM transactions WHERE date>=? AND date<? AND amount_cents<0 AND (category_id IS NULL OR category_id!=20) AND profile_id=?",
         [start, end, profileId]
       ),
-      db.select<{ name: string; color: string; total: number }[]>(
-        `SELECT c.name, c.color, SUM(t.amount_cents) as total
+      db.select<{ categoryId: number | null; name: string; color: string; total: number }[]>(
+        `SELECT t.category_id as categoryId, c.name, c.color, SUM(t.amount_cents) as total
          FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
          WHERE t.date>=? AND t.date<? AND t.amount_cents<0 AND t.profile_id=?
            AND (t.category_id IS NULL OR t.category_id != 20)
@@ -138,8 +142,33 @@ export default function DashboardPage() {
     const combined = combineAccountBalances(balancePointRows);
     setBalancePoints(combined.filter((r) => r.date >= start).map((r) => ({ date: r.date, balance: r.balance_cents / 100 })));
     setPortfolioValueCents(portfolioRow[0]?.total ?? 0);
+    setExpandedCat(null);
+    setExpandedCatTxns(null);
     setLoading(false);
   }, [month, profileId]);
+
+  /** Toggles the drill-down panel for a spending category, fetching its top transactions on demand. */
+  const toggleCatExpand = async (cat: CatStat) => {
+    if (expandedCat && expandedCat.categoryId === cat.categoryId && expandedCat.name === cat.name) {
+      setExpandedCat(null);
+      setExpandedCatTxns(null);
+      return;
+    }
+    setExpandedCat(cat);
+    setExpandedCatTxns(null);
+    const db = await getDb();
+    const [start, end] = monthBounds(month);
+    const catCondition = cat.categoryId === null ? "t.category_id IS NULL" : "t.category_id=?";
+    const params = cat.categoryId === null ? [start, end, profileId] : [start, end, profileId, cat.categoryId];
+    const rows = await db.select<Transaction[]>(
+      `SELECT t.*, c.name as category_name, c.color as category_color
+       FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
+       WHERE t.date>=? AND t.date<? AND t.profile_id=? AND ${catCondition}
+       ORDER BY ABS(t.amount_cents) DESC LIMIT 5`,
+      params
+    );
+    setExpandedCatTxns(rows);
+  };
 
   const handleClear = async (scope: "month" | "all") => {
     const db = await getDb();
@@ -336,8 +365,9 @@ export default function DashboardPage() {
 
           {/* Top categories */}
           {cats.length > 0 && (
-            <div className="border rounded-xl p-5">
-              <h2 className="font-semibold mb-4">Top Spending Categories</h2>
+            <div className="border rounded-xl p-5 chart-clickable">
+              <h2 className="font-semibold mb-1">Top Spending Categories</h2>
+              <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-3">Click a bar for details</p>
               <ResponsiveContainer width="100%" height={cats.length * 36 + 20}>
                 <BarChart
                   layout="vertical"
@@ -356,6 +386,7 @@ export default function DashboardPage() {
                     width={110}
                   />
                   <Tooltip
+                    cursor={false}
                     contentStyle={{
                       backgroundColor: "hsl(var(--background))",
                       border: "1px solid hsl(var(--border))",
@@ -366,13 +397,64 @@ export default function DashboardPage() {
                     itemStyle={{ color: "hsl(var(--foreground))" }}
                     formatter={(v) => formatCurrency(v as number)}
                   />
-                  <Bar dataKey="total" radius={[0, 4, 4, 0]}>
+                  <Bar
+                    dataKey="total"
+                    radius={[0, 4, 4, 0]}
+                    cursor="pointer"
+                    background={false}
+                    onClick={(data) => toggleCatExpand(data as unknown as CatStat)}
+                    activeBar={(props: unknown) => {
+                      const p = props as { payload?: CatStat } & React.SVGProps<SVGPathElement> & Record<string, unknown>;
+                      const fill = lightenHex(p.payload?.color ?? "#9ca3af");
+                      return <Rectangle {...(p as object)} fill={fill} />;
+                    }}
+                  >
                     {cats.map((c, i) => (
-                      <Cell key={i} fill={c.color} />
+                      <Cell key={i} fill={c.color} opacity={expandedCat && expandedCat.name !== c.name ? 0.45 : 1} />
                     ))}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
+
+              <AnimatePresence initial={false} mode="wait">
+                {expandedCat && (
+                  <motion.div
+                    key={expandedCat.name}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.18 }}
+                  >
+                    <div className="mt-3 pt-3 border-t">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs font-semibold flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: expandedCat.color }} />
+                          {expandedCat.name} - {formatCurrency(expandedCat.total)}
+                        </p>
+                        <Link
+                          to="/transactions"
+                          state={{ month, category: expandedCat.categoryId }}
+                          className="text-[11px] text-[hsl(var(--primary))] hover:underline"
+                        >
+                          View all →
+                        </Link>
+                      </div>
+                      {expandedCatTxns === null ? (
+                        <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">Loading…</p>
+                      ) : (
+                        <div className="space-y-1">
+                          {expandedCatTxns.map((t) => (
+                            <div key={t.id} className="flex items-center justify-between text-xs py-1">
+                              <span className="truncate flex-1 text-[hsl(var(--muted-foreground))]">{t.description}</span>
+                              <span className="font-mono ml-3 shrink-0">{formatCurrency(Math.abs(t.amount_cents))}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           )}
 

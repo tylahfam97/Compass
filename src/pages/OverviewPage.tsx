@@ -1,10 +1,12 @@
-﻿import { useState, useEffect } from "react";
+﻿import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { AreaChart, Area, ResponsiveContainer, Tooltip } from "recharts";
 import { getDb } from "@/lib/db";
 import { formatCurrency, combineAccountBalances } from "@/lib/utils";
+import { computeNetWorth, type NetWorthSnapshot } from "@/lib/netWorth";
 import { useProfileStore } from "@/stores/profileStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
+import PinModal from "@/components/PinModal";
 import type { Profile } from "@/lib/types";
 
 interface ProfileData {
@@ -17,7 +19,9 @@ interface ProfileData {
   portfolioValue: number;
 }
 
-const INCLUDE_INVESTMENTS_KEY = "compass_include_investments";
+function viewModeKey(profileId: number) {
+  return `compass_overview_view_${profileId}`;
+}
 
 function monthBounds(ym: string): [string, string] {
   const [y, m] = ym.split("-").map(Number);
@@ -27,23 +31,79 @@ function monthBounds(ym: string): [string, string] {
   ];
 }
 
+interface ScopeToggleProps { isGlobal: boolean; onToggle: () => void; }
+function ScopeToggle({ isGlobal, onToggle }: ScopeToggleProps) {
+  return (
+    <button role="switch" aria-checked={isGlobal} onClick={onToggle}
+      style={{
+        width: 52, height: 28, borderRadius: 14, padding: 3,
+        backgroundColor: isGlobal ? "#C08A1C" : "#3b82f6",
+        transition: "background-color 0.3s", cursor: "pointer",
+        display: "inline-flex", alignItems: "center",
+        border: "none", flexShrink: 0, boxShadow: "inset 0 1px 3px rgba(0,0,0,0.18)",
+      }}>
+      <div style={{
+        width: 22, height: 22, borderRadius: 11, backgroundColor: "white",
+        transition: "transform 0.25s cubic-bezier(0.4,0,0.2,1)",
+        transform: isGlobal ? "translateX(24px)" : "translateX(0)",
+        boxShadow: "0 1px 4px rgba(0,0,0,0.28)", flexShrink: 0,
+      }} />
+    </button>
+  );
+}
+
 export default function OverviewPage() {
   const navigate = useNavigate();
-  const { profiles, setActiveProfile } = useProfileStore();
+  const { profiles, setActiveProfile, activeProfile, unlockedIds, unlockProfile } = useProfileStore();
+  const profileId = activeProfile?.id ?? profiles[0]?.id ?? 1;
   const [month, setMonth] = useAutoMonth();
   const [data, setData] = useState<Map<number, ProfileData>>(new Map());
   const [loading, setLoading] = useState(true);
-  const [includeInvestments, setIncludeInvestments] = useState(
-    () => localStorage.getItem(INCLUDE_INVESTMENTS_KEY) !== "false"
+  const [netWorth, setNetWorth] = useState<NetWorthSnapshot | null>(null);
+
+  const [viewMode, setViewMode] = useState<"profile" | "global">(() => {
+    const saved = localStorage.getItem(viewModeKey(profileId));
+    return saved === "global" ? "global" : "profile";
+  });
+  const [pinQueue, setPinQueue] = useState<Profile[]>([]);
+  const [pinQueueIdx, setPinQueueIdx] = useState(0);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(viewModeKey(profileId));
+    setViewMode(saved === "global" ? "global" : "profile");
+  }, [profileId]);
+
+  const unlockedProfileIds = useMemo(
+    () => profiles.filter((p) => !p.pin_hash || p.id === profileId || unlockedIds.has(p.id)).map((p) => p.id),
+    [profiles, profileId, unlockedIds]
   );
 
-  const toggleIncludeInvestments = () => {
-    setIncludeInvestments((prev) => {
-      const next = !prev;
-      localStorage.setItem(INCLUDE_INVESTMENTS_KEY, String(next));
-      return next;
-    });
+  const handleSwitchToGlobal = () => {
+    const locked = profiles.filter((p) => p.pin_hash && p.id !== profileId && !unlockedIds.has(p.id));
+    if (locked.length > 0) { setPinQueue(locked); setPinQueueIdx(0); }
+    else { localStorage.setItem(viewModeKey(profileId), "global"); setViewMode("global"); }
   };
+  const handleSwitchToProfile = () => { localStorage.setItem(viewModeKey(profileId), "profile"); setViewMode("profile"); };
+  const advancePinQueue = (unlockedId?: number) => {
+    if (unlockedId !== undefined) unlockProfile(unlockedId);
+    const next = pinQueueIdx + 1;
+    if (next >= pinQueue.length) {
+      setPinQueue([]); setPinQueueIdx(0);
+      localStorage.setItem(viewModeKey(profileId), "global"); setViewMode("global");
+    } else { setPinQueueIdx(next); }
+  };
+
+  const isGlobalActive = viewMode === "global";
+  const pinTarget = pinQueue.length > 0 && pinQueueIdx < pinQueue.length ? pinQueue[pinQueueIdx] : null;
+
+  const visibleProfiles = useMemo(
+    () => isGlobalActive ? profiles.filter((p) => unlockedProfileIds.includes(p.id)) : profiles.filter((p) => p.id === profileId),
+    [isGlobalActive, profiles, unlockedProfileIds, profileId]
+  );
+
+  const lockedExcluded = isGlobalActive
+    ? profiles.filter((p) => p.pin_hash && p.id !== profileId && !unlockedIds.has(p.id))
+    : [];
 
   const navMonth = (dir: -1 | 1) => {
     const [y, m] = month.split("-").map(Number);
@@ -52,13 +112,13 @@ export default function OverviewPage() {
   };
 
   useEffect(() => {
-    if (profiles.length === 0) { setLoading(false); return; }
+    if (visibleProfiles.length === 0) { setData(new Map()); setLoading(false); return; }
     setLoading(true);
     (async () => {
       const db = await getDb();
       const [start, end] = monthBounds(month);
       const entries = await Promise.all(
-        profiles.map(async (p) => {
+        visibleProfiles.map(async (p) => {
           const [balRow, incRow, expRow, txRow, sparkRows, portfolioRow] = await Promise.all([
             db.select<{ account_id: number; balance_cents: number | null }[]>(
               `SELECT a.id as account_id,
@@ -108,14 +168,15 @@ export default function OverviewPage() {
       setData(new Map(entries));
       setLoading(false);
     })().catch(console.error);
-  }, [profiles, month]);
+  }, [visibleProfiles, month]);
+
+  useEffect(() => {
+    const ids = isGlobalActive ? unlockedProfileIds : [profileId];
+    if (ids.length === 0) { setNetWorth(null); return; }
+    computeNetWorth(ids).then(setNetWorth).catch(() => setNetWorth(null));
+  }, [isGlobalActive, unlockedProfileIds, profileId]);
 
   const allData = [...data.values()];
-  const hasAnyBalance = allData.some((d) => d.balance !== null);
-  const totalPortfolioValue = allData.reduce((s, d) => s + d.portfolioValue, 0);
-  const totalBalance = hasAnyBalance
-    ? allData.reduce((s, d) => s + (d.balance ?? 0) + (includeInvestments ? d.portfolioValue : 0), 0)
-    : null;
   const totalIncome = allData.reduce((s, d) => s + d.income, 0);
   const totalExpenses = allData.reduce((s, d) => s + d.expenses, 0);
   const totalNet = totalIncome + totalExpenses;
@@ -127,65 +188,104 @@ export default function OverviewPage() {
 
   return (
     <div className="p-6 space-y-6 max-w-[1200px] mx-auto w-full">
-      {/* Header + month picker */}
-      <div className="flex items-center justify-between">
+      {pinTarget && (
+        <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />
+      )}
+
+      {/* Header + scope toggle + month picker */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">All Accounts</h1>
+          <h1 className="text-2xl font-semibold">Overview</h1>
           <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">
-            {profiles.length} account{profiles.length !== 1 ? "s" : ""}
+            {isGlobalActive
+              ? `${visibleProfiles.length} of ${profiles.length} profile${profiles.length !== 1 ? "s" : ""}`
+              : "This profile only"}
           </p>
         </div>
-        <div className="flex items-center gap-1">
-          <button onClick={() => navMonth(-1)} aria-label="Previous month"
-            className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors">‹</button>
-          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)}
-            className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]" />
-          <button onClick={() => navMonth(1)} aria-label="Next month"
-            className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors">›</button>
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-semibold select-none" style={{ color: !isGlobalActive ? "#3b82f6" : "hsl(var(--muted-foreground))", transition: "color 0.3s" }}>
+              Profile
+            </span>
+            <ScopeToggle isGlobal={isGlobalActive} onToggle={() => isGlobalActive ? handleSwitchToProfile() : handleSwitchToGlobal()} />
+            <span className="text-sm font-semibold select-none" style={{ color: isGlobalActive ? "#C08A1C" : "hsl(var(--muted-foreground))", transition: "color 0.3s" }}>
+              Global
+            </span>
+          </div>
+          <div className="flex items-center gap-1">
+            <button onClick={() => navMonth(-1)} aria-label="Previous month"
+              className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors">‹</button>
+            <input type="month" value={month} onChange={(e) => setMonth(e.target.value)}
+              className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]" />
+            <button onClick={() => navMonth(1)} aria-label="Next month"
+              className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors">›</button>
+          </div>
         </div>
       </div>
 
-      {/* Aggregate banner */}
-      {!loading && allData.some((d) => d.hasTransactions) && (
-        <div className="border rounded-2xl p-5 bg-[hsl(var(--muted))]/40">
-          <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-            <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wide font-medium">
-              Combined — all accounts
-            </p>
-            {totalPortfolioValue > 0 && (
-              <button
-                onClick={toggleIncludeInvestments}
-                title="Toggle whether investments are included in these totals"
-                className={`text-[10px] px-2 py-0.5 rounded-full border font-medium transition-colors ${
-                  includeInvestments
-                    ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent"
-                    : "hover:bg-[hsl(var(--muted))]"
-                }`}
+      {/* Locked-profile warning */}
+      {lockedExcluded.length > 0 && (
+        <div className="rounded-2xl px-5 py-4 flex flex-col gap-3"
+          style={{ border: "1px solid rgba(245,158,11,0.35)", backgroundColor: "rgba(245,158,11,0.07)" }}>
+          <p className="text-sm font-semibold" style={{ color: "#b45309" }}>
+            {lockedExcluded.length === 1 ? "1 profile is PIN-locked" : `${lockedExcluded.length} profiles are PIN-locked`}
+            {" "}— excluded from combined totals below.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {lockedExcluded.map((p) => (
+              <button key={p.id} onClick={() => { setPinQueue([p]); setPinQueueIdx(0); }}
+                className="text-xs px-3 py-1.5 rounded-lg transition-colors"
+                style={{ border: "1px solid rgba(245,158,11,0.5)", color: "#92400e", backgroundColor: "transparent" }}
+                onMouseOver={(e) => (e.currentTarget.style.backgroundColor = "rgba(245,158,11,0.12)")}
+                onMouseOut={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
               >
-                + Investments
+                Unlock {p.name}
               </button>
-            )}
+            ))}
           </div>
-          <div className="flex gap-8 flex-wrap">
-            {totalBalance !== null && (
-              <div>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">{totalPortfolioValue > 0 && includeInvestments ? "Total Net Worth" : "Total Balance"}</p>
-                <p className={`text-2xl font-bold ${totalBalance >= 0 ? "text-green-600" : "text-red-500"}`}>
-                  {formatCurrency(totalBalance)}
-                </p>
-              </div>
-            )}
+        </div>
+      )}
+
+      {/* Net worth + income/expenses banner */}
+      {!loading && netWorth !== null && (
+        <div className="border rounded-2xl p-5 bg-[hsl(var(--muted))]/40">
+          <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wide font-medium mb-3">
+            {isGlobalActive ? "Combined — unlocked profiles" : "This profile"}
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+            <div>
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">Liquid</p>
+              <p className="text-xl font-bold">{formatCurrency(netWorth.liquidCents)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">Investments</p>
+              <p className="text-xl font-bold">{formatCurrency(netWorth.investmentCents)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">Debt</p>
+              <p className={`text-xl font-bold ${netWorth.debtCents < 0 ? "text-red-500" : ""}`}>
+                {formatCurrency(netWorth.debtCents)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">Net Worth</p>
+              <p className={`text-xl font-bold ${netWorth.netWorthCents >= 0 ? "text-green-600" : "text-red-500"}`}>
+                {formatCurrency(netWorth.netWorthCents)}
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-8 flex-wrap pt-3 border-t">
             <div>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">Income</p>
-              <p className="text-2xl font-bold text-green-600">{formatCurrency(totalIncome)}</p>
+              <p className="text-lg font-bold text-green-600">{formatCurrency(totalIncome)}</p>
             </div>
             <div>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">Expenses</p>
-              <p className="text-2xl font-bold text-red-500">{formatCurrency(Math.abs(totalExpenses))}</p>
+              <p className="text-lg font-bold text-red-500">{formatCurrency(Math.abs(totalExpenses))}</p>
             </div>
             <div>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">Net</p>
-              <p className={`text-2xl font-bold ${totalNet >= 0 ? "text-green-600" : "text-red-500"}`}>
+              <p className={`text-lg font-bold ${totalNet >= 0 ? "text-green-600" : "text-red-500"}`}>
                 {formatCurrency(totalNet)}
               </p>
             </div>
@@ -198,13 +298,13 @@ export default function OverviewPage() {
         <p className="text-[hsl(var(--muted-foreground))]">Loading…</p>
       ) : (
         <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
-          {profiles.map((profile) => {
+          {visibleProfiles.map((profile) => {
             const d = data.get(profile.id);
             const net = (d?.income ?? 0) + (d?.expenses ?? 0);
             return (
               <button key={profile.id} onClick={() => handleSwitch(profile)}
                 className="border rounded-2xl p-5 text-left hover:shadow-md transition-all duration-150
-                           bg-[hsl(var(--background))] active:scale-[0.99]"
+                           bg-[hsl(var(--background))] active:scale-[0.99] chart-clickable"
                 style={{ "--hover-border": "var(--gold)" } as React.CSSProperties}
                 onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--gold)")}
                 onMouseLeave={(e) => (e.currentTarget.style.borderColor = "")}
@@ -232,10 +332,10 @@ export default function OverviewPage() {
                     {d.balance !== null && (
                       <div className="mb-3">
                         <p className="text-xs text-[hsl(var(--muted-foreground))] mb-0.5">
-                          {d.portfolioValue > 0 && includeInvestments ? "Net Worth" : "Current Balance"}
+                          {d.portfolioValue > 0 ? "Net Worth" : "Current Balance"}
                         </p>
-                        <p className={`text-2xl font-bold ${(d.balance + (includeInvestments ? d.portfolioValue : 0)) >= 0 ? "text-green-600" : "text-red-500"}`}>
-                          {formatCurrency(d.balance + (includeInvestments ? d.portfolioValue : 0))}
+                        <p className={`text-2xl font-bold ${(d.balance + d.portfolioValue) >= 0 ? "text-green-600" : "text-red-500"}`}>
+                          {formatCurrency(d.balance + d.portfolioValue)}
                         </p>
                       </div>
                     )}
@@ -280,6 +380,26 @@ export default function OverviewPage() {
               </button>
             );
           })}
+          {isGlobalActive && lockedExcluded.map((profile) => (
+            <button key={profile.id} onClick={() => { setPinQueue([profile]); setPinQueueIdx(0); }}
+              className="border border-dashed rounded-2xl p-5 text-left hover:shadow-md transition-all duration-150
+                         bg-[hsl(var(--background))] active:scale-[0.99]"
+            >
+              <div className="flex items-center gap-2.5 mb-4">
+                <span className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white shrink-0"
+                  style={{ backgroundColor: profile.avatar_color }}>
+                  {profile.name.charAt(0).toUpperCase()}
+                </span>
+                <div>
+                  <p className="font-semibold leading-tight">{profile.name}</p>
+                  <p className="text-xs text-[hsl(var(--muted-foreground))]">PIN-locked</p>
+                </div>
+              </div>
+              <p className="text-sm text-[hsl(var(--muted-foreground))] italic py-4 text-center">
+                🔒 Enter PIN to include in totals
+              </p>
+            </button>
+          ))}
         </div>
       )}
     </div>

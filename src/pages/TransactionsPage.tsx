@@ -5,6 +5,7 @@ import { getDb, reapplyCategorizationRules } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
 import type { Transaction } from "@/lib/types";
+import { TRANSFER_CATEGORY_ID } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import CategoryOptions from "@/components/CategoryOptions";
 import { useProfileStore } from "@/stores/profileStore";
@@ -12,9 +13,14 @@ import CategoryModal from "@/components/CategoryModal";
 import CategorizationRulesModal from "@/components/CategorizationRulesModal";
 import EditTransactionModal from "@/components/EditTransactionModal";
 import { setPendingImportFiles } from "@/lib/pendingImport";
+import InfoTooltip from "@/components/InfoTooltip";
 
 const MAX_ROWS = 500;
 const ALL_TIME_LIMIT = 10000;
+const TRANSFER_DISCLAIMER_TEXT =
+  "Transfers tracks money moved between your own accounts (e.g. checking \u2192 savings). It's excluded from income and expense totals everywhere in the app.";
+const TRANSFER_DISMISSED_KEY = "compass_transfer_disclaimer_dismissed";
+const TRANSFER_SHOWN_SESSION_KEY = "compass_transfer_disclaimer_shown_session";
 
 type SortCol = "date" | "description" | "category" | "amount" | "balance";
 type SortDir = "asc" | "desc";
@@ -97,12 +103,15 @@ function extractMerchantKey(description: string): string {
 export default function TransactionsPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const initialMonth = (location.state as { month?: string } | null)?.month;
+  const navState = location.state as { month?: string; category?: number | null } | null;
+  const initialMonth = navState?.month;
+  const initialCategory = navState?.category;
   const [month, setMonth] = useAutoMonth(initialMonth);
   const [allTime, setAllTime] = useState(false);
   const [search, setSearch] = useState("");
   const [rows, setRows] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showTransferNotice, setShowTransferNotice] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCounterRef = useRef(0);
   const monthInputRef = useRef<HTMLInputElement>(null);
@@ -120,7 +129,10 @@ export default function TransactionsPage() {
   const profileId = activeProfile?.id ?? 1;
 
   // Extended filters
-  const [filterCategory, setFilterCategory] = useState("");           // "" | "uncategorized" | "<id>"
+  const [filterCategory, setFilterCategory] = useState(() => {  // "" | "uncategorized" | "<id>"
+    if (initialCategory === undefined) return "";
+    return initialCategory === null ? "uncategorized" : String(initialCategory);
+  });
   const [filterType, setFilterType]         = useState<"all" | "income" | "expense">("all");
   const [filterAmountMin, setFilterAmountMin] = useState("");
   const [filterAmountMax, setFilterAmountMax] = useState("");
@@ -174,6 +186,29 @@ export default function TransactionsPage() {
   useEffect(() => {
     loadRows().catch(console.error);
   }, [loadRows]);
+
+  // First time a Transfers-categorized row appears (and it hasn't been dismissed
+  // this session or permanently), surface a one-time explainer so it's clear why
+  // transfers are excluded from income/expense totals. Note: merely rendering the
+  // banner does NOT count as "shown" - only clicking "Got it"/"Don't show again"
+  // does, so navigating to another tab and back doesn't silently suppress it.
+  useEffect(() => {
+    if (showTransferNotice) return;
+    if (localStorage.getItem(TRANSFER_DISMISSED_KEY) === "1") return;
+    if (sessionStorage.getItem(TRANSFER_SHOWN_SESSION_KEY) === "1") return;
+    if (rows.some((r) => r.category_id === TRANSFER_CATEGORY_ID)) {
+      setShowTransferNotice(true);
+    }
+  }, [rows, showTransferNotice]);
+
+  const dismissTransferNotice = () => {
+    sessionStorage.setItem(TRANSFER_SHOWN_SESSION_KEY, "1");
+    setShowTransferNotice(false);
+  };
+  const dismissTransferNoticeForever = () => {
+    localStorage.setItem(TRANSFER_DISMISSED_KEY, "1");
+    setShowTransferNotice(false);
+  };
 
   const recategorize = async (txn: Transaction, categoryId: number) => {
     const db = await getDb();
@@ -361,6 +396,27 @@ export default function TransactionsPage() {
         </button>
       </div>
 
+      {/* Transfers explainer - shows once per session (or until permanently dismissed) */}
+      {showTransferNotice && (
+        <div className="mb-4 rounded-xl px-4 py-3 flex items-start gap-3 text-sm"
+          style={{ border: "1px solid hsl(var(--primary)/0.35)", backgroundColor: "hsl(var(--primary)/0.06)" }}>
+          <span className="text-base leading-none mt-0.5">↔️</span>
+          <p className="flex-1 text-[hsl(var(--muted-foreground))]">
+            <strong className="text-[hsl(var(--foreground))]">Transfers</strong> is not spending or income - {TRANSFER_DISCLAIMER_TEXT}
+          </p>
+          <div className="flex gap-2 shrink-0">
+            <button onClick={dismissTransferNoticeForever}
+              className="text-xs px-2.5 py-1 rounded-md border hover:bg-[hsl(var(--muted))] transition-colors">
+              Don't show again
+            </button>
+            <button onClick={dismissTransferNotice}
+              className="text-xs px-2.5 py-1 rounded-md bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] hover:opacity-90 transition-opacity">
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="space-y-2 mb-4">
         {/* Row 1 — date + search */}
@@ -409,6 +465,7 @@ export default function TransactionsPage() {
             <option value="uncategorized">Uncategorized</option>
             <CategoryOptions categories={categories.filter((c) => c.id !== 15)} />
           </select>
+          <InfoTooltip text={TRANSFER_DISCLAIMER_TEXT} />
 
           {/* Income / Expense / All toggle */}
           <div className="flex border rounded-lg overflow-hidden text-sm">

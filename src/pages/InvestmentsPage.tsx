@@ -6,7 +6,9 @@ import {
 import { TrendingUp, TrendingDown, ChevronRight, ChevronDown, Info } from "lucide-react";
 import { getDb } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { holdingRoiPct } from "@/lib/netWorth";
 import { useProfileStore } from "@/stores/profileStore";
+import InfoTooltip from "@/components/InfoTooltip";
 import type { Holding, SecurityType } from "@/lib/types";
 
 const SECTION_LABELS: Record<SecurityType, string> = {
@@ -61,7 +63,15 @@ function groupHoldings(rows: Holding[]): HoldingGroup[] {
     if (row.est_annual_income_cents !== null) g.estAnnualIncomeCents += row.est_annual_income_cents;
     g.lots.push(row);
   }
-  return [...groups.values()];
+  // Highest ROI% first; groups without a cost basis (ROI unknown) sort to the bottom.
+  return [...groups.values()].sort((a, b) => {
+    const roiA = holdingRoiPct(a.totalMarketValueCents, a.totalCostBasisCents);
+    const roiB = holdingRoiPct(b.totalMarketValueCents, b.totalCostBasisCents);
+    if (roiA === null && roiB === null) return 0;
+    if (roiA === null) return 1;
+    if (roiB === null) return -1;
+    return roiB - roiA;
+  });
 }
 
 export default function InvestmentsPage() {
@@ -201,7 +211,10 @@ export default function InvestmentsPage() {
           </p>
         </div>
         <div className="border rounded-xl px-4 py-4 text-center">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1">Est. Annual Income</p>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1 flex items-center justify-center gap-1">
+            Est. Annual Income
+            <InfoTooltip text="The brokerage's own projected annual income estimate as of the statement date - typically dividends, interest, and other distributions. It's a forward-looking estimate, not a record of income actually paid." />
+          </p>
           <p className="text-xl font-bold">{formatCurrency(kpis.estIncome)}</p>
         </div>
       </div>
@@ -248,6 +261,7 @@ export default function InvestmentsPage() {
                   <th className="px-4 py-2 font-medium">Symbol</th>
                   <th className="px-4 py-2 font-medium text-right">Shares</th>
                   <th className="px-4 py-2 font-medium text-right">Market Value</th>
+                  <th className="px-4 py-2 font-medium text-right">ROI</th>
                   <th className="px-4 py-2 font-medium text-right">Est. Annual Income</th>
                 </tr>
               </thead>
@@ -255,6 +269,7 @@ export default function InvestmentsPage() {
                 {groups.map((g) => {
                   const hasLots = g.lots.length > 1;
                   const isOpen = expanded.has(g.key);
+                  const roiPct = holdingRoiPct(g.totalMarketValueCents, g.totalCostBasisCents);
                   return (
                     <Fragment key={g.key}>
                       <tr className={`border-t ${hasLots ? "cursor-pointer hover:bg-[hsl(var(--muted))]/40" : ""}`}
@@ -266,6 +281,9 @@ export default function InvestmentsPage() {
                         <td className="px-4 py-2 text-xs font-mono">{g.symbol ?? "-"}</td>
                         <td className="px-4 py-2 text-right text-xs font-mono">{g.totalShares !== null ? g.totalShares.toLocaleString() : "-"}</td>
                         <td className="px-4 py-2 text-right text-xs font-mono">{formatCurrency(g.totalMarketValueCents)}</td>
+                        <td className={`px-4 py-2 text-right text-xs font-mono ${roiPct === null ? "text-[hsl(var(--muted-foreground))]" : roiPct >= 0 ? "text-green-600" : "text-red-500"}`}>
+                          {roiPct !== null ? `${roiPct >= 0 ? "+" : ""}${roiPct.toFixed(1)}%` : "-"}
+                        </td>
                         <td className="px-4 py-2 text-right text-xs font-mono text-[hsl(var(--muted-foreground))]">
                           {g.estAnnualIncomeCents > 0 ? formatCurrency(g.estAnnualIncomeCents) : "-"}
                         </td>
@@ -280,6 +298,11 @@ export default function InvestmentsPage() {
                           </td>
                           <td className="px-4 py-1.5 text-right font-mono">{lot.shares ?? "-"}</td>
                           <td className="px-4 py-1.5 text-right font-mono">{lot.market_value_cents !== null ? formatCurrency(lot.market_value_cents) : "-"}</td>
+                          <td className="px-4 py-1.5 text-right font-mono">
+                            {holdingRoiPct(lot.market_value_cents, lot.cost_basis_cents) !== null
+                              ? `${holdingRoiPct(lot.market_value_cents, lot.cost_basis_cents)! >= 0 ? "+" : ""}${holdingRoiPct(lot.market_value_cents, lot.cost_basis_cents)!.toFixed(1)}%`
+                              : "-"}
+                          </td>
                           <td className="px-4 py-1.5 text-right font-mono">-</td>
                         </tr>
                       ))}

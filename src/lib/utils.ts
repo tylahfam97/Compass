@@ -13,6 +13,20 @@ export function formatCurrency(cents: number, currency = "USD"): string {
   }).format(cents / 100);
 }
 
+/** Lightens a hex color toward white by `amount` (0-1), for chart hover states
+ *  (e.g. a bar's own color, washed out, instead of a generic gray highlight). */
+export function lightenHex(hex: string, amount = 0.45): string {
+  const clean = hex.replace("#", "");
+  const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean;
+  const num = parseInt(full, 16);
+  if (isNaN(num) || full.length !== 6) return hex;
+  const r = (num >> 16) & 0xff;
+  const g = (num >> 8) & 0xff;
+  const b = num & 0xff;
+  const mix = (c: number) => Math.round(c + (255 - c) * amount);
+  return `#${[mix(r), mix(g), mix(b)].map((c) => c.toString(16).padStart(2, "0")).join("")}`;
+}
+
 /** Format an ISO date string to a readable label, e.g. "2024-03-15" → "Mar 15, 2024" */
 export function formatDate(iso: string): string {
   // ISO date-only strings (YYYY-MM-DD) are parsed as UTC midnight by the JS engine.

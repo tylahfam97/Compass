@@ -30,7 +30,9 @@ export type InsightType =
   | "expense_ratio_drift"
   | "credit_card_debt_high"
   | "credit_card_debt_growing"
-  | "credit_card_debt_improving";
+  | "credit_card_debt_improving"
+  | "net_worth_growing"
+  | "net_worth_declining";
 
 /** Category ID reserved for internal bank transfers — excluded from expense totals. */
 export const TRANSFER_CATEGORY_ID = 20;
@@ -164,4 +166,25 @@ export interface HealthScore {
     balanceRunway:   HealthScoreComponent;
     incomeStability: HealthScoreComponent;
   };
+}
+
+/** A standalone 0-100 score benchmarked against a national-average figure,
+ *  shown as its own mini-card rather than folded into the main Health Score. */
+export interface MiniHealthScore {
+  score: number;
+  hasData: boolean;
+  grade: string;
+  label: string;
+  color: string;
+  detail: string;
+}
+
+export interface CreditCardHealthScore extends MiniHealthScore {
+  debtCents: number;
+  benchmarkCents: number;
+}
+
+export interface InvestmentHealthScore extends MiniHealthScore {
+  returnPct: number | null;
+  benchmarkPct: number;
 }
