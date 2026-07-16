@@ -1,5 +1,6 @@
 import { getDb } from "./db";
 import type { Insight, HealthScore } from "./types";
+import { computeNetWorth } from "./netWorth";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -866,6 +867,35 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
           dismissKey: `expense_ratio_drift_${thisMonth}`,
         });
       }
+    }
+  }
+
+  // ── INSIGHT: net_worth_growing / net_worth_declining ─────────────────────
+  const [nowNetWorth, priorNetWorth] = await Promise.all([
+    computeNetWorth([profileId]),
+    computeNetWorth([profileId], thisStart),
+  ]);
+  const netWorthDelta = nowNetWorth.netWorthCents - priorNetWorth.netWorthCents;
+  if (Math.abs(netWorthDelta) >= 20000) {
+    // At least $200 moved since the start of this month
+    if (netWorthDelta > 0) {
+      insights.push({
+        id: `net_worth_growing_${thisMonth}`,
+        type: "net_worth_growing",
+        title: `Net worth grew by ${formatCents(netWorthDelta)} this month`,
+        description: `Your net worth (liquid cash + investments − debt) went from ${formatCents(priorNetWorth.netWorthCents)} to ${formatCents(nowNetWorth.netWorthCents)}.`,
+        severity: "success",
+        dismissKey: `net_worth_growing_${thisMonth}`,
+      });
+    } else {
+      insights.push({
+        id: `net_worth_declining_${thisMonth}`,
+        type: "net_worth_declining",
+        title: `Net worth dropped by ${formatCents(Math.abs(netWorthDelta))} this month`,
+        description: `Your net worth (liquid cash + investments − debt) went from ${formatCents(priorNetWorth.netWorthCents)} to ${formatCents(nowNetWorth.netWorthCents)}.`,
+        severity: "warning",
+        dismissKey: `net_worth_declining_${thisMonth}`,
+      });
     }
   }
 

@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ChevronDown, ChevronRight, CheckCircle, Target, Info, HelpCircle } from "lucide-react";
+import { ChevronDown, ChevronRight, CheckCircle, Target, Info, HelpCircle, TrendingUp, TrendingDown } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
@@ -10,10 +10,19 @@ import { useProfileStore } from "@/stores/profileStore";
 import {
   generateInsights, getSpendingProfile, getSavingsHistory, computeHealthScore,
 } from "@/lib/agent";
-import type { Insight, Profile, HealthScore } from "@/lib/types";
+import {
+  computeNetWorth, getNetWorthHistory, computeInvestmentReturn, getTopRoiHoldings,
+  type NetWorthSnapshot, type InvestmentReturn, type TopRoiHolding,
+} from "@/lib/netWorth";
+import type { Insight, Profile, HealthScore, SecurityType } from "@/lib/types";
 import InsightCard from "@/components/InsightCard";
 import SpotlightCard from "@/components/SpotlightCard";
 import PinModal from "@/components/PinModal";
+
+const ROI_SECTION_LABELS: Record<SecurityType, string> = {
+  stock: "Stocks", etf: "ETFs", mutual_fund: "Mutual Funds", cash: "Cash", other: "Other",
+};
+const ROI_SECTION_ORDER: SecurityType[] = ["stock", "etf", "mutual_fund", "other", "cash"];
 
 interface SubItem {
   description: string;
@@ -220,6 +229,103 @@ function ScoreHeroCard({ score, scopeLabel, onOpen }: { score: HealthScore; scop
   );
 }
 
+// ── Net Worth Card ────────────────────────────────────────────────────────────
+function NetWorthCard({
+  netWorth, history, investmentReturn, savingsRatePct,
+}: {
+  netWorth: NetWorthSnapshot;
+  history: { month: string; netWorthCents: number }[];
+  investmentReturn: InvestmentReturn | null;
+  savingsRatePct: number;
+}) {
+  const first = history[0]?.netWorthCents ?? netWorth.netWorthCents;
+  const changeCents = netWorth.netWorthCents - first;
+  const changePct = first !== 0 ? (changeCents / Math.abs(first)) * 100 : 0;
+  const isGrowing = changeCents > 0;
+  const isFlat = Math.abs(changeCents) < 100; // under $1 - treat as flat
+
+  return (
+    <section className="border rounded-2xl overflow-hidden shadow-sm">
+      <div className="px-6 pt-5 pb-5">
+        <div className="flex items-start justify-between mb-4 flex-wrap gap-2">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2">
+              Net Worth
+            </p>
+            <p className={`text-4xl font-black tabular-nums ${netWorth.netWorthCents >= 0 ? "text-[hsl(var(--foreground))]" : "text-red-500"}`}>
+              {formatCurrency(netWorth.netWorthCents)}
+            </p>
+          </div>
+          {history.length >= 2 && !isFlat && (
+            <div className={`flex items-center gap-1 text-sm font-semibold ${isGrowing ? "text-green-600" : "text-red-500"}`}>
+              {isGrowing ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
+              {formatCurrency(Math.abs(changeCents))} ({Math.abs(Math.round(changePct))}%) this year
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-3 gap-4 mb-4">
+          <div>
+            <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wide">Liquid</p>
+            <p className="text-sm font-bold">{formatCurrency(netWorth.liquidCents)}</p>
+          </div>
+          <div>
+            <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wide">Investments</p>
+            <p className="text-sm font-bold">{formatCurrency(netWorth.investmentCents)}</p>
+          </div>
+          <div>
+            <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wide">Debt</p>
+            <p className={`text-sm font-bold ${netWorth.debtCents < 0 ? "text-red-500" : ""}`}>{formatCurrency(netWorth.debtCents)}</p>
+          </div>
+        </div>
+
+        {history.length >= 2 && (
+          <div className="h-16 -mx-2 mb-4">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={history} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+                <defs>
+                  <linearGradient id="netWorthGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
+                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <Tooltip
+                  formatter={(v) => [formatCurrency(v as number), "Net Worth"]}
+                  labelFormatter={(l) => String(l)}
+                  contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
+                />
+                <Area type="monotone" dataKey="netWorthCents" stroke="#6366f1" strokeWidth={2} fill="url(#netWorthGrad)" dot={false} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-4 pt-3 border-t">
+          <div>
+            <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wide mb-0.5">Savings Rate</p>
+            <p className={`text-lg font-bold ${savingsRatePct >= 20 ? "text-green-600" : savingsRatePct >= 10 ? "text-amber-500" : "text-red-500"}`}>
+              {savingsRatePct}%
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wide mb-0.5">Investment Return</p>
+            <p className="text-lg font-bold">
+              {investmentReturn?.annualizedReturnPct !== null && investmentReturn?.annualizedReturnPct !== undefined
+                ? `${investmentReturn.annualizedReturnPct >= 0 ? "+" : ""}${investmentReturn.annualizedReturnPct.toFixed(1)}%/yr`
+                : investmentReturn?.absoluteReturnPct !== null && investmentReturn?.absoluteReturnPct !== undefined
+                ? `${investmentReturn.absoluteReturnPct >= 0 ? "+" : ""}${investmentReturn.absoluteReturnPct.toFixed(1)}%`
+                : "—"}
+            </p>
+            {investmentReturn?.hasCostBasis && investmentReturn.annualizedReturnPct === null && (
+              <p className="text-[9px] text-[hsl(var(--muted-foreground))] mt-0.5">Absolute (needs trade dates to annualize)</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ── Health Score Intro Modal ──────────────────────────────────────────────────
 function ScoreIntroModal({
   globalScore, profileScore, profileName, onClose,
@@ -359,10 +465,14 @@ export default function AgentPage() {
   const [catDeltas, setCatDeltas]               = useState<CatDelta[]>([]);
   const [hasEnoughData, setHasEnoughData]       = useState(true);
   const [refreshedAt, setRefreshedAt]           = useState<Date | null>(null);
+  const [netWorth, setNetWorth]                 = useState<NetWorthSnapshot | null>(null);
+  const [netWorthHistory, setNetWorthHistory]   = useState<{ month: string; netWorthCents: number }[]>([]);
+  const [investmentReturn, setInvestmentReturn] = useState<InvestmentReturn | null>(null);
+  const [topRoi, setTopRoi]                     = useState<Partial<Record<SecurityType, TopRoiHolding[]>>>({});
 
-  const [sectExpanded, setSectExpanded] = useState<{ trends: boolean; subs: boolean }>(() => {
-    try { const s = localStorage.getItem("compass_insight_sections"); return s ? JSON.parse(s) : { trends: false, subs: false }; }
-    catch { return { trends: false, subs: false }; }
+  const [sectExpanded, setSectExpanded] = useState<{ trends: boolean; subs: boolean; topRoi: boolean }>(() => {
+    try { const s = localStorage.getItem("compass_insight_sections"); return s ? JSON.parse(s) : { trends: false, subs: false, topRoi: false }; }
+    catch { return { trends: false, subs: false, topRoi: false }; }
   });
   const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>(loadGroupState);
   const didSetDefaults = useRef(false);
@@ -401,7 +511,7 @@ export default function AgentPage() {
     } else { setPinQueueIdx(next); }
   };
 
-  const toggleSection = useCallback((k: "trends" | "subs") => {
+  const toggleSection = useCallback((k: "trends" | "subs" | "topRoi") => {
     setSectExpanded((prev) => {
       const next = { ...prev, [k]: !prev[k] };
       localStorage.setItem("compass_insight_sections", JSON.stringify(next));
@@ -442,12 +552,16 @@ export default function AgentPage() {
       const db = await getDb();
       const ph = ids.map(() => "?").join(",");
 
-      const [allInsights, history, profile, globalScore, profileScore] = await Promise.all([
+      const [allInsights, history, profile, globalScore, profileScore, nw, nwHistory, invReturn, topRoiHoldings] = await Promise.all([
         generateInsights(ids),
         getSavingsHistory(ids, 12),
         getSpendingProfile(ids),
         computeHealthScore(unlockedProfileIds.length > 0 ? unlockedProfileIds : [profileId]), // always global
         computeHealthScore([profileId]),  // always this profile only
+        computeNetWorth(ids),
+        getNetWorthHistory(ids, 12),
+        computeInvestmentReturn(ids),
+        getTopRoiHoldings(ids, 3),
       ]);
       if (cancelled) return;
 
@@ -458,6 +572,10 @@ export default function AgentPage() {
       setSpendingProfile(profile);
       setGlobalHealthScore(globalScore);
       setProfileHealthScore(profileScore);
+      setNetWorth(nw);
+      setNetWorthHistory(nwHistory);
+      setInvestmentReturn(invReturn);
+      setTopRoi(topRoiHoldings);
 
       const thisMonth = currentYM();
       const lMonth = prevYM(thisMonth);
@@ -666,6 +784,17 @@ export default function AgentPage() {
           />
         )}
 
+        {/* ── Net Worth ── */}
+        {netWorth && (
+          <NetWorthCard
+            netWorth={netWorth}
+            history={netWorthHistory}
+            investmentReturn={investmentReturn}
+            savingsRatePct={avgSavingsRatePct}
+          />
+        )}
+
+
         {/* ── KPI Strip ── */}
         {spendingProfile && (
           <section className="border rounded-2xl overflow-hidden shadow-sm">
@@ -807,6 +936,33 @@ export default function AgentPage() {
             items={warningInsights} onApply={handleApply}
             open={!!groupOpen.warning} onToggle={() => toggleGroup("warning")} />
         </section>
+
+        {/* ── Top Performers ── */}
+        {Object.keys(topRoi).length > 0 && (
+          <CollapsibleSection title="Top Performers" subtitle="highest ROI per section"
+            expanded={sectExpanded.topRoi} onToggle={() => toggleSection("topRoi")}>
+            <div className="divide-y">
+              {ROI_SECTION_ORDER.filter((t) => (topRoi[t]?.length ?? 0) > 0).map((type) => (
+                <div key={type} className="px-5 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2">
+                    {ROI_SECTION_LABELS[type]}
+                  </p>
+                  <div className="space-y-1.5">
+                    {topRoi[type]!.map((h) => (
+                      <div key={`${type}-${h.symbol ?? h.description}`} className="flex items-center justify-between gap-3 text-sm">
+                        <span className="truncate flex-1">{h.symbol ?? h.description}</span>
+                        <span className={`font-mono font-semibold flex items-center gap-1 shrink-0 ${h.roiPct >= 0 ? "text-green-600" : "text-red-500"}`}>
+                          {h.roiPct >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                          {h.roiPct >= 0 ? "+" : ""}{h.roiPct.toFixed(1)}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CollapsibleSection>
+        )}
 
         {/* ── Category Trends ── */}
         {catDeltas.length > 0 && (

@@ -30,7 +30,9 @@ export type InsightType =
   | "expense_ratio_drift"
   | "credit_card_debt_high"
   | "credit_card_debt_growing"
-  | "credit_card_debt_improving";
+  | "credit_card_debt_improving"
+  | "net_worth_growing"
+  | "net_worth_declining";
 
 /** Category ID reserved for internal bank transfers — excluded from expense totals. */
 export const TRANSFER_CATEGORY_ID = 20;
