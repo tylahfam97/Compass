@@ -490,13 +490,181 @@ function detectStatementDate(rows: string[][]): string | null {
   return null;
 }
 
+/** Classify a Fidelity/Thrivent security-type string to our internal SecurityType. */
+function classifyFlatSecurityType(raw: string): SecurityType {
+  const s = raw.trim().toLowerCase();
+  if (s.includes("mutual fund") || s.includes("money market")) return "mutual_fund";
+  if (s.includes("etf") || s.includes("exchange traded")) return "etf";
+  if (s.includes("stock") || s.includes("common stock")) return "stock";
+  if (s.includes("cash")) return "cash";
+  return "other";
+}
+
 /**
- * Parses a Wells Fargo Advisors "Portfolio Positions" export into holdings
- * grouped by section (Stocks, ETFs, Cash, Other, ...). Each section prints
- * its own title row, its own header row, N data rows, then a "Total <name>"
- * row. Returns null if no recognizable position sections were found.
+ * Builds a synthetic InvestmentSection from a flat array of rows, grouped by a
+ * derived title. Used by the Fidelity and Thrivent parsers.
+ */
+function buildFlatSection(
+  title: string,
+  securityType: SecurityType,
+  headerRow: string[],
+  colMap: Record<string, number>,
+  rawRows: string[][]
+): InvestmentSection {
+  const rows = rawRows
+    .map((r) => buildInvestmentRow(r, colMap, securityType))
+    .filter((r): r is InvestmentRow => r !== null);
+  return {
+    title, securityType, headerRow, rawRows, colMap, rows,
+    totalMarketValue: rows.reduce((s, r) => s + (r.marketValue ?? 0), 0),
+  };
+}
+
+/**
+ * Parses a Fidelity brokerage positions export (flat CSV, one row per holding).
+ * Groups results into sections by Security Type.
+ * Returns null if the file doesn't look like a Fidelity export.
+ *
+ * Expected headers (0-based indices used due to duplicate "Currency Code" names):
+ *   3  Security Description, 5  Recent Quantity, 6  Recent Price,
+ *   10 Recent Market Value,  15 Cost,            27 Security Type,  29 Symbol
+ */
+function parseFidelityCSV(data: string[][]): ParsedInvestment | null {
+  const headerRow = data[0];
+  if (!headerRow) return null;
+  const norm = headerRow.map((h) => (h ?? "").toLowerCase().trim());
+  if (!norm.includes("security description") || !norm.includes("security type")) return null;
+
+  const today = new Date().toISOString().split("T")[0];
+
+  // Build a simple index map using header names where unique, falling back to known indices
+  const colMap: Record<string, number> = {
+    description: norm.indexOf("security description"),
+    symbol:      norm.lastIndexOf("symbol"),        // last occurrence avoids "Security ID"
+    shares:      norm.indexOf("recent quantity"),
+    price:       norm.indexOf("recent price"),
+    marketValue: norm.indexOf("recent market value"),
+    costBasis:   norm.indexOf("cost"),
+  };
+  // "cost" might match "account type" column name fragments - pin to known safe range
+  // If recent market value was found at col 10, cost should be around col 15
+  const mvIdx = colMap.marketValue;
+  if (colMap.costBasis >= 0 && mvIdx >= 0 && colMap.costBasis <= mvIdx) {
+    // cost column appeared before market value - re-search after market value
+    const afterMv = norm.slice(mvIdx + 1).indexOf("cost");
+    colMap.costBasis = afterMv >= 0 ? mvIdx + 1 + afterMv : -1;
+  }
+
+  const secTypeIdx = norm.indexOf("security type");
+
+  // Bucket rows by security type
+  const buckets = new Map<string, string[][]>();
+  for (const row of data.slice(1)) {
+    const desc = (row[colMap.description] ?? "").trim();
+    if (!desc) continue;
+    const rawType = (secTypeIdx >= 0 ? row[secTypeIdx] ?? "" : "").trim() || "Other";
+    if (!buckets.has(rawType)) buckets.set(rawType, []);
+    buckets.get(rawType)!.push(row);
+  }
+
+  if (buckets.size === 0) return null;
+
+  const sections: InvestmentSection[] = [];
+  for (const [rawType, rows] of buckets) {
+    const securityType = classifyFlatSecurityType(rawType);
+    const title = rawType === "Common Stock/ETF" ? "Stocks & ETFs" : rawType;
+    const section = buildFlatSection(title, securityType, headerRow, colMap, rows);
+    if (section.rows.length > 0) sections.push(section);
+  }
+
+  return sections.length > 0 ? { asOfDate: today, sections } : null;
+}
+
+/**
+ * Parses a Thrivent brokerage positions export (flat CSV, one row per holding,
+ * potentially spanning multiple accounts). Groups results into one section per
+ * account name.
+ * Returns null if the file doesn't look like a Thrivent export.
+ *
+ * Expected headers: Account number, Account name, Symbol, Description, Quantity,
+ *   Last price, Last price change, Current value, ..., Cost basis total, Average cost basis, Type
+ */
+function parseThriventCSV(data: string[][]): ParsedInvestment | null {
+  const headerRow = data[0];
+  if (!headerRow) return null;
+  const norm = headerRow.map((h) => (h ?? "").toLowerCase().trim());
+  if (!norm.includes("cost basis total") || !norm.includes("account name")) return null;
+
+  const today = new Date().toISOString().split("T")[0];
+
+  const colMap: Record<string, number> = {
+    description: norm.indexOf("description"),
+    symbol:      norm.indexOf("symbol"),
+    shares:      norm.indexOf("quantity"),
+    price:       norm.indexOf("last price"),
+    marketValue: norm.indexOf("current value"),
+    costBasis:   norm.indexOf("cost basis total"),
+  };
+  const typeIdx    = norm.indexOf("type");
+  const accountIdx = norm.indexOf("account name");
+
+  // Bucket rows by account name
+  const buckets = new Map<string, string[][]>();
+  for (const row of data.slice(1)) {
+    const desc = (row[colMap.description] ?? "").trim();
+    if (!desc) continue;
+    const account = (accountIdx >= 0 ? row[accountIdx] ?? "" : "").trim() || "Portfolio";
+    // Strip trailing quote/apostrophe artifacts sometimes present in Thrivent exports
+    const cleanAccount = account.replace(/['"]+$/, "").trim() || "Portfolio";
+    if (!buckets.has(cleanAccount)) buckets.set(cleanAccount, []);
+    buckets.get(cleanAccount)!.push(row);
+  }
+
+  if (buckets.size === 0) return null;
+
+  const sections: InvestmentSection[] = [];
+  for (const [account, rows] of buckets) {
+    // Derive a representative security type for the section from the first row that has one
+    let securityType: SecurityType = "other";
+    if (typeIdx >= 0) {
+      for (const row of rows) {
+        const t = (row[typeIdx] ?? "").trim();
+        if (t) { securityType = classifyFlatSecurityType(t); break; }
+      }
+    }
+    const section = buildFlatSection(account, securityType, headerRow, colMap, rows);
+    if (section.rows.length > 0) sections.push(section);
+  }
+
+  return sections.length > 0 ? { asOfDate: today, sections } : null;
+}
+
+/**
+ * Detects the format of an investment CSV/XLSX based on distinctive header names.
+ * Returns "fidelity" | "thrivent" | "wells-fargo".
+ */
+function detectInvestmentFormat(data: string[][]): "fidelity" | "thrivent" | "wells-fargo" {
+  // Look for a flat header row in the first 3 rows
+  for (const row of data.slice(0, 3)) {
+    const norm = row.map((h) => (h ?? "").toLowerCase().trim());
+    if (norm.includes("security description") && norm.includes("security type")) return "fidelity";
+    if (norm.includes("cost basis total") && norm.includes("account name")) return "thrivent";
+  }
+  return "wells-fargo";
+}
+
+/**
+ * Dispatcher: detects the brokerage export format and routes to the appropriate
+ * parser. Supports Wells Fargo Advisors (sectioned XLSX), Fidelity (flat CSV),
+ * and Thrivent (flat CSV, multi-account).
+ * Returns null if no supported format is detected.
  */
 function parseInvestmentWorkbook(data: string[][]): ParsedInvestment | null {
+  const fmt = detectInvestmentFormat(data);
+  if (fmt === "fidelity")  return parseFidelityCSV(data);
+  if (fmt === "thrivent")  return parseThriventCSV(data);
+
+  // Wells Fargo Advisors: sectioned format
   const asOfDate = detectStatementDate(data) ?? new Date().toISOString().split("T")[0];
   const sections: InvestmentSection[] = [];
 
@@ -967,7 +1135,7 @@ export default function ImportPage() {
   const finishParsingInvestmentData = useCallback((data: string[][]) => {
     const result = parseInvestmentWorkbook(data);
     if (!result) {
-      setError("We couldn't detect a Portfolio Positions table in this file. Currently only Wells Fargo Advisors-style portfolio exports are supported for investment imports.");
+      setError("We couldn't detect a supported portfolio format. Supported formats: Wells Fargo Advisors (XLSX), Fidelity, and Thrivent (CSV).");
       setStep("upload");
       return;
     }
@@ -1026,7 +1194,12 @@ export default function ImportPage() {
         );
         if (colProfiles.length > 0) {
           const p = colProfiles[0];
-          setColMap({ dateCol: p.date_col, descCol: p.desc_col, amountCol: p.amount_col, typeCol: p.type_col, balanceCol: p.balance_col, invertAmounts: false });
+          // Restore invertAmounts from fingerprint detection even when a saved column
+          // profile is found - it is not persisted in column_profiles so would otherwise
+          // always revert to false on repeat imports (e.g. Amex).
+          const fpId = detectPresetByFingerprint(headers);
+          const restoredInvert = (fpId && BANK_PRESETS[fpId]?.invertAmounts) ? BANK_PRESETS[fpId].invertAmounts! : false;
+          setColMap({ dateCol: p.date_col, descCol: p.desc_col, amountCol: p.amount_col, typeCol: p.type_col, balanceCol: p.balance_col, invertAmounts: restoredInvert });
           setProfileFound(true);
         } else {
           const base = autoDetect(headers);
@@ -1570,6 +1743,9 @@ export default function ImportPage() {
               className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
               Skip to Preview
             </button>
+            <button onClick={reset} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
+              Cancel
+            </button>
           </div>
         </div>
       )}
@@ -1616,6 +1792,9 @@ export default function ImportPage() {
             <button onClick={() => wizardGo("wizard:preview", "forward")}
               className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
               Skip to Preview
+            </button>
+            <button onClick={reset} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
+              Cancel
             </button>
           </div>
         </div>
@@ -1732,6 +1911,9 @@ export default function ImportPage() {
               className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
               Skip to Preview
             </button>
+            <button onClick={reset} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
+              Cancel
+            </button>
           </div>
         </div>
       )}
@@ -1824,6 +2006,9 @@ export default function ImportPage() {
             <button onClick={() => wizardGo("wizard:preview", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
               Continue to Preview
+            </button>
+            <button onClick={reset} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
+              Cancel
             </button>
           </div>
         </div>
