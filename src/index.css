@@ -69,3 +69,28 @@ body {
 .wizard-enter-done {
   animation: wizard-done 300ms cubic-bezier(0.34, 1.2, 0.64, 1);
 }
+
+/* ── Chart interaction polish ──────────────────────────────────────────────── */
+
+/* Recharts renders an internal accessibility layer that gives bars/points a
+   browser focus ring on click - suppress it everywhere charts are used, since
+   these charts have no keyboard-equivalent interaction to preserve. */
+.recharts-wrapper,
+.recharts-wrapper *,
+.recharts-surface {
+  outline: none !important;
+}
+.recharts-wrapper *:focus,
+.recharts-wrapper *:focus-visible {
+  outline: none !important;
+}
+
+/* Subtle blue -> gold shimmer to signal "this chart can be clicked for detail". */
+@keyframes chart-shimmer-glow {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.30), 0 0 14px -4px rgba(59, 130, 246, 0.35); }
+  50%      { box-shadow: 0 0 0 1px rgba(201, 149, 43, 0.35), 0 0 14px -4px rgba(201, 149, 43, 0.40); }
+}
+.chart-clickable {
+  animation: chart-shimmer-glow 3.2s ease-in-out infinite;
+}
+

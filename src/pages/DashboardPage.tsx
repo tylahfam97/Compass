@@ -365,7 +365,7 @@ export default function DashboardPage() {
 
           {/* Top categories */}
           {cats.length > 0 && (
-            <div className="border rounded-xl p-5">
+            <div className="border rounded-xl p-5 chart-clickable">
               <h2 className="font-semibold mb-1">Top Spending Categories</h2>
               <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-3">Click a bar for details</p>
               <ResponsiveContainer width="100%" height={cats.length * 36 + 20}>

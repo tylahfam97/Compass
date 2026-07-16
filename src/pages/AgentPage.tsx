@@ -333,10 +333,7 @@ function NetWorthCard({
 
         {history.length >= 2 && (
           <>
-            <div
-              className="h-16 -mx-2 mb-1 cursor-pointer"
-              onClick={() => setSelectedMonth(null)}
-            >
+            <div className="h-16 -mx-2 mb-1 chart-clickable rounded-lg">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart
                   data={history}

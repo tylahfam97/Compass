@@ -289,7 +289,7 @@ export default function TrendsPage() {
             )}
 
             {/* Income vs Expenses */}
-            <div className="border rounded-xl p-5">
+            <div className="border rounded-xl p-5 chart-clickable">
               <h2 className="font-semibold mb-1">Income vs Expenses ({range}mo)</h2>
               <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-3">Click a month for its top categories</p>
               <ResponsiveContainer width="100%" height={260}>
@@ -352,7 +352,7 @@ export default function TrendsPage() {
 
             {/* Stacked by category */}
             {stacked.length > 0 && catNames.length > 0 && (
-              <div className="border rounded-xl p-5">
+              <div className="border rounded-xl p-5 chart-clickable">
                 <h2 className="font-semibold mb-1">Spending by Category ({range}mo)</h2>
                 <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-3">Click a category segment for its trend</p>
                 <ResponsiveContainer width="100%" height={280}>
