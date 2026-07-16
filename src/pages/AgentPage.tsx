@@ -365,38 +365,36 @@ function NetWorthCard({
               Click a point on the chart for that month's breakdown
             </p>
 
-            <motion.div layout transition={{ type: "spring", stiffness: 420, damping: 42, mass: 0.9 }} className="overflow-hidden">
-              <AnimatePresence initial={false} mode="popLayout">
-                {selected && (
-                  <motion.div
-                    key={selected.month}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.18 }}
-                  >
-                    <div className="grid grid-cols-4 gap-3 text-center rounded-xl p-3 mb-4 bg-[hsl(var(--muted))]/40">
-                      <div>
-                        <p className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase">{selected.month}</p>
-                        <p className="text-xs font-bold">{formatCurrency(selected.netWorthCents)}</p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase">Liquid</p>
-                        <p className="text-xs font-bold">{formatCurrency(selected.liquidCents)}</p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase">Investments</p>
-                        <p className="text-xs font-bold">{formatCurrency(selected.investmentCents)}</p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase">Debt</p>
-                        <p className={`text-xs font-bold ${selected.debtCents < 0 ? "text-red-500" : ""}`}>{formatCurrency(selected.debtCents)}</p>
-                      </div>
+            <AnimatePresence initial={false} mode="wait">
+              {selected && (
+                <motion.div
+                  key={selected.month}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.18 }}
+                >
+                  <div className="grid grid-cols-4 gap-3 text-center rounded-xl p-3 mb-4 bg-[hsl(var(--muted))]/40">
+                    <div>
+                      <p className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase">{selected.month}</p>
+                      <p className="text-xs font-bold">{formatCurrency(selected.netWorthCents)}</p>
                     </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </motion.div>
+                    <div>
+                      <p className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase">Liquid</p>
+                      <p className="text-xs font-bold">{formatCurrency(selected.liquidCents)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase">Investments</p>
+                      <p className="text-xs font-bold">{formatCurrency(selected.investmentCents)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase">Debt</p>
+                      <p className={`text-xs font-bold ${selected.debtCents < 0 ? "text-red-500" : ""}`}>{formatCurrency(selected.debtCents)}</p>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </>
         )}
 
