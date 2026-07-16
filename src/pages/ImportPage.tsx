@@ -320,6 +320,9 @@ interface InvestmentRow {
 interface InvestmentSection {
   title: string;
   securityType: SecurityType;
+  headerRow: string[];
+  rawRows: string[][];
+  colMap: Record<string, number>;
   rows: InvestmentRow[];
   totalMarketValue: number;
 }
@@ -366,6 +369,19 @@ const HOLDING_HEADER_ALIASES: Record<string, string[]> = {
   estAnnualIncome: ["est. annual income"],
 };
 
+/** Field order + display labels for the manual column-remap UI. */
+const HOLDING_FIELDS: { key: string; label: string }[] = [
+  { key: "description", label: "Description" },
+  { key: "symbol", label: "Symbol" },
+  { key: "shares", label: "Shares" },
+  { key: "price", label: "Price" },
+  { key: "marketValue", label: "Market Value" },
+  { key: "costBasis", label: "Cost Basis" },
+  { key: "tradeDate", label: "Trade Date" },
+  { key: "dividendPerShare", label: "Dividend/Share" },
+  { key: "estAnnualIncome", label: "Est. Annual Income" },
+];
+
 function buildHoldingHeaderMap(headerRow: string[]): Record<string, number> {
   const norm = headerRow.map((h) => (h ?? "").toLowerCase().trim());
   const map: Record<string, number> = {};
@@ -401,6 +417,25 @@ function parseTradeDateOrNull(row: string[], idx: number | undefined): string | 
   if (v === null) return null;
   const iso = parseDate(v);
   return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null;
+}
+
+/** Builds a single holding row from a raw data row using a (possibly user-edited) column map. */
+function buildInvestmentRow(dataRow: string[], colMap: Record<string, number>, securityType: SecurityType): InvestmentRow | null {
+  const dCol0 = (dataRow[0] ?? "").trim();
+  const description = cellOrNull(dataRow, colMap.description) ?? dCol0;
+  if (!description) return null;
+  return {
+    securityType,
+    symbol: cellOrNull(dataRow, colMap.symbol),
+    description,
+    shares: parseSharesOrNull(dataRow, colMap.shares),
+    price: parseMoneyOrNull(dataRow, colMap.price),
+    marketValue: parseMoneyOrNull(dataRow, colMap.marketValue),
+    costBasis: parseMoneyOrNull(dataRow, colMap.costBasis),
+    tradeDate: parseTradeDateOrNull(dataRow, colMap.tradeDate),
+    dividendPerShare: parseMoneyOrNull(dataRow, colMap.dividendPerShare),
+    estAnnualIncome: parseMoneyOrNull(dataRow, colMap.estAnnualIncome),
+  };
 }
 
 /** Detects a brokerage statement's "Priced as of ..." date from the first few rows. */
@@ -440,6 +475,7 @@ function parseInvestmentWorkbook(data: string[][]): ParsedInvestment | null {
         const securityType = classifySection(title);
         const colMap = buildHoldingHeaderMap(headerRow);
         const rows: InvestmentRow[] = [];
+        const rawRows: string[][] = [];
         let j = i + 2;
         for (; j < data.length; j++) {
           const dataRow = data[j];
@@ -448,24 +484,14 @@ function parseInvestmentWorkbook(data: string[][]): ParsedInvestment | null {
           if (!dCol0 && dataRow.every((c) => !c || !c.trim())) continue; // blank separator row
           if (ASSET_CLASS_LABELS.has(dCol0.toLowerCase())) continue; // asset-class sub-heading
 
-          const description = cellOrNull(dataRow, colMap.description) ?? dCol0;
-          if (!description) continue;
-          rows.push({
-            securityType,
-            symbol: cellOrNull(dataRow, colMap.symbol),
-            description,
-            shares: parseSharesOrNull(dataRow, colMap.shares),
-            price: parseMoneyOrNull(dataRow, colMap.price),
-            marketValue: parseMoneyOrNull(dataRow, colMap.marketValue),
-            costBasis: parseMoneyOrNull(dataRow, colMap.costBasis),
-            tradeDate: parseTradeDateOrNull(dataRow, colMap.tradeDate),
-            dividendPerShare: parseMoneyOrNull(dataRow, colMap.dividendPerShare),
-            estAnnualIncome: parseMoneyOrNull(dataRow, colMap.estAnnualIncome),
-          });
+          const built = buildInvestmentRow(dataRow, colMap, securityType);
+          if (!built) continue;
+          rows.push(built);
+          rawRows.push(dataRow);
         }
         if (rows.length > 0) {
           sections.push({
-            title, securityType, rows,
+            title, securityType, headerRow, rawRows, colMap, rows,
             totalMarketValue: rows.reduce((s, r) => s + (r.marketValue ?? 0), 0),
           });
         }
@@ -498,6 +524,8 @@ export default function ImportPage() {
   const [skipRows, setSkipRows] = useState(0);
   const [parsed, setParsed] = useState<ParsedData | null>(null);
   const [invParsed, setInvParsed] = useState<ParsedInvestment | null>(null);
+  const [colMapOverrides, setColMapOverrides] = useState<Record<string, Record<string, number>>>({});
+  const [fixColumnsOpen, setFixColumnsOpen] = useState<Set<string>>(new Set());
   const [hasInvestmentAccount, setHasInvestmentAccount] = useState<boolean | null>(null);
   const [showInvestmentProfilePrompt, setShowInvestmentProfilePrompt] = useState(false);
   const [investmentProfileDecided, setInvestmentProfileDecided] = useState(false);
@@ -530,11 +558,34 @@ export default function ImportPage() {
     if (detectedMonth) setTargetMonth(detectedMonth);
   }, [detectedMonth]);
 
-  // Grand totals across every section of a parsed investment workbook.
+  // Re-derives each section's holding rows after applying any manual column-map overrides
+  // the user made in the "Fix columns" panel, falling back to the auto-detected mapping.
+  const derivedSections = useMemo(() => {
+    if (!invParsed) return [];
+    return invParsed.sections.map((section) => {
+      const override = colMapOverrides[section.title];
+      if (!override) return section;
+      const mergedColMap: Record<string, number> = { ...section.colMap };
+      for (const [field, idx] of Object.entries(override)) {
+        if (idx < 0) delete mergedColMap[field];
+        else mergedColMap[field] = idx;
+      }
+      const rows = section.rawRows
+        .map((raw) => buildInvestmentRow(raw, mergedColMap, section.securityType))
+        .filter((r): r is InvestmentRow => r !== null);
+      return {
+        ...section,
+        colMap: mergedColMap,
+        rows,
+        totalMarketValue: rows.reduce((s, r) => s + (r.marketValue ?? 0), 0),
+      };
+    });
+  }, [invParsed, colMapOverrides]);
+
+  // Grand totals across every (possibly remapped) section of a parsed investment workbook.
   const invTotals = useMemo(() => {
-    if (!invParsed) return { marketValue: 0, estAnnualIncome: 0, count: 0 };
     let marketValue = 0, estAnnualIncome = 0, count = 0;
-    for (const section of invParsed.sections) {
+    for (const section of derivedSections) {
       for (const row of section.rows) {
         marketValue += row.marketValue ?? 0;
         estAnnualIncome += row.estAnnualIncome ?? 0;
@@ -542,7 +593,7 @@ export default function ImportPage() {
       }
     }
     return { marketValue, estAnnualIncome, count };
-  }, [invParsed]);
+  }, [derivedSections]);
 
   const loadHistory = useCallback(async () => {
     const db = await getDb();
@@ -644,7 +695,7 @@ export default function ImportPage() {
       const sessionId = sessionResult.lastInsertId as number;
 
       let imported = 0;
-      for (const section of invParsed.sections) {
+      for (const section of derivedSections) {
         for (const row of section.rows) {
           await db.execute(
             `INSERT INTO holdings
@@ -687,8 +738,25 @@ export default function ImportPage() {
       file.arrayBuffer().then((buf) => {
         try {
           const wb = XLSX.read(buf, { type: "array", cellDates: false });
-          const ws = wb.Sheets[wb.SheetNames[0]];
-          const data = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: "" }) as string[][];
+          // raw:false returns each cell's formatted display text (e.g. "$1,234.56", "07/15/2026")
+          // instead of the underlying number/date serial, matching what our string-based
+          // parsers (parseAmount/parseDate) expect. Every cell is also defensively coerced to
+          // a string so a stray number/Date object can never crash downstream .trim() calls.
+          const sheetToRows = (name: string): string[][] => {
+            const raw = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: "", raw: false }) as unknown[][];
+            return raw.map((row) => row.map((c) => (c === null || c === undefined ? "" : String(c))));
+          };
+
+          let data: string[][];
+          if (importKind === "investment" && wb.SheetNames.length > 1) {
+            // Some brokerage exports include multiple tabs (Summary, Positions, Activity...) -
+            // use whichever sheet actually contains a recognizable Portfolio Positions table.
+            const withPositions = wb.SheetNames.find((name) => parseInvestmentWorkbook(sheetToRows(name)) !== null);
+            data = sheetToRows(withPositions ?? wb.SheetNames[0]);
+          } else {
+            data = sheetToRows(wb.SheetNames[0]);
+          }
+
           if (data.length < 2) {
             setError("Spreadsheet appears empty or has too few rows.");
             setStep("upload");
@@ -736,11 +804,29 @@ export default function ImportPage() {
       return;
     }
     setInvParsed(result);
+    setColMapOverrides({});
+    setFixColumnsOpen(new Set());
     setHasInvestmentAccount(null);
     setInvestmentProfileDecided(false);
     setWizardDir("forward");
     setStep("wizard:investment-preview");
   }, []);
+
+  const toggleFixColumns = (title: string) => {
+    setFixColumnsOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(title)) next.delete(title); else next.add(title);
+      return next;
+    });
+  };
+
+  /** Applies a manual column-map override for one field within one section. -1 clears the override. */
+  const setColumnOverride = (title: string, field: string, idx: number) => {
+    setColMapOverrides((prev) => ({
+      ...prev,
+      [title]: { ...prev[title], [field]: idx },
+    }));
+  };
 
   /** Shared logic to detect headers, load presets, and advance to the wizard after parsing. */
   const finishParsingData = useCallback((data: string[][]) => {
@@ -1022,6 +1108,8 @@ export default function ImportPage() {
     setSkipRows(0);
     setParsed(null);
     setInvParsed(null);
+    setColMapOverrides({});
+    setFixColumnsOpen(new Set());
     setHasInvestmentAccount(null);
     setShowInvestmentProfilePrompt(false);
     setInvestmentProfileDecided(false);
@@ -1572,17 +1660,44 @@ export default function ImportPage() {
               <p className="text-[hsl(var(--muted-foreground))] text-xs mt-0.5">Est. Annual Income</p>
             </div>
             <div className="border rounded-xl p-4 text-center">
-              <p className="text-xl font-bold">{invParsed.sections.length}</p>
+              <p className="text-xl font-bold">{derivedSections.length}</p>
               <p className="text-[hsl(var(--muted-foreground))] text-xs mt-0.5">Sections Found</p>
             </div>
           </div>
 
-          {invParsed.sections.map((section) => (
+          {derivedSections.map((section) => {
+            const isFixOpen = fixColumnsOpen.has(section.title);
+            return (
             <div key={section.title} className="border rounded-xl overflow-hidden">
-              <div className="px-4 py-2 bg-[hsl(var(--muted))] border-b text-xs font-medium uppercase tracking-wide flex items-center justify-between">
+              <div className="px-4 py-2 bg-[hsl(var(--muted))] border-b text-xs font-medium uppercase tracking-wide flex items-center justify-between gap-2">
                 <span>{section.title} ({section.rows.length})</span>
-                <span>{formatCurrency(Math.round(section.totalMarketValue * 100))}</span>
+                <div className="flex items-center gap-3">
+                  <span>{formatCurrency(Math.round(section.totalMarketValue * 100))}</span>
+                  <button onClick={() => toggleFixColumns(section.title)}
+                    className="text-[hsl(var(--primary))] hover:underline normal-case font-normal">
+                    {isFixOpen ? "Done" : "Fix columns"}
+                  </button>
+                </div>
               </div>
+              {isFixOpen && (
+                <div className="px-4 py-3 border-b bg-[hsl(var(--muted))]/30 grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {HOLDING_FIELDS.map((field) => (
+                    <label key={field.key} className="text-xs space-y-1">
+                      <span className="text-[hsl(var(--muted-foreground))]">{field.label}</span>
+                      <select
+                        value={section.colMap[field.key] ?? -1}
+                        onChange={(e) => setColumnOverride(section.title, field.key, parseInt(e.target.value))}
+                        className="w-full border rounded-lg px-2 py-1 text-xs bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
+                      >
+                        <option value={-1}>None</option>
+                        {section.headerRow.map((h, i) => (
+                          <option key={i} value={i}>{h || `Column ${i + 1}`}</option>
+                        ))}
+                      </select>
+                    </label>
+                  ))}
+                </div>
+              )}
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b text-left text-xs text-[hsl(var(--muted-foreground))]">
@@ -1609,7 +1724,8 @@ export default function ImportPage() {
                 <div className="px-4 py-2 text-xs text-[hsl(var(--muted-foreground))] border-t">+ {section.rows.length - 8} more</div>
               )}
             </div>
-          ))}
+            );
+          })}
 
           <p className="text-xs text-[hsl(var(--muted-foreground))] flex items-start gap-1">
             <Info size={12} className="shrink-0 mt-0.5" />
