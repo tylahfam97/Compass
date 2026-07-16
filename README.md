@@ -90,6 +90,8 @@ On your second import from the same bank, Compass remembers the column layout an
 
 A guided import flow that handles any bank's CSV format:
 
+Before the column-mapping steps, Compass asks what you're importing: **Bank Statement**, **Credit Card Statement**, or **Investment / Brokerage**. Bank and credit card statements share the wizard below. Investment statements skip straight to a grouped preview — see [Investments](#-investments) below.
+
 | Step | What happens |
 |---|---|
 | **1 · Find Data** | Auto-detects your header row; adjust with +/− if needed. **Skip to Preview ↗** is always available once you're happy with the columns |
@@ -198,7 +200,20 @@ Full searchable, filterable transaction list. Filter by month or view all-time h
 
 ### 💼 All Accounts Overview
 
-Aggregates all profiles in one place. Each account card shows current balance, a 60-day sparkline, and this month's income/expenses/net. Click any card to jump to that account's dashboard.
+Aggregates all profiles in one place. Each account card shows current balance, a 60-day sparkline, and this month's income/expenses/net. Click any card to jump to that account's dashboard. A **+ Investments** toggle folds each profile's latest portfolio value into a combined net worth figure, or hides it to show liquid cash only.
+
+### 📈 Investments
+
+Import a brokerage "Portfolio Positions" export (Wells Fargo Advisors format — `.csv`, `.xlsx`, or `.xls`) and Compass will:
+
+- Detect every section of the statement (Stocks, ETFs, Mutual Funds, Cash, Other) along with each security's individual tax lots
+- Show a grouped preview with per-section totals before anything is imported
+- Offer to create a dedicated **Investments** profile so brokerage holdings never mix into everyday spending totals
+- Track holdings as dated snapshots, so re-importing a later statement builds a value-over-time history instead of overwriting it
+
+The Investments page shows KPI tiles (portfolio value, cost basis, unrealized gain/loss, estimated annual dividend income), holdings grouped by symbol with expandable tax-lot detail, and a portfolio value chart once two or more statements have been imported.
+
+> Dividend and "Est. Annual Income" figures reflect the brokerage's projected estimates as of the statement date — not a history of dividends actually paid.
 
 ### 🔄 In-App Auto-Updates
 
@@ -370,7 +385,7 @@ npm run tauri build     # production build → src-tauri/target/release/bundle/
 Compass is focused on one thing: making it easy to understand your personal finances privately, locally, and without friction.
 
 ### ✅ Phase 1 — Core *(complete)*
-Statement import · Import history + undo · Auto-categorization · Edit/add/delete transactions · CSV export · Spending trends · Budgets with on-pace projection · Goals · Reports with custom date ranges · Insights · Ghost subscriptions · Running balance · All-accounts overview · Smart categorization rules · In-app auto-updates · Demo mode · Batch import · Collapsible sidebar · Profile switcher on launch
+Statement import · Import history + undo · Auto-categorization · Edit/add/delete transactions · CSV export · Spending trends · Budgets with on-pace projection · Goals · Reports with custom date ranges · Insights · Ghost subscriptions · Running balance · All-accounts overview · Smart categorization rules · In-app auto-updates · Demo mode · Batch import · Collapsible sidebar · Profile switcher on launch · Investment portfolio tracking with net worth toggle
 
 ### ✅ Phase 2 — AI Insights *(complete)*
 AI agent for natural-language questions about your data · Automatic insight generation (budget gaps, unusual spending, savings rate, overspend streaks, low balance alerts) · Categorization rules engine with priority ordering

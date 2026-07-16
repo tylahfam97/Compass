@@ -2,6 +2,32 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 0.7.0 — Investment Tracking
+
+### New: Investment Portfolio Import
+The import wizard now opens by asking what you're importing: **Bank Statement**, **Credit Card Statement**, or **Investment / Brokerage**. Bank and credit card statements flow through the existing column-mapping wizard as before. Investment statements skip straight to a dedicated parser built for Wells Fargo Advisors–style "Portfolio Positions" exports (`.csv`, `.xlsx`, `.xls`).
+
+The parser walks each section of the statement — Stocks, ETFs, Mutual Funds, Cash, Other — reading that section's own header row and every individual tax lot underneath it, until it hits that section's `Total` row. The statement's "Priced as of" date is detected automatically and used to tag the import as a dated snapshot.
+
+### New: Investments Page
+A new **Investments** tab shows:
+- KPI tiles for total portfolio value, cost basis, unrealized gain/loss, and estimated annual dividend income
+- Holdings grouped by symbol, with an expandable row revealing individual tax lots (shares, purchase date, cost basis per lot)
+- A portfolio-value-over-time chart once two or more statements have been imported — every import adds a new dated snapshot rather than overwriting the last one
+
+Dividend and "Est. Annual Income" figures are clearly labeled as the brokerage's projected estimates, not a record of dividends actually paid.
+
+### New: Dedicated Investments Profile Prompt
+The first time you import an investment statement into a profile that doesn't already have one, Compass offers to create a separate **Investments** profile and import there instead — keeping brokerage holdings from mixing into everyday spending totals. You can decline and keep everything in your current profile if you'd rather.
+
+### New: Net Worth Toggle
+The Dashboard and All Accounts Overview pages now show a **+ Investments** toggle next to your balance. Turn it on to fold your latest portfolio value into a combined net worth figure; turn it off to see liquid cash only. The setting is remembered across sessions.
+
+### Fixed: Import Wizard Button Labels
+Several "Continue" / "Skip to Preview" button labels and a couple of live-preview values (parsed date, parsed amount) in the column-mapping wizard had gone blank in a previous build. They've been restored.
+
+---
+
 ## Compass 0.6.1 — Import Overhaul, Sortable Transactions & Trends Expansion
 
 ### Import Wizard: Full Overhaul
