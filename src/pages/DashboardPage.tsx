@@ -417,7 +417,7 @@ export default function DashboardPage() {
               </ResponsiveContainer>
 
               <motion.div layout transition={{ type: "spring", stiffness: 420, damping: 42, mass: 0.9 }} className="overflow-hidden">
-                <AnimatePresence initial={false}>
+                <AnimatePresence initial={false} mode="popLayout">
                   {expandedCat && (
                     <motion.div
                       key={expandedCat.name}

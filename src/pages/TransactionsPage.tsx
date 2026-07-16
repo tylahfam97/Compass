@@ -187,20 +187,24 @@ export default function TransactionsPage() {
     loadRows().catch(console.error);
   }, [loadRows]);
 
-  // First time a Transfers-categorized row appears this session (and not permanently
-  // dismissed), surface a one-time explainer so it's clear why transfers are excluded
-  // from income/expense totals.
+  // First time a Transfers-categorized row appears (and it hasn't been dismissed
+  // this session or permanently), surface a one-time explainer so it's clear why
+  // transfers are excluded from income/expense totals. Note: merely rendering the
+  // banner does NOT count as "shown" - only clicking "Got it"/"Don't show again"
+  // does, so navigating to another tab and back doesn't silently suppress it.
   useEffect(() => {
     if (showTransferNotice) return;
     if (localStorage.getItem(TRANSFER_DISMISSED_KEY) === "1") return;
     if (sessionStorage.getItem(TRANSFER_SHOWN_SESSION_KEY) === "1") return;
     if (rows.some((r) => r.category_id === TRANSFER_CATEGORY_ID)) {
-      sessionStorage.setItem(TRANSFER_SHOWN_SESSION_KEY, "1");
       setShowTransferNotice(true);
     }
   }, [rows, showTransferNotice]);
 
-  const dismissTransferNotice = () => setShowTransferNotice(false);
+  const dismissTransferNotice = () => {
+    sessionStorage.setItem(TRANSFER_SHOWN_SESSION_KEY, "1");
+    setShowTransferNotice(false);
+  };
   const dismissTransferNoticeForever = () => {
     localStorage.setItem(TRANSFER_DISMISSED_KEY, "1");
     setShowTransferNotice(false);
