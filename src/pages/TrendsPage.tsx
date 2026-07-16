@@ -6,7 +6,7 @@ import {
 } from "recharts";
 import { motion, AnimatePresence } from "motion/react";
 import { getDb } from "@/lib/db";
-import { formatCurrency, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
+import { formatCurrency, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
 import type { Profile } from "@/lib/types";
 import PinModal from "@/components/PinModal";
@@ -15,8 +15,9 @@ interface MonthRow { month: string; income: number; expenses: number; }
 interface CatMonthRow { month: string; category: string; color: string; categoryId: number | null; total: number; }
 interface StackedRow { month: string; [cat: string]: string | number; }
 interface CumulativeRow { month: string; net: number; running: number; }
-interface BalanceMonthRow { month: string; [accountKey: string]: string | number; }
-interface BalanceAccountMeta { id: number; name: string; color: string; }
+interface CheckingBalanceMonthRow { month: string; balance: number; }
+interface CreditBalanceMonthRow { month: string; [accountKey: string]: string | number; }
+interface CreditAccountMeta { id: number; name: string; color: string; }
 
 const RANGE_OPTIONS = [3, 6, 12];
 const VIEW_KEY = "compass_trends_view";
@@ -38,8 +39,9 @@ export default function TrendsPage() {
   const [catIds, setCatIds] = useState<Record<string, number | null>>({});
   const [catNames, setCatNames] = useState<string[]>([]);
   const [cumulativeData, setCumulativeData] = useState<CumulativeRow[]>([]);
-  const [balanceMonthly, setBalanceMonthly] = useState<BalanceMonthRow[]>([]);
-  const [balanceAccounts, setBalanceAccounts] = useState<BalanceAccountMeta[]>([]);
+  const [checkingBalanceMonthly, setCheckingBalanceMonthly] = useState<CheckingBalanceMonthRow[]>([]);
+  const [creditBalanceMonthly, setCreditBalanceMonthly] = useState<CreditBalanceMonthRow[]>([]);
+  const [creditBalanceAccounts, setCreditBalanceAccounts] = useState<CreditAccountMeta[]>([]);
   const [expandedBalanceMonth, setExpandedBalanceMonth] = useState<string | null>(null);
   const [allTimeIncome, setAllTimeIncome] = useState(0);
   const [allTimeExpenses, setAllTimeExpenses] = useState(0);
@@ -162,8 +164,8 @@ export default function TrendsPage() {
            ORDER BY t.date ASC, t.id ASC`,
           [...ids]
         ),
-        db.select<{ id: number; name: string }[]>(
-          `SELECT id, name FROM accounts WHERE profile_id IN (${ph}) AND account_type IN ('checking','credit') ORDER BY account_type, name`,
+        db.select<{ id: number; name: string; account_type: string }[]>(
+          `SELECT id, name, account_type FROM accounts WHERE profile_id IN (${ph}) AND account_type IN ('checking','credit') ORDER BY account_type, name`,
           [...ids]
         ),
       ]);
@@ -178,19 +180,30 @@ export default function TrendsPage() {
       let running = 0;
       setCumulativeData(cumRows.map(r => { running += r.net; return { month: r.month, net: r.net, running }; }));
 
-      // Each checking/credit account's own running balance (credit stored negative),
-      // downsampled to the last known balance of each month, kept separate per account so
-      // e.g. two credit cards are drawn as two distinct lines instead of one combined total.
-      const accountsMeta = balanceAcctRows.map((a, i) => ({ id: a.id, name: a.name, color: accountChartColor(i) }));
-      setBalanceAccounts(accountsMeta);
-      const separated = separateAccountBalances(balanceRows);
-      const lastPerMonth = new Map<string, Record<number, number>>();
-      for (const r of separated) lastPerMonth.set(r.date.slice(0, 7), r.byAccount);
-      setBalanceMonthly(
-        [...lastPerMonth.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, byAccount]) => {
-          const row: BalanceMonthRow = { month };
+      // Checking accounts combine into one line (there's usually just one); credit cards stay
+      // separate per-account, downsampled to the last known balance of each month, so e.g. two
+      // credit cards are drawn as two distinct lines instead of being summed with checking.
+      const checkingIds = new Set(balanceAcctRows.filter((a) => a.account_type === "checking").map((a) => a.id));
+      const creditAccountsMeta = balanceAcctRows
+        .filter((a) => a.account_type === "credit")
+        .map((a, i) => ({ id: a.id, name: a.name, color: accountChartColor(i) }));
+      setCreditBalanceAccounts(creditAccountsMeta);
+
+      const combinedChecking = combineAccountBalances(balanceRows.filter((r) => checkingIds.has(r.account_id)));
+      const lastCheckingPerMonth = new Map<string, number>();
+      for (const r of combinedChecking) lastCheckingPerMonth.set(r.date.slice(0, 7), r.balance_cents);
+      setCheckingBalanceMonthly(
+        [...lastCheckingPerMonth.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, balance]) => ({ month, balance }))
+      );
+
+      const separatedCredit = separateAccountBalances(balanceRows.filter((r) => !checkingIds.has(r.account_id)));
+      const lastCreditPerMonth = new Map<string, Record<number, number>>();
+      for (const r of separatedCredit) lastCreditPerMonth.set(r.date.slice(0, 7), r.byAccount);
+      setCreditBalanceMonthly(
+        [...lastCreditPerMonth.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, byAccount]) => {
+          const row: CreditBalanceMonthRow = { month };
           // Kept in cents (not dollars) to match this chart's existing YAxis/Tooltip formatting.
-          for (const acc of accountsMeta) row[String(acc.id)] = byAccount[acc.id] ?? 0;
+          for (const acc of creditAccountsMeta) row[String(acc.id)] = byAccount[acc.id] ?? 0;
           return row;
         })
       );
@@ -294,15 +307,31 @@ export default function TrendsPage() {
               </div>
             )}
 
-            {/* Running account balance - each checking/credit account shown as its own line */}
-            {balanceMonthly.length >= 2 && (
+            {/* Checking balance - combined into a single line (there's usually just one account) */}
+            {checkingBalanceMonthly.length >= 2 && (
+              <div className="border rounded-xl p-5">
+                <h2 className="font-semibold mb-4">Checking Balance (All Time)</h2>
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart data={checkingBalanceMonthly} margin={{ left:8,right:8,top:4,bottom:4 }}>
+                    <XAxis dataKey="month" tick={{ fontSize:11 }} />
+                    <YAxis tickFormatter={v => `$${Math.round(v/100)}`} tick={{ fontSize:11 }} />
+                    <Tooltip contentStyle={tooltipStyle} formatter={v => formatCurrency(v as number)} />
+                    <ReferenceLine y={0} stroke="hsl(var(--border))" strokeDasharray="3 3" />
+                    <Line type="monotone" dataKey="balance" name="Balance" stroke="#3b82f6" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* Credit card balances - kept separate from checking, one line per card */}
+            {creditBalanceMonthly.length >= 2 && (
               <div className="border rounded-xl p-5 chart-clickable">
-                <h2 className="font-semibold mb-1">Account Balance (All Time)</h2>
-                <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-1">Click a point for the per-account breakdown</p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">Each account shown separately - credit card debt counts negatively against its own line.</p>
+                <h2 className="font-semibold mb-1">Credit Card Balances (All Time)</h2>
+                <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-1">Click a point for the per-card breakdown</p>
+                <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">Each card shown separately - debt counts negatively against its own line.</p>
                 <ResponsiveContainer width="100%" height={200}>
                   <LineChart
-                    data={balanceMonthly}
+                    data={creditBalanceMonthly}
                     margin={{ left:8,right:8,top:4,bottom:4 }}
                     onClick={(state) => {
                       const label = state?.activeLabel as string | undefined;
@@ -313,19 +342,19 @@ export default function TrendsPage() {
                     <YAxis tickFormatter={v => `$${Math.round(v/100)}`} tick={{ fontSize:11 }} />
                     <Tooltip
                       contentStyle={tooltipStyle}
-                      formatter={(v, name) => [formatCurrency(v as number), balanceAccounts.find(a => String(a.id) === name)?.name ?? name]}
+                      formatter={(v, name) => [formatCurrency(v as number), creditBalanceAccounts.find(a => String(a.id) === name)?.name ?? name]}
                     />
                     <ReferenceLine y={0} stroke="hsl(var(--border))" strokeDasharray="3 3" />
-                    {balanceAccounts.map((acc) => (
+                    {creditBalanceAccounts.map((acc) => (
                       <Line key={acc.id} type="monotone" dataKey={String(acc.id)} name={acc.name}
                         stroke={acc.color} strokeWidth={2} dot={false} />
                     ))}
                   </LineChart>
                 </ResponsiveContainer>
 
-                {balanceAccounts.length > 1 && (
+                {creditBalanceAccounts.length > 1 && (
                   <div className="flex flex-wrap gap-3 mt-3">
-                    {balanceAccounts.map((acc) => (
+                    {creditBalanceAccounts.map((acc) => (
                       <span key={acc.id} className="flex items-center gap-1.5 text-[10px] text-[hsl(var(--muted-foreground))]">
                         <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: acc.color }} />
                         {acc.name}
@@ -346,8 +375,8 @@ export default function TrendsPage() {
                       <div className="mt-3 pt-3 border-t">
                         <p className="text-xs font-semibold mb-2">{expandedBalanceMonth}</p>
                         <div className="space-y-1">
-                          {balanceAccounts.map((acc) => {
-                            const row = balanceMonthly.find((r) => r.month === expandedBalanceMonth);
+                          {creditBalanceAccounts.map((acc) => {
+                            const row = creditBalanceMonthly.find((r) => r.month === expandedBalanceMonth);
                             const cents = row ? Number(row[String(acc.id)]) : null;
                             if (cents === null) return null;
                             return (

@@ -2,11 +2,11 @@ import { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, Cell, LineChart, Line, Rectangle,
+  ResponsiveContainer, Cell, LineChart, Line, AreaChart, Area, Rectangle,
 } from "recharts";
 import { motion, AnimatePresence } from "motion/react";
-import { getDb } from "@/lib/db";
-import { formatCurrency, formatDate, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
+import { getDb, recomputeCalculatedBalances } from "@/lib/db";
+import { formatCurrency, formatDate, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
 import type { Transaction, Insight } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
@@ -26,15 +26,20 @@ interface CatStat {
   total: number;
 }
 
-interface BalanceAccountMeta {
+interface CreditAccountMeta {
   id: number;
   name: string;
   color: string;
 }
 
-interface BalanceChartRow {
+interface CreditBalanceRow {
   date: string;
   [accountKey: string]: string | number;
+}
+
+interface CheckingBalancePoint {
+  date: string;
+  balance: number;
 }
 
 const INCLUDE_INVESTMENTS_KEY = "compass_include_investments";
@@ -61,8 +66,9 @@ export default function DashboardPage() {
   const [totalTxnCount, setTotalTxnCount] = useState(0);
   const [confirmClear, setConfirmClear] = useState<"month" | "all" | null>(null);
   const [currentBalance, setCurrentBalance] = useState<number | null>(null);
-  const [balanceAccounts, setBalanceAccounts] = useState<BalanceAccountMeta[]>([]);
-  const [balanceRows, setBalanceRows] = useState<BalanceChartRow[]>([]);
+  const [checkingBalancePoints, setCheckingBalancePoints] = useState<CheckingBalancePoint[]>([]);
+  const [creditBalanceAccounts, setCreditBalanceAccounts] = useState<CreditAccountMeta[]>([]);
+  const [creditBalanceRows, setCreditBalanceRows] = useState<CreditBalanceRow[]>([]);
   const [expandedBalanceDate, setExpandedBalanceDate] = useState<string | null>(null);
   const [portfolioValueCents, setPortfolioValueCents] = useState(0);
   const [expandedCat, setExpandedCat] = useState<CatStat | null>(null);
@@ -137,8 +143,8 @@ export default function DashboardPage() {
          WHERE profile_id=? AND as_of_date=(SELECT MAX(as_of_date) FROM holdings WHERE profile_id=?)`,
         [profileId, profileId]
       ),
-      db.select<{ id: number; name: string }[]>(
-        "SELECT id, name FROM accounts WHERE profile_id=? AND account_type IN ('checking','credit') ORDER BY account_type, name",
+      db.select<{ id: number; name: string; account_type: string }[]>(
+        "SELECT id, name, account_type FROM accounts WHERE profile_id=? AND account_type IN ('checking','credit') ORDER BY account_type, name",
         [profileId]
       ),
     ]);
@@ -151,14 +157,25 @@ export default function DashboardPage() {
     setTotalTxnCount(totalCountRow[0]?.n ?? 0);
     const trackedAccounts = balanceRow.filter((r) => r.balance_cents !== null);
     setCurrentBalance(trackedAccounts.length > 0 ? trackedAccounts.reduce((s, r) => s + (r.balance_cents ?? 0), 0) : null);
-    const accountsMeta = balanceAcctRows.map((a, i) => ({ id: a.id, name: a.name, color: accountChartColor(i) }));
-    setBalanceAccounts(accountsMeta);
-    const separated = separateAccountBalances(balancePointRows).filter((r) => r.date >= start);
-    setBalanceRows(separated.map((r) => {
-      const row: BalanceChartRow = { date: r.date };
-      for (const acc of accountsMeta) row[String(acc.id)] = (r.byAccount[acc.id] ?? 0) / 100;
-      return row;
-    }));
+    const checkingIds = new Set(balanceAcctRows.filter((a) => a.account_type === "checking").map((a) => a.id));
+    const creditAccountsMeta = balanceAcctRows
+      .filter((a) => a.account_type === "credit")
+      .map((a, i) => ({ id: a.id, name: a.name, color: accountChartColor(i) }));
+    setCreditBalanceAccounts(creditAccountsMeta);
+    // Checking accounts combine into one line (there's usually just one); credit cards stay
+    // separate per-account so multiple cards never get silently summed into one number.
+    const combinedChecking = combineAccountBalances(balancePointRows.filter((r) => checkingIds.has(r.account_id)));
+    setCheckingBalancePoints(
+      combinedChecking.filter((r) => r.date >= start).map((r) => ({ date: r.date, balance: r.balance_cents / 100 }))
+    );
+    const separatedCredit = separateAccountBalances(balancePointRows.filter((r) => !checkingIds.has(r.account_id)));
+    setCreditBalanceRows(
+      separatedCredit.filter((r) => r.date >= start).map((r) => {
+        const row: CreditBalanceRow = { date: r.date };
+        for (const acc of creditAccountsMeta) row[String(acc.id)] = (r.byAccount[acc.id] ?? 0) / 100;
+        return row;
+      })
+    );
     setPortfolioValueCents(portfolioRow[0]?.total ?? 0);
     setExpandedCat(null);
     setExpandedCatTxns(null);
@@ -193,6 +210,10 @@ export default function DashboardPage() {
     const db = await getDb();
     if (scope === "month") {
       const [start, end] = monthBounds(month);
+      const affectedAccounts = await db.select<{ account_id: number }[]>(
+        "SELECT DISTINCT account_id FROM transactions WHERE date>=? AND date<? AND profile_id=?",
+        [start, end, profileId]
+      );
       await db.execute("DELETE FROM transactions WHERE date>=? AND date<? AND profile_id=?", [start, end, profileId]);
       // Remove sessions that no longer have any transactions linked to them
       await db.execute(
@@ -203,9 +224,17 @@ export default function DashboardPage() {
          )`,
         [profileId, profileId]
       );
+      for (const { account_id } of affectedAccounts) await recomputeCalculatedBalances(account_id);
     } else {
+      const affectedAccounts = await db.select<{ account_id: number }[]>(
+        "SELECT DISTINCT account_id FROM transactions WHERE profile_id=?",
+        [profileId]
+      );
       await db.execute("DELETE FROM transactions WHERE profile_id=?", [profileId]);
       await db.execute("DELETE FROM import_sessions WHERE profile_id=?", [profileId]);
+      // Every account just lost all its transactions - recompute clears each one's stale
+      // balance anchor too, so a future reimport doesn't resurrect the old balance.
+      for (const { account_id } of affectedAccounts) await recomputeCalculatedBalances(account_id);
     }
     setConfirmClear(null);
     loadData().catch(console.error);
@@ -323,75 +352,104 @@ export default function DashboardPage() {
             ))}
           </div>
 
-          {/* Account balance card + sparkline */}
+          {/* Account balance card + checking sparkline */}
           {currentBalance != null && (
-            <div className="border rounded-xl p-5 chart-clickable">
-              <div className="flex gap-6 items-center flex-wrap">
-                <div className="shrink-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <p className="text-sm text-[hsl(var(--muted-foreground))]">
-                      {portfolioValueCents > 0 && includeInvestments ? "Net Worth" : "Account Balance"}
-                    </p>
-                    {portfolioValueCents > 0 && (
-                      <button
-                        onClick={toggleIncludeInvestments}
-                        title="Toggle whether investments are included in this figure"
-                        className={`text-[10px] px-2 py-0.5 rounded-full border font-medium transition-colors ${
-                          includeInvestments
-                            ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent"
-                            : "hover:bg-[hsl(var(--muted))]"
-                        }`}
-                      >
-                        + Investments
-                      </button>
-                    )}
-                  </div>
-                  <p className={`text-2xl font-bold ${(currentBalance + (includeInvestments ? portfolioValueCents : 0)) >= 0 ? "text-green-600" : "text-red-500"}`}>
-                    {formatCurrency(currentBalance + (includeInvestments ? portfolioValueCents : 0))}
+            <div className="border rounded-xl p-5 flex gap-6 items-center flex-wrap">
+              <div className="shrink-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-sm text-[hsl(var(--muted-foreground))]">
+                    {portfolioValueCents > 0 && includeInvestments ? "Net Worth" : "Account Balance"}
                   </p>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
-                    {portfolioValueCents > 0
-                      ? `${formatCurrency(currentBalance)} cash${includeInvestments ? ` + ${formatCurrency(portfolioValueCents)} investments` : ""}`
-                      : "Most recent transaction"}
-                  </p>
+                  {portfolioValueCents > 0 && (
+                    <button
+                      onClick={toggleIncludeInvestments}
+                      title="Toggle whether investments are included in this figure"
+                      className={`text-[10px] px-2 py-0.5 rounded-full border font-medium transition-colors ${
+                        includeInvestments
+                          ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent"
+                          : "hover:bg-[hsl(var(--muted))]"
+                      }`}
+                    >
+                      + Investments
+                    </button>
+                  )}
                 </div>
-                {balanceRows.length > 1 && (
-                  <div className="flex-1 h-16 min-w-[140px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart
-                        data={balanceRows}
-                        margin={{ top: 4, right: 4, bottom: 4, left: 4 }}
-                        onClick={(state) => {
-                          const label = state?.activeLabel as string | undefined;
-                          if (label) setExpandedBalanceDate((cur) => (cur === label ? null : label));
+                <p className={`text-2xl font-bold ${(currentBalance + (includeInvestments ? portfolioValueCents : 0)) >= 0 ? "text-green-600" : "text-red-500"}`}>
+                  {formatCurrency(currentBalance + (includeInvestments ? portfolioValueCents : 0))}
+                </p>
+                <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
+                  {portfolioValueCents > 0
+                    ? `${formatCurrency(currentBalance)} cash${includeInvestments ? ` + ${formatCurrency(portfolioValueCents)} investments` : ""}`
+                    : "Most recent transaction"}
+                </p>
+              </div>
+              {checkingBalancePoints.length > 1 && (
+                <div className="flex-1 h-16 min-w-[140px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={checkingBalancePoints} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
+                      <defs>
+                        <linearGradient id="balGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} />
+                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "hsl(var(--background))",
+                          border: "1px solid hsl(var(--border))",
+                          borderRadius: "8px",
+                          fontSize: "12px",
                         }}
-                      >
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: "hsl(var(--background))",
-                            border: "1px solid hsl(var(--border))",
-                            borderRadius: "8px",
-                            fontSize: "12px",
-                          }}
-                          formatter={(v, name) => [
-                            `$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`,
-                            balanceAccounts.find((a) => String(a.id) === name)?.name ?? name,
-                          ]}
-                          labelFormatter={(l) => l}
-                        />
-                        {balanceAccounts.map((acc) => (
-                          <Line key={acc.id} type="monotone" dataKey={String(acc.id)} name={acc.name}
-                            stroke={acc.color} strokeWidth={2} dot={false} />
-                        ))}
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
+                        formatter={(v) => [`$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "Balance"]}
+                        labelFormatter={(l) => l}
+                      />
+                      <Area type="monotone" dataKey="balance" stroke="#3b82f6" strokeWidth={2} fill="url(#balGrad)" dot={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Credit card balances - kept separate from checking, one line per card */}
+          {creditBalanceRows.length > 1 && (
+            <div className="border rounded-xl p-5 chart-clickable">
+              <h2 className="font-semibold mb-1">Credit Card Balances</h2>
+              <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-3">Click the chart for a breakdown</p>
+              <div className="h-20">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={creditBalanceRows}
+                    margin={{ top: 4, right: 4, bottom: 4, left: 4 }}
+                    onClick={(state) => {
+                      const label = state?.activeLabel as string | undefined;
+                      if (label) setExpandedBalanceDate((cur) => (cur === label ? null : label));
+                    }}
+                  >
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "hsl(var(--background))",
+                        border: "1px solid hsl(var(--border))",
+                        borderRadius: "8px",
+                        fontSize: "12px",
+                      }}
+                      formatter={(v, name) => [
+                        `$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`,
+                        creditBalanceAccounts.find((a) => String(a.id) === name)?.name ?? name,
+                      ]}
+                      labelFormatter={(l) => l}
+                    />
+                    {creditBalanceAccounts.map((acc) => (
+                      <Line key={acc.id} type="monotone" dataKey={String(acc.id)} name={acc.name}
+                        stroke={acc.color} strokeWidth={2} dot={false} />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
               </div>
 
-              {balanceAccounts.length > 1 && (
+              {creditBalanceAccounts.length > 1 && (
                 <div className="flex flex-wrap gap-3 mt-3">
-                  {balanceAccounts.map((acc) => (
+                  {creditBalanceAccounts.map((acc) => (
                     <span key={acc.id} className="flex items-center gap-1.5 text-[10px] text-[hsl(var(--muted-foreground))]">
                       <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: acc.color }} />
                       {acc.name}
@@ -412,8 +470,8 @@ export default function DashboardPage() {
                     <div className="mt-3 pt-3 border-t">
                       <p className="text-xs font-semibold mb-2">{formatDate(expandedBalanceDate)}</p>
                       <div className="space-y-1">
-                        {balanceAccounts.map((acc) => {
-                          const row = balanceRows.find((r) => r.date === expandedBalanceDate);
+                        {creditBalanceAccounts.map((acc) => {
+                          const row = creditBalanceRows.find((r) => r.date === expandedBalanceDate);
                           const dollars = row ? Number(row[String(acc.id)]) : null;
                           if (dollars === null) return null;
                           const cents = Math.round(dollars * 100);

@@ -7,6 +7,7 @@ import { computeNetWorth, type NetWorthSnapshot } from "@/lib/netWorth";
 import { useProfileStore } from "@/stores/profileStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import PinModal from "@/components/PinModal";
+import ManageAccountsPanel from "@/components/ManageAccountsPanel";
 import type { Profile } from "@/lib/types";
 
 interface ProfileData {
@@ -402,6 +403,8 @@ export default function OverviewPage() {
           ))}
         </div>
       )}
+
+      <ManageAccountsPanel profileId={profileId} />
     </div>
   );
 }

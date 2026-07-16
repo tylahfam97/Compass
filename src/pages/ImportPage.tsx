@@ -16,6 +16,7 @@ import type { CategorizationRule, Profile, SecurityType, Account } from "@/lib/t
 import { useProfileStore } from "@/stores/profileStore";
 import { takePendingImportFiles } from "@/lib/pendingImport";
 import InfoTooltip from "@/components/InfoTooltip";
+import ManageAccountsPanel from "@/components/ManageAccountsPanel";
 
 type Step =
   | "upload" | "checking"
@@ -1553,7 +1554,7 @@ export default function ImportPage() {
       setSummary({ imported: 0, skipped: 0 });
       setStep("done");
     }
-  }, [profileId, loadHistory, importKind]);
+  }, [profileId, loadHistory, importKind, accountChoice]);
 
   // When an import finishes in batch-auto mode, silently process the next queued file.
   useEffect(() => {
@@ -2734,6 +2735,12 @@ export default function ImportPage() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {(step === "upload" || step === "done") && (
+        <div className="mt-6">
+          <ManageAccountsPanel profileId={profileId} />
         </div>
       )}
     </div>
