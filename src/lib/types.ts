@@ -27,7 +27,10 @@ export type InsightType =
   | "spending_velocity"
   | "emergency_fund_runway"
   | "bill_due_soon"
-  | "expense_ratio_drift";
+  | "expense_ratio_drift"
+  | "credit_card_debt_high"
+  | "credit_card_debt_growing"
+  | "credit_card_debt_improving";
 
 /** Category ID reserved for internal bank transfers — excluded from expense totals. */
 export const TRANSFER_CATEGORY_ID = 20;

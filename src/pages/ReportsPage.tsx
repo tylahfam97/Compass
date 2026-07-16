@@ -3,7 +3,7 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
 import { getDb } from "@/lib/db";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, combineAccountBalances } from "@/lib/utils";
 import type { Transaction } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
@@ -202,14 +202,11 @@ export default function ReportsPage() {
            ORDER BY month_count DESC, ABS(t.amount_cents) DESC`,
           [profileId]
         ),
-        db.select<{ month: string; last_balance: number }[]>(
-          `SELECT strftime('%Y-%m', date) as month,
-                  balance_cents as last_balance
-           FROM transactions
-           WHERE profile_id=? AND balance_cents IS NOT NULL
-           GROUP BY strftime('%Y-%m', date)
-           HAVING id = MAX(id)
-           ORDER BY month`,
+        db.select<{ date: string; account_id: number; balance_cents: number }[]>(
+          `SELECT t.date, t.account_id, t.balance_cents FROM transactions t
+           JOIN accounts a ON a.id=t.account_id
+           WHERE t.profile_id=? AND t.balance_cents IS NOT NULL AND a.account_type IN ('checking','credit')
+           ORDER BY t.date ASC, t.id ASC`,
           [profileId]
         ),
       ]);
@@ -223,7 +220,15 @@ export default function ReportsPage() {
       setTopExpenses(top);
       setRecurring(rec);
       setSubscriptions(subs);
-      setBalanceTrend(balTrend.map((r) => ({ month: r.month, balance: r.last_balance / 100 })));
+      const combinedBalance = combineAccountBalances(balTrend);
+      const lastPerMonth = new Map<string, number>();
+      for (const r of combinedBalance) lastPerMonth.set(r.date.slice(0, 7), r.balance_cents);
+      setBalanceTrend(
+        [...lastPerMonth.entries()]
+          .filter(([month]) => month >= chartStart.slice(0, 7))
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([month, balance_cents]) => ({ month, balance: balance_cents / 100 }))
+      );
       setLoading(false);
     }
     load().catch(console.error);
