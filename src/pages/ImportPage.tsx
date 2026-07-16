@@ -1100,9 +1100,10 @@ export default function ImportPage() {
       if (colMap.balanceCol < 0 && currentBalanceInput.trim()) {
         // The entered value is the real balance AFTER all transactions, as of today (when it's
         // submitted) - not before them - so Compass can calculate correctly in both directions.
-        // For credit cards the user enters what they owe as a positive number, but that's a
-        // liability - store it negative so it reduces net worth everywhere else.
-        const anchorCents = Math.round(parseAmount(currentBalanceInput) * 100) * (importKind === "credit" ? -1 : 1);
+        // Credit cards are a liability - always store it negative, regardless of whether the
+        // user typed it as a positive "amount owed" or already-negative number.
+        const rawAnchorCents = Math.round(parseAmount(currentBalanceInput) * 100);
+        const anchorCents = importKind === "credit" ? -Math.abs(rawAnchorCents) : rawAnchorCents;
         const anchorDate = new Date().toISOString().split("T")[0];
         await db.execute(
           "UPDATE accounts SET balance_anchor_cents=?, balance_anchor_date=? WHERE id=?",
@@ -1145,9 +1146,9 @@ export default function ImportPage() {
         const hash = await hashRow(row);
         const categoryId = applyCategorizationRules(description, rules, amountCents);
         // Credit card statements print the amount you owe as a positive number, but that's a
-        // liability - store it negative so it correctly reduces net worth everywhere else.
+        // liability - always store it negative, regardless of the file's own sign convention.
         const balanceCents = colMap.balanceCol >= 0 && row[colMap.balanceCol]
-          ? Math.round(parseAmount(row[colMap.balanceCol]) * 100) * (importKind === "credit" ? -1 : 1)
+          ? (() => { const c = Math.round(parseAmount(row[colMap.balanceCol]) * 100); return importKind === "credit" ? -Math.abs(c) : c; })()
           : null;
 
         try {
@@ -1254,7 +1255,7 @@ export default function ImportPage() {
         const hash = await hashRow(row);
         const categoryId = applyCategorizationRules(description, rules, amountCents);
         const balanceCents = savedColMap.balanceCol >= 0 && row[savedColMap.balanceCol]
-          ? Math.round(parseAmount(row[savedColMap.balanceCol]) * 100) * (importKind === "credit" ? -1 : 1) : null;
+          ? (() => { const c = Math.round(parseAmount(row[savedColMap.balanceCol]) * 100); return importKind === "credit" ? -Math.abs(c) : c; })() : null;
         try {
           await db.execute(
             `INSERT INTO transactions (account_id, date, amount_cents, description, category_id,

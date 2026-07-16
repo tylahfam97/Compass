@@ -782,6 +782,25 @@ async function runMigrations(db: CompassDb): Promise<void> {
     `);
     await db.execute("PRAGMA user_version = 14");
   }
+
+  // ── v15: v14's per-row sign flip wasn't mathematically correct for credit
+  //         accounts whose balance was calculated from a (wrongly-signed)
+  //         anchor - simply negating each result doesn't reproduce what a
+  //         backward calculation from a negated anchor actually produces.
+  //         Force the anchor negative, then properly recompute from it.
+  if (version < 15) {
+    await db.execute(`
+      UPDATE accounts SET balance_anchor_cents = -ABS(balance_anchor_cents)
+      WHERE balance_anchor_cents IS NOT NULL AND account_type='credit'
+    `);
+    const creditAccountsWithAnchor = await db.select<{ id: number }[]>(
+      "SELECT id FROM accounts WHERE account_type='credit' AND balance_anchor_cents IS NOT NULL"
+    );
+    for (const { id } of creditAccountsWithAnchor) {
+      await recomputeCalculatedBalancesWithDb(db, id);
+    }
+    await db.execute("PRAGMA user_version = 15");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────
@@ -821,6 +840,16 @@ export async function getOrCreateAccountForProfile(
  */
 export async function recomputeCalculatedBalances(accountId: number): Promise<void> {
   const db = await getDb();
+  await recomputeCalculatedBalancesWithDb(db, accountId);
+}
+
+/**
+ * Same as {@link recomputeCalculatedBalances}, but takes an already-open db handle instead of
+ * calling getDb() itself. Migrations must use this variant - calling getDb() again while the
+ * very first getDb() call is still awaiting runMigrations() would deadlock (getDb() returns the
+ * same in-flight promise it's already inside of, which never resolves).
+ */
+async function recomputeCalculatedBalancesWithDb(db: CompassDb, accountId: number): Promise<void> {
   const [acct] = await db.select<{ balance_anchor_cents: number | null; balance_anchor_date: string | null }[]>(
     "SELECT balance_anchor_cents, balance_anchor_date FROM accounts WHERE id=?",
     [accountId]
