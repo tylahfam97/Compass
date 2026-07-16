@@ -801,6 +801,68 @@ async function runMigrations(db: CompassDb): Promise<void> {
     }
     await db.execute("PRAGMA user_version = 15");
   }
+
+  // ── v16: New category (Travel) ────────────────────────────────────────────
+  if (version < 16) {
+    await db.execute(`
+      INSERT OR IGNORE INTO categories (id, name, parent_id, color, icon, is_system) VALUES
+        (28, 'Travel', NULL, '#fb7185', 'plane', 1)
+    `);
+
+    // Generic user-category merge (see MAINTAINER NOTE in the v7 migration above).
+    const mergeTargets: { newId: number; upperName: string; color: string; icon: string }[] = [
+      { newId: 28, upperName: "TRAVEL", color: "#fb7185", icon: "plane" },
+    ];
+    for (const { newId, upperName, color, icon } of mergeTargets) {
+      const duplicates = await db.select<{ id: number }[]>(
+        "SELECT id FROM categories WHERE UPPER(name)=? AND is_system=0",
+        [upperName]
+      );
+      for (const dup of duplicates) {
+        if (dup.id === newId) {
+          await db.execute(
+            "UPDATE categories SET is_system=1, color=?, icon=? WHERE id=?",
+            [color, icon, dup.id]
+          );
+        } else {
+          await db.execute("UPDATE transactions SET category_id=? WHERE category_id=?", [newId, dup.id]);
+          await db.execute("UPDATE categorization_rules SET category_id=? WHERE category_id=?", [newId, dup.id]);
+          await db.execute("UPDATE budgets SET category_id=? WHERE category_id=?", [newId, dup.id]);
+          await db.execute("UPDATE goals SET category_id=? WHERE category_id=?", [newId, dup.id]);
+          await db.execute("DELETE FROM categories WHERE id=?", [dup.id]);
+        }
+      }
+    }
+
+    const v16Rules: [string, string, number, number][] = [
+      ["DELTA AIR",           "contains", 28, 82],
+      ["SOUTHWEST AIR",       "contains", 28, 82],
+      ["UNITED AIRLINES",     "contains", 28, 82],
+      ["AMERICAN AIRLINES",   "contains", 28, 82],
+      ["JETBLUE",             "contains", 28, 82],
+      ["ALASKA AIRLINES",     "contains", 28, 82],
+      ["SPIRIT AIRLINES",     "contains", 28, 82],
+      ["FRONTIER AIRLINES",   "contains", 28, 82],
+      ["MARRIOTT",            "contains", 28, 82],
+      ["HILTON",              "contains", 28, 82],
+      ["HYATT",               "contains", 28, 82],
+      ["AIRBNB",              "contains", 28, 82],
+      ["EXPEDIA",             "contains", 28, 82],
+      ["BOOKING.COM",         "contains", 28, 82],
+      ["HERTZ",               "contains", 28, 82],
+      ["ENTERPRISE RENT",     "contains", 28, 82],
+      ["AVIS",                "contains", 28, 82],
+      ["NATIONAL CAR RENTAL", "contains", 28, 82],
+    ];
+    for (const [pattern, matchType, categoryId, priority] of v16Rules) {
+      await db.execute(
+        "INSERT OR IGNORE INTO categorization_rules (pattern, match_type, category_id, priority) VALUES (?,?,?,?)",
+        [pattern, matchType, categoryId, priority]
+      );
+    }
+
+    await db.execute("PRAGMA user_version = 16");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────
