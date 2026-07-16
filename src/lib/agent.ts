@@ -1,6 +1,7 @@
 import { getDb } from "./db";
-import type { Insight, HealthScore } from "./types";
+import type { Insight, HealthScore, CreditCardHealthScore } from "./types";
 import { computeNetWorth } from "./netWorth";
+import { AVG_US_CREDIT_CARD_DEBT_CENTS, scoreGrade } from "./benchmarks";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -1121,9 +1122,7 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
   }
 
   const total = savingsScore + budgetScore + balanceScore + incomeScore;
-  const grade = total >= 85 ? "A" : total >= 70 ? "B" : total >= 55 ? "C" : total >= 40 ? "D" : "—";
-  const label = total >= 85 ? "Excellent" : total >= 70 ? "Good" : total >= 55 ? "Building" : total >= 40 ? "Developing" : "Getting Started";
-  const color = total >= 85 ? "#059669" : total >= 70 ? "#2563eb" : total >= 55 ? "#d97706" : total >= 40 ? "#ea580c" : "#6b7280";
+  const { grade, label, color } = scoreGrade(total);
 
   return {
     total, grade, label, color,
@@ -1134,4 +1133,56 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
       incomeStability: { score: incomeScore,   max: 10, pct: Math.round((incomeScore / 10)   * 100) },
     },
   };
+}
+
+/**
+ * Standalone Credit Card Health score (0-100), benchmarked against the average
+ * U.S. credit card balance rather than folded into the main Health Score.
+ * Scores the current balance against the benchmark, then nudges +/-10 points
+ * for whether the balance shrank or grew over the current month.
+ * Returns hasData=false when the profile(s) have no credit card account at all.
+ */
+export async function computeCreditCardHealthScore(profileIds: number[]): Promise<CreditCardHealthScore> {
+  const benchmarkCents = AVG_US_CREDIT_CARD_DEBT_CENTS;
+  if (profileIds.length === 0) {
+    return { score: 0, hasData: false, grade: "—", label: "Getting Started", color: "#6b7280", detail: "", debtCents: 0, benchmarkCents };
+  }
+  const db = await getDb();
+  const ph = profileIds.map(() => "?").join(",");
+  const [acctRow] = await db.select<{ n: number }[]>(
+    `SELECT COUNT(*) as n FROM accounts WHERE profile_id IN (${ph}) AND account_type='credit'`,
+    [...profileIds]
+  );
+  if ((acctRow?.n ?? 0) === 0) {
+    return { score: 0, hasData: false, grade: "—", label: "Getting Started", color: "#6b7280", detail: "", debtCents: 0, benchmarkCents };
+  }
+
+  const now = new Date();
+  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  const [current, prior] = await Promise.all([
+    computeNetWorth(profileIds),
+    computeNetWorth(profileIds, monthStart),
+  ]);
+  const debtCents = current.debtCents; // <= 0
+  const debtAbs = Math.abs(debtCents);
+
+  let score: number;
+  if (debtAbs === 0) score = 100;
+  else if (debtAbs <= benchmarkCents * 0.25) score = 90;
+  else if (debtAbs <= benchmarkCents * 0.5) score = 75;
+  else if (debtAbs <= benchmarkCents) score = 55;
+  else if (debtAbs <= benchmarkCents * 1.5) score = 35;
+  else score = 15;
+
+  // Trend nudge: paid down more than $50 this month -> +10, grew more than $50 -> -10
+  const delta = debtCents - prior.debtCents;
+  if (delta > 5000) score = Math.min(100, score + 10);
+  else if (delta < -5000) score = Math.max(0, score - 10);
+
+  const { grade, label, color } = scoreGrade(score);
+  const detail = debtAbs === 0
+    ? "No revolving balance - vs the ~$6,000 national average"
+    : `${formatCents(debtAbs)} owed vs the ~${formatCents(benchmarkCents)} national average`;
+
+  return { score, hasData: true, grade, label, color, detail, debtCents, benchmarkCents };
 }

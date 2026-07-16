@@ -1,5 +1,6 @@
 import { getDb } from "./db";
-import type { SecurityType } from "./types";
+import type { SecurityType, InvestmentHealthScore } from "./types";
+import { AVG_US_MARKET_RETURN_PCT, scoreGrade } from "./benchmarks";
 
 /** Net worth broken into its three components. `debtCents` is <= 0 (credit
  *  card balances are stored negative), so netWorthCents = liquid + debt + investment. */
@@ -83,11 +84,13 @@ export async function computeNetWorth(profileIds: number[], asOfDate?: string): 
   };
 }
 
-/** Returns a month-by-month net worth history (oldest first) for a sparkline/trend. */
+/** Returns a month-by-month net worth history (oldest first) for a sparkline/trend,
+ *  including the full Liquid/Investments/Debt breakdown for each month so a
+ *  chart click can reveal detail without an extra query. */
 export async function getNetWorthHistory(
   profileIds: number[],
   months = 12
-): Promise<{ month: string; netWorthCents: number }[]> {
+): Promise<{ month: string; netWorthCents: number; liquidCents: number; debtCents: number; investmentCents: number }[]> {
   if (profileIds.length === 0) return [];
   const now = new Date();
   const points: { month: string; cutoff: string }[] = [];
@@ -101,7 +104,13 @@ export async function getNetWorthHistory(
     points.push({ month: monthLabel, cutoff });
   }
   const snapshots = await Promise.all(points.map((p) => computeNetWorth(profileIds, p.cutoff)));
-  return points.map((p, i) => ({ month: p.month, netWorthCents: snapshots[i].netWorthCents }));
+  return points.map((p, i) => ({
+    month: p.month,
+    netWorthCents: snapshots[i].netWorthCents,
+    liquidCents: snapshots[i].liquidCents,
+    debtCents: snapshots[i].debtCents,
+    investmentCents: snapshots[i].investmentCents,
+  }));
 }
 
 /**
@@ -193,4 +202,35 @@ export async function getTopRoiHoldings(
     result[type] = list.sort((a, b) => b.roiPct - a.roiPct).slice(0, limitPerSection);
   }
   return result;
+}
+
+/**
+ * Standalone Investment Health score (0-100), benchmarked against the long-run
+ * average U.S. stock market real return rather than folded into the main
+ * Health Score. Prefers the annualized return when available (requires trade
+ * dates), falling back to the absolute return otherwise.
+ * Returns hasData=false when the profile(s) have no holdings with a cost basis.
+ */
+export async function computeInvestmentHealthScore(profileIds: number[]): Promise<InvestmentHealthScore> {
+  const benchmarkPct = AVG_US_MARKET_RETURN_PCT;
+  const investmentReturn = await computeInvestmentReturn(profileIds);
+  if (!investmentReturn.hasCostBasis) {
+    return { score: 0, hasData: false, grade: "—", label: "Getting Started", color: "#6b7280", detail: "", returnPct: null, benchmarkPct };
+  }
+
+  const returnPct = investmentReturn.annualizedReturnPct ?? investmentReturn.absoluteReturnPct;
+  const diff = (returnPct ?? 0) - benchmarkPct;
+
+  let score: number;
+  if (diff >= 3) score = 100;
+  else if (diff >= 0) score = 85;
+  else if (diff >= -3) score = 65;
+  else if ((returnPct ?? 0) >= 0) score = 45;
+  else score = 25;
+
+  const { grade, label, color } = scoreGrade(score);
+  const kind = investmentReturn.annualizedReturnPct !== null ? "annualized" : "absolute";
+  const detail = `${(returnPct ?? 0) >= 0 ? "+" : ""}${(returnPct ?? 0).toFixed(1)}% ${kind} vs the ~${benchmarkPct}%/yr long-run market average`;
+
+  return { score, hasData: true, grade, label, color, detail, returnPct: returnPct ?? null, benchmarkPct };
 }

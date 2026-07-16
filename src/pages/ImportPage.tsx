@@ -11,6 +11,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import type { CategorizationRule, Profile, SecurityType } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
 import { takePendingImportFiles } from "@/lib/pendingImport";
+import InfoTooltip from "@/components/InfoTooltip";
 
 type Step =
   | "upload" | "checking"
@@ -2055,7 +2056,10 @@ export default function ImportPage() {
             </div>
             <div className="border rounded-xl p-4 text-center">
               <p className="text-xl font-bold">{formatCurrency(Math.round(invTotals.estAnnualIncome * 100))}</p>
-              <p className="text-[hsl(var(--muted-foreground))] text-xs mt-0.5">Est. Annual Income</p>
+              <p className="text-[hsl(var(--muted-foreground))] text-xs mt-0.5 flex items-center justify-center gap-1">
+                Est. Annual Income
+                <InfoTooltip text="The brokerage's own projected annual income estimate as of the statement date - typically dividends, interest, and other distributions. It's a forward-looking estimate, not a record of income actually paid." />
+              </p>
             </div>
             <div className="border rounded-xl p-4 text-center">
               <p className="text-xl font-bold">{derivedSections.length}</p>

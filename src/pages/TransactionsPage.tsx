@@ -97,7 +97,9 @@ function extractMerchantKey(description: string): string {
 export default function TransactionsPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const initialMonth = (location.state as { month?: string } | null)?.month;
+  const navState = location.state as { month?: string; category?: number | null } | null;
+  const initialMonth = navState?.month;
+  const initialCategory = navState?.category;
   const [month, setMonth] = useAutoMonth(initialMonth);
   const [allTime, setAllTime] = useState(false);
   const [search, setSearch] = useState("");
@@ -120,7 +122,10 @@ export default function TransactionsPage() {
   const profileId = activeProfile?.id ?? 1;
 
   // Extended filters
-  const [filterCategory, setFilterCategory] = useState("");           // "" | "uncategorized" | "<id>"
+  const [filterCategory, setFilterCategory] = useState(() => {  // "" | "uncategorized" | "<id>"
+    if (initialCategory === undefined) return "";
+    return initialCategory === null ? "uncategorized" : String(initialCategory);
+  });
   const [filterType, setFilterType]         = useState<"all" | "income" | "expense">("all");
   const [filterAmountMin, setFilterAmountMin] = useState("");
   const [filterAmountMax, setFilterAmountMax] = useState("");

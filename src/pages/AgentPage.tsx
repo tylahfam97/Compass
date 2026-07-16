@@ -1,6 +1,7 @@
 ﻿import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ChevronDown, ChevronRight, CheckCircle, Target, Info, HelpCircle, TrendingUp, TrendingDown } from "lucide-react";
+import { motion, AnimatePresence, animate, useMotionValue } from "motion/react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
@@ -8,14 +9,15 @@ import { getDb } from "@/lib/db";
 import { formatCurrency } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
 import {
-  generateInsights, getSpendingProfile, getSavingsHistory, computeHealthScore,
+  generateInsights, getSpendingProfile, getSavingsHistory, computeHealthScore, computeCreditCardHealthScore,
 } from "@/lib/agent";
 import {
-  computeNetWorth, getNetWorthHistory, computeInvestmentReturn, getTopRoiHoldings,
+  computeNetWorth, getNetWorthHistory, computeInvestmentReturn, computeInvestmentHealthScore, getTopRoiHoldings,
   type NetWorthSnapshot, type InvestmentReturn, type TopRoiHolding,
 } from "@/lib/netWorth";
-import type { Insight, Profile, HealthScore, SecurityType } from "@/lib/types";
+import type { Insight, Profile, HealthScore, SecurityType, CreditCardHealthScore, InvestmentHealthScore } from "@/lib/types";
 import InsightCard from "@/components/InsightCard";
+import InfoTooltip from "@/components/InfoTooltip";
 import SpotlightCard from "@/components/SpotlightCard";
 import PinModal from "@/components/PinModal";
 
@@ -23,6 +25,54 @@ const ROI_SECTION_LABELS: Record<SecurityType, string> = {
   stock: "Stocks", etf: "ETFs", mutual_fund: "Mutual Funds", cash: "Cash", other: "Other",
 };
 const ROI_SECTION_ORDER: SecurityType[] = ["stock", "etf", "mutual_fund", "other", "cash"];
+
+/** Animates a number counting up to `value` on change/mount, using motion's imperative animate(). */
+function CountUp({ value, format }: { value: number; format: (v: number) => string }) {
+  const mv = useMotionValue(0);
+  const [display, setDisplay] = useState(() => format(0));
+  useEffect(() => {
+    const controls = animate(mv, value, {
+      duration: 0.7, ease: "easeOut",
+      onUpdate: (v) => setDisplay(format(v)),
+    });
+    return () => controls.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+  return <>{display}</>;
+}
+
+/** Small standalone benchmark-based score card (Credit Card Health / Investment Health). */
+function MiniScoreCard({
+  label, score, infoText,
+}: {
+  label: string;
+  score: CreditCardHealthScore | InvestmentHealthScore | null;
+  infoText: string;
+}) {
+  if (!score || !score.hasData) {
+    return (
+      <div className="border rounded-2xl p-4 flex flex-col justify-center text-center min-h-[104px]">
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1">{label}</p>
+        <p className="text-xs text-[hsl(var(--muted-foreground))]">No data yet</p>
+      </div>
+    );
+  }
+  return (
+    <div className="border rounded-2xl p-4" style={{ borderColor: score.color + "40" }}>
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: score.color }}>{label}</p>
+        <InfoTooltip text={infoText} />
+      </div>
+      <div className="flex items-baseline gap-2">
+        <span className="text-3xl font-black tabular-nums" style={{ color: score.color }}>
+          <CountUp value={score.score} format={(v) => Math.round(v).toString()} />
+        </span>
+        <span className="text-xs font-semibold text-[hsl(var(--muted-foreground))]">{score.grade}</span>
+      </div>
+      <p className="text-[10px] text-[hsl(var(--muted-foreground))] mt-1.5 leading-snug">{score.detail}</p>
+    </div>
+  );
+}
 
 interface SubItem {
   description: string;
@@ -195,7 +245,7 @@ function ScoreHeroCard({ score, scopeLabel, onOpen }: { score: HealthScore; scop
                style={{ color: score.color }}>{scopeLabel ?? "Financial Health Score"}</p>
             <div className="flex items-baseline gap-3">
               <span className="text-6xl font-black tabular-nums leading-none"
-                    style={{ color: score.color }}>{score.total}</span>
+                    style={{ color: score.color }}><CountUp value={score.total} format={(v) => Math.round(v).toString()} /></span>
               <div className="flex flex-col">
                 <span className="text-xl font-bold" style={{ color: score.color }}>{score.grade}</span>
                 <span className="text-sm font-medium text-[hsl(var(--muted-foreground))]">{score.label}</span>
@@ -234,15 +284,17 @@ function NetWorthCard({
   netWorth, history, investmentReturn, savingsRatePct,
 }: {
   netWorth: NetWorthSnapshot;
-  history: { month: string; netWorthCents: number }[];
+  history: { month: string; netWorthCents: number; liquidCents: number; debtCents: number; investmentCents: number }[];
   investmentReturn: InvestmentReturn | null;
   savingsRatePct: number;
 }) {
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const first = history[0]?.netWorthCents ?? netWorth.netWorthCents;
   const changeCents = netWorth.netWorthCents - first;
   const changePct = first !== 0 ? (changeCents / Math.abs(first)) * 100 : 0;
   const isGrowing = changeCents > 0;
   const isFlat = Math.abs(changeCents) < 100; // under $1 - treat as flat
+  const selected = history.find((h) => h.month === selectedMonth) ?? null;
 
   return (
     <section className="border rounded-2xl overflow-hidden shadow-sm">
@@ -253,7 +305,7 @@ function NetWorthCard({
               Net Worth
             </p>
             <p className={`text-4xl font-black tabular-nums ${netWorth.netWorthCents >= 0 ? "text-[hsl(var(--foreground))]" : "text-red-500"}`}>
-              {formatCurrency(netWorth.netWorthCents)}
+              <CountUp value={netWorth.netWorthCents} format={(v) => formatCurrency(Math.round(v))} />
             </p>
           </div>
           {history.length >= 2 && !isFlat && (
@@ -280,24 +332,71 @@ function NetWorthCard({
         </div>
 
         {history.length >= 2 && (
-          <div className="h-16 -mx-2 mb-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={history} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
-                <defs>
-                  <linearGradient id="netWorthGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <Tooltip
-                  formatter={(v) => [formatCurrency(v as number), "Net Worth"]}
-                  labelFormatter={(l) => String(l)}
-                  contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
-                />
-                <Area type="monotone" dataKey="netWorthCents" stroke="#6366f1" strokeWidth={2} fill="url(#netWorthGrad)" dot={false} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+          <>
+            <div
+              className="h-16 -mx-2 mb-1 cursor-pointer"
+              onClick={() => setSelectedMonth(null)}
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart
+                  data={history}
+                  margin={{ top: 2, right: 2, bottom: 2, left: 2 }}
+                  onClick={(state) => {
+                    const label = state?.activeLabel as string | undefined;
+                    if (label) setSelectedMonth((cur) => (cur === label ? null : label));
+                  }}
+                >
+                  <defs>
+                    <linearGradient id="netWorthGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
+                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <Tooltip
+                    formatter={(v) => [formatCurrency(v as number), "Net Worth"]}
+                    labelFormatter={(l) => String(l)}
+                    contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
+                  />
+                  <Area type="monotone" dataKey="netWorthCents" stroke="#6366f1" strokeWidth={2} fill="url(#netWorthGrad)" dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+            <p className="text-[9px] text-[hsl(var(--muted-foreground))] text-center mb-3">
+              Click a point on the chart for that month's breakdown
+            </p>
+
+            <AnimatePresence initial={false}>
+              {selected && (
+                <motion.div
+                  key={selected.month}
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.25, ease: "easeOut" }}
+                  className="overflow-hidden"
+                >
+                  <div className="grid grid-cols-4 gap-3 text-center rounded-xl p-3 mb-4 bg-[hsl(var(--muted))]/40">
+                    <div>
+                      <p className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase">{selected.month}</p>
+                      <p className="text-xs font-bold">{formatCurrency(selected.netWorthCents)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase">Liquid</p>
+                      <p className="text-xs font-bold">{formatCurrency(selected.liquidCents)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase">Investments</p>
+                      <p className="text-xs font-bold">{formatCurrency(selected.investmentCents)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase">Debt</p>
+                      <p className={`text-xs font-bold ${selected.debtCents < 0 ? "text-red-500" : ""}`}>{formatCurrency(selected.debtCents)}</p>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </>
         )}
 
         <div className="grid grid-cols-2 gap-4 pt-3 border-t">
@@ -466,8 +565,10 @@ export default function AgentPage() {
   const [hasEnoughData, setHasEnoughData]       = useState(true);
   const [refreshedAt, setRefreshedAt]           = useState<Date | null>(null);
   const [netWorth, setNetWorth]                 = useState<NetWorthSnapshot | null>(null);
-  const [netWorthHistory, setNetWorthHistory]   = useState<{ month: string; netWorthCents: number }[]>([]);
+  const [netWorthHistory, setNetWorthHistory]   = useState<{ month: string; netWorthCents: number; liquidCents: number; debtCents: number; investmentCents: number }[]>([]);
   const [investmentReturn, setInvestmentReturn] = useState<InvestmentReturn | null>(null);
+  const [creditScore, setCreditScore]           = useState<CreditCardHealthScore | null>(null);
+  const [investmentScore, setInvestmentScore]   = useState<InvestmentHealthScore | null>(null);
   const [topRoi, setTopRoi]                     = useState<Partial<Record<SecurityType, TopRoiHolding[]>>>({});
 
   const [sectExpanded, setSectExpanded] = useState<{ trends: boolean; subs: boolean; topRoi: boolean }>(() => {
@@ -552,7 +653,7 @@ export default function AgentPage() {
       const db = await getDb();
       const ph = ids.map(() => "?").join(",");
 
-      const [allInsights, history, profile, globalScore, profileScore, nw, nwHistory, invReturn, topRoiHoldings] = await Promise.all([
+      const [allInsights, history, profile, globalScore, profileScore, nw, nwHistory, invReturn, topRoiHoldings, ccScore, invHealthScore] = await Promise.all([
         generateInsights(ids),
         getSavingsHistory(ids, 12),
         getSpendingProfile(ids),
@@ -562,6 +663,8 @@ export default function AgentPage() {
         getNetWorthHistory(ids, 12),
         computeInvestmentReturn(ids),
         getTopRoiHoldings(ids, 3),
+        computeCreditCardHealthScore(ids),
+        computeInvestmentHealthScore(ids),
       ]);
       if (cancelled) return;
 
@@ -576,6 +679,8 @@ export default function AgentPage() {
       setNetWorthHistory(nwHistory);
       setInvestmentReturn(invReturn);
       setTopRoi(topRoiHoldings);
+      setCreditScore(ccScore);
+      setInvestmentScore(invHealthScore);
 
       const thisMonth = currentYM();
       const lMonth = prevYM(thisMonth);
@@ -786,14 +891,63 @@ export default function AgentPage() {
 
         {/* ── Net Worth ── */}
         {netWorth && (
-          <NetWorthCard
-            netWorth={netWorth}
-            history={netWorthHistory}
-            investmentReturn={investmentReturn}
-            savingsRatePct={avgSavingsRatePct}
-          />
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
+            <NetWorthCard
+              netWorth={netWorth}
+              history={netWorthHistory}
+              investmentReturn={investmentReturn}
+              savingsRatePct={avgSavingsRatePct}
+            />
+          </motion.div>
         )}
 
+        {/* ── Credit Card Health / Investment Health ── */}
+        {(creditScore?.hasData || investmentScore?.hasData) && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.06 }}
+            className="grid grid-cols-2 gap-3"
+          >
+            <MiniScoreCard
+              label="Credit Card Health"
+              score={creditScore}
+              infoText="Scored against the average American's ~$6,000 credit card balance, with a small bonus or penalty depending on whether your balance shrank or grew this month."
+            />
+            <MiniScoreCard
+              label="Investment Health"
+              score={investmentScore}
+              infoText="Scored against the long-run ~7%/yr average U.S. stock market return, adjusted for inflation."
+            />
+          </motion.div>
+        )}
+
+        {/* ── Top Performers ── */}
+        {Object.keys(topRoi).length > 0 && (
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.12 }}>
+            <CollapsibleSection title="Top Performers" subtitle="highest ROI per section"
+              expanded={sectExpanded.topRoi} onToggle={() => toggleSection("topRoi")}>
+              <div className="divide-y">
+                {ROI_SECTION_ORDER.filter((t) => (topRoi[t]?.length ?? 0) > 0).map((type) => (
+                  <div key={type} className="px-5 py-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2">
+                      {ROI_SECTION_LABELS[type]}
+                    </p>
+                    <div className="space-y-1.5">
+                      {topRoi[type]!.map((h) => (
+                        <div key={`${type}-${h.symbol ?? h.description}`} className="flex items-center justify-between gap-3 text-sm">
+                          <span className="truncate flex-1">{h.symbol ?? h.description}</span>
+                          <span className={`font-mono font-semibold flex items-center gap-1 shrink-0 ${h.roiPct >= 0 ? "text-green-600" : "text-red-500"}`}>
+                            {h.roiPct >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                            {h.roiPct >= 0 ? "+" : ""}{h.roiPct.toFixed(1)}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CollapsibleSection>
+          </motion.div>
+        )}
 
         {/* ── KPI Strip ── */}
         {spendingProfile && (
@@ -936,33 +1090,6 @@ export default function AgentPage() {
             items={warningInsights} onApply={handleApply}
             open={!!groupOpen.warning} onToggle={() => toggleGroup("warning")} />
         </section>
-
-        {/* ── Top Performers ── */}
-        {Object.keys(topRoi).length > 0 && (
-          <CollapsibleSection title="Top Performers" subtitle="highest ROI per section"
-            expanded={sectExpanded.topRoi} onToggle={() => toggleSection("topRoi")}>
-            <div className="divide-y">
-              {ROI_SECTION_ORDER.filter((t) => (topRoi[t]?.length ?? 0) > 0).map((type) => (
-                <div key={type} className="px-5 py-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2">
-                    {ROI_SECTION_LABELS[type]}
-                  </p>
-                  <div className="space-y-1.5">
-                    {topRoi[type]!.map((h) => (
-                      <div key={`${type}-${h.symbol ?? h.description}`} className="flex items-center justify-between gap-3 text-sm">
-                        <span className="truncate flex-1">{h.symbol ?? h.description}</span>
-                        <span className={`font-mono font-semibold flex items-center gap-1 shrink-0 ${h.roiPct >= 0 ? "text-green-600" : "text-red-500"}`}>
-                          {h.roiPct >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                          {h.roiPct >= 0 ? "+" : ""}{h.roiPct.toFixed(1)}%
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CollapsibleSection>
-        )}
 
         {/* ── Category Trends ── */}
         {catDeltas.length > 0 && (

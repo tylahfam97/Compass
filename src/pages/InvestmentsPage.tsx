@@ -8,6 +8,7 @@ import { getDb } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { holdingRoiPct } from "@/lib/netWorth";
 import { useProfileStore } from "@/stores/profileStore";
+import InfoTooltip from "@/components/InfoTooltip";
 import type { Holding, SecurityType } from "@/lib/types";
 
 const SECTION_LABELS: Record<SecurityType, string> = {
@@ -210,7 +211,10 @@ export default function InvestmentsPage() {
           </p>
         </div>
         <div className="border rounded-xl px-4 py-4 text-center">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1">Est. Annual Income</p>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1 flex items-center justify-center gap-1">
+            Est. Annual Income
+            <InfoTooltip text="The brokerage's own projected annual income estimate as of the statement date - typically dividends, interest, and other distributions. It's a forward-looking estimate, not a record of income actually paid." />
+          </p>
           <p className="text-xl font-bold">{formatCurrency(kpis.estIncome)}</p>
         </div>
       </div>

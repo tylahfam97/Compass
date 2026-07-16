@@ -167,3 +167,24 @@ export interface HealthScore {
     incomeStability: HealthScoreComponent;
   };
 }
+
+/** A standalone 0-100 score benchmarked against a national-average figure,
+ *  shown as its own mini-card rather than folded into the main Health Score. */
+export interface MiniHealthScore {
+  score: number;
+  hasData: boolean;
+  grade: string;
+  label: string;
+  color: string;
+  detail: string;
+}
+
+export interface CreditCardHealthScore extends MiniHealthScore {
+  debtCents: number;
+  benchmarkCents: number;
+}
+
+export interface InvestmentHealthScore extends MiniHealthScore {
+  returnPct: number | null;
+  benchmarkPct: number;
+}

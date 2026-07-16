@@ -1,8 +1,10 @@
 ﻿import { useState, useEffect, useMemo } from "react";
+import { Link } from "react-router-dom";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip,
   ResponsiveContainer, Legend, LineChart, Line, ReferenceLine,
 } from "recharts";
+import { motion, AnimatePresence } from "motion/react";
 import { getDb } from "@/lib/db";
 import { formatCurrency, combineAccountBalances } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
@@ -10,7 +12,7 @@ import type { Profile } from "@/lib/types";
 import PinModal from "@/components/PinModal";
 
 interface MonthRow { month: string; income: number; expenses: number; }
-interface CatMonthRow { month: string; category: string; color: string; total: number; }
+interface CatMonthRow { month: string; category: string; color: string; categoryId: number | null; total: number; }
 interface StackedRow { month: string; [cat: string]: string | number; }
 interface CumulativeRow { month: string; net: number; running: number; }
 interface BalanceMonthRow { month: string; balance: number; }
@@ -32,6 +34,7 @@ export default function TrendsPage() {
   const [monthly, setMonthly] = useState<MonthRow[]>([]);
   const [stacked, setStacked] = useState<StackedRow[]>([]);
   const [catColors, setCatColors] = useState<Record<string, string>>({});
+  const [catIds, setCatIds] = useState<Record<string, number | null>>({});
   const [catNames, setCatNames] = useState<string[]>([]);
   const [cumulativeData, setCumulativeData] = useState<CumulativeRow[]>([]);
   const [balanceMonthly, setBalanceMonthly] = useState<BalanceMonthRow[]>([]);
@@ -71,6 +74,34 @@ export default function TrendsPage() {
   const ids = viewMode === "global" ? (unlockedProfileIds.length > 0 ? unlockedProfileIds : [profileId]) : [profileId];
   const ph = ids.map(() => "?").join(",");
 
+  // ── Chart drill-downs ────────────────────────────────────────────────────
+  const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
+  const [expandedMonthCats, setExpandedMonthCats] = useState<{ name: string; color: string; total: number }[] | null>(null);
+  const [expandedCatName, setExpandedCatName] = useState<string | null>(null);
+
+  const toggleMonthExpand = async (month: string) => {
+    if (expandedMonth === month) { setExpandedMonth(null); setExpandedMonthCats(null); return; }
+    setExpandedMonth(month);
+    setExpandedMonthCats(null);
+    const db = await getDb();
+    const [y, m] = month.split("-").map(Number);
+    const start = `${y}-${String(m).padStart(2, "0")}-01`;
+    const end = new Date(y, m, 1).toISOString().split("T")[0];
+    const rows = await db.select<{ name: string; color: string; total: number }[]>(
+      `SELECT c.name, c.color, SUM(ABS(t.amount_cents)) as total
+       FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
+       WHERE t.date>=? AND t.date<? AND t.amount_cents<0 AND t.profile_id IN (${ph})
+         AND (t.category_id IS NULL OR t.category_id!=20)
+       GROUP BY t.category_id ORDER BY total DESC LIMIT 3`,
+      [start, end, ...ids]
+    );
+    setExpandedMonthCats(rows);
+  };
+
+  const toggleCatSegmentExpand = (cat: string) => {
+    setExpandedCatName((cur) => (cur === cat ? null : cat));
+  };
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -92,7 +123,7 @@ export default function TrendsPage() {
           [start, ...ids]
         ),
         db.select<CatMonthRow[]>(
-          `SELECT strftime('%Y-%m', t.date) as month, c.name as category, c.color,
+          `SELECT strftime('%Y-%m', t.date) as month, c.name as category, c.color, t.category_id as categoryId,
                   SUM(ABS(t.amount_cents)) as total
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
            WHERE t.date>=? AND t.amount_cents<0 AND t.profile_id IN (${ph})
@@ -152,6 +183,9 @@ export default function TrendsPage() {
       catRows.forEach(r => { if (topSet.has(r.category)) colorMap[r.category] = r.color; });
       if (hasOther) colorMap["Other"] = "#9ca3af";
       setCatColors(colorMap);
+      const idMap: Record<string, number | null> = {};
+      catRows.forEach(r => { if (topSet.has(r.category)) idMap[r.category] = r.categoryId; });
+      setCatIds(idMap);
       setCatNames([...topCats, ...(hasOther ? ["Other"] : [])]);
       const byMonth: Record<string, StackedRow> = {};
       catRows.forEach(r => {
@@ -256,23 +290,71 @@ export default function TrendsPage() {
 
             {/* Income vs Expenses */}
             <div className="border rounded-xl p-5">
-              <h2 className="font-semibold mb-4">Income vs Expenses ({range}mo)</h2>
+              <h2 className="font-semibold mb-1">Income vs Expenses ({range}mo)</h2>
+              <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-3">Click a month for its top categories</p>
               <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={monthly} margin={{ left:8,right:8,top:4,bottom:4 }}>
+                <BarChart
+                  data={monthly}
+                  margin={{ left:8,right:8,top:4,bottom:4 }}
+                  onClick={(state) => {
+                    const label = state?.activeLabel as string | undefined;
+                    if (label) toggleMonthExpand(label);
+                  }}
+                >
                   <XAxis dataKey="month" tick={{ fontSize:11 }} />
                   <YAxis tickFormatter={v => `$${Math.round(v/100)}`} tick={{ fontSize:11 }} />
                   <Tooltip contentStyle={tooltipStyle} formatter={v => formatCurrency(v as number)} />
                   <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize:"11px",paddingTop:"8px" }} />
-                  <Bar dataKey="income" name="Income" fill="#22c55e" radius={[4,4,0,0]} />
-                  <Bar dataKey="expenses" name="Expenses" fill="#ef4444" radius={[4,4,0,0]} />
+                  <Bar dataKey="income" name="Income" fill="#22c55e" radius={[4,4,0,0]} cursor="pointer" />
+                  <Bar dataKey="expenses" name="Expenses" fill="#ef4444" radius={[4,4,0,0]} cursor="pointer" />
                 </BarChart>
               </ResponsiveContainer>
+
+              <AnimatePresence initial={false}>
+                {expandedMonth && (
+                  <motion.div
+                    key={expandedMonth}
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.25, ease: "easeOut" }}
+                    className="overflow-hidden"
+                  >
+                    <div className="mt-1 pt-3 border-t">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs font-semibold">Top categories - {expandedMonth}</p>
+                        <Link to="/transactions" state={{ month: expandedMonth }} className="text-[11px] text-[hsl(var(--primary))] hover:underline">
+                          View month →
+                        </Link>
+                      </div>
+                      {expandedMonthCats === null ? (
+                        <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">Loading…</p>
+                      ) : expandedMonthCats.length === 0 ? (
+                        <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">No expenses that month.</p>
+                      ) : (
+                        <div className="space-y-1">
+                          {expandedMonthCats.map((c) => (
+                            <div key={c.name} className="flex items-center justify-between text-xs py-1">
+                              <span className="flex items-center gap-1.5 text-[hsl(var(--muted-foreground))]">
+                                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
+                                {c.name}
+                              </span>
+                              <span className="font-mono">{formatCurrency(c.total)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
             {/* Stacked by category */}
             {stacked.length > 0 && catNames.length > 0 && (
               <div className="border rounded-xl p-5">
-                <h2 className="font-semibold mb-4">Spending by Category ({range}mo)</h2>
+                <h2 className="font-semibold mb-1">Spending by Category ({range}mo)</h2>
+                <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-3">Click a category segment for its trend</p>
                 <ResponsiveContainer width="100%" height={280}>
                   <BarChart data={stacked} margin={{ left:8,right:8,top:4,bottom:4 }}>
                     <XAxis dataKey="month" tick={{ fontSize:11 }} />
@@ -280,10 +362,61 @@ export default function TrendsPage() {
                     <Tooltip contentStyle={tooltipStyle} formatter={v => formatCurrency(v as number)} />
                     <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize:"11px",paddingTop:"8px",lineHeight:"20px" }} />
                     {catNames.map(cat => (
-                      <Bar key={cat} dataKey={cat} stackId="cats" fill={catColors[cat] ?? "#9ca3af"} />
+                      <Bar
+                        key={cat}
+                        dataKey={cat}
+                        stackId="cats"
+                        fill={catColors[cat] ?? "#9ca3af"}
+                        cursor="pointer"
+                        onClick={() => toggleCatSegmentExpand(cat)}
+                        opacity={expandedCatName && expandedCatName !== cat ? 0.4 : 1}
+                      />
                     ))}
                   </BarChart>
                 </ResponsiveContainer>
+
+                <AnimatePresence initial={false}>
+                  {expandedCatName && (
+                    <motion.div
+                      key={expandedCatName}
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.25, ease: "easeOut" }}
+                      className="overflow-hidden"
+                    >
+                      <div className="mt-1 pt-3 border-t">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-semibold flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: catColors[expandedCatName] ?? "#9ca3af" }} />
+                            {expandedCatName} trend
+                          </p>
+                          {catIds[expandedCatName] !== undefined && (
+                            <Link
+                              to="/transactions"
+                              state={{ category: catIds[expandedCatName] }}
+                              className="text-[11px] text-[hsl(var(--primary))] hover:underline"
+                            >
+                              View all →
+                            </Link>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          {stacked.map((row) => {
+                            const amt = (row[expandedCatName] as number | undefined) ?? 0;
+                            if (amt === 0) return null;
+                            return (
+                              <div key={row.month} className="flex items-center justify-between text-xs py-1">
+                                <span className="text-[hsl(var(--muted-foreground))]">{row.month}</span>
+                                <span className="font-mono">{formatCurrency(amt)}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             )}
           </>
