@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { getDb } from "@/lib/db";
 import { useCategoryStore } from "@/stores/categoryStore";
+import CategoryOptions from "@/components/CategoryOptions";
 import type { Transaction } from "@/lib/types";
 
 interface Props {
@@ -114,7 +115,7 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
             <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">Category</label>
             <select value={catId} onChange={(e) => setCatId(Number(e.target.value))}
               className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
-              {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              <CategoryOptions categories={categories} />
             </select>
           </div>
 

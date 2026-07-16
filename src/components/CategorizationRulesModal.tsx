@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { getDb } from "@/lib/db";
 import { useCategoryStore } from "@/stores/categoryStore";
+import CategoryOptions from "@/components/CategoryOptions";
 import type { CategorizationRule } from "@/lib/types";
 
 interface Props {
@@ -108,7 +109,7 @@ function RuleForm({ form, setForm, categories, onSubmit, submitLabel, saving, er
           className="mt-1 w-full border rounded-lg px-3 py-2 text-sm
                      bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
         >
-          {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          <CategoryOptions categories={categories} />
         </select>
       </div>
 
