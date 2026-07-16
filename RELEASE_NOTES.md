@@ -26,10 +26,6 @@ The Dashboard and All Accounts Overview pages now show a **+ Investments** toggl
 ### Fixed: Import Wizard Button Labels
 Several "Continue" / "Skip to Preview" button labels and a couple of live-preview values (parsed date, parsed amount) in the column-mapping wizard had gone blank in a previous build. They've been restored.
 
----
-
-## Compass 0.6.1 — Import Overhaul, Sortable Transactions & Trends Expansion
-
 ### Import Wizard: Full Overhaul
 
 #### Excel / XLSX Support

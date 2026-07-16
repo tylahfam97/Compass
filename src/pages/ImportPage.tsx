@@ -500,6 +500,7 @@ export default function ImportPage() {
   const [invParsed, setInvParsed] = useState<ParsedInvestment | null>(null);
   const [hasInvestmentAccount, setHasInvestmentAccount] = useState<boolean | null>(null);
   const [showInvestmentProfilePrompt, setShowInvestmentProfilePrompt] = useState(false);
+  const [investmentProfileDecided, setInvestmentProfileDecided] = useState(false);
   const [currentFilename, setCurrentFilename] = useState("");
   const [colMap, setColMap] = useState<ColMap>({ dateCol: 0, descCol: 1, amountCol: 2, typeCol: -1, balanceCol: -1, invertAmounts: false });
   const [profileFound, setProfileFound] = useState(false);
@@ -588,7 +589,7 @@ export default function ImportPage() {
   // Check whether the active profile already has a dedicated investment account -
   // if not, offer to keep investments in a separate profile before importing.
   useEffect(() => {
-    if (step !== "wizard:investment-preview") return;
+    if (step !== "wizard:investment-preview" || investmentProfileDecided) return;
     (async () => {
       try {
         const db = await getDb();
@@ -604,10 +605,10 @@ export default function ImportPage() {
         setShowInvestmentProfilePrompt(false);
       }
     })();
-  }, [step, profileId]);
+  }, [step, profileId, investmentProfileDecided]);
 
-  /** Creates a dedicated "Investments" profile, switches to it, then imports the parsed positions there. */
-  const createInvestmentProfileAndImport = async () => {
+  /** Creates a dedicated "Investments" profile and switches to it - the user still clicks Import afterward. */
+  const createInvestmentProfileAndSwitch = async () => {
     const db = await getDb();
     const result = await db.execute(
       "INSERT INTO profiles (name, avatar_color) VALUES (?, ?)",
@@ -624,7 +625,7 @@ export default function ImportPage() {
     setActiveProfile(newProfile);
     setShowInvestmentProfilePrompt(false);
     setHasInvestmentAccount(false);
-    await handleInvestmentImport(newProfile.id);
+    setInvestmentProfileDecided(true);
   };
 
   /** Writes every parsed holding row into the `holdings` table as a new dated snapshot. */
@@ -736,6 +737,7 @@ export default function ImportPage() {
     }
     setInvParsed(result);
     setHasInvestmentAccount(null);
+    setInvestmentProfileDecided(false);
     setWizardDir("forward");
     setStep("wizard:investment-preview");
   }, []);
@@ -1022,6 +1024,7 @@ export default function ImportPage() {
     setInvParsed(null);
     setHasInvestmentAccount(null);
     setShowInvestmentProfilePrompt(false);
+    setInvestmentProfileDecided(false);
     setCurrentFilename("");
     setSummary(null);
     setError(null);
@@ -1542,11 +1545,12 @@ export default function ImportPage() {
                 We recommend keeping investments in a separate profile so they don't mix with everyday spending totals.
               </p>
               <div className="flex gap-2 flex-wrap">
-                <button onClick={createInvestmentProfileAndImport}
-                  className="px-4 py-1.5 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
-                  Create "Investments" Profile &amp; Import Here
+                <button onClick={createInvestmentProfileAndSwitch}
+                  className="px-4 py-1.5 rounded-lg text-sm font-medium text-white hover:opacity-90 transition-opacity"
+                  style={{ backgroundColor: "var(--gold)" }}>
+                  Create "Investments" Profile
                 </button>
-                <button onClick={() => setShowInvestmentProfilePrompt(false)}
+                <button onClick={() => { setShowInvestmentProfilePrompt(false); setInvestmentProfileDecided(true); }}
                   className="px-4 py-1.5 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
                   Use This Profile Instead
                 </button>
