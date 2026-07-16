@@ -2,7 +2,7 @@
 import { useNavigate } from "react-router-dom";
 import { AreaChart, Area, ResponsiveContainer, Tooltip } from "recharts";
 import { getDb } from "@/lib/db";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, combineAccountBalances } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import type { Profile } from "@/lib/types";
@@ -60,8 +60,11 @@ export default function OverviewPage() {
       const entries = await Promise.all(
         profiles.map(async (p) => {
           const [balRow, incRow, expRow, txRow, sparkRows, portfolioRow] = await Promise.all([
-            db.select<{ balance_cents: number }[]>(
-              "SELECT balance_cents FROM transactions WHERE profile_id=? AND balance_cents IS NOT NULL ORDER BY date DESC, id DESC LIMIT 1",
+            db.select<{ account_id: number; balance_cents: number | null }[]>(
+              `SELECT a.id as account_id,
+                 (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
+                  ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents
+               FROM accounts a WHERE a.profile_id=? AND a.account_type IN ('checking','credit')`,
               [p.id]
             ),
             db.select<{ total: number }[]>(
@@ -76,8 +79,12 @@ export default function OverviewPage() {
               "SELECT COUNT(*) as n FROM transactions WHERE profile_id=?",
               [p.id]
             ),
-            db.select<{ date: string; balance_cents: number }[]>(
-              `SELECT date, balance_cents FROM transactions WHERE profile_id=? AND balance_cents IS NOT NULL AND date >= date('now','-60 days') ORDER BY date ASC, id ASC`,
+            db.select<{ date: string; account_id: number; balance_cents: number }[]>(
+              `SELECT t.date, t.account_id, t.balance_cents FROM transactions t
+               JOIN accounts a ON a.id=t.account_id
+               WHERE t.profile_id=? AND t.balance_cents IS NOT NULL AND a.account_type IN ('checking','credit')
+                 AND t.date >= date('now','-60 days')
+               ORDER BY t.date ASC, t.id ASC`,
               [p.id]
             ),
             db.select<{ total: number | null }[]>(
@@ -86,12 +93,13 @@ export default function OverviewPage() {
               [p.id, p.id]
             ),
           ]);
+          const trackedAccounts = balRow.filter((r) => r.balance_cents !== null);
           return [p.id, {
             profileId: p.id,
-            balance: balRow[0]?.balance_cents ?? null,
+            balance: trackedAccounts.length > 0 ? trackedAccounts.reduce((s, r) => s + (r.balance_cents ?? 0), 0) : null,
             income: incRow[0]?.total ?? 0,
             expenses: expRow[0]?.total ?? 0,
-            sparkline: sparkRows.map((r) => ({ date: r.date, balance: r.balance_cents / 100 })),
+            sparkline: combineAccountBalances(sparkRows).map((r) => ({ date: r.date, balance: r.balance_cents / 100 })),
             hasTransactions: (txRow[0]?.n ?? 0) > 0,
             portfolioValue: portfolioRow[0]?.total ?? 0,
           }] as [number, ProfileData];

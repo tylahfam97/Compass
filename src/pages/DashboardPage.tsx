@@ -5,7 +5,7 @@ import {
   ResponsiveContainer, Cell, AreaChart, Area,
 } from "recharts";
 import { getDb } from "@/lib/db";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, combineAccountBalances } from "@/lib/utils";
 import type { Transaction, Insight } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
@@ -106,15 +106,19 @@ export default function DashboardPage() {
         [start, end, profileId]
       ),
       db.select<{ n: number }[]>("SELECT COUNT(*) as n FROM transactions WHERE profile_id=?", [profileId]),
-      db.select<{ balance_cents: number }[]>(
-        "SELECT balance_cents FROM transactions WHERE profile_id=? AND balance_cents IS NOT NULL ORDER BY date DESC, id DESC LIMIT 1",
+      db.select<{ account_id: number; balance_cents: number | null }[]>(
+        `SELECT a.id as account_id,
+           (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
+            ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents
+         FROM accounts a WHERE a.profile_id=? AND a.account_type IN ('checking','credit')`,
         [profileId]
       ),
-      db.select<{ date: string; balance_cents: number }[]>(
-        `SELECT date, balance_cents FROM transactions
-         WHERE profile_id=? AND date>=? AND date<? AND balance_cents IS NOT NULL
-         ORDER BY date ASC, id ASC`,
-        [profileId, start, end]
+      db.select<{ date: string; account_id: number; balance_cents: number }[]>(
+        `SELECT t.date, t.account_id, t.balance_cents FROM transactions t
+         JOIN accounts a ON a.id=t.account_id
+         WHERE t.profile_id=? AND t.date<? AND t.balance_cents IS NOT NULL AND a.account_type IN ('checking','credit')
+         ORDER BY t.date ASC, t.id ASC`,
+        [profileId, end]
       ),
       db.select<{ total: number | null }[]>(
         `SELECT SUM(market_value_cents) as total FROM holdings
@@ -129,8 +133,10 @@ export default function DashboardPage() {
     setRecent(recentRows);
     setMonthTxnCount(monthCountRow[0]?.n ?? 0);
     setTotalTxnCount(totalCountRow[0]?.n ?? 0);
-    setCurrentBalance(balanceRow[0]?.balance_cents ?? null);
-    setBalancePoints(balancePointRows.map((r) => ({ date: r.date, balance: r.balance_cents / 100 })));
+    const trackedAccounts = balanceRow.filter((r) => r.balance_cents !== null);
+    setCurrentBalance(trackedAccounts.length > 0 ? trackedAccounts.reduce((s, r) => s + (r.balance_cents ?? 0), 0) : null);
+    const combined = combineAccountBalances(balancePointRows);
+    setBalancePoints(combined.filter((r) => r.date >= start).map((r) => ({ date: r.date, balance: r.balance_cents / 100 })));
     setPortfolioValueCents(portfolioRow[0]?.total ?? 0);
     setLoading(false);
   }, [month, profileId]);

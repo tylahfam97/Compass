@@ -4,7 +4,7 @@ import {
   ResponsiveContainer, Legend, LineChart, Line, ReferenceLine,
 } from "recharts";
 import { getDb } from "@/lib/db";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, combineAccountBalances } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
 import type { Profile } from "@/lib/types";
 import PinModal from "@/components/PinModal";
@@ -13,6 +13,7 @@ interface MonthRow { month: string; income: number; expenses: number; }
 interface CatMonthRow { month: string; category: string; color: string; total: number; }
 interface StackedRow { month: string; [cat: string]: string | number; }
 interface CumulativeRow { month: string; net: number; running: number; }
+interface BalanceMonthRow { month: string; balance: number; }
 
 const RANGE_OPTIONS = [3, 6, 12];
 const VIEW_KEY = "compass_trends_view";
@@ -33,6 +34,7 @@ export default function TrendsPage() {
   const [catColors, setCatColors] = useState<Record<string, string>>({});
   const [catNames, setCatNames] = useState<string[]>([]);
   const [cumulativeData, setCumulativeData] = useState<CumulativeRow[]>([]);
+  const [balanceMonthly, setBalanceMonthly] = useState<BalanceMonthRow[]>([]);
   const [allTimeIncome, setAllTimeIncome] = useState(0);
   const [allTimeExpenses, setAllTimeExpenses] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -80,7 +82,7 @@ export default function TrendsPage() {
       d.setMonth(d.getMonth() - (range - 1));
       const start = d.toISOString().split("T")[0];
 
-      const [incExpRows, catRows, allTimeRow, cumRows] = await Promise.all([
+      const [incExpRows, catRows, allTimeRow, cumRows, balanceRows] = await Promise.all([
         db.select<{ month: string; income: number; expenses: number }[]>(
           `SELECT strftime('%Y-%m', date) as month,
                   SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income,
@@ -113,6 +115,13 @@ export default function TrendsPage() {
            GROUP BY month ORDER BY month`,
           [...ids]
         ),
+        db.select<{ date: string; account_id: number; balance_cents: number }[]>(
+          `SELECT t.date, t.account_id, t.balance_cents FROM transactions t
+           JOIN accounts a ON a.id=t.account_id
+           WHERE t.profile_id IN (${ph}) AND t.balance_cents IS NOT NULL AND a.account_type IN ('checking','credit')
+           ORDER BY t.date ASC, t.id ASC`,
+          [...ids]
+        ),
       ]);
 
       if (cancelled) return;
@@ -124,6 +133,13 @@ export default function TrendsPage() {
       // Build cumulative running total
       let running = 0;
       setCumulativeData(cumRows.map(r => { running += r.net; return { month: r.month, net: r.net, running }; }));
+
+      // Combined checking + credit running balance (credit stored negative), downsampled to the
+      // last known balance of each month so it lines up with the other monthly charts.
+      const combinedBalance = combineAccountBalances(balanceRows);
+      const lastPerMonth = new Map<string, number>();
+      for (const r of combinedBalance) lastPerMonth.set(r.date.slice(0, 7), r.balance_cents);
+      setBalanceMonthly([...lastPerMonth.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, balance]) => ({ month, balance })));
 
       // Bucket categories
       const TOP_N = 6;
@@ -216,6 +232,23 @@ export default function TrendsPage() {
                     <Tooltip contentStyle={tooltipStyle} formatter={v => formatCurrency(v as number)} />
                     <ReferenceLine y={0} stroke="hsl(var(--border))" strokeDasharray="3 3" />
                     <Line type="monotone" dataKey="running" name="Running Net" stroke="#6366f1" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* Running account balance - checking + credit combined, credit counts negative */}
+            {balanceMonthly.length >= 2 && (
+              <div className="border rounded-xl p-5">
+                <h2 className="font-semibold mb-4">Account Balance (All Time)</h2>
+                <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4 -mt-2">Checking and credit card balances combined - credit card debt counts negatively against the total.</p>
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart data={balanceMonthly} margin={{ left:8,right:8,top:4,bottom:4 }}>
+                    <XAxis dataKey="month" tick={{ fontSize:11 }} />
+                    <YAxis tickFormatter={v => `$${Math.round(v/100)}`} tick={{ fontSize:11 }} />
+                    <Tooltip contentStyle={tooltipStyle} formatter={v => formatCurrency(v as number)} />
+                    <ReferenceLine y={0} stroke="hsl(var(--border))" strokeDasharray="3 3" />
+                    <Line type="monotone" dataKey="balance" name="Balance" stroke="#3b82f6" strokeWidth={2} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
