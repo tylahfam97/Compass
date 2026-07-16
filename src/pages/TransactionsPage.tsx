@@ -130,16 +130,14 @@ export default function TransactionsPage() {
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   const handleSort = (col: SortCol) => {
-    setSortCol((prev) => {
-      if (prev === col) {
-        // Same column: flip direction
-        setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-        return col;
-      }
+    if (sortCol === col) {
+      // Same column: flip direction
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
       // New column: sensible default direction
+      setSortCol(col);
       setSortDir(col === "date" || col === "amount" || col === "balance" ? "desc" : "asc");
-      return col;
-    });
+    }
   };
 
   const hasActiveFilters =
