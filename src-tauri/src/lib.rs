@@ -65,6 +65,7 @@ fn validate_execute_sql(sql: &str) -> Result<(), String> {
         "create index",     // CREATE INDEX IF NOT EXISTS …
         "create unique index",
         "alter table",      // ALTER TABLE … ADD COLUMN …
+        "drop table",       // DROP TABLE … (used by schema migrations)
         "pragma user_version =", // schema version write
     ];
     if ALLOWED.iter().any(|p| s.starts_with(p)) {

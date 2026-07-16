@@ -83,7 +83,7 @@ function App() {
       [profile.id]
     );
     setCategories(cats);
-    generateInsights(profile.id)
+    generateInsights([profile.id])
       .then((ins) => setInsightWarnings(ins.filter((i) => i.severity === "warning").length))
       .catch(() => {});
     setPinTarget(null);
@@ -227,7 +227,7 @@ function App() {
                 onClick={() => openUrl("https://github.com/tylahfam97/Compass/issues/new").catch(() => {})}
                 className="w-full text-xs px-3 py-1.5 rounded-md text-[hsl(var(--muted-foreground))]
                            hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--border))]
-                           transition-colors flex items-center gap-1.5"
+                           transition-colors flex items-center justify-center gap-1.5"
               >
                 <MessageSquare size={12} />
                 Report an issue
@@ -245,15 +245,15 @@ function App() {
         <main className="flex-1 overflow-y-auto">
           <div className="max-w-[1200px] mx-auto w-full min-h-full">
             <Routes>
-              <Route path="/overview" element={<OverviewPage />} />
+              <Route path="/overview" element={<div className="py-6"><OverviewPage /></div>} />
               <Route path="/" element={<DashboardPage />} />
-              <Route path="/transactions" element={<TransactionsPage />} />
-              <Route path="/import" element={<ImportPage />} />
-              <Route path="/trends" element={<TrendsPage />} />
-              <Route path="/budgets" element={<BudgetsPage />} />
-              <Route path="/goals" element={<GoalsPage />} />
-              <Route path="/reports" element={<ReportsPage />} />
-              <Route path="/agent" element={<AgentPage />} />
+              <Route path="/transactions" element={<div className="py-6"><TransactionsPage /></div>} />
+              <Route path="/import" element={<div className="py-6"><ImportPage /></div>} />
+              <Route path="/trends" element={<div className="py-6"><TrendsPage /></div>} />
+              <Route path="/budgets" element={<div className="py-6"><BudgetsPage /></div>} />
+              <Route path="/goals" element={<div className="py-6"><GoalsPage /></div>} />
+              <Route path="/reports" element={<div className="py-6"><ReportsPage /></div>} />
+              <Route path="/agent" element={<div className="py-6"><AgentPage /></div>} />
             </Routes>
           </div>
         </main>

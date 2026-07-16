@@ -1,5 +1,5 @@
 import { getDb } from "./db";
-import type { Insight } from "./types";
+import type { Insight, HealthScore } from "./types";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -26,7 +26,7 @@ function recentMonths(n: number): string[] {
 
 // ─── Main analysis function ───────────────────────────────────────────────────
 
-export async function generateInsights(profileId: number): Promise<Insight[]> {
+async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   const db = await getDb();
   const insights: Insight[] = [];
 
@@ -140,6 +140,10 @@ export async function generateInsights(profileId: number): Promise<Insight[]> {
           },
         },
         dismissKey: `budget_gap_${cat.category_id}`,
+        richData: {
+          avgMonthlyCents: cat.avg_monthly,
+          potentialLabel: `Track ${formatCents(cat.avg_monthly)}/mo → stay in control of ${cat.category_name}`,
+        },
       });
     }
   }
@@ -173,6 +177,9 @@ export async function generateInsights(profileId: number): Promise<Insight[]> {
       }, 0) / recentSummaries.length;
       const avgIncome = recentSummaries.reduce((s, r) => s + r.income, 0) / recentSummaries.length;
       const suggestedSavings = Math.round(avgIncome * 0.2);
+      const avgExpenses = recentSummaries.reduce((s, r) => s + r.expenses, 0) / recentSummaries.length;
+      const cutPct = avgExpenses > avgIncome * 0.8
+        ? Math.round(((avgExpenses - avgIncome * 0.8) / avgExpenses) * 100) : 0;
       insights.push({
         id: "savings_rate_low",
         type: "savings_rate_low",
@@ -189,6 +196,14 @@ export async function generateInsights(profileId: number): Promise<Insight[]> {
           },
         },
         dismissKey: "savings_rate_low",
+        richData: {
+          currentRate: avgRate,
+          targetRate: 0.2,
+          potentialLabel: cutPct > 0
+            ? `Cut expenses by ${cutPct}% → savings rate reaches 20%`
+            : undefined,
+          potentialValue: cutPct > 0 ? cutPct : undefined,
+        },
       });
     }
   }
@@ -222,6 +237,11 @@ export async function generateInsights(profileId: number): Promise<Insight[]> {
         description: `You've exceeded this budget ${row.over_count} months in a row. Consider adjusting the limit.`,
         severity: "warning",
         dismissKey: `overspend_streak_${row.category_id}`,
+        richData: {
+          budgetAmountCents: row.budget_cents,
+          overCount: row.over_count,
+          potentialLabel: `Staying under → ${formatCents(row.budget_cents)}/mo limit fully tracked`,
+        },
       });
     }
   }
@@ -232,8 +252,9 @@ export async function generateInsights(profileId: number): Promise<Insight[]> {
       category_id: number;
       category_name: string;
       under_count: number;
+      budget_cents: number;
     }[]>(
-      `SELECT b.category_id, c.name as category_name, COUNT(*) as under_count
+      `SELECT b.category_id, c.name as category_name, COUNT(*) as under_count, b.amount_cents as budget_cents
        FROM budgets b
        JOIN categories c ON b.category_id=c.id
        JOIN (
@@ -249,10 +270,18 @@ export async function generateInsights(profileId: number): Promise<Insight[]> {
       insights.push({
         id: `positive_streak_${row.category_id}`,
         type: "positive_streak",
-        title: `Under budget on ${row.category_name} — ${row.under_count} months`,
-        description: `Solid discipline here. Keep it up.`,
+        title: `Under budget on ${row.category_name} — ${row.under_count} months running`,
+        description: `Great discipline. Consider tightening the limit slightly to lock in more savings.`,
         severity: "success",
         dismissKey: `positive_streak_${row.category_id}`,
+        richData: {
+          streakMonths: row.under_count,
+          budgetAmountCents: row.budget_cents,
+          potentialLabel: row.budget_cents > 0
+            ? `Tighten by 10% → save ~${formatCents(Math.round(row.budget_cents * 0.1 * 12))}/yr`
+            : undefined,
+          potentialValue: row.budget_cents > 0 ? Math.round(row.budget_cents * 0.1 * 12) : undefined,
+        },
       });
     }
   }
@@ -265,6 +294,7 @@ export async function generateInsights(profileId: number): Promise<Insight[]> {
   }[]>(
     `SELECT description, amount_cents, COUNT(DISTINCT strftime('%Y-%m', date)) as month_count
      FROM transactions WHERE profile_id=? AND amount_cents<0
+       AND (category_id IS NULL OR category_id != 20)
      GROUP BY description, amount_cents HAVING month_count>=2
      ORDER BY month_count DESC, ABS(amount_cents) DESC LIMIT 5`,
     [profileId]
@@ -295,6 +325,7 @@ export async function generateInsights(profileId: number): Promise<Insight[]> {
     `SELECT description, COUNT(*) as count, SUM(ABS(amount_cents)) as total
      FROM transactions
      WHERE profile_id=? AND amount_cents<0 AND amount_cents>-1500 AND date>=?
+       AND (category_id IS NULL OR category_id != 20)
      GROUP BY description HAVING count>=3
      ORDER BY count DESC LIMIT 3`,
     [profileId, sevenDaysAgo]
@@ -495,9 +526,322 @@ export async function generateInsights(profileId: number): Promise<Insight[]> {
     });
   }
 
+  // ── INSIGHT: category_creep ──────────────────────────────────────────────
+  // Compare avg spend last 3 months vs months 4-6 for each category.
+  if (monthCount >= 6) {
+    const recent3Start = monthBounds(months6[2])[0]; // 3 months ago start
+    const older3Start  = monthBounds(months6[5])[0]; // 6 months ago start
+    const older3End    = monthBounds(months6[2])[0]; // = recent3Start (exclusive)
+
+    const recentAvgs = await db.select<{ category_id: number; category_name: string; avg_spend: number }[]>(
+      `SELECT t.category_id, c.name as category_name,
+              CAST(AVG(monthly) AS INTEGER) as avg_spend
+       FROM (SELECT category_id, strftime('%Y-%m',date) as mo, SUM(ABS(amount_cents)) as monthly
+             FROM transactions WHERE profile_id=? AND amount_cents<0 AND date>=?
+               AND (category_id IS NULL OR category_id != 20) AND category_id != 15
+             GROUP BY category_id, mo) t
+       JOIN categories c ON t.category_id=c.id
+       GROUP BY t.category_id HAVING COUNT(*)>=2`,
+      [profileId, recent3Start]
+    );
+    const olderAvgs = await db.select<{ category_id: number; avg_spend: number }[]>(
+      `SELECT category_id, CAST(AVG(monthly) AS INTEGER) as avg_spend
+       FROM (SELECT category_id, strftime('%Y-%m',date) as mo, SUM(ABS(amount_cents)) as monthly
+             FROM transactions WHERE profile_id=? AND amount_cents<0 AND date>=? AND date<?
+               AND (category_id IS NULL OR category_id != 20)
+             GROUP BY category_id, mo) t
+       GROUP BY category_id HAVING COUNT(*)>=2`,
+      [profileId, older3Start, older3End]
+    );
+    const olderMap = new Map(olderAvgs.map((r) => [r.category_id, r.avg_spend]));
+    for (const r of recentAvgs) {
+      const older = olderMap.get(r.category_id);
+      if (!older || older < 3000) continue; // skip low-value or no baseline
+      const growthPct = Math.round(((r.avg_spend - older) / older) * 100);
+      const deltaAnnual = (r.avg_spend - older) * 12;
+      if (growthPct >= 30 && r.avg_spend - older >= 3000) {
+        insights.push({
+          id: `category_creep_${r.category_id}`,
+          type: "category_creep",
+          title: `${r.category_name} spending up ${growthPct}% over 6 months`,
+          description: `Avg last 3 mo: ${formatCents(r.avg_spend)} vs ${formatCents(older)} before — ${formatCents(deltaAnnual)} more per year if unchecked.`,
+          severity: "warning",
+          dismissKey: `category_creep_${r.category_id}_${thisMonth}`,
+        });
+      }
+    }
+  }
+
+  // ── INSIGHT: year_end_projection ────────────────────────────────────────
+  if (monthCount >= 2) {
+    const recentNets = monthlySummaries.slice(0, Math.min(3, monthCount));
+    const avgNet = recentNets.reduce((s, m) => s + (m.income - m.expenses), 0) / recentNets.length;
+    const now = new Date();
+    const monthsLeft = 12 - now.getMonth(); // months remaining inc. current
+    if (monthsLeft > 0) {
+      const projected = Math.round(avgNet * monthsLeft);
+      insights.push({
+        id: `year_end_projection_${now.getFullYear()}`,
+        type: "year_end_projection",
+        title: projected >= 0
+          ? `On pace to save ${formatCents(projected)} by year-end`
+          : `On pace to spend ${formatCents(Math.abs(projected))} more than you earn by year-end`,
+        description: `Based on your ${recentNets.length}-month avg net of ${formatCents(avgNet)}/mo · ${monthsLeft} month${monthsLeft > 1 ? "s" : ""} remaining in ${now.getFullYear()}.`,
+        severity: projected >= 0 ? "info" : "warning",
+        dismissKey: `year_end_projection_${now.getFullYear()}`,
+        richData: {
+          projectedSavings: projected,
+        },
+      });
+    }
+  }
+
+  // ── INSIGHT: most_improved ───────────────────────────────────────────────
+  if (monthCount >= 2 && monthlySummaries.length >= 2) {
+    const prevMonth = monthlySummaries[1]?.month;
+    if (prevMonth) {
+      const [prevStart, prevEnd] = monthBounds(prevMonth);
+      const prevCats = await db.select<{ category_id: number; total: number }[]>(
+        `SELECT category_id, SUM(ABS(amount_cents)) as total
+         FROM transactions WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0
+           AND (category_id IS NULL OR category_id != 20)
+         GROUP BY category_id`,
+        [profileId, prevStart, prevEnd]
+      );
+      const prevMap = new Map(prevCats.map((c) => [c.category_id, c.total]));
+      let bestCat: { name: string; pctDrop: number; prevTotal: number; thisTotal: number } | null = null;
+      for (const [catId, thisTotal] of thisMonthCatMap) {
+        const prev = prevMap.get(catId);
+        if (!prev || prev < 5000) continue;
+        const pctDrop = Math.round(((prev - thisTotal) / prev) * 100);
+        if (pctDrop >= 20 && prev - thisTotal >= 3000) {
+          if (!bestCat || pctDrop > bestCat.pctDrop) {
+            const catName = catAvgs.find((c) => c.category_id === catId)?.category_name ?? `Category ${catId}`;
+            bestCat = { name: catName, pctDrop, prevTotal: prev, thisTotal };
+          }
+        }
+      }
+      if (bestCat) {
+        insights.push({
+          id: `most_improved_${thisMonth}`,
+          type: "most_improved",
+          title: `Most improved: ${bestCat.name} — down ${bestCat.pctDrop}% vs last month`,
+          description: `Last month: ${formatCents(bestCat.prevTotal)} · This month so far: ${formatCents(bestCat.thisTotal)}. Great progress — keep it up.`,
+          severity: "success",
+          dismissKey: `most_improved_${thisMonth}`,
+          richData: {
+            beforeAmount: bestCat.prevTotal,
+            afterAmount: bestCat.thisTotal,
+          },
+        });
+      }
+    }
+  }
+
+  // ── INSIGHT: weekend_spending ────────────────────────────────────────────
+  // (strftime('%w',date)+6)%7 gives Mon=0..Sun=6; weekend = >= 5
+  if (monthCount >= 3) {
+    const [weekendRow] = await db.select<{ weekend: number; weekday: number }[]>(
+      `SELECT
+         SUM(CASE WHEN (CAST(strftime('%w',date) AS INTEGER)+6)%7 >= 5 THEN ABS(amount_cents) ELSE 0 END) as weekend,
+         SUM(CASE WHEN (CAST(strftime('%w',date) AS INTEGER)+6)%7 <  5 THEN ABS(amount_cents) ELSE 0 END) as weekday
+       FROM transactions
+       WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0
+         AND (category_id IS NULL OR category_id != 20)`,
+      [profileId, thisStart, thisEnd]
+    );
+    const weekendTotal = weekendRow?.weekend ?? 0;
+    const weekdayTotal = weekendRow?.weekday ?? 0;
+    const grandTotal = weekendTotal + weekdayTotal;
+    if (grandTotal > 10000 && weekendTotal > 0) {
+      const weekendPct = Math.round((weekendTotal / grandTotal) * 100);
+      if (weekendPct >= 35) {
+        // Top weekend merchant
+        const [topWeekendMerchant] = await db.select<{ description: string; total: number }[]>(
+          `SELECT description, SUM(ABS(amount_cents)) as total
+           FROM transactions
+           WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0
+             AND (CAST(strftime('%w',date) AS INTEGER)+6)%7 >= 5
+             AND (category_id IS NULL OR category_id != 20)
+           GROUP BY description ORDER BY total DESC LIMIT 1`,
+          [profileId, thisStart, thisEnd]
+        );
+        insights.push({
+          id: `weekend_spending_${thisMonth}`,
+          type: "weekend_spending",
+          title: `${weekendPct}% of spending happens on weekends`,
+          description: `Weekends: ${formatCents(weekendTotal)} · Weekdays: ${formatCents(weekdayTotal)} this month.${topWeekendMerchant ? ` Top weekend: ${truncate(topWeekendMerchant.description, 25)}.` : ""}`,
+          severity: weekendPct >= 50 ? "warning" : "info",
+          dismissKey: `weekend_spending_${thisMonth}`,
+        });
+      }
+    }
+  }
+
+  // ── INSIGHT: spending_velocity ────────────────────────────────────────────
+  // Are we spending faster than normal so far this month?
+  {
+    const now = new Date();
+    const elapsed = now.getDate(); // days elapsed in current month
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    if (elapsed >= 5 && monthlySummaries.length >= 2) {
+      const [currentSpendRow] = await db.select<{ total: number }[]>(
+        `SELECT COALESCE(SUM(ABS(amount_cents)),0) as total
+         FROM transactions WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0
+           AND (category_id IS NULL OR category_id != 20)`,
+        [profileId, thisStart, thisEnd]
+      );
+      const currentSpend = currentSpendRow?.total ?? 0;
+      const avgMonthly = monthlySummaries.slice(1).reduce((s, m) => s + m.expenses, 0)
+        / Math.max(monthlySummaries.slice(1).length, 1);
+      const pacedMonthly = Math.round((currentSpend / elapsed) * daysInMonth);
+      const overshootPct = avgMonthly > 0
+        ? Math.round(((pacedMonthly - avgMonthly) / avgMonthly) * 100)
+        : 0;
+      if (avgMonthly > 5000 && pacedMonthly > avgMonthly * 1.15) {
+        const daysLeft = daysInMonth - elapsed;
+        insights.push({
+          id: `spending_velocity_${thisMonth}`,
+          type: "spending_velocity",
+          title: `Spending ${overshootPct}% above your normal pace this month`,
+          description: `${elapsed} days in: ${formatCents(currentSpend)} spent — on pace for ${formatCents(pacedMonthly)} vs your avg ${formatCents(avgMonthly)}.`,
+          severity: overshootPct >= 30 ? "warning" : "info",
+          dismissKey: `spending_velocity_${thisMonth}`,
+          richData: {
+            paceMonthly: pacedMonthly,
+            avgMonthly: Math.round(avgMonthly),
+            potentialLabel: daysLeft > 0
+              ? `Spend ${formatCents(Math.round((pacedMonthly - Math.round(avgMonthly)) / daysLeft))}/day less → finish on track`
+              : undefined,
+          },
+        });
+      }
+    }
+  }
+
+  // ── INSIGHT: emergency_fund_runway ───────────────────────────────────────
+  if (balanceRow?.balance_cents != null && balanceRow.balance_cents > 0) {
+    const avgExp = monthlySummaries.length > 0
+      ? monthlySummaries.reduce((s, m) => s + m.expenses, 0) / monthlySummaries.length
+      : 0;
+    if (avgExp > 0) {
+      const runway = balanceRow.balance_cents / avgExp;
+      const runwayStr = runway < 1
+        ? `less than 1 month`
+        : runway < 6
+        ? `~${runway.toFixed(1)} months`
+        : `${Math.floor(runway)} months`;
+      insights.push({
+        id: `emergency_fund_runway_${balanceRow.date}`,
+        type: "emergency_fund_runway",
+        title: `Your balance covers ${runwayStr} of expenses`,
+        description: `Balance: ${formatCents(balanceRow.balance_cents)} · Avg monthly spend: ${formatCents(avgExp)}.${runway < 3 ? " Financial advisors typically recommend 3–6 months." : runway >= 6 ? " You have a healthy emergency cushion." : ""}`,
+        severity: runway < 1 ? "warning" : runway < 3 ? "warning" : runway < 6 ? "info" : "success",
+        dismissKey: `emergency_fund_runway_${balanceRow.date}`,
+        richData: {
+          runwayMonths: parseFloat(runway.toFixed(1)),
+          potentialLabel: runway < 3
+            ? `Save ${formatCents(Math.max(0, Math.round(avgExp * 3 - balanceRow.balance_cents)))} more → reach 3-month runway`
+            : undefined,
+        },
+      });
+    }
+  }
+
+  // ── INSIGHT: bill_due_soon ────────────────────────────────────────────────
+  // Find recurring fixed expenses and predict next occurrence within 7 days
+  if (monthCount >= 2) {
+    const recurring = await db.select<{
+      description: string;
+      amount_cents: number;
+      last_date: string;
+      count: number;
+      span_days: number;
+    }[]>(
+      `SELECT description, amount_cents, MAX(date) as last_date,
+              COUNT(*) as count,
+              CAST(MAX(julianday(date)) - MIN(julianday(date)) AS INTEGER) as span_days
+       FROM transactions
+       WHERE profile_id=? AND amount_cents<0 AND amount_cents<-500
+         AND (category_id IS NULL OR category_id NOT IN (15, 20))
+       GROUP BY description, amount_cents
+       HAVING count >= 2 AND span_days >= 10
+       ORDER BY ABS(amount_cents) DESC LIMIT 10`,
+      [profileId]
+    );
+    const today = new Date();
+    for (const r of recurring) {
+      const avgIntervalDays = r.span_days / (r.count - 1);
+      if (avgIntervalDays < 5 || avgIntervalDays > 40) continue; // skip daily or very infrequent
+      const lastDate = new Date(r.last_date);
+      const nextDate = new Date(lastDate);
+      nextDate.setDate(lastDate.getDate() + Math.round(avgIntervalDays));
+      const daysUntil = Math.round((nextDate.getTime() - today.getTime()) / 86_400_000);
+      if (daysUntil >= 0 && daysUntil <= 7) {
+        insights.push({
+          id: `bill_due_${r.description.slice(0, 20)}_${thisMonth}`,
+          type: "bill_due_soon",
+          title: daysUntil === 0
+            ? `${truncate(r.description, 30)} due today`
+            : `${truncate(r.description, 30)} due in ${daysUntil} day${daysUntil > 1 ? "s" : ""}`,
+          description: `${formatCents(Math.abs(r.amount_cents))} · Recurs every ~${Math.round(avgIntervalDays)} days based on ${r.count} past charges.`,
+          severity: "info",
+          dismissKey: `bill_due_${r.description.slice(0, 20)}_${thisMonth}`,
+        });
+        break; // max 1 bill-due insight to avoid flooding
+      }
+    }
+  }
+
+  // ── INSIGHT: expense_ratio_drift ─────────────────────────────────────────
+  // Is the expense/income ratio getting worse over time?
+  if (monthCount >= 6) {
+    const recent3 = monthlySummaries.slice(0, 3).filter((m) => m.income > 0);
+    const older3  = monthlySummaries.slice(3, 6).filter((m) => m.income > 0);
+    if (recent3.length >= 2 && older3.length >= 2) {
+      const recentRatio = recent3.reduce((s, m) => s + m.expenses / m.income, 0) / recent3.length;
+      const olderRatio  = older3.reduce((s, m) => s + m.expenses / m.income, 0) / older3.length;
+      const driftPts = Math.round((recentRatio - olderRatio) * 100); // percentage points
+      if (driftPts >= 8) {
+        const recentSavingsPct = Math.round((1 - recentRatio) * 100);
+        insights.push({
+          id: `expense_ratio_drift_${thisMonth}`,
+          type: "expense_ratio_drift",
+          title: `Savings margin compressed by ${driftPts} points over 6 months`,
+          description: `Your expenses now take ${Math.round(recentRatio * 100)}% of income (was ${Math.round(olderRatio * 100)}% 3–6 months ago). Current savings rate: ${recentSavingsPct}%.`,
+          severity: driftPts >= 15 ? "warning" : "info",
+          dismissKey: `expense_ratio_drift_${thisMonth}`,
+        });
+      }
+    }
+  }
+
   // ── Sort: warnings → info → success ─────────────────────────────────────
   const order = { warning: 0, info: 1, success: 2 };
   return insights.sort((a, b) => order[a.severity] - order[b.severity]);
+}
+
+/**
+ * Public entry-point. Pass one or more profile IDs.
+ * In single-profile mode this is a thin pass-through.
+ * In multi-profile mode, insights are gathered per-profile and merged/deduped.
+ */
+export async function generateInsights(profileIds: number[]): Promise<Insight[]> {
+  if (profileIds.length === 1) return _insightsForProfile(profileIds[0]);
+
+  const results = await Promise.all(profileIds.map((id) => _insightsForProfile(id)));
+  const merged: Insight[] = [];
+  const seen = new Set<string>();
+  for (const list of results) {
+    for (const ins of list) {
+      if (!seen.has(ins.id)) {
+        seen.add(ins.id);
+        merged.push(ins);
+      }
+    }
+  }
+  const ord = { warning: 0, info: 1, success: 2 };
+  return merged.sort((a, b) => ord[a.severity] - ord[b.severity]);
 }
 
 // ─── Spending Profile summary ─────────────────────────────────────────────────
@@ -511,11 +855,12 @@ export interface SpendingProfile {
   monthsAnalysed: number;
 }
 
-export async function getSpendingProfile(profileId: number): Promise<SpendingProfile | null> {
+export async function getSpendingProfile(profileIds: number[]): Promise<SpendingProfile | null> {
   const db = await getDb();
+  const ph = profileIds.map(() => "?").join(",");
   const [dataRange] = await db.select<{ months: number }[]>(
-    "SELECT COUNT(DISTINCT strftime('%Y-%m', date)) as months FROM transactions WHERE profile_id=?",
-    [profileId]
+    `SELECT COUNT(DISTINCT strftime('%Y-%m', date)) as months FROM transactions WHERE profile_id IN (${ph})`,
+    [...profileIds]
   );
   const months = dataRange?.months ?? 0;
   if (months < 1) return null;
@@ -530,24 +875,25 @@ export async function getSpendingProfile(profileId: number): Promise<SpendingPro
   const [summary] = await db.select<{ avg_income: number; avg_expenses: number }[]>(
     `SELECT AVG(income) as avg_income, AVG(expenses) as avg_expenses
      FROM (
-       SELECT SUM(CASE WHEN amount_cents>0 THEN amount_cents ELSE 0 END) as income,
-              SUM(CASE WHEN amount_cents<0 THEN ABS(amount_cents) ELSE 0 END) as expenses
-       FROM transactions WHERE profile_id=? AND date>=?
+       SELECT SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income,
+              SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as expenses
+       FROM transactions WHERE profile_id IN (${ph}) AND date>=?
        GROUP BY strftime('%Y-%m', date)
      )`,
-    [profileId, startDate]
+    [...profileIds, startDate]
   );
 
   const [topCat] = await db.select<{ name: string; avg_spend: number }[]>(
     `SELECT c.name, CAST(AVG(monthly_spend) AS INTEGER) as avg_spend
      FROM (
        SELECT category_id, SUM(ABS(amount_cents)) as monthly_spend
-       FROM transactions WHERE profile_id=? AND amount_cents<0 AND date>=?
+       FROM transactions WHERE profile_id IN (${ph}) AND amount_cents<0 AND date>=?
+         AND (category_id IS NULL OR category_id!=20)
        GROUP BY category_id, strftime('%Y-%m', date)
      ) t JOIN categories c ON t.category_id=c.id
      WHERE c.id != 15
      GROUP BY t.category_id ORDER BY avg_spend DESC LIMIT 1`,
-    [profileId, startDate]
+    [...profileIds, startDate]
   );
 
   const avgInc = summary?.avg_income ?? 0;
@@ -567,10 +913,11 @@ export async function getSpendingProfile(profileId: number): Promise<SpendingPro
 // ─── Savings rate history (for sparkline) ────────────────────────────────────
 
 export async function getSavingsHistory(
-  profileId: number,
+  profileIds: number[],
   months = 12
 ): Promise<{ month: string; rate: number; net: number }[]> {
   const db = await getDb();
+  const ph = profileIds.map(() => "?").join(",");
   const startDate = (() => {
     const d = new Date();
     d.setMonth(d.getMonth() - (months - 1));
@@ -579,11 +926,11 @@ export async function getSavingsHistory(
   })();
   const rows = await db.select<{ month: string; income: number; expenses: number }[]>(
     `SELECT strftime('%Y-%m', date) as month,
-            SUM(CASE WHEN amount_cents>0 THEN amount_cents ELSE 0 END) as income,
-            SUM(CASE WHEN amount_cents<0 THEN ABS(amount_cents) ELSE 0 END) as expenses
-     FROM transactions WHERE profile_id=? AND date>=?
+            SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income,
+            SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as expenses
+     FROM transactions WHERE profile_id IN (${ph}) AND date>=?
      GROUP BY month ORDER BY month`,
-    [profileId, startDate]
+    [...profileIds, startDate]
   );
   return rows.map((r) => ({
     month: r.month,
@@ -604,4 +951,101 @@ function formatCents(cents: number): string {
 
 function truncate(s: string, n: number): string {
   return s.length <= n ? s : s.slice(0, n - 1) + "…";
+}
+
+// ─── Financial Health Score ───────────────────────────────────────────────────
+
+export async function computeHealthScore(profileIds: number[]): Promise<HealthScore> {
+  const db = await getDb();
+  const ph = profileIds.map(() => "?").join(",");
+
+  const now = new Date();
+  const threeAgo = (() => { const d = new Date(now); d.setMonth(d.getMonth() - 3); d.setDate(1); return d.toISOString().split("T")[0]; })();
+  const sixAgo   = (() => { const d = new Date(now); d.setMonth(d.getMonth() - 6); d.setDate(1); return d.toISOString().split("T")[0]; })();
+  const msStart  = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  const msEnd    = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().split("T")[0];
+
+  // ── 1. Savings Rate (40 pts) — 3-month avg ──────────────────────────────
+  const srRows = await db.select<{ income: number; expenses: number }[]>(
+    `SELECT
+       SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income,
+       SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as expenses
+     FROM transactions WHERE profile_id IN (${ph}) AND date>=?
+     GROUP BY strftime('%Y-%m', date) LIMIT 3`,
+    [...profileIds, threeAgo]
+  );
+  const validSR = srRows.filter(r => r.income > 0);
+  const avgRate = validSR.length > 0
+    ? validSR.reduce((s, r) => s + (r.income - r.expenses) / r.income, 0) / validSR.length : 0;
+  const savingsScore = avgRate >= 0.20 ? 40 : avgRate >= 0.15 ? 30 : avgRate >= 0.10 ? 20 : avgRate >= 0.05 ? 10 : 0;
+
+  // ── 2. Budget Health (30 pts) — this month ──────────────────────────────
+  const budgets = await db.select<{ category_id: number; amount_cents: number }[]>(
+    `SELECT category_id, amount_cents FROM budgets WHERE profile_id IN (${ph}) OR is_global=1`,
+    [...profileIds]
+  );
+  let budgetScore = 15;
+  if (budgets.length > 0) {
+    const spendRows = await db.select<{ category_id: number; spent: number }[]>(
+      `SELECT category_id, SUM(ABS(amount_cents)) as spent
+       FROM transactions WHERE profile_id IN (${ph}) AND date>=? AND date<? AND amount_cents<0
+       GROUP BY category_id`,
+      [...profileIds, msStart, msEnd]
+    );
+    const sm = new Map(spendRows.map(s => [s.category_id, s.spent]));
+    const over = budgets.filter(b => (sm.get(b.category_id) ?? 0) > b.amount_cents).length;
+    const pct = (budgets.length - over) / budgets.length;
+    budgetScore = pct >= 1.0 ? 30 : pct >= 0.8 ? 24 : pct >= 0.6 ? 18 : pct >= 0.4 ? 12 : 6;
+  }
+
+  // ── 3. Balance Runway (20 pts) ─────────────────────────────────────────
+  const [balRow] = await db.select<{ balance_cents: number | null }[]>(
+    `SELECT balance_cents FROM transactions WHERE profile_id IN (${ph}) AND balance_cents IS NOT NULL ORDER BY date DESC, id DESC LIMIT 1`,
+    [...profileIds]
+  );
+  let balanceScore = 10;
+  if ((balRow?.balance_cents ?? 0) > 0) {
+    const [expRow] = await db.select<{ avg_exp: number }[]>(
+      `SELECT AVG(me) as avg_exp FROM (
+         SELECT SUM(ABS(amount_cents)) as me FROM transactions
+         WHERE profile_id IN (${ph}) AND amount_cents<0 AND (category_id IS NULL OR category_id!=20) AND date>=?
+         GROUP BY strftime('%Y-%m', date))`,
+      [...profileIds, threeAgo]
+    );
+    const avgExp = expRow?.avg_exp ?? 0;
+    if (avgExp > 0) {
+      const rw = balRow!.balance_cents! / avgExp;
+      balanceScore = rw >= 6 ? 20 : rw >= 3 ? 15 : rw >= 1 ? 8 : 2;
+    }
+  }
+
+  // ── 4. Income Stability (10 pts) — 6-month variance ───────────────────
+  const incRows = await db.select<{ income: number }[]>(
+    `SELECT SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income
+     FROM transactions WHERE profile_id IN (${ph}) AND date>=?
+     GROUP BY strftime('%Y-%m', date)`,
+    [...profileIds, sixAgo]
+  );
+  const incomes = incRows.filter(r => r.income > 0).map(r => r.income);
+  let incomeScore = 5;
+  if (incomes.length >= 2) {
+    const avg = incomes.reduce((a, b) => a + b, 0) / incomes.length;
+    const maxDev = Math.max(...incomes.map(v => Math.abs(v - avg) / avg));
+    incomeScore = maxDev < 0.10 ? 10 : maxDev < 0.25 ? 7 : maxDev < 0.40 ? 4 : 1;
+  }
+
+  const total = savingsScore + budgetScore + balanceScore + incomeScore;
+  const grade = total >= 85 ? "A" : total >= 70 ? "B" : total >= 55 ? "C" : total >= 40 ? "D" : "—";
+  const label = total >= 85 ? "Excellent" : total >= 70 ? "Good" : total >= 55 ? "Building" : total >= 40 ? "Developing" : "Getting Started";
+  const color = total >= 85 ? "#059669" : total >= 70 ? "#2563eb" : total >= 55 ? "#d97706" : total >= 40 ? "#ea580c" : "#6b7280";
+
+  return {
+    total, grade, label, color,
+    components: {
+      savingsRate:     { score: savingsScore,  max: 40, pct: Math.round((savingsScore / 40)  * 100) },
+      budgetHealth:    { score: budgetScore,   max: 30, pct: Math.round((budgetScore / 30)   * 100) },
+      balanceRunway:   { score: balanceScore,  max: 20, pct: Math.round((balanceScore / 20)  * 100) },
+      incomeStability: { score: incomeScore,   max: 10, pct: Math.round((incomeScore / 10)   * 100) },
+    },
+  };
 }

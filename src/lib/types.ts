@@ -19,7 +19,15 @@ export type InsightType =
   | "food_delivery_spend"
   | "subscription_total"
   | "income_expected"
-  | "overdraft_alert";
+  | "overdraft_alert"
+  | "category_creep"
+  | "year_end_projection"
+  | "most_improved"
+  | "weekend_spending"
+  | "spending_velocity"
+  | "emergency_fund_runway"
+  | "bill_due_soon"
+  | "expense_ratio_drift";
 
 /** Category ID reserved for internal bank transfers — excluded from expense totals. */
 export const TRANSFER_CATEGORY_ID = 20;
@@ -38,6 +46,24 @@ export interface Insight {
   actionLabel?: string;
   action?: InsightAction;
   dismissKey: string;
+  richData?: InsightRichData;
+}
+
+export interface InsightRichData {
+  streakMonths?: number;
+  budgetAmountCents?: number;
+  currentRate?: number;
+  targetRate?: number;
+  beforeAmount?: number;
+  afterAmount?: number;
+  paceMonthly?: number;
+  avgMonthly?: number;
+  runwayMonths?: number;
+  projectedSavings?: number;
+  overCount?: number;
+  avgMonthlyCents?: number;
+  potentialLabel?: string;
+  potentialValue?: number;
 }
 
 export interface Account {
@@ -79,6 +105,7 @@ export interface Budget {
   amount_cents: number;
   period: "monthly" | "weekly";
   start_date: string;
+  is_global: number;
 }
 
 export interface CategorizationRule {
@@ -89,4 +116,23 @@ export interface CategorizationRule {
   priority: number;
   min_abs_cents?: number | null;
   max_abs_cents?: number | null;
+}
+
+export interface HealthScoreComponent {
+  score: number;
+  max: number;
+  pct: number;
+}
+
+export interface HealthScore {
+  total: number;
+  grade: string;
+  label: string;
+  color: string;
+  components: {
+    savingsRate:     HealthScoreComponent;
+    budgetHealth:    HealthScoreComponent;
+    balanceRunway:   HealthScoreComponent;
+    incomeStability: HealthScoreComponent;
+  };
 }

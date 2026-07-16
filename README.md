@@ -129,7 +129,11 @@ Reports support **month navigation** or a **custom date range** with presets: Th
 
 ### 💰 Budgets
 
-Set soft monthly spending limits per category. Each budget shows a live progress bar, amount spent vs. limit, and an **On pace for $X** projection so you can see a potential overspend before the month ends. No enforcement, no penalties — just awareness.
+Set soft spending limits per category — monthly or weekly. Each budget shows a live progress bar, amount spent vs. limit, and an **On pace for $X** projection so you can see a potential overspend before the month ends. No enforcement, no penalties — just awareness.
+
+**Global vs. Profile budgets:** A **Profile / Global toggle** at the top-right of the Budgets page lets you switch between views. Profile budgets track spending for the active profile only. Global budgets aggregate transactions across all profiles and are visible to every profile — useful for shared household expenses. Any budget can be flipped between the two scopes after creation with the **↑ Global / ↓ Profile** button on its card. When switching to Global view, Compass walks you through unlocking any PIN-protected profiles so their data is included in the totals.
+
+> **Transfers** (same-institution internal moves) are excluded from all budget totals regardless of scope.
 
 ### 🎯 Goals
 
@@ -145,14 +149,24 @@ Each goal shows a progress bar, current vs. target amount, and an "On track ✓"
 
 ![Insights page](https://github.com/user-attachments/assets/962bdee8-a336-43b7-8dca-78c0755576b3)
 
-Automatic analysis surfaced from your data — no configuration required:
+Automatic analysis surfaced from your data — no configuration required. The page opens with your most vital insights front-and-center.
 
-- Budget pace warnings (on track to overspend before month end)
-- Top 3 merchants by spend this month
-- Food delivery as a % of your food budget
-- Detected subscriptions with monthly and annual totals
-- Paycheck timing prediction based on your pay cycle
-- Overdraft / bank fee alerts
+**Financial Health Score** — A 0–100 score computed from four signals: savings rate (40 pts), budget adherence (30 pts), account balance runway (20 pts), and income stability (10 pts). The score hero card and header pill reflect the **currently active view** (Global = all-profiles aggregated, Profile = active profile only). On first visit each session a tabbed modal opens — the **🌐 Global** tab (golden) and **👤 Profile** tab (blue) let you compare both scores side-by-side before dismissing. Grades: A Excellent · B Good · C Building · D Developing.
+
+**Spotlight Cards** — Up to two of your most actionable insights are promoted to full-width featured cards with inline data visualizations:
+- **StreakTrack** — dot row showing consecutive under-budget months
+- **RateGauge** — gradient track with your current savings rate vs. the 20% target
+- **PaceMeter** — bar showing this month’s spend pace vs. your normal
+- **BeforeAfterBars** — side-by-side bar comparison for category improvements
+- **RunwaySegments** — segmented track showing months of expenses covered by your balance
+
+Each spotlight card includes a forward-looking **“↗ potential” callout** computed from your actual data — e.g. “Cut expenses by 12% → savings rate reaches 20%”.
+
+**Grouped Accordions (Wins first)** — Insights are grouped into three collapsible sections ordered by psychology, not severity: **Wins** (emerald, expanded by default when you have wins) → **Observations** → **Action Items** (amber, constructive tone). Adaptive expansion ensures you never open the page to a wall of warnings.
+
+**Type-specific icons** — Each insight type has a distinct icon so you can scan at a glance: `Target` for budgets, `%` for rate insights, trend arrows for directional changes, `RefreshCw` for subscriptions, `Calendar` for timing alerts, `Shield` for account safety.
+
+**20+ insight types** including: budget pace, unusual spend spikes, savings rate, overspend streaks, under-budget streaks, ghost subscriptions, redundant spending, top merchants, food delivery %, subscription inventory, paycheck prediction, overdraft alerts, category creep, year-end savings projection, most-improved category, weekend spending pattern, spending velocity, emergency fund runway, bill due soon, and expense ratio drift.
 
 ### 🔍 Transactions
 
@@ -186,7 +200,7 @@ Check for updates from the sidebar. Updates are cryptographically signed, verifi
 
 ---
 
-## $${\color{#C08A1C}\text{Security \& Privacy}}$$
+## $${\color{#C08A1C}Security \space and \space Privacy}$$
 
 This section answers every question a new user should ask before importing financial data into any app.
 
