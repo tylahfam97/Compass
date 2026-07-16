@@ -111,7 +111,7 @@ The **⚙ Rules** modal has a two-tier editor: a simple "contains" field for eve
 
 ### 📅 Dashboard & Trends
 
-Your home screen for any month: income, expenses, and net savings as summary cards, a top categories chart, and the 10 most recent transactions. Navigate freely between months. The **Trends** page shows 3, 6, or 12-month income vs. expenses and per-category spending breakdowns.
+Your home screen for any month: income, expenses, and net savings as summary cards, a top categories chart, and the 10 most recent transactions. Navigate freely between months. The **Trends** page shows 3, 6, or 12-month income vs. expenses and per-category spending breakdowns, with a **Profile / Global scope toggle** to aggregate across all profiles. Three all-time KPI tiles (Income, Expenses, Net) are always visible regardless of the selected range. A **Cumulative Net** line chart shows the running total of savings month-by-month across all imported history.
 
 ### 📋 Reports
 
@@ -170,7 +170,13 @@ Each spotlight card includes a forward-looking **“↗ potential” callout** c
 
 ### 🔍 Transactions
 
-Full searchable, filterable transaction list. Filter by month or view all-time history. Re-categorize in one click, and view the running account balance alongside each transaction.
+Full searchable, filterable transaction list. Filter by month or view all-time history (no row cap). Re-categorize in one click, and view the running account balance alongside each transaction.
+
+**Sortable column headers** — Click Date, Description, Category, Amount, or Balance to sort. Click again to reverse. An arrow shows the active column and direction.
+
+**Net summary** — Three tiles above the table show **Income**, **Expenses**, and **Net** for the current filtered view.
+
+**Transfers excluded** — Selecting the Transfers category shows an inline notice that transfers don't count toward income or expense totals anywhere in the app.
 
 **Filter row 1 — date & search:**
 - Filter by month or toggle to **All time**
@@ -186,9 +192,9 @@ Full searchable, filterable transaction list. Filter by month or view all-time h
 - **Edit** any transaction’s date, description, amount, category, or notes
 - **Delete** transactions you don’t need
 - **＋ Add** manual transactions for cash, Venmo, or anything not in a bank export
-- **↓ Export** opens an OS save dialog — choose filename and location; exports exactly the current filtered view as CSV
+- **↓ Export** opens an OS save dialog — choose filename and location; exports exactly the current filtered view as CSV (respects active sort)
 - **✦ Auto-Categorize** applies your rules to all transactions, then system rules fill remaining uncategorized ones
-- **Drag a CSV** onto the Transactions page to jump straight to the import wizard
+- **Drag a CSV or XLSX** onto the Transactions page to jump straight to the import wizard
 
 ### 💼 All Accounts Overview
 
