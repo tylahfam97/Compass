@@ -314,6 +314,7 @@ export default function TrendsPage() {
                 {expandedMonth && (
                   <motion.div
                     key={expandedMonth}
+                    layout
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: "auto", opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
@@ -379,6 +380,7 @@ export default function TrendsPage() {
                   {expandedCatName && (
                     <motion.div
                       key={expandedCatName}
+                      layout
                       initial={{ height: 0, opacity: 0 }}
                       animate={{ height: "auto", opacity: 1 }}
                       exit={{ height: 0, opacity: 0 }}

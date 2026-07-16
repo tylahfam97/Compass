@@ -1516,7 +1516,7 @@ export default function ImportPage() {
               <button
                 key={k.id}
                 onClick={() => setImportKind(k.id)}
-                className="border rounded-xl p-5 text-center hover:border-[hsl(var(--primary))] hover:bg-[hsl(var(--muted))] transition-colors"
+                className="border rounded-xl p-5 text-center hover:border-[hsl(var(--primary))] hover:bg-[hsl(var(--muted))] transition-colors chart-clickable"
               >
                 <div className="flex justify-center mb-2 text-[hsl(var(--primary))]"><k.Icon size={26} /></div>
                 <p className="font-medium text-sm">{k.label}</p>

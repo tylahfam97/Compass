@@ -304,7 +304,7 @@ export default function OverviewPage() {
             return (
               <button key={profile.id} onClick={() => handleSwitch(profile)}
                 className="border rounded-2xl p-5 text-left hover:shadow-md transition-all duration-150
-                           bg-[hsl(var(--background))] active:scale-[0.99]"
+                           bg-[hsl(var(--background))] active:scale-[0.99] chart-clickable"
                 style={{ "--hover-border": "var(--gold)" } as React.CSSProperties}
                 onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--gold)")}
                 onMouseLeave={(e) => (e.currentTarget.style.borderColor = "")}

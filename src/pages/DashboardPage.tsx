@@ -408,6 +408,7 @@ export default function DashboardPage() {
                 {expandedCat && (
                   <motion.div
                     key={expandedCat.name}
+                    layout
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: "auto", opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}

@@ -235,7 +235,7 @@ function ScoreHeroCard({ score, scopeLabel, onOpen }: { score: HealthScore; scop
   return (
     <button
       onClick={onOpen}
-      className="w-full text-left border rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow"
+      className="group w-full text-left border rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow chart-clickable"
       style={{ borderColor: score.color + "40" }}
     >
       <div className="px-6 pt-5 pb-5" style={{ backgroundColor: score.color + "08" }}>
@@ -252,8 +252,11 @@ function ScoreHeroCard({ score, scopeLabel, onOpen }: { score: HealthScore; scop
               </div>
             </div>
           </div>
-          <div className="shrink-0 p-1.5 rounded-full border mt-1"
-               style={{ borderColor: score.color + "50", color: score.color }}>
+          <div className="shrink-0 p-1.5 rounded-full border mt-1 transition-all duration-200 group-hover:scale-110"
+               style={{ borderColor: score.color + "50", color: score.color, backgroundColor: score.color + "00" }}
+               onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = score.color + "18")}
+               onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = score.color + "00")}
+          >
             <HelpCircle size={14} />
           </div>
         </div>
@@ -366,6 +369,7 @@ function NetWorthCard({
               {selected && (
                 <motion.div
                   key={selected.month}
+                  layout
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: "auto", opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}

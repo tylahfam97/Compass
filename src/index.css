@@ -85,12 +85,27 @@ body {
   outline: none !important;
 }
 
-/* Subtle blue -> gold shimmer to signal "this chart can be clicked for detail". */
+/* Subtle blue -> gold shimmer to signal "this box can be clicked for detail". */
 @keyframes chart-shimmer-glow {
   0%, 100% { box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.30), 0 0 14px -4px rgba(59, 130, 246, 0.35); }
   50%      { box-shadow: 0 0 0 1px rgba(201, 149, 43, 0.35), 0 0 14px -4px rgba(201, 149, 43, 0.40); }
 }
 .chart-clickable {
-  animation: chart-shimmer-glow 3.2s ease-in-out infinite;
+  animation: chart-shimmer-glow 3.2s ease-in-out infinite !important;
+}
+
+/* Ambient blue -> white shimmer applied to every card-style box app-wide, so the
+   whole UI shares one subtle, cohesive glow language. Surfaces whose entire box
+   is itself a click target opt into the bolder blue/gold variant above via
+   .chart-clickable instead (which always wins via !important). Excludes form
+   controls (input/textarea/select/button) that happen to share the same
+   rounded-xl/2xl utility so fields and small buttons don't glow unexpectedly. */
+@keyframes box-shimmer-neutral {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.20), 0 0 10px -5px rgba(59, 130, 246, 0.22); }
+  50%      { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22), 0 0 10px -5px rgba(255, 255, 255, 0.24); }
+}
+.border.rounded-xl:not(input):not(textarea):not(select):not(button),
+.border.rounded-2xl:not(input):not(textarea):not(select):not(button) {
+  animation: box-shimmer-neutral 3.8s ease-in-out infinite;
 }
 
