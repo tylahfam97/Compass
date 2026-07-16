@@ -1106,6 +1106,10 @@ export default function ImportPage() {
         "investment",
         accountChoice ?? { mode: "new", name: "Investment Account", institution: "Imported" }
       );
+      // Once a new account is actually created, lock the choice onto that concrete row -
+      // otherwise a batch of files would each independently create ANOTHER "new" account
+      // instead of sharing the one just created.
+      setAccountChoice((prev) => (prev?.mode === "existing" && prev.accountId === accountId ? prev : { mode: "existing", accountId, name: prev?.name ?? "Investment Account" }));
       const sessionResult = await db.execute(
         "INSERT INTO import_sessions (filename, row_count, skipped_count, profile_id, kind) VALUES (?, 0, 0, ?, 'investment')",
         [currentFilename, targetProfileId]
@@ -1362,6 +1366,11 @@ export default function ImportPage() {
         importKind === "credit" ? "credit" : "checking",
         accountChoice ?? { mode: "new", name: "My Account", institution: "Imported" }
       );
+      // Once a new account is actually created, lock the choice onto that concrete row -
+      // otherwise batch/auto-import would each independently create ANOTHER "new" account
+      // instead of sharing the one just created, splitting one card's transactions/balance
+      // across several duplicate accounts.
+      setAccountChoice((prev) => (prev?.mode === "existing" && prev.accountId === accountId ? prev : { mode: "existing", accountId, name: prev?.name ?? "My Account" }));
       if (colMap.balanceCol < 0 && currentBalanceInput.trim()) {
         // The entered value is the real balance AFTER all transactions, as of today (when it's
         // submitted) - not before them - so Compass can calculate correctly in both directions.
@@ -1495,6 +1504,9 @@ export default function ImportPage() {
         importKind === "credit" ? "credit" : "checking",
         accountChoice ?? { mode: "new", name: "My Account", institution: "Imported" }
       );
+      // Same fix as handleImport - lock onto the concrete account so the rest of this batch
+      // (files processed automatically after this one) reuses it instead of creating duplicates.
+      setAccountChoice((prev) => (prev?.mode === "existing" && prev.accountId === accountId ? prev : { mode: "existing", accountId, name: prev?.name ?? "My Account" }));
       const rules = await db.select<CategorizationRule[]>(
         "SELECT * FROM categorization_rules WHERE profile_id=? OR profile_id IS NULL ORDER BY priority DESC",
         [profileId]
