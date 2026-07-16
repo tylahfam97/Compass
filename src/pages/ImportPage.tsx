@@ -1,5 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import Papa from "papaparse";
+import * as XLSX from "xlsx";
+import { Calendar, Tag, DollarSign, BarChart2, Upload, Loader2, CheckCircle2, Info } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { getDb, getOrCreateAccountForProfile, applyCategorizationRules } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -52,7 +54,7 @@ const BANK_PRESETS: Record<string, BankPreset> = {
     descKeywords: ["description"],
     amountKeywords: ["debit"],
     typeKeywords: [],
-    note: "Capital One uses separate Debit and Credit columns. Select the Debit column as the amount — expenses will be positive numbers.",
+    note: "Capital One uses separate Debit and Credit columns. Select the Debit column as the amount - expenses will be positive numbers.",
     invertAmounts: true,
   },
   "wells-fargo": {
@@ -68,7 +70,7 @@ const BANK_PRESETS: Record<string, BankPreset> = {
     descKeywords: ["description"],
     amountKeywords: ["amount"],
     balanceKeywords: ["running bal"],
-    note: "Bank of America statements include summary rows at the top — Compass skips them automatically.",
+    note: "Bank of America statements include summary rows at the top - Compass skips them automatically.",
   },
   "navy-federal": {
     name: "Navy Federal",
@@ -76,7 +78,7 @@ const BANK_PRESETS: Record<string, BankPreset> = {
     descKeywords: ["description"],
     amountKeywords: ["debit"],
     invertAmounts: true,
-    note: "Navy Federal has header rows before the transaction table — Compass skips them automatically.",
+    note: "Navy Federal has header rows before the transaction table - Compass skips them automatically.",
   },
   "discover": {
     name: "Discover",
@@ -106,7 +108,6 @@ const BANK_PRESETS: Record<string, BankPreset> = {
     dateKeywords: ["date"],
     descKeywords: ["name"],
     amountKeywords: ["net amount"],
-    note: "Use the CSV export from Cash App's website under Activity → Export.",
   },
   "paypal": {
     name: "PayPal",
@@ -188,7 +189,6 @@ const HEADER_KEYWORDS = [
 
 /**
  * Scan the first 15 rows and return the index of the row that looks most
- * like a column-header row (contains ≥2 header keywords).  Falls back to 0.
  *
  * Handles formats like Bank of America that prepend a summary block before
  * the real transaction table.
@@ -282,6 +282,19 @@ function detectDominantMonth(rows: string[][], dateColIdx: number): string | nul
   return entries[0][0];
 }
 
+/** Returns all unique YYYY-MM values found in the date column, sorted ascending. */
+function detectAllMonths(rows: string[][], dateColIdx: number): string[] {
+  const months = new Set<string>();
+  for (const row of rows) {
+    const raw = row[dateColIdx];
+    if (!raw) continue;
+    const iso = parseDate(raw);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) continue;
+    months.add(iso.slice(0, 7));
+  }
+  return [...months].sort();
+}
+
 export default function ImportPage() {
   const navigate = useNavigate();
   const activeProfile = useProfileStore((s) => s.activeProfile);
@@ -310,6 +323,11 @@ export default function ImportPage() {
     () => (parsed ? detectDominantMonth(parsed.rows, colMap.dateCol) : null),
     [parsed, colMap.dateCol]
   );
+  const allMonths = useMemo(
+    () => (parsed ? detectAllMonths(parsed.rows, colMap.dateCol) : []),
+    [parsed, colMap.dateCol]
+  );
+  const isMultiMonth = allMonths.length > 1;
   useEffect(() => {
     if (detectedMonth) setTargetMonth(detectedMonth);
   }, [detectedMonth]);
@@ -335,7 +353,7 @@ export default function ImportPage() {
     const [first, ...rest] = pending;
     setBatchQueue(rest);
     processFile(first);
-  }, []); // intentionally empty — runs once on mount only
+  }, []); // intentionally empty - runs once on mount only
 
   /** Navigate between wizard steps with direction tracking for the slide animation. */
   const wizardGo = (target: Step, dir: "forward" | "back" = "forward") => {
@@ -355,6 +373,31 @@ export default function ImportPage() {
     setError(null);
     setStep("checking");
     setCurrentFilename(file.name);
+
+    const isXlsx = /\.xlsx?$/i.test(file.name);
+    if (isXlsx) {
+      file.arrayBuffer().then((buf) => {
+        try {
+          const wb = XLSX.read(buf, { type: "array", cellDates: false });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const data = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: "" }) as string[][];
+          if (data.length < 2) {
+            setError("Spreadsheet appears empty or has too few rows.");
+            setStep("upload");
+            return;
+          }
+          finishParsingData(data);
+        } catch {
+          setError("Could not read the spreadsheet. Make sure it is a valid .xlsx or .xls file.");
+          setStep("upload");
+        }
+      }).catch(() => {
+        setError("Failed to read the file.");
+        setStep("upload");
+      });
+      return;
+    }
+
     Papa.parse<string[]>(file, {
       skipEmptyLines: true,
       complete: (result) => {
@@ -364,67 +407,66 @@ export default function ImportPage() {
           setStep("upload");
           return;
         }
-        // Auto-detect where the real header row is (skips bank summary blocks)
-        const initialSkip = findRealHeaderRow(data);
-        setRawData(data);
-        setSkipRows(initialSkip);
-        const derived = deriveHeaders(data, initialSkip);
-        if (!derived) {
-          setError("File appears empty after skipping summary rows.");
-          setStep("upload");
-          return;
-        }
-        setParsed(derived);
-        const { headers } = derived;
-
-        // Check for a saved column profile for this bank's CSV layout
-        (async () => {
-          try {
-            const sig = computeHeaderSig(headers);
-            const db = await getDb();
-            const profiles = await db.select<{
-              date_col: number;
-              desc_col: number;
-              amount_col: number;
-              type_col: number;
-              balance_col: number;
-            }[]>(
-              "SELECT date_col, desc_col, amount_col, COALESCE(type_col, -1) as type_col, COALESCE(balance_col, -1) as balance_col FROM column_profiles WHERE header_sig=? AND profile_id=?",
-              [sig, profileId]
-            );
-            if (profiles.length > 0) {
-              const p = profiles[0];
-              setColMap({ dateCol: p.date_col, descCol: p.desc_col, amountCol: p.amount_col, typeCol: p.type_col, balanceCol: p.balance_col, invertAmounts: false });
-              setProfileFound(true);
-            } else {
-              const base = autoDetect(headers);
-              if (selectedPresetId && BANK_PRESETS[selectedPresetId]) {
-                const overrides = applyPreset(BANK_PRESETS[selectedPresetId], headers);
-                setColMap({ ...base, ...overrides });
-              } else {
-                setColMap(base);
-              }
-              setProfileFound(false);
-            }
-          } catch {
-            setColMap(autoDetect(headers));
-            setProfileFound(false);
-          }
-          setStep("wizard:data");
-        })();
+        finishParsingData(data);
       },
       error: (err) => {
-        setError(`Could not parse file: ${err.message}`);
+        setError(err.message);
         setStep("upload");
       },
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId]);
+
+  /** Shared logic to detect headers, load presets, and advance to the wizard after parsing. */
+  const finishParsingData = useCallback((data: string[][]) => {
+    const initialSkip = findRealHeaderRow(data);
+    setRawData(data);
+    setSkipRows(initialSkip);
+    const derived = deriveHeaders(data, initialSkip);
+    if (!derived) {
+      setError("File appears empty after skipping summary rows.");
+      setStep("upload");
+      return;
+    }
+    setParsed(derived);
+    const { headers } = derived;
+    (async () => {
+      try {
+        const sig = computeHeaderSig(headers);
+        const db = await getDb();
+        const profiles = await db.select<{
+          date_col: number; desc_col: number; amount_col: number;
+          type_col: number; balance_col: number;
+        }[]>(
+          "SELECT date_col, desc_col, amount_col, COALESCE(type_col, -1) as type_col, COALESCE(balance_col, -1) as balance_col FROM column_profiles WHERE header_sig=? AND profile_id=?",
+          [sig, profileId]
+        );
+        if (profiles.length > 0) {
+          const p = profiles[0];
+          setColMap({ dateCol: p.date_col, descCol: p.desc_col, amountCol: p.amount_col, typeCol: p.type_col, balanceCol: p.balance_col, invertAmounts: false });
+          setProfileFound(true);
+        } else {
+          const base = autoDetect(headers);
+          if (selectedPresetId && BANK_PRESETS[selectedPresetId]) {
+            setColMap({ ...base, ...applyPreset(BANK_PRESETS[selectedPresetId], headers) });
+          } else {
+            setColMap(base);
+          }
+          setProfileFound(false);
+        }
+      } catch {
+        setColMap(autoDetect(headers));
+        setProfileFound(false);
+      }
+      setStep("wizard:data");
+    })();
+  }, [profileId, selectedPresetId]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
-      const files = Array.from(e.dataTransfer.files).filter((f) => f.name.endsWith(".csv"));
-      if (files.length === 0) { setError("Please drop one or more .csv files."); return; }
+      const files = Array.from(e.dataTransfer.files).filter((f) => /\.(csv|xlsx?)$/i.test(f.name));
+      if (files.length === 0) { setError("Please drop one or more .csv or .xlsx files."); return; }
       const [first, ...rest] = files;
       setBatchQueue(rest);
       processFile(first);
@@ -463,7 +505,7 @@ export default function ImportPage() {
     if (!parsed) return;
     setStep("importing");
     // Yield one animation frame so React can paint the loading UI before the
-    // import loop starts — prevents the UI appearing frozen on large files.
+    // import loop starts - prevents the UI appearing frozen on large files.
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     try {
       const db = await getDb();
@@ -498,7 +540,7 @@ export default function ImportPage() {
           else if (typeVal === "credit") amount = Math.abs(rawAmount);
         }
         if (colMap.invertAmounts) amount = -amount;
-        if (!date || !description || amount === 0) continue;
+        if (!date || !description || !isFinite(amount) || amount === 0) continue;
 
         const amountCents = Math.round(amount * 100);
         const hash = await hashRow(row);
@@ -523,7 +565,7 @@ export default function ImportPage() {
       }
 
       if (imported === 0) {
-        // Nothing new — remove the empty session record
+        // Nothing new - remove the empty session record
         await db.execute("DELETE FROM import_sessions WHERE id=?", [sessionId]);
       } else {
         // Update session with actual counts
@@ -600,7 +642,7 @@ export default function ImportPage() {
           else if (tv === "credit") amount = Math.abs(rawAmount);
         }
         if (savedColMap.invertAmounts) amount = -amount;
-        if (!date || !description || amount === 0) continue;
+        if (!date || !description || !isFinite(amount) || amount === 0) continue;
         const amountCents = Math.round(amount * 100);
         const hash = await hashRow(row);
         const categoryId = applyCategorizationRules(description, rules, amountCents);
@@ -674,7 +716,6 @@ export default function ImportPage() {
         Your data never leaves this device.
       </p>
 
-      {/* ── UPLOAD / CHECKING ── */}
       {(step === "upload" || step === "checking") && (
         <div>
           <div
@@ -687,10 +728,10 @@ export default function ImportPage() {
                           ? "opacity-60 cursor-wait"
                           : "cursor-pointer hover:border-[hsl(var(--primary))]"}`}
           >
-            <div className="text-5xl mb-4">{step === "checking" ? "⏳" : "📄"}</div>
+            <div className="flex justify-center mb-4 text-[hsl(var(--muted-foreground))]">{step === "checking" ? (<Loader2 size={48} className="animate-spin" />) : (<Upload size={48} />)}</div>
             <p className="font-medium mb-1">
               {step === "checking"
-                ? "Reading file…"
+                ? "Reading file..."
                 : "Drop your CSV here or click to browse"}
             </p>
             <p className="text-sm text-[hsl(var(--muted-foreground))]">
@@ -700,7 +741,7 @@ export default function ImportPage() {
           <input
             id="csv-input"
             type="file"
-            accept=".csv"
+            accept=".csv,.xlsx,.xls"
             multiple
             className="hidden"
             onChange={handleFileInput}
@@ -710,7 +751,7 @@ export default function ImportPage() {
           {step === "upload" && (
             <div className="mt-5 border rounded-xl p-4 space-y-3">
               <p className="text-sm font-medium">
-                Select your bank <span className="text-[hsl(var(--muted-foreground))] font-normal">(optional — speeds up column detection)</span>
+                Select your bank <span className="text-[hsl(var(--muted-foreground))] font-normal">(optional - speeds up column detection)</span>
               </p>
               <div className="flex flex-wrap gap-2">
                 {Object.entries(BANK_PRESETS).map(([id, preset]) => (
@@ -728,14 +769,10 @@ export default function ImportPage() {
                 ))}
               </div>
               {selectedPresetId && BANK_PRESETS[selectedPresetId]?.note && (
-                <p className="text-xs text-[hsl(var(--muted-foreground))] border-t pt-2">
-                  ℹ️ {BANK_PRESETS[selectedPresetId].note}
-                </p>
+                <p className="text-xs text-[hsl(var(--muted-foreground))] border-t pt-2 flex items-start gap-1"><Info size={12} className="shrink-0 mt-0.5" /> {BANK_PRESETS[selectedPresetId].note}</p>
               )}
               {selectedPresetId && (
-                <p className="text-xs text-green-600 dark:text-green-400">
-                  ✓ {BANK_PRESETS[selectedPresetId].name} selected — column mapping will be pre-filled when you drop your file.
-                </p>
+                <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1"><CheckCircle2 size={12} /> {BANK_PRESETS[selectedPresetId].name} selected - column mapping will be pre-filled.</p>
               )}
             </div>
           )}
@@ -744,7 +781,6 @@ export default function ImportPage() {
         </div>
       )}
 
-      {/* ── WIZARD: shared step indicator ── */}
       {wizardNum(step) > 0 && parsed && (
         <div className="mb-6">
           <div className="flex items-center gap-1 mb-2">
@@ -779,14 +815,12 @@ export default function ImportPage() {
         </div>
       )}
 
-      {/* ── WIZARD STEP 1: Find Data ── */}
       {step === "wizard:data" && parsed && (
         <div key="wizard:data" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           <p className="text-sm text-[hsl(var(--muted-foreground))]">
-            Compass detected the column headers below. If they don't look right, use − / + to shift to the correct row.
           </p>
 
-          {/* Header-only display — centered column pills */}
+          {/* Header-only display - centered column pills */}
           <div className="border rounded-xl overflow-hidden">
             <div className="text-center py-2 bg-[hsl(var(--primary)/0.08)] border-b">
               <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
@@ -804,33 +838,30 @@ export default function ImportPage() {
 
           {/* Row navigation */}
           <div className="flex items-center justify-center gap-3 text-sm">
-            <button onClick={() => adjustSkipRows(-1)} disabled={skipRows === 0}
-              className="w-8 h-8 flex items-center justify-center border rounded-md disabled:opacity-30 hover:bg-[hsl(var(--muted))] transition-colors text-base">−</button>
+            <button onClick={() => adjustSkipRows(-1)} disabled={skipRows === 0} className="px-3 py-1.5 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors disabled:opacity-50">- Back</button>
             <span className="text-[hsl(var(--muted-foreground))]">
               Row <span className="font-mono font-bold text-[hsl(var(--foreground))]">{skipRows + 1}</span> of {rawData?.length ?? 0}
             </span>
             <button onClick={() => adjustSkipRows(1)} disabled={!rawData || skipRows >= rawData.length - 2}
               className="w-8 h-8 flex items-center justify-center border rounded-md disabled:opacity-30 hover:bg-[hsl(var(--muted))] transition-colors text-base">+</button>
             <span className="text-xs text-[hsl(var(--muted-foreground))] ml-2">
-              {parsed.rows.length} data rows · {parsed.headers.length} columns
+              {parsed.rows.length} data rows Â· {parsed.headers.length} columns
             </span>
           </div>
 
           {profileFound && (
             <div className="px-4 py-2.5 rounded-lg text-sm border border-green-300 bg-green-50
                             text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
-              ✓ Column layout recognized from a previous import.
+                  Column layout recognized from a previous import.
             </div>
           )}
 
           <div className="flex gap-3 justify-center">
             <button onClick={() => wizardGo("wizard:preview", "forward")}
               className="px-5 py-2 border rounded-lg text-sm font-medium hover:bg-[hsl(var(--muted))] transition-colors">
-              Skip to Preview ↗
             </button>
             <button onClick={() => wizardGo("wizard:date", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
-              Looks good → Next
             </button>
             <button onClick={reset} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
               Cancel
@@ -839,12 +870,17 @@ export default function ImportPage() {
         </div>
       )}
 
-      {/* ── WIZARD STEP 2: Date Column ── */}
       {step === "wizard:date" && parsed && (
         <div key="wizard:date" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
-          <p className="text-sm text-[hsl(var(--muted-foreground))]">
-            Select the column that contains the transaction date.
-          </p>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "hsl(var(--primary)/0.1)" }}>
+              <Calendar size={18} className="text-[hsl(var(--primary))]" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold leading-tight">Which column is the <span className="text-[hsl(var(--primary))]">Date</span>?</h2>
+              <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">Pick the column that contains the transaction date.</p>
+            </div>
+          </div>
           <div className="border rounded-xl p-5 space-y-4">
             <select value={colMap.dateCol}
               onChange={(e) => setColMap((m) => ({ ...m, dateCol: parseInt(e.target.value) }))}
@@ -867,7 +903,6 @@ export default function ImportPage() {
                   <div key={i} className="py-3 text-center">
                     <p className="font-mono text-sm text-[hsl(var(--muted-foreground))]">{raw}</p>
                     <p className={`text-base font-semibold mt-0.5 ${ok ? "text-green-600" : "text-red-500"}`}>
-                      {ok ? formatDate(iso) : "⚠ could not parse"}
                     </p>
                   </div>
                 );
@@ -877,25 +912,27 @@ export default function ImportPage() {
           </div>
 
           <div className="flex gap-3">
-            <button onClick={() => wizardGo("wizard:data", "back")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">← Back</button>
             <button onClick={() => wizardGo("wizard:desc", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
-              Next →
             </button>
             <button onClick={() => wizardGo("wizard:preview", "forward")}
               className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
-              Skip to Preview ↗
             </button>
           </div>
         </div>
       )}
 
-      {/* ── WIZARD STEP 3: Description Column ── */}
       {step === "wizard:desc" && parsed && (
         <div key="wizard:desc" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
-          <p className="text-sm text-[hsl(var(--muted-foreground))]">
-            Select the column that contains the merchant or payee name. This is used for categorization.
-          </p>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "hsl(var(--primary)/0.1)" }}>
+              <Tag size={18} className="text-[hsl(var(--primary))]" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold leading-tight">Which column is the <span className="text-[hsl(var(--primary))]">Description</span>?</h2>
+              <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">The merchant or payee name - used for auto-categorization.</p>
+            </div>
+          </div>
           <div className="border rounded-xl p-5 space-y-4">
             <select value={colMap.descCol}
               onChange={(e) => setColMap((m) => ({ ...m, descCol: parseInt(e.target.value) }))}
@@ -920,25 +957,27 @@ export default function ImportPage() {
           </div>
 
           <div className="flex gap-3">
-            <button onClick={() => wizardGo("wizard:date", "back")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">← Back</button>
             <button onClick={() => wizardGo("wizard:amount", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
-              Next →
             </button>
             <button onClick={() => wizardGo("wizard:preview", "forward")}
               className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
-              Skip to Preview ↗
             </button>
           </div>
         </div>
       )}
 
-      {/* ── WIZARD STEP 4: Amount Column ── */}
       {step === "wizard:amount" && parsed && (
         <div key="wizard:amount" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
-          <p className="text-sm text-[hsl(var(--muted-foreground))]">
-            Select the column containing the transaction amount. Expenses should be negative, income positive.
-          </p>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "hsl(var(--primary)/0.1)" }}>
+              <DollarSign size={18} className="text-[hsl(var(--primary))]" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold leading-tight">Which column is the <span className="text-[hsl(var(--primary))]">Amount</span>?</h2>
+              <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">Expenses should be negative, income positive.</p>
+            </div>
+          </div>
           <div className="border rounded-xl p-5 space-y-4">
             <select value={colMap.amountCol}
               onChange={(e) => setColMap((m) => ({ ...m, amountCol: parseInt(e.target.value) }))}
@@ -966,7 +1005,6 @@ export default function ImportPage() {
                     <div key={i} className="py-3 text-center">
                       <p className="font-mono text-sm text-[hsl(var(--muted-foreground))]">{raw}</p>
                       <p className={`font-mono text-base font-semibold mt-0.5 ${amt < 0 ? "text-red-500" : amt > 0 ? "text-green-600" : "text-amber-500"}`}>
-                        {amt === 0 ? "⚠ zero — will be skipped" : formatCurrency(Math.round(amt * 100))}
                       </p>
                     </div>
                   );
@@ -984,7 +1022,7 @@ export default function ImportPage() {
                   onClick={() => setColMap((m) => ({ ...m, typeCol: -1 }))}
                   className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.typeCol === -1 ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
                 >
-                  No — amounts are already signed
+                  No - amounts are already signed
                 </button>
                 <button
                   onClick={() => {
@@ -993,7 +1031,7 @@ export default function ImportPage() {
                   }}
                   className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.typeCol >= 0 ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
                 >
-                  Yes — select that column
+                  Yes - select that column
                 </button>
               </div>
               {colMap.typeCol >= 0 && (
@@ -1005,7 +1043,7 @@ export default function ImportPage() {
               )}
             </div>
 
-            {/* Sign inversion toggle — for banks that export expenses as positive (Discover, Amex) */}
+            {/* Sign inversion toggle - for banks that export expenses as positive (Discover, Amex) */}
             <div className="pt-3 border-t space-y-2">
               <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
                 Are expenses shown as positive numbers?
@@ -1018,38 +1056,40 @@ export default function ImportPage() {
                   onClick={() => setColMap((m) => ({ ...m, invertAmounts: false }))}
                   className={`px-3 py-1.5 rounded-lg border transition-colors ${!colMap.invertAmounts ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
                 >
-                  No — standard signs
+                  No - standard signs
                 </button>
                 <button
                   onClick={() => setColMap((m) => ({ ...m, invertAmounts: true }))}
                   className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.invertAmounts ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
                 >
-                  Yes — flip signs
+                  Yes - flip signs
                 </button>
               </div>
             </div>
           </div>
 
           <div className="flex gap-3">
-            <button onClick={() => wizardGo("wizard:desc", "back")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">← Back</button>
             <button onClick={() => wizardGo("wizard:balance", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
-              Next →
             </button>
             <button onClick={() => wizardGo("wizard:preview", "forward")}
               className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
-              Skip to Preview ↗
             </button>
           </div>
         </div>
       )}
 
-      {/* ── WIZARD STEP 5: Balance Column (optional) ── */}
       {step === "wizard:balance" && parsed && (
         <div key="wizard:balance" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
-          <p className="text-sm text-[hsl(var(--muted-foreground))]">
-            Some banks include a running account balance after each transaction. Importing it unlocks balance charts and low-balance alerts.
-          </p>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "hsl(var(--primary)/0.1)" }}>
+              <BarChart2 size={18} className="text-[hsl(var(--primary))]" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold leading-tight">Is there a <span className="text-[hsl(var(--primary))]">Balance</span> column? <span className="text-sm font-normal text-[hsl(var(--muted-foreground))]">Optional</span></h2>
+              <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">Running account balance - unlocks balance charts and low-balance alerts.</p>
+            </div>
+          </div>
           <div className="border rounded-xl p-5 space-y-4">
             <div className="flex gap-3 text-sm">
               <button
@@ -1102,16 +1142,13 @@ export default function ImportPage() {
           </div>
 
           <div className="flex gap-3">
-            <button onClick={() => wizardGo("wizard:amount", "back")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">← Back</button>
             <button onClick={() => wizardGo("wizard:preview", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
-              Next →
             </button>
           </div>
         </div>
       )}
 
-      {/* ── WIZARD STEP 6: Preview & Confirm ── */}
       {step === "wizard:preview" && parsed && (
         <div key="wizard:preview" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           {error && <p className="text-red-500 text-sm p-3 border border-red-300 rounded-lg">{error}</p>}
@@ -1138,7 +1175,7 @@ export default function ImportPage() {
           {/* Full preview table */}
           <div className="border rounded-xl overflow-hidden">
             <div className="px-4 py-2 bg-[hsl(var(--muted))] border-b text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
-              Preview — first 5 rows
+              Preview - first 5 rows
             </div>
             <table className="w-full text-sm">
               <thead>
@@ -1170,7 +1207,7 @@ export default function ImportPage() {
                       </td>
                       {colMap.balanceCol >= 0 && (
                         <td className="px-4 py-2 text-right font-mono text-xs text-[hsl(var(--muted-foreground))]">
-                          {balRaw ? formatCurrency(Math.round(parseAmount(balRaw) * 100)) : "—"}
+                          {balRaw ? formatCurrency(Math.round(parseAmount(balRaw) * 100)) : "-"}
                         </td>
                       )}
                     </tr>
@@ -1180,20 +1217,34 @@ export default function ImportPage() {
             </table>
           </div>
 
-          {/* Statement month override */}
-          <div className="flex items-center gap-3 p-3 border rounded-xl bg-[hsl(var(--muted))]/40">
-            <span className="text-sm font-medium shrink-0">Statement month</span>
-            <input type="month" value={targetMonth} onChange={(e) => setTargetMonth(e.target.value)}
-              className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]" />
-            {detectedMonth && detectedMonth !== targetMonth && (
-              <button onClick={() => setTargetMonth(detectedMonth)} className="text-xs text-[hsl(var(--primary))] hover:underline">
-                Reset to detected ({detectedMonth})
-              </button>
-            )}
-          </div>
+          {/* Statement month - single or multi-month */}
+          {isMultiMonth ? (
+            <div className="p-4 border rounded-xl" style={{ backgroundColor: "hsl(var(--primary)/0.05)" }}>
+              <p className="text-sm font-semibold mb-2">This CSV spans {allMonths.length} months</p>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {allMonths.map((ym) => (
+                  <span key={ym} className="text-xs px-2.5 py-0.5 rounded-full font-medium"
+                    style={{ backgroundColor: "hsl(var(--primary)/0.12)", color: "hsl(var(--primary))" }}>
+                    {ym}
+                  </span>
+                ))}
+              </div>
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">All transactions across every month will be imported.</p>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3 p-3 border rounded-xl bg-[hsl(var(--muted))]/40">
+              <span className="text-sm font-medium shrink-0">Statement month</span>
+              <input type="month" value={targetMonth} onChange={(e) => setTargetMonth(e.target.value)}
+                className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]" />
+              {detectedMonth && detectedMonth !== targetMonth && (
+                <button onClick={() => setTargetMonth(detectedMonth)} className="text-xs text-[hsl(var(--primary))] hover:underline">
+                  Reset to detected ({detectedMonth})
+                </button>
+              )}
+            </div>
+          )}
 
           <div className="flex gap-3 flex-wrap">
-            <button onClick={() => wizardGo("wizard:balance", "back")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">← Back</button>
             <button onClick={handleImport}
               className="px-6 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg font-medium hover:opacity-90 transition-opacity">
               Import {parsed.rows.length} Transactions
@@ -1212,7 +1263,6 @@ export default function ImportPage() {
                            hover:bg-[hsl(var(--primary)/0.25)] transition-colors"
                 title="Import this file then automatically import all remaining files using the same column settings"
               >
-                ⚡ Import All ({batchQueue.length + 1} files)
               </button>
             )}
             <button onClick={reset} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">Cancel</button>
@@ -1220,14 +1270,13 @@ export default function ImportPage() {
         </div>
       )}
 
-      {/* ── IMPORTING ── */}
       {step === "importing" && (
         <div className="text-center py-16">
-          <div className="text-5xl mb-4 animate-pulse">⚙️</div>
+              <div className="flex justify-center mb-4 text-blue-500"><Info size={48} /></div>
           {batchAutoMode && totalBatchCount > 1 ? (
             <>
               <p className="font-medium mb-1">
-                Importing file {totalBatchCount - batchQueue.length} of {totalBatchCount}…
+                Importing file {totalBatchCount - batchQueue.length} of {totalBatchCount}...
               </p>
               <p className="text-sm text-[hsl(var(--muted-foreground))] mb-4 truncate max-w-sm mx-auto">
                 {currentFilename}
@@ -1240,26 +1289,25 @@ export default function ImportPage() {
               </div>
             </>
           ) : (
-            <p className="font-medium">Importing and categorizing transactions…</p>
+            <p className="font-medium">Importing and categorizing transactions...</p>
           )}
         </div>
       )}
 
-      {/* ── DONE ── */}
       {step === "done" && summary && (
         <div className="text-center py-12 wizard-enter-done">
           {summary.imported === 0 ? (
             <>
-              <div className="text-5xl mb-4">ℹ️</div>
+              <div className="flex justify-center mb-4 text-blue-500"><Info size={48} /></div>
               <p className="text-xl font-semibold mb-2">Already imported</p>
               <p className="text-[hsl(var(--muted-foreground))] mb-6">
                 All {summary.skipped} rows from <strong>{currentFilename}</strong> already exist
-                — this file has been imported before.
+                - this file has been imported before.
               </p>
             </>
           ) : (
             <>
-              <div className="text-5xl mb-4 wizard-enter-done inline-block">✅</div>
+              <div className="flex justify-center mb-4 wizard-enter-done"><CheckCircle2 size={48} className="text-green-500" /></div>
               <p className="text-xl font-semibold mb-2">Import complete!</p>
               <p className="text-[hsl(var(--muted-foreground))] mb-6">
                 <span className="text-green-600 font-semibold">{summary.imported} transactions</span>{" "}
@@ -1267,7 +1315,7 @@ export default function ImportPage() {
                 {summary.skipped > 0 && `, ${summary.skipped} duplicates skipped`}.
                 {!profileFound && (
                   <span className="block text-xs mt-1">
-                    Column layout saved — this bank's CSV will be recognized automatically next time.
+                    Column layout saved - this bank's CSV will be recognized automatically next time.
                   </span>
                 )}
               </p>
@@ -1276,7 +1324,7 @@ export default function ImportPage() {
           <div className="flex gap-3 justify-center">
             {summary.imported > 0 && (
               <button
-                onClick={() => navigate("/transactions", { state: { month: targetMonth } })}
+                onClick={() => navigate("/transactions", { state: isMultiMonth ? {} : { month: targetMonth } })}
                 className="px-6 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
                            rounded-lg font-medium"
               >
@@ -1318,13 +1366,12 @@ export default function ImportPage() {
         </div>
       )}
 
-      {/* ── IMPORT HISTORY ── */}
       {importHistory.length > 0 && (step === "upload" || step === "done") && (
         <div className="mt-8">
           <h2 className="text-base font-semibold mb-3 flex items-center gap-2">
             Import History
             <span className="text-xs font-normal text-[hsl(var(--muted-foreground))]">
-              — undo removes all transactions from that import
+              - undo removes all transactions from that import
             </span>
           </h2>
           <div className="border rounded-xl overflow-hidden text-sm">

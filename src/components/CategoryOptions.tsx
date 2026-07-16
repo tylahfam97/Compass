@@ -31,7 +31,13 @@ export default function CategoryOptions({ categories }: CategoryOptionsProps) {
       {system.length > 0 && (
         <optgroup label="System">
           {system.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
+            <option
+              key={c.id}
+              value={c.id}
+              title={c.id === 20 ? "Transfers are excluded from income and expense totals" : undefined}
+            >
+              {c.name}
+            </option>
           ))}
         </optgroup>
       )}

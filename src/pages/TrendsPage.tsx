@@ -1,31 +1,30 @@
-import { useState, useEffect } from "react";
+﻿import { useState, useEffect, useMemo } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, Legend,
+  ResponsiveContainer, Legend, LineChart, Line, ReferenceLine,
 } from "recharts";
 import { getDb } from "@/lib/db";
 import { formatCurrency } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
+import type { Profile } from "@/lib/types";
+import PinModal from "@/components/PinModal";
 
-interface MonthRow {
-  month: string;
-  income: number;
-  expenses: number;
-}
-
-interface CatMonthRow {
-  month: string;
-  category: string;
-  color: string;
-  total: number;
-}
-
-interface StackedRow {
-  month: string;
-  [cat: string]: string | number;
-}
+interface MonthRow { month: string; income: number; expenses: number; }
+interface CatMonthRow { month: string; category: string; color: string; total: number; }
+interface StackedRow { month: string; [cat: string]: string | number; }
+interface CumulativeRow { month: string; net: number; running: number; }
 
 const RANGE_OPTIONS = [3, 6, 12];
+const VIEW_KEY = "compass_trends_view";
+
+function ScopeToggle({ isGlobal, onToggle }: { isGlobal: boolean; onToggle: () => void }) {
+  return (
+    <button role="switch" aria-checked={isGlobal} onClick={onToggle}
+      style={{ width:52,height:28,borderRadius:14,padding:3,backgroundColor:isGlobal?"#C08A1C":"#3b82f6",transition:"background-color 0.3s",cursor:"pointer",display:"inline-flex",alignItems:"center",border:"none",flexShrink:0,boxShadow:"inset 0 1px 3px rgba(0,0,0,0.18)" }}>
+      <div style={{ width:22,height:22,borderRadius:11,backgroundColor:"white",transition:"transform 0.25s cubic-bezier(0.4,0,0.2,1)",transform:isGlobal?"translateX(24px)":"translateX(0)",boxShadow:"0 1px 4px rgba(0,0,0,0.28)",flexShrink:0 }} />
+    </button>
+  );
+}
 
 export default function TrendsPage() {
   const [range, setRange] = useState(6);
@@ -33,9 +32,42 @@ export default function TrendsPage() {
   const [stacked, setStacked] = useState<StackedRow[]>([]);
   const [catColors, setCatColors] = useState<Record<string, string>>({});
   const [catNames, setCatNames] = useState<string[]>([]);
+  const [cumulativeData, setCumulativeData] = useState<CumulativeRow[]>([]);
+  const [allTimeIncome, setAllTimeIncome] = useState(0);
+  const [allTimeExpenses, setAllTimeExpenses] = useState(0);
   const [loading, setLoading] = useState(true);
-  const activeProfile = useProfileStore((s) => s.activeProfile);
+
+  const { activeProfile, profiles, unlockedIds, unlockProfile } = useProfileStore();
   const profileId = activeProfile?.id ?? 1;
+
+  const [viewMode, setViewMode] = useState<"profile" | "global">(() => {
+    const s = localStorage.getItem(VIEW_KEY);
+    return s === "global" ? "global" : "profile";
+  });
+  const [pinQueue, setPinQueue] = useState<Profile[]>([]);
+  const [pinQueueIdx, setPinQueueIdx] = useState(0);
+
+  const unlockedProfileIds = useMemo(
+    () => profiles.filter(p => !p.pin_hash || p.id === profileId || unlockedIds.has(p.id)).map(p => p.id),
+    [profiles, profileId, unlockedIds]
+  );
+
+  const handleSwitchToGlobal = () => {
+    const locked = profiles.filter(p => p.pin_hash && p.id !== profileId && !unlockedIds.has(p.id));
+    if (locked.length > 0) { setPinQueue(locked); setPinQueueIdx(0); }
+    else { localStorage.setItem(VIEW_KEY, "global"); setViewMode("global"); }
+  };
+  const handleSwitchToProfile = () => { localStorage.setItem(VIEW_KEY, "profile"); setViewMode("profile"); };
+  const advancePinQueue = (uid?: number) => {
+    if (uid !== undefined) unlockProfile(uid);
+    const next = pinQueueIdx + 1;
+    if (next >= pinQueue.length) { setPinQueue([]); setPinQueueIdx(0); localStorage.setItem(VIEW_KEY, "global"); setViewMode("global"); }
+    else { setPinQueueIdx(next); }
+  };
+  const pinTarget = pinQueue.length > 0 && pinQueueIdx < pinQueue.length ? pinQueue[pinQueueIdx] : null;
+
+  const ids = viewMode === "global" ? (unlockedProfileIds.length > 0 ? unlockedProfileIds : [profileId]) : [profileId];
+  const ph = ids.map(() => "?").join(",");
 
   useEffect(() => {
     let cancelled = false;
@@ -48,158 +80,182 @@ export default function TrendsPage() {
       d.setMonth(d.getMonth() - (range - 1));
       const start = d.toISOString().split("T")[0];
 
-      const [incExpRows, catRows] = await Promise.all([
+      const [incExpRows, catRows, allTimeRow, cumRows] = await Promise.all([
         db.select<{ month: string; income: number; expenses: number }[]>(
           `SELECT strftime('%Y-%m', date) as month,
-                  SUM(CASE WHEN amount_cents>0 THEN amount_cents ELSE 0 END) as income,
-                  SUM(CASE WHEN amount_cents<0 THEN ABS(amount_cents) ELSE 0 END) as expenses
-           FROM transactions WHERE date>=? AND profile_id=? GROUP BY month ORDER BY month`,
-          [start, profileId]
+                  SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income,
+                  SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as expenses
+           FROM transactions WHERE date>=? AND profile_id IN (${ph})
+           GROUP BY month ORDER BY month`,
+          [start, ...ids]
         ),
         db.select<CatMonthRow[]>(
-          `SELECT strftime('%Y-%m', t.date) as month,
-                  c.name as category, c.color,
+          `SELECT strftime('%Y-%m', t.date) as month, c.name as category, c.color,
                   SUM(ABS(t.amount_cents)) as total
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-           WHERE t.date>=? AND t.amount_cents<0 AND t.profile_id=?
+           WHERE t.date>=? AND t.amount_cents<0 AND t.profile_id IN (${ph})
+             AND (t.category_id IS NULL OR t.category_id!=20)
            GROUP BY month, t.category_id ORDER BY month`,
-          [start, profileId]
+          [start, ...ids]
+        ),
+        db.select<{ income: number; expenses: number }[]>(
+          `SELECT
+             SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income,
+             SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as expenses
+           FROM transactions WHERE profile_id IN (${ph})`,
+          [...ids]
+        ),
+        db.select<{ month: string; net: number }[]>(
+          `SELECT strftime('%Y-%m', date) as month,
+             SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END)
+             - SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as net
+           FROM transactions WHERE profile_id IN (${ph})
+           GROUP BY month ORDER BY month`,
+          [...ids]
         ),
       ]);
 
       if (cancelled) return;
 
       setMonthly(incExpRows);
+      setAllTimeIncome(allTimeRow[0]?.income ?? 0);
+      setAllTimeExpenses(allTimeRow[0]?.expenses ?? 0);
 
-      // Bucket into top-6 categories + "Other" to keep charts readable
+      // Build cumulative running total
+      let running = 0;
+      setCumulativeData(cumRows.map(r => { running += r.net; return { month: r.month, net: r.net, running }; }));
+
+      // Bucket categories
       const TOP_N = 6;
       const catTotals: Record<string, number> = {};
-      catRows.forEach((r) => { catTotals[r.category] = (catTotals[r.category] ?? 0) + r.total; });
-      const topCats = Object.entries(catTotals)
-        .sort(([, a], [, b]) => b - a)
-        .slice(0, TOP_N)
-        .map(([name]) => name);
+      catRows.forEach(r => { catTotals[r.category] = (catTotals[r.category] ?? 0) + r.total; });
+      const topCats = Object.entries(catTotals).sort(([,a],[,b]) => b-a).slice(0,TOP_N).map(([n]) => n);
       const topSet = new Set(topCats);
-      const hasOther = catRows.some((r) => !topSet.has(r.category));
-
+      const hasOther = catRows.some(r => !topSet.has(r.category));
       const colorMap: Record<string, string> = {};
-      catRows.forEach((r) => { if (topSet.has(r.category)) colorMap[r.category] = r.color; });
+      catRows.forEach(r => { if (topSet.has(r.category)) colorMap[r.category] = r.color; });
       if (hasOther) colorMap["Other"] = "#9ca3af";
       setCatColors(colorMap);
       setCatNames([...topCats, ...(hasOther ? ["Other"] : [])]);
-
       const byMonth: Record<string, StackedRow> = {};
-      catRows.forEach((r) => {
+      catRows.forEach(r => {
         if (!byMonth[r.month]) byMonth[r.month] = { month: r.month };
         const key = topSet.has(r.category) ? r.category : "Other";
         byMonth[r.month][key] = ((byMonth[r.month][key] as number) ?? 0) + r.total;
       });
-      setStacked(Object.values(byMonth).sort((a, b) => String(a.month).localeCompare(String(b.month))));
+      setStacked(Object.values(byMonth).sort((a,b) => String(a.month).localeCompare(String(b.month))));
       setLoading(false);
     }
     load().catch(console.error);
     return () => { cancelled = true; };
-  }, [range, profileId]);
+  }, [range, profileId, viewMode, unlockedProfileIds]);
 
   const hasData = monthly.length > 0;
+  const allTimeNet = allTimeIncome - allTimeExpenses;
+  const tooltipStyle = { backgroundColor:"hsl(var(--background))",border:"1px solid hsl(var(--border))",borderRadius:"8px",fontSize:"12px" };
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Spending Trends</h1>
-        <div className="flex gap-2">
-          {RANGE_OPTIONS.map((r) => (
-            <button
-              key={r}
-              onClick={() => setRange(r)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                range === r
-                  ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
-                  : "border hover:bg-[hsl(var(--muted))]"
-              }`}
-            >
-              {r}mo
-            </button>
-          ))}
-        </div>
-      </div>
+    <>
+      {pinTarget && <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />}
 
-      {loading && <p className="text-[hsl(var(--muted-foreground))]">Loading…</p>}
-
-      {!loading && !hasData && (
-        <p className="text-[hsl(var(--muted-foreground))] text-center mt-16">
-          No data yet. Import a bank statement to see trends.
-        </p>
-      )}
-
-      {!loading && hasData && (
-        <>
-          {/* Income vs Expenses */}
-          <div className="border rounded-xl p-5">
-            <h2 className="font-semibold mb-4">Income vs Expenses</h2>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={monthly} margin={{ left: 8, right: 8, top: 4, bottom: 4 }}>
-                <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                <YAxis
-                  tickFormatter={(v) => `$${Math.round(v / 100)}`}
-                  tick={{ fontSize: 11 }}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "hsl(var(--background))",
-                    border: "1px solid hsl(var(--border))",
-                    borderRadius: "8px",
-                    fontSize: "12px",
-                  }}
-                  formatter={(v) => formatCurrency(v as number)}
-                />
-                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "11px", paddingTop: "8px" }} />
-                <Bar dataKey="income" name="Income" fill="#22c55e" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="expenses" name="Expenses" fill="#ef4444" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+      <div className="p-6 space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <h1 className="text-2xl font-semibold">Spending Trends</h1>
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Scope toggle */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold select-none" style={{ color: viewMode !== "profile" ? "hsl(var(--muted-foreground))" : "#3b82f6", transition:"color 0.3s" }}>Profile</span>
+              <ScopeToggle isGlobal={viewMode === "global"} onToggle={() => viewMode === "global" ? handleSwitchToProfile() : handleSwitchToGlobal()} />
+              <span className="text-sm font-semibold select-none" style={{ color: viewMode === "global" ? "#C08A1C" : "hsl(var(--muted-foreground))", transition:"color 0.3s" }}>Global</span>
+            </div>
+            {/* Range buttons */}
+            <div className="flex gap-2">
+              {RANGE_OPTIONS.map(r => (
+                <button key={r} onClick={() => setRange(r)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${range===r ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]" : "border hover:bg-[hsl(var(--muted))]"}`}>
+                  {r}mo
+                </button>
+              ))}
+            </div>
           </div>
+        </div>
 
-          {/* Stacked by category */}
-          {stacked.length > 0 && catNames.length > 0 && (
+        {/* All-time summary tiles */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="border rounded-xl px-4 py-4 text-center">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1">All-Time Income</p>
+            <p className="text-xl font-bold text-green-600">{formatCurrency(allTimeIncome)}</p>
+          </div>
+          <div className="border rounded-xl px-4 py-4 text-center">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1">All-Time Expenses</p>
+            <p className="text-xl font-bold text-red-500">{formatCurrency(allTimeExpenses)}</p>
+          </div>
+          <div className="border rounded-xl px-4 py-4 text-center">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1">All-Time Net</p>
+            <p className={`text-xl font-bold ${allTimeNet >= 0 ? "text-green-600" : "text-red-500"}`}>{formatCurrency(allTimeNet)}</p>
+          </div>
+        </div>
+
+        {loading && <p className="text-[hsl(var(--muted-foreground))]">Loading...</p>}
+
+        {!loading && !hasData && (
+          <p className="text-[hsl(var(--muted-foreground))] text-center mt-16">No data yet. Import a bank statement to see trends.</p>
+        )}
+
+        {!loading && hasData && (
+          <>
+            {/* Cumulative net */}
+            {cumulativeData.length >= 2 && (
+              <div className="border rounded-xl p-5">
+                <h2 className="font-semibold mb-4">Cumulative Net (All Time)</h2>
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart data={cumulativeData} margin={{ left:8,right:8,top:4,bottom:4 }}>
+                    <XAxis dataKey="month" tick={{ fontSize:11 }} />
+                    <YAxis tickFormatter={v => `$${Math.round(v/100)}`} tick={{ fontSize:11 }} />
+                    <Tooltip contentStyle={tooltipStyle} formatter={v => formatCurrency(v as number)} />
+                    <ReferenceLine y={0} stroke="hsl(var(--border))" strokeDasharray="3 3" />
+                    <Line type="monotone" dataKey="running" name="Running Net" stroke="#6366f1" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* Income vs Expenses */}
             <div className="border rounded-xl p-5">
-              <h2 className="font-semibold mb-4">Spending by Category</h2>
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={stacked} margin={{ left: 8, right: 8, top: 4, bottom: 4 }}>
-                  <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                  <YAxis
-                    tickFormatter={(v) => `$${Math.round(v / 100)}`}
-                    tick={{ fontSize: 11 }}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "hsl(var(--background))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: "8px",
-                      fontSize: "12px",
-                    }}
-                    formatter={(v) => formatCurrency(v as number)}
-                  />
-                  <Legend
-                    iconType="circle"
-                    iconSize={8}
-                    wrapperStyle={{ fontSize: "11px", paddingTop: "8px", lineHeight: "20px" }}
-                  />
-                  {catNames.map((cat) => (
-                    <Bar
-                      key={cat}
-                      dataKey={cat}
-                      stackId="cats"
-                      fill={catColors[cat] ?? "#9ca3af"}
-                    />
-                  ))}
+              <h2 className="font-semibold mb-4">Income vs Expenses ({range}mo)</h2>
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={monthly} margin={{ left:8,right:8,top:4,bottom:4 }}>
+                  <XAxis dataKey="month" tick={{ fontSize:11 }} />
+                  <YAxis tickFormatter={v => `$${Math.round(v/100)}`} tick={{ fontSize:11 }} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={v => formatCurrency(v as number)} />
+                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize:"11px",paddingTop:"8px" }} />
+                  <Bar dataKey="income" name="Income" fill="#22c55e" radius={[4,4,0,0]} />
+                  <Bar dataKey="expenses" name="Expenses" fill="#ef4444" radius={[4,4,0,0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
-          )}
-        </>
-      )}
-    </div>
+
+            {/* Stacked by category */}
+            {stacked.length > 0 && catNames.length > 0 && (
+              <div className="border rounded-xl p-5">
+                <h2 className="font-semibold mb-4">Spending by Category ({range}mo)</h2>
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={stacked} margin={{ left:8,right:8,top:4,bottom:4 }}>
+                    <XAxis dataKey="month" tick={{ fontSize:11 }} />
+                    <YAxis tickFormatter={v => `$${Math.round(v/100)}`} tick={{ fontSize:11 }} />
+                    <Tooltip contentStyle={tooltipStyle} formatter={v => formatCurrency(v as number)} />
+                    <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize:"11px",paddingTop:"8px",lineHeight:"20px" }} />
+                    {catNames.map(cat => (
+                      <Bar key={cat} dataKey={cat} stackId="cats" fill={catColors[cat] ?? "#9ca3af"} />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </>
   );
 }
-

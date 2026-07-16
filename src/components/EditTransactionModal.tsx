@@ -2,6 +2,7 @@ import { useState } from "react";
 import { getDb } from "@/lib/db";
 import { useCategoryStore } from "@/stores/categoryStore";
 import CategoryOptions from "@/components/CategoryOptions";
+import { Info } from "lucide-react";
 import type { Transaction } from "@/lib/types";
 
 interface Props {
@@ -117,6 +118,12 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
               className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
               <CategoryOptions categories={categories} />
             </select>
+            {catId === 20 && (
+              <div className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                <Info size={12} className="shrink-0 mt-0.5" />
+                <span>Transfers are excluded from income and expense totals across all reports and insights.</span>
+              </div>
+            )}
           </div>
 
           <div>

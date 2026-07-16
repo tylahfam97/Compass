@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { getDb, reapplyCategorizationRules } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
@@ -13,6 +14,27 @@ import EditTransactionModal from "@/components/EditTransactionModal";
 import { setPendingImportFiles } from "@/lib/pendingImport";
 
 const MAX_ROWS = 500;
+const ALL_TIME_LIMIT = 10000;
+
+type SortCol = "date" | "description" | "category" | "amount" | "balance";
+type SortDir = "asc" | "desc";
+
+/** Map sort column keys to the SQL expression used in ORDER BY. */
+const SORT_EXPR: Record<SortCol, string> = {
+  date:        "t.date",
+  description: "UPPER(t.description)",
+  category:    "UPPER(COALESCE(c.name, ''))",
+  amount:      "t.amount_cents",
+  balance:     "COALESCE(t.balance_cents, 0)",
+};
+
+/** Small sort indicator icon for a table header. */
+function SortIndicator({ col, sortCol, sortDir }: { col: SortCol; sortCol: SortCol | null; sortDir: SortDir }) {
+  if (sortCol !== col) return <ArrowUpDown size={13} className="opacity-30 shrink-0" />;
+  return sortDir === "asc"
+    ? <ArrowUp size={13} className="text-[hsl(var(--primary))] shrink-0" />
+    : <ArrowDown size={13} className="text-[hsl(var(--primary))] shrink-0" />;
+}
 
 function monthBounds(ym: string): [string, string] {
   const [y, m] = ym.split("-").map(Number);
@@ -103,6 +125,21 @@ export default function TransactionsPage() {
   const [filterAmountMin, setFilterAmountMin] = useState("");
   const [filterAmountMax, setFilterAmountMax] = useState("");
 
+  // Column sort state — null = default (date DESC)
+  const [sortCol, setSortCol] = useState<SortCol | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const handleSort = (col: SortCol) => {
+    if (sortCol === col) {
+      // Same column: flip direction
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      // New column: sensible default direction
+      setSortCol(col);
+      setSortDir(col === "date" || col === "amount" || col === "balance" ? "desc" : "asc");
+    }
+  };
+
   const hasActiveFilters =
     filterCategory !== "" || filterType !== "all" ||
     filterAmountMin !== "" || filterAmountMax !== "";
@@ -119,17 +156,20 @@ export default function TransactionsPage() {
       profileId, allTime, month, search,
       filterCategory, filterType, filterAmountMin, filterAmountMax,
     });
+    const orderBy = sortCol
+      ? `${SORT_EXPR[sortCol]} ${sortDir.toUpperCase()}, t.id ${sortDir.toUpperCase()}`
+      : "t.date DESC, t.id DESC";
     const data = await db.select<Transaction[]>(
       `SELECT t.*, c.name as category_name, c.color as category_color
        FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
        WHERE ${where}
-       ORDER BY t.date DESC, t.id DESC
-       LIMIT ${MAX_ROWS + 1}`,
+       ORDER BY ${orderBy}
+       LIMIT ${allTime ? ALL_TIME_LIMIT + 1 : MAX_ROWS + 1}`,
       params
     );
     setRows(data);
     setLoading(false);
-  }, [month, allTime, search, profileId, filterCategory, filterType, filterAmountMin, filterAmountMax]);
+  }, [month, allTime, search, profileId, filterCategory, filterType, filterAmountMin, filterAmountMax, sortCol, sortDir]);
 
   useEffect(() => {
     loadRows().catch(console.error);
@@ -177,7 +217,7 @@ export default function TransactionsPage() {
       `SELECT t.*, c.name as category_name
        FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
        WHERE ${where}
-       ORDER BY t.date DESC, t.id DESC`,
+       ORDER BY ${sortCol ? `${SORT_EXPR[sortCol]} ${sortDir.toUpperCase()}, t.id ${sortDir.toUpperCase()}` : "t.date DESC, t.id DESC"}`,
       params
     );
     const header = "Date,Description,Category,Amount,Balance,Notes";
@@ -235,6 +275,7 @@ export default function TransactionsPage() {
     .reduce((s, r) => s + r.amount_cents, 0);
   const totalExpenses = rows.filter((r) => r.amount_cents < 0)
     .reduce((s, r) => s + r.amount_cents, 0);
+  const netAmount = totalIncome + totalExpenses;
 
   const handlePageDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -427,12 +468,21 @@ export default function TransactionsPage() {
         </div>
       </div>
 
-      {/* Summary strip */}
+      {/* Summary card */}
       {!loading && rows.length > 0 && (
-        <div className="flex gap-6 mb-4 text-sm text-[hsl(var(--muted-foreground))]">
-          <span>{Math.min(rows.length, MAX_ROWS)} transaction{rows.length !== 1 ? "s" : ""}{rows.length > MAX_ROWS ? ` (showing first ${MAX_ROWS})` : ""}</span>
-          <span className="text-green-600 font-medium">{formatCurrency(totalIncome)} in</span>
-          <span className="text-red-500 font-medium">{formatCurrency(Math.abs(totalExpenses))} out</span>
+        <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="border rounded-xl px-4 py-3 text-center">
+            <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-1">Income</p>
+            <p className="text-lg font-bold text-green-600">{formatCurrency(totalIncome)}</p>
+          </div>
+          <div className="border rounded-xl px-4 py-3 text-center">
+            <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-1">Expenses</p>
+            <p className="text-lg font-bold text-red-500">{formatCurrency(Math.abs(totalExpenses))}</p>
+          </div>
+          <div className="border rounded-xl px-4 py-3 text-center">
+            <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-1">Net</p>
+            <p className={`text-lg font-bold ${netAmount >= 0 ? "text-green-600" : "text-red-500"}`}>{formatCurrency(netAmount)}</p>
+          </div>
         </div>
       )}
 
@@ -449,16 +499,28 @@ export default function TransactionsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-[hsl(var(--muted))] text-left border-b">
-                <th className="px-4 py-3 font-medium w-28">Date</th>
-                <th className="px-4 py-3 font-medium">Description</th>
-                <th className="px-4 py-3 font-medium">Category</th>
-                <th className="px-4 py-3 font-medium text-right w-32">Amount</th>
-                <th className="px-4 py-3 font-medium text-right w-32">Balance</th>
+                {([
+                  { key: "date",        label: "Date",        cls: "w-28" },
+                  { key: "description", label: "Description", cls: "" },
+                  { key: "category",    label: "Category",    cls: "" },
+                  { key: "amount",      label: "Amount",      cls: "w-32 text-right" },
+                  { key: "balance",     label: "Balance",     cls: "w-32 text-right" },
+                ] as { key: SortCol; label: string; cls: string }[]).map(({ key, label, cls }) => (
+                  <th key={key}
+                    className={`px-4 py-3 font-medium cursor-pointer select-none group
+                               hover:bg-[hsl(var(--muted-foreground)/0.08)] transition-colors ${cls}`}
+                    onClick={() => handleSort(key)}>
+                    <div className={`flex items-center gap-1 ${cls.includes("text-right") ? "justify-end" : ""}`}>
+                      {label}
+                      <SortIndicator col={key} sortCol={sortCol} sortDir={sortDir} />
+                    </div>
+                  </th>
+                ))}
                 <th className="px-4 py-3 w-10" />
               </tr>
             </thead>
             <tbody>
-              {rows.slice(0, MAX_ROWS).map((t) => (
+              {rows.slice(0, allTime ? ALL_TIME_LIMIT : MAX_ROWS).map((t) => (
                 <tr key={t.id} className="border-b last:border-0 hover:bg-[hsl(var(--muted))]">
                   <td className="px-4 py-3 text-[hsl(var(--muted-foreground))] whitespace-nowrap">
                     {formatDate(t.date)}
