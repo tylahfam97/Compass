@@ -225,3 +225,24 @@ if ($appriseDiscordUrl -and -not $isPrerelease) {
     }
 }
 
+# -- Trigger host-release.yml (stable releases only) --------------------------
+# GitHub does not start new workflow runs from events (like this release being
+# published) that were themselves produced via the API using GITHUB_TOKEN - an
+# anti-recursion safeguard. That means host-release.yml's `release: published`
+# trigger never actually fires for releases created by this script. workflow_dispatch
+# IS exempt from that restriction, so dispatch it directly instead of relying on
+# the event to fire on its own.
+if (-not $isPrerelease) {
+    Write-Host "Dispatching host-release.yml for $tagName ..."
+    $dispatchBody = (@{ ref = $env:GITHUB_REF_NAME; inputs = @{ tag_name = $tagName } } | ConvertTo-Json -Compress)
+    $dispatchResult = Invoke-Api "POST" ($api + "/actions/workflows/host-release.yml/dispatches") $dispatchBody
+    if ($dispatchResult -and $dispatchResult.message) {
+        Write-Warning "host-release.yml dispatch may have failed: $($dispatchResult.message)"
+    } else {
+        Write-Host "host-release.yml dispatched"
+    }
+} else {
+    Write-Host "Prerelease build - skipping host-release.yml dispatch"
+}
+
+
