@@ -38,6 +38,9 @@ interface BankPreset {
   balanceKeywords?: string[];
   invertAmounts?: boolean;
   note?: string;
+  /** Distinctive column names (beyond date/desc/amount) used to auto-detect this preset
+   *  with confidence, even if the user never manually selects it. */
+  fingerprintKeywords?: string[];
 }
 
 const BANK_PRESETS: Record<string, BankPreset> = {
@@ -101,6 +104,7 @@ const BANK_PRESETS: Record<string, BankPreset> = {
     amountKeywords: ["amount"],
     invertAmounts: true,
     note: "Amex exports expenses as positive numbers. Compass will flip the signs automatically.",
+    fingerprintKeywords: ["extended details", "appears on your statement as"],
   },
   "venmo": {
     name: "Venmo",
@@ -150,6 +154,21 @@ function applyPreset(preset: BankPreset, headers: string[]): Partial<ColMap> {
   }
   if (preset.invertAmounts !== undefined) result.invertAmounts = preset.invertAmounts;
   return result;
+}
+
+/**
+ * Auto-detects a bank preset purely from distinctive column names, so imports work correctly
+ * (e.g. Amex's expenses-as-positive sign convention) even if the user never clicks the preset
+ * button. Only presets with a `fingerprintKeywords` list participate, to avoid false positives
+ * from generic column names shared across many banks (date/description/amount).
+ */
+function detectPresetByFingerprint(headers: string[]): string | null {
+  const norm = headers.map((h) => (h ?? "").toLowerCase());
+  for (const [id, preset] of Object.entries(BANK_PRESETS)) {
+    if (!preset.fingerprintKeywords || preset.fingerprintKeywords.length === 0) continue;
+    if (preset.fingerprintKeywords.every((kw) => norm.some((h) => h.includes(kw)))) return id;
+  }
+  return null;
 }
 
 interface ParsedData {
@@ -332,8 +351,8 @@ interface ParsedInvestment {
   sections: InvestmentSection[];
 }
 
-/** Guides the user toward a sensible profile for investment holdings before importing. */
-type InvestmentProfileSuggestion =
+/** Guides the user toward a sensible profile for investment/credit-card data before importing. */
+type ProfileSuggestion =
   | { mode: "existing"; target: { id: number; name: string } }
   | { mode: "named"; target: { id: number; name: string } }
   | { mode: "create" }
@@ -532,6 +551,70 @@ const IMPORT_KINDS: { id: ImportKind; label: string; hint: string; Icon: typeof 
   { id: "investment", label: "Investment / Brokerage", hint: "Portfolio positions export (stocks, ETFs)", Icon: TrendingUp },
 ];
 
+/** Shared banner that suggests the best profile to import into - an existing one that already
+ *  has this kind of data, a plausibly-named one, or a brand-new dedicated profile. */
+function ProfileSuggestionBanner({
+  suggestion, itemLabel, recommendText, createLabel,
+  onSwitch, onCreate, onDismiss,
+}: {
+  suggestion: ProfileSuggestion;
+  itemLabel: string;
+  recommendText: string;
+  createLabel: string;
+  onSwitch: (target: { id: number; name: string }, hasAccountAlready: boolean) => void;
+  onCreate: () => void;
+  onDismiss: () => void;
+}) {
+  if (!suggestion) return null;
+  const goldButton = "px-4 py-1.5 rounded-lg text-sm font-medium text-white hover:opacity-90 transition-opacity";
+  const outlineButton = "px-4 py-1.5 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors";
+  return (
+    <div className="border rounded-xl p-4 space-y-3" style={{ backgroundColor: "hsl(var(--primary)/0.05)" }}>
+      {suggestion.mode === "existing" && (
+        <>
+          <p className="text-sm font-medium flex items-start gap-2">
+            <Info size={16} className="shrink-0 mt-0.5 text-[hsl(var(--primary))]" />
+            You already have {itemLabel} tracked in the "{suggestion.target.name}" profile. Switch there so everything stays in one place?
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={() => onSwitch(suggestion.target, true)} className={goldButton} style={{ backgroundColor: "var(--gold)" }}>
+              Switch to "{suggestion.target.name}"
+            </button>
+            <button onClick={onDismiss} className={outlineButton}>Use This Profile Instead</button>
+          </div>
+        </>
+      )}
+      {suggestion.mode === "named" && (
+        <>
+          <p className="text-sm font-medium flex items-start gap-2">
+            <Info size={16} className="shrink-0 mt-0.5 text-[hsl(var(--primary))]" />
+            You have a profile named "{suggestion.target.name}" - looks like it's meant for this. Switch there instead of creating a new one?
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={() => onSwitch(suggestion.target, false)} className={goldButton} style={{ backgroundColor: "var(--gold)" }}>
+              Switch to "{suggestion.target.name}"
+            </button>
+            <button onClick={onCreate} className={outlineButton}>Create a New Profile Instead</button>
+            <button onClick={onDismiss} className={outlineButton}>Use This Profile Instead</button>
+          </div>
+        </>
+      )}
+      {suggestion.mode === "create" && (
+        <>
+          <p className="text-sm font-medium flex items-start gap-2">
+            <Info size={16} className="shrink-0 mt-0.5 text-[hsl(var(--primary))]" />
+            {recommendText}
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={onCreate} className={goldButton} style={{ backgroundColor: "var(--gold)" }}>{createLabel}</button>
+            <button onClick={onDismiss} className={outlineButton}>Use This Profile Instead</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function ImportPage() {
   const navigate = useNavigate();
   const activeProfile = useProfileStore((s) => s.activeProfile);
@@ -547,9 +630,9 @@ export default function ImportPage() {
   const [invParsed, setInvParsed] = useState<ParsedInvestment | null>(null);
   const [colMapOverrides, setColMapOverrides] = useState<Record<string, Record<string, number>>>({});
   const [fixColumnsOpen, setFixColumnsOpen] = useState<Set<string>>(new Set());
-  const [hasInvestmentAccount, setHasInvestmentAccount] = useState<boolean | null>(null);
-  const [investmentProfileSuggestion, setInvestmentProfileSuggestion] = useState<InvestmentProfileSuggestion>(null);
-  const [investmentProfileDecided, setInvestmentProfileDecided] = useState(false);
+  const [hasDedicatedAccount, setHasDedicatedAccount] = useState<boolean | null>(null);
+  const [profileSuggestion, setProfileSuggestion] = useState<ProfileSuggestion>(null);
+  const [profileSuggestionDecided, setProfileSuggestionDecided] = useState(false);
   const [currentFilename, setCurrentFilename] = useState("");
   const [colMap, setColMap] = useState<ColMap>({ dateCol: 0, descCol: 1, amountCol: 2, typeCol: -1, balanceCol: -1, invertAmounts: false });
   const [profileFound, setProfileFound] = useState(false);
@@ -658,82 +741,90 @@ export default function ImportPage() {
     await loadHistory();
   };
 
-  // Decide how to guide the user toward keeping investments separate from everyday spending:
-  // 1) the active profile already has an investment account - nothing to suggest
-  // 2) another profile already has investment holdings - suggest switching there
-  // 3) another profile's name suggests it's meant for investments - suggest switching there
-  // 4) otherwise - offer to create a fresh "Investments" profile
+  // Decide how to guide the user toward a sensible profile for this import:
+  // 1) the active profile already has a dedicated account of this type - nothing to suggest
+  // 2) another profile already has one - suggest switching there
+  // 3) another profile's name suggests it's meant for this - suggest switching there
+  // 4) otherwise - offer to create a fresh dedicated profile
+  // Runs for the investment-preview step (always) and the bank/credit preview step (credit only -
+  // bank statements are the default/primary flow and never prompt to split into a new profile).
+  const suggestionAccountType = step === "wizard:investment-preview" ? "investment"
+    : step === "wizard:preview" && importKind === "credit" ? "credit"
+    : null;
+
   useEffect(() => {
-    if (step !== "wizard:investment-preview" || investmentProfileDecided) return;
+    if (!suggestionAccountType || profileSuggestionDecided) return;
+    const accountType = suggestionAccountType;
     (async () => {
       try {
         const db = await getDb();
         const currentRows = await db.select<{ n: number }[]>(
-          "SELECT COUNT(*) as n FROM accounts WHERE profile_id=? AND account_type='investment'",
-          [profileId]
+          "SELECT COUNT(*) as n FROM accounts WHERE profile_id=? AND account_type=?",
+          [profileId, accountType]
         );
         const currentHas = (currentRows[0]?.n ?? 0) > 0;
-        setHasInvestmentAccount(currentHas);
+        setHasDedicatedAccount(currentHas);
         if (currentHas) {
-          setInvestmentProfileSuggestion(null);
+          setProfileSuggestion(null);
           return;
         }
 
         const existing = await db.select<{ id: number; name: string }[]>(
           `SELECT p.id, p.name FROM accounts a JOIN profiles p ON p.id = a.profile_id
-           WHERE a.account_type='investment' AND a.profile_id != ? LIMIT 1`,
-          [profileId]
+           WHERE a.account_type=? AND a.profile_id != ? LIMIT 1`,
+          [accountType, profileId]
         );
         if (existing.length > 0) {
-          setInvestmentProfileSuggestion({ mode: "existing", target: existing[0] });
+          setProfileSuggestion({ mode: "existing", target: existing[0] });
           return;
         }
 
+        const nameLike = accountType === "investment" ? "%invest%" : "%credit%";
         const named = await db.select<{ id: number; name: string }[]>(
-          "SELECT id, name FROM profiles WHERE id != ? AND LOWER(name) LIKE '%invest%' LIMIT 1",
-          [profileId]
+          "SELECT id, name FROM profiles WHERE id != ? AND LOWER(name) LIKE ? LIMIT 1",
+          [profileId, nameLike]
         );
         if (named.length > 0) {
-          setInvestmentProfileSuggestion({ mode: "named", target: named[0] });
+          setProfileSuggestion({ mode: "named", target: named[0] });
           return;
         }
 
-        setInvestmentProfileSuggestion({ mode: "create" });
+        setProfileSuggestion({ mode: "create" });
       } catch {
-        setHasInvestmentAccount(true);
-        setInvestmentProfileSuggestion(null);
+        setHasDedicatedAccount(true);
+        setProfileSuggestion(null);
       }
     })();
-  }, [step, profileId, investmentProfileDecided]);
+  }, [suggestionAccountType, profileId, profileSuggestionDecided]);
 
-  /** Switches to an already-existing profile (with or without an investment account yet) instead of creating one. */
+  /** Switches to an already-existing profile (with or without a dedicated account yet) instead of creating one. */
   const switchToSuggestedProfile = (target: { id: number; name: string }, hasAccountAlready: boolean) => {
     const full = profiles.find((p) => p.id === target.id);
     if (full) setActiveProfile(full);
-    setInvestmentProfileSuggestion(null);
-    setHasInvestmentAccount(hasAccountAlready);
-    setInvestmentProfileDecided(true);
+    setProfileSuggestion(null);
+    setHasDedicatedAccount(hasAccountAlready);
+    setProfileSuggestionDecided(true);
   };
 
-  /** Creates a dedicated "Investments" profile and switches to it - the user still clicks Import afterward. */
-  const createInvestmentProfileAndSwitch = async () => {
+  /** Creates a fresh dedicated profile and switches to it - the user still clicks Import afterward. */
+  const createDedicatedProfileAndSwitch = async (name: string, avatarColor: string) => {
     const db = await getDb();
     const result = await db.execute(
       "INSERT INTO profiles (name, avatar_color) VALUES (?, ?)",
-      ["Investments", "#0ea5e9"]
+      [name, avatarColor]
     );
     const newProfile: Profile = {
       id: result.lastInsertId as number,
-      name: "Investments",
-      avatar_color: "#0ea5e9",
+      name,
+      avatar_color: avatarColor,
       pin_hash: null,
       created_at: new Date().toISOString(),
     };
     setProfiles([...profiles, newProfile]);
     setActiveProfile(newProfile);
-    setInvestmentProfileSuggestion(null);
-    setHasInvestmentAccount(false);
-    setInvestmentProfileDecided(true);
+    setProfileSuggestion(null);
+    setHasDedicatedAccount(false);
+    setProfileSuggestionDecided(true);
   };
 
   /** Writes every parsed holding row into the `holdings` table as a new dated snapshot. */
@@ -863,8 +954,9 @@ export default function ImportPage() {
     setInvParsed(result);
     setColMapOverrides({});
     setFixColumnsOpen(new Set());
-    setHasInvestmentAccount(null);
-    setInvestmentProfileDecided(false);
+    setHasDedicatedAccount(null);
+    setProfileSuggestion(null);
+    setProfileSuggestionDecided(false);
     setWizardDir("forward");
     setStep("wizard:investment-preview");
   }, []);
@@ -890,6 +982,9 @@ export default function ImportPage() {
     const initialSkip = findRealHeaderRow(data);
     setRawData(data);
     setSkipRows(initialSkip);
+    setHasDedicatedAccount(null);
+    setProfileSuggestion(null);
+    setProfileSuggestionDecided(false);
     const derived = deriveHeaders(data, initialSkip);
     if (!derived) {
       setError("File appears empty after skipping summary rows.");
@@ -915,8 +1010,10 @@ export default function ImportPage() {
           setProfileFound(true);
         } else {
           const base = autoDetect(headers);
-          if (selectedPresetId && BANK_PRESETS[selectedPresetId]) {
-            setColMap({ ...base, ...applyPreset(BANK_PRESETS[selectedPresetId], headers) });
+          const presetId = selectedPresetId ?? detectPresetByFingerprint(headers);
+          if (presetId && BANK_PRESETS[presetId]) {
+            setColMap({ ...base, ...applyPreset(BANK_PRESETS[presetId], headers) });
+            if (!selectedPresetId) setSelectedPresetId(presetId);
           } else {
             setColMap(base);
           }
@@ -959,9 +1056,11 @@ export default function ImportPage() {
     if (derived) {
       setParsed(derived);
       const base = autoDetect(derived.headers);
-      if (selectedPresetId && BANK_PRESETS[selectedPresetId]) {
-        const overrides = applyPreset(BANK_PRESETS[selectedPresetId], derived.headers);
+      const presetId = selectedPresetId ?? detectPresetByFingerprint(derived.headers);
+      if (presetId && BANK_PRESETS[presetId]) {
+        const overrides = applyPreset(BANK_PRESETS[presetId], derived.headers);
         setColMap({ ...base, ...overrides });
+        if (!selectedPresetId) setSelectedPresetId(presetId);
       } else {
         setColMap(base);
       }
@@ -1167,9 +1266,9 @@ export default function ImportPage() {
     setInvParsed(null);
     setColMapOverrides({});
     setFixColumnsOpen(new Set());
-    setHasInvestmentAccount(null);
-    setInvestmentProfileSuggestion(null);
-    setInvestmentProfileDecided(false);
+    setHasDedicatedAccount(null);
+    setProfileSuggestion(null);
+    setProfileSuggestionDecided(false);
     setCurrentFilename("");
     setSummary(null);
     setError(null);
@@ -1677,75 +1776,21 @@ export default function ImportPage() {
             </div>
           </div>
 
-          {hasInvestmentAccount === true && (
+          {hasDedicatedAccount === true && (
             <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
               <CheckCircle2 size={12} /> Adding a new snapshot to your existing investment account.
             </p>
           )}
 
-          {investmentProfileSuggestion?.mode === "existing" && investmentProfileSuggestion.target && (
-            <div className="border rounded-xl p-4 space-y-3" style={{ backgroundColor: "hsl(var(--primary)/0.05)" }}>
-              <p className="text-sm font-medium flex items-start gap-2">
-                <Info size={16} className="shrink-0 mt-0.5 text-[hsl(var(--primary))]" />
-                You already have investments tracked in the "{investmentProfileSuggestion.target.name}" profile. Switch there so everything stays in one place?
-              </p>
-              <div className="flex gap-2 flex-wrap">
-                <button onClick={() => switchToSuggestedProfile(investmentProfileSuggestion.target!, true)}
-                  className="px-4 py-1.5 rounded-lg text-sm font-medium text-white hover:opacity-90 transition-opacity"
-                  style={{ backgroundColor: "var(--gold)" }}>
-                  Switch to "{investmentProfileSuggestion.target.name}"
-                </button>
-                <button onClick={() => { setInvestmentProfileSuggestion(null); setInvestmentProfileDecided(true); }}
-                  className="px-4 py-1.5 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
-                  Use This Profile Instead
-                </button>
-              </div>
-            </div>
-          )}
-
-          {investmentProfileSuggestion?.mode === "named" && investmentProfileSuggestion.target && (
-            <div className="border rounded-xl p-4 space-y-3" style={{ backgroundColor: "hsl(var(--primary)/0.05)" }}>
-              <p className="text-sm font-medium flex items-start gap-2">
-                <Info size={16} className="shrink-0 mt-0.5 text-[hsl(var(--primary))]" />
-                You have a profile named "{investmentProfileSuggestion.target.name}" - looks like it's meant for this. Switch there instead of creating a new one?
-              </p>
-              <div className="flex gap-2 flex-wrap">
-                <button onClick={() => switchToSuggestedProfile(investmentProfileSuggestion.target!, false)}
-                  className="px-4 py-1.5 rounded-lg text-sm font-medium text-white hover:opacity-90 transition-opacity"
-                  style={{ backgroundColor: "var(--gold)" }}>
-                  Switch to "{investmentProfileSuggestion.target.name}"
-                </button>
-                <button onClick={createInvestmentProfileAndSwitch}
-                  className="px-4 py-1.5 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
-                  Create a New Profile Instead
-                </button>
-                <button onClick={() => { setInvestmentProfileSuggestion(null); setInvestmentProfileDecided(true); }}
-                  className="px-4 py-1.5 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
-                  Use This Profile Instead
-                </button>
-              </div>
-            </div>
-          )}
-
-          {investmentProfileSuggestion?.mode === "create" && (
-            <div className="border rounded-xl p-4 space-y-3" style={{ backgroundColor: "hsl(var(--primary)/0.05)" }}>
-              <p className="text-sm font-medium flex items-start gap-2">
-                <Info size={16} className="shrink-0 mt-0.5 text-[hsl(var(--primary))]" />
-                We recommend keeping investments in a separate profile so they don't mix with everyday spending totals.
-              </p>
-              <div className="flex gap-2 flex-wrap">
-                <button onClick={createInvestmentProfileAndSwitch}
-                  className="px-4 py-1.5 rounded-lg text-sm font-medium text-white hover:opacity-90 transition-opacity"
-                  style={{ backgroundColor: "var(--gold)" }}>
-                  Create "Investments" Profile
-                </button>
-                <button onClick={() => { setInvestmentProfileSuggestion(null); setInvestmentProfileDecided(true); }}
-                  className="px-4 py-1.5 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
-                  Use This Profile Instead
-                </button>
-              </div>
-            </div>
-          )}
+          <ProfileSuggestionBanner
+            suggestion={profileSuggestion}
+            itemLabel="investments"
+            recommendText="We recommend keeping investments in a separate profile so they don't mix with everyday spending totals."
+            createLabel='Create "Investments" Profile'
+            onSwitch={switchToSuggestedProfile}
+            onCreate={() => createDedicatedProfileAndSwitch("Investments", "#0ea5e9")}
+            onDismiss={() => { setProfileSuggestion(null); setProfileSuggestionDecided(true); }}
+          />
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
             <div className="border rounded-xl p-4 text-center">
@@ -1855,6 +1900,25 @@ export default function ImportPage() {
       {step === "wizard:preview" && parsed && (
         <div key="wizard:preview" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           {error && <p className="text-red-500 text-sm p-3 border border-red-300 rounded-lg">{error}</p>}
+
+          {importKind === "credit" && (
+            <>
+              {hasDedicatedAccount === true && (
+                <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                  <CheckCircle2 size={12} /> Adding to your existing credit card account.
+                </p>
+              )}
+              <ProfileSuggestionBanner
+                suggestion={profileSuggestion}
+                itemLabel="a credit card"
+                recommendText="You can track this credit card in its own profile if you'd like to keep it separate from everyday spending, or just import it here."
+                createLabel='Create "Credit Cards" Profile'
+                onSwitch={switchToSuggestedProfile}
+                onCreate={() => createDedicatedProfileAndSwitch("Credit Cards", "#f59e0b")}
+                onDismiss={() => { setProfileSuggestion(null); setProfileSuggestionDecided(true); }}
+              />
+            </>
+          )}
 
           <div className="grid grid-cols-3 gap-3 text-sm">
             <div className="border rounded-xl p-4 text-center">

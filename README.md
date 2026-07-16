@@ -92,6 +92,8 @@ A guided import flow that handles any bank's CSV format:
 
 Before the column-mapping steps, Compass asks what you're importing: **Bank Statement**, **Credit Card Statement**, or **Investment / Brokerage**. Bank and credit card statements share the wizard below. Investment statements skip straight to a grouped preview — see [Investments](#-investments) below.
 
+Column detection also recognizes distinctive export formats automatically — American Express's activity export (with its `Extended Details` / `Appears On Your Statement As` columns) is auto-matched and sign-corrected without needing to click the preset button. For credit card imports, Compass also checks whether another profile already tracks a credit card (or has a plausibly-named profile) and offers to switch there instead of mixing it into your current profile — the same smart suggestion used for investments below.
+
 | Step | What happens |
 |---|---|
 | **1 · Find Data** | Auto-detects your header row; adjust with +/− if needed. **Skip to Preview ↗** is always available once you're happy with the columns |
@@ -109,7 +111,7 @@ Returning users whose bank layout was previously saved skip straight to Preview.
 
 The **⚙ Rules** modal has a two-tier editor: a simple "contains" field for everyday use, and an expandable Advanced section with regex support and a cheat-sheet for power users. All your rules can be edited inline.
 
-**Transfers** are reserved for same-institution internal moves (checking ↔ savings). Zelle, Venmo, and Cash App are intentionally left uncategorized so you can create rules that match your actual usage.
+**Transfers** are reserved for same-institution internal moves (checking ↔ savings). Zelle, Venmo, and Cash App are intentionally left uncategorized so you can create rules that match your actual usage. Credit card payment descriptions ("___ PAYMENT - THANK YOU", used by Amex, Chase, Discover, and others) are automatically filed under Transfers too, so paying off a card balance never inflates your income totals.
 
 ### 📅 Dashboard & Trends
 
@@ -206,9 +208,9 @@ Aggregates all profiles in one place. Each account card shows current balance, a
 
 Import a brokerage "Portfolio Positions" export (Wells Fargo Advisors format — `.csv`, `.xlsx`, or `.xls`) and Compass will:
 
-- Detect every section of the statement (Stocks, ETFs, Mutual Funds, Cash, Other) along with each security's individual tax lots
-- Show a grouped preview with per-section totals before anything is imported
-- Offer to create a dedicated **Investments** profile so brokerage holdings never mix into everyday spending totals
+- Detect every section of the statement (Stocks, ETFs, Mutual Funds, Cash, Other) along with each security's individual tax lots, scanning every tab in the workbook to find the one that actually contains the positions table
+- Show a grouped preview with per-section totals before anything is imported, with a **Fix columns** control per section if any field was detected wrong — each option shows how many rows actually have data in it, so you're never guessing
+- Check whether another profile already tracks investments, or has a plausibly-named profile, before offering to create a dedicated **Investments** profile — so brokerage holdings never mix into everyday spending totals
 - Track holdings as dated snapshots, so re-importing a later statement builds a value-over-time history instead of overwriting it
 
 The Investments page shows KPI tiles (portfolio value, cost basis, unrealized gain/loss, estimated annual dividend income), holdings grouped by symbol with expandable tax-lot detail, and a portfolio value chart once two or more statements have been imported.

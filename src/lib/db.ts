@@ -725,6 +725,22 @@ async function runMigrations(db: CompassDb): Promise<void> {
 
     await db.execute("PRAGMA user_version = 10");
   }
+
+  // ── v11: Credit card "payment" transactions → Transfers, so paying off a
+  //         card balance never inflates income totals ─────────────────────
+  if (version < 11) {
+    const v11Rules: [string, string, number, number][] = [
+      ["PAYMENT - THANK YOU", "contains", 20, 200],
+      ["PAYMENT THANK YOU",   "contains", 20, 200],
+    ];
+    for (const [pattern, matchType, categoryId, priority] of v11Rules) {
+      await db.execute(
+        "INSERT OR IGNORE INTO categorization_rules (pattern, match_type, category_id, priority) VALUES (?,?,?,?)",
+        [pattern, matchType, categoryId, priority]
+      );
+    }
+    await db.execute("PRAGMA user_version = 11");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────

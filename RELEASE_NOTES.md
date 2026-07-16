@@ -2,7 +2,32 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
-## Compass 0.7.0 — Investment Tracking
+## Compass 0.7.1 — Smarter Profiles, Fixable Columns & Credit Card Fixes
+
+### Import Wizard: Manual Column Fix-Up for Investments
+Each section of a parsed investment statement (Stocks, ETFs, Cash, Other) now has a **Fix columns** control. It shows every column detected in that section's header row, pre-selected to Compass's best guess, and lets you remap any field (Description, Symbol, Shares, Price, Market Value, Cost Basis, Trade Date, Dividend/Share, Est. Annual Income) on the spot — the preview table and totals update immediately. Each option also shows how many rows actually have data in that column (e.g. "Market Value — 0/34 filled"), so you can tell at a glance whether a column is worth mapping instead of guessing.
+
+Sections where every value field comes back empty now show an inline notice explaining that Compass found the holdings but no numbers to go with them, rather than silently showing blank values with no explanation.
+
+### Import Wizard: More Reliable XLSX Reading
+Excel files are now read with formatted display text (matching what a bank/brokerage actually printed, e.g. `$1,234.56`) instead of raw numeric cell values, and every cell is defensively converted to a string — a stray number or date object can no longer break parsing. Investment workbooks with multiple tabs (Summary, Positions, Activity, etc.) are now scanned automatically to find whichever sheet actually contains the Portfolio Positions table.
+
+### Smarter Profile Suggestions — Now for Credit Cards Too
+The "which profile should this go in" logic introduced for investments now also runs for **Credit Card Statement** imports. Before importing, Compass checks:
+1. Does your current profile already track this kind of account? If so, nothing changes.
+2. Does another profile already have one (an existing investment or credit card account)? Suggest switching there.
+3. Is there a profile whose name looks like it's meant for this ("Investments", "Credit Cards", etc.)? Suggest switching there instead of creating a duplicate.
+4. Otherwise, offer to create a dedicated profile — always with the option to just use your current profile instead.
+
+Creating a suggested profile only switches you into it; it never auto-imports without a final confirmation click.
+
+### Import Wizard: Better Bank/Card Auto-Detection
+Presets with a distinctive column fingerprint (starting with American Express's activity export, which includes `Extended Details` and `Appears On Your Statement As` columns found nowhere else) are now auto-applied even if you never click the preset button — so sign conventions like Amex's expenses-as-positive-numbers are handled correctly without extra steps.
+
+### Fixed: Credit Card Payments No Longer Inflate Income
+Added categorization rules so common "___ PAYMENT - THANK YOU" card-payment descriptions (Amex, Chase, Discover, and similar formats) are automatically filed under **Transfers** instead of Uncategorized — keeping them out of income and expense totals, same as other internal money movements.
+
+---
 
 ### New: Investment Portfolio Import
 The import wizard now opens by asking what you're importing: **Bank Statement**, **Credit Card Statement**, or **Investment / Brokerage**. Bank and credit card statements flow through the existing column-mapping wizard as before. Investment statements skip straight to a dedicated parser built for Wells Fargo Advisors–style "Portfolio Positions" exports (`.csv`, `.xlsx`, `.xls`).
