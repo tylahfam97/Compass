@@ -6,18 +6,37 @@ import {
   Landmark, CreditCard, TrendingUp,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { getDb, getOrCreateAccountForProfile, applyCategorizationRules, recomputeCalculatedBalances } from "@/lib/db";
+import {
+  getDb, applyCategorizationRules, recomputeCalculatedBalances,
+  listAccountsForProfile, resolveAccountId,
+} from "@/lib/db";
+import type { AccountChoice } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import type { CategorizationRule, Profile, SecurityType } from "@/lib/types";
+import type { CategorizationRule, Profile, SecurityType, Account } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
 import { takePendingImportFiles } from "@/lib/pendingImport";
 import InfoTooltip from "@/components/InfoTooltip";
 
 type Step =
   | "upload" | "checking"
+  | "wizard:account"
   | "wizard:data" | "wizard:date" | "wizard:desc" | "wizard:amount" | "wizard:balance" | "wizard:preview"
   | "wizard:investment-preview"
   | "importing" | "done";
+
+/** Linear order used for "Back" navigation - separate from WIZARD_STEPS (which only drives the
+ *  numbered bubble bar for the bank/credit column-mapping flow). */
+const STEP_ORDER: Step[] = [
+  "upload", "wizard:account", "wizard:data", "wizard:date", "wizard:desc",
+  "wizard:amount", "wizard:balance", "wizard:preview",
+];
+
+/** Returns the step a "Back" button on `step` should navigate to. */
+function backTargetFor(step: Step): Step {
+  if (step === "wizard:investment-preview") return "wizard:account";
+  const idx = STEP_ORDER.indexOf(step);
+  return idx > 0 ? STEP_ORDER[idx - 1] : "upload";
+}
 
 type ImportKind = "bank" | "credit" | "investment";
 
@@ -192,12 +211,13 @@ interface ImportSession {
 }
 
 const WIZARD_STEPS = [
-  { step: "wizard:data"    as const, num: 1, label: "Find Data" },
-  { step: "wizard:date"    as const, num: 2, label: "Date" },
-  { step: "wizard:desc"    as const, num: 3, label: "Description" },
-  { step: "wizard:amount"  as const, num: 4, label: "Amount" },
-  { step: "wizard:balance" as const, num: 5, label: "Balance" },
-  { step: "wizard:preview" as const, num: 6, label: "Preview" },
+  { step: "wizard:account" as const, num: 1, label: "Account" },
+  { step: "wizard:data"    as const, num: 2, label: "Find Data" },
+  { step: "wizard:date"    as const, num: 3, label: "Date" },
+  { step: "wizard:desc"    as const, num: 4, label: "Description" },
+  { step: "wizard:amount"  as const, num: 5, label: "Amount" },
+  { step: "wizard:balance" as const, num: 6, label: "Balance" },
+  { step: "wizard:preview" as const, num: 7, label: "Preview" },
 ];
 
 function wizardNum(step: string): number {
@@ -799,7 +819,12 @@ export default function ImportPage() {
   const [invParsed, setInvParsed] = useState<ParsedInvestment | null>(null);
   const [colMapOverrides, setColMapOverrides] = useState<Record<string, Record<string, number>>>({});
   const [fixColumnsOpen, setFixColumnsOpen] = useState<Set<string>>(new Set());
-  const [hasDedicatedAccount, setHasDedicatedAccount] = useState<boolean | null>(null);
+  // Kept as write-only bookkeeping: the account-level messaging that used to read this now
+  // uses `accountChoice` instead, but the setter calls remain wired for future use.
+  const [, setHasDedicatedAccount] = useState<boolean | null>(null);
+  const [accountChoice, setAccountChoice] = useState<AccountChoice | null>(null);
+  const [existingAccountsForType, setExistingAccountsForType] = useState<Account[]>([]);
+  const [maxStepReached, setMaxStepReached] = useState(1);
   const [profileSuggestion, setProfileSuggestion] = useState<ProfileSuggestion>(null);
   const [profileSuggestionDecided, setProfileSuggestionDecided] = useState(false);
   const [currentFilename, setCurrentFilename] = useState("");
@@ -832,17 +857,49 @@ export default function ImportPage() {
     if (detectedMonth) setTargetMonth(detectedMonth);
   }, [detectedMonth]);
 
+  // On entering the "which account" step, load this profile's existing accounts of the
+  // relevant type and suggest a match based on the detected bank preset/institution name -
+  // but never clobber a choice the user already made (e.g. navigating back to this step).
+  useEffect(() => {
+    if (step !== "wizard:account") return;
+    const accountType = importKind === "credit" ? "credit" : importKind === "investment" ? "investment" : "checking";
+    (async () => {
+      try {
+        const accounts = await listAccountsForProfile(profileId, accountType);
+        setExistingAccountsForType(accounts);
+        if (accountChoice) return;
+        const detectedName = selectedPresetId ? BANK_PRESETS[selectedPresetId]?.name ?? null : null;
+        if (detectedName) {
+          const needle = detectedName.toLowerCase();
+          const match = accounts.find(
+            (a) => a.name.toLowerCase().includes(needle) || a.institution.toLowerCase().includes(needle)
+          );
+          if (match) {
+            setAccountChoice({ mode: "existing", accountId: match.id, name: match.name });
+            return;
+          }
+        }
+        setAccountChoice({
+          mode: "new",
+          name: detectedName ?? (accountType === "investment" ? "Investment Account" : accountType === "credit" ? "New Credit Card" : "New Account"),
+          institution: detectedName ?? "Imported",
+        });
+      } catch { /* leave account choice as-is */ }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
   // When there's no balance column, prefill the account's current balance anchor (the real
   // balance as of the day it was entered) so returning to the step shows what's already saved.
   useEffect(() => {
     if (step !== "wizard:balance" || colMap.balanceCol >= 0) return;
+    if (!accountChoice || accountChoice.mode !== "existing") { setCurrentBalanceInput(""); return; }
     (async () => {
       try {
         const db = await getDb();
-        const accountType = importKind === "credit" ? "credit" : "checking";
         const rows = await db.select<{ balance_anchor_cents: number | null }[]>(
-          "SELECT balance_anchor_cents FROM accounts WHERE profile_id=? AND account_type=?",
-          [profileId, accountType]
+          "SELECT balance_anchor_cents FROM accounts WHERE id=?",
+          [accountChoice.accountId]
         );
         const cents = rows[0]?.balance_anchor_cents;
         setCurrentBalanceInput(cents != null ? (cents / 100).toFixed(2) : "");
@@ -850,6 +907,7 @@ export default function ImportPage() {
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
+
 
   // Re-derives each section's holding rows after applying any manual column-map overrides
   // the user made in the "Fix columns" panel, falling back to the auto-detected mapping.
@@ -915,6 +973,7 @@ export default function ImportPage() {
   const wizardGo = (target: Step, dir: "forward" | "back" = "forward") => {
     setWizardDir(dir);
     setStep(target);
+    setMaxStepReached((m) => Math.max(m, wizardNum(target)));
   };
 
   const undoImport = async (sessionId: number) => {
@@ -923,7 +982,16 @@ export default function ImportPage() {
     if (session?.kind === "investment") {
       await db.execute("DELETE FROM holdings WHERE import_session_id=?", [sessionId]);
     } else {
+      // Recompute the affected account(s)' running balances after removing this batch of
+      // transactions, so Overview/Dashboard/Trends don't keep showing stale balances.
+      const affectedAccounts = await db.select<{ account_id: number }[]>(
+        "SELECT DISTINCT account_id FROM transactions WHERE import_session_id=?",
+        [sessionId]
+      );
       await db.execute("DELETE FROM transactions WHERE import_session_id=?", [sessionId]);
+      for (const { account_id } of affectedAccounts) {
+        await recomputeCalculatedBalances(account_id);
+      }
     }
     await db.execute("DELETE FROM import_sessions WHERE id=?", [sessionId]);
     setConfirmDeleteId(null);
@@ -993,6 +1061,11 @@ export default function ImportPage() {
     setProfileSuggestion(null);
     setHasDedicatedAccount(hasAccountAlready);
     setProfileSuggestionDecided(true);
+    // The account list/choice made in the earlier "which account" step belonged to the
+    // profile we're switching away from - fall back to a fresh "new account" so we never
+    // write into an account that belongs to a different profile.
+    setAccountChoice((prev) => (prev ? { mode: "new", name: prev.name, institution: prev.mode === "new" ? prev.institution : "Imported" } : null));
+    setExistingAccountsForType([]);
   };
 
   /** Creates a fresh dedicated profile and switches to it - the user still clicks Import afterward. */
@@ -1014,6 +1087,9 @@ export default function ImportPage() {
     setProfileSuggestion(null);
     setHasDedicatedAccount(false);
     setProfileSuggestionDecided(true);
+    // Same reasoning as switchToSuggestedProfile - the new profile has no accounts yet.
+    setAccountChoice((prev) => (prev ? { mode: "new", name: prev.name, institution: prev.mode === "new" ? prev.institution : "Imported" } : null));
+    setExistingAccountsForType([]);
   };
 
   /** Writes every parsed holding row into the `holdings` table as a new dated snapshot. */
@@ -1024,7 +1100,11 @@ export default function ImportPage() {
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     try {
       const db = await getDb();
-      const accountId = await getOrCreateAccountForProfile(targetProfileId, "investment");
+      const accountId = await resolveAccountId(
+        targetProfileId,
+        "investment",
+        accountChoice ?? { mode: "new", name: "Investment Account", institution: "Imported" }
+      );
       const sessionResult = await db.execute(
         "INSERT INTO import_sessions (filename, row_count, skipped_count, profile_id, kind) VALUES (?, 0, 0, ?, 'investment')",
         [currentFilename, targetProfileId]
@@ -1146,8 +1226,11 @@ export default function ImportPage() {
     setHasDedicatedAccount(null);
     setProfileSuggestion(null);
     setProfileSuggestionDecided(false);
+    setAccountChoice(null);
+    setExistingAccountsForType([]);
+    setMaxStepReached(1);
     setWizardDir("forward");
-    setStep("wizard:investment-preview");
+    setStep("wizard:account");
   }, []);
 
   const toggleFixColumns = (title: string) => {
@@ -1174,6 +1257,9 @@ export default function ImportPage() {
     setHasDedicatedAccount(null);
     setProfileSuggestion(null);
     setProfileSuggestionDecided(false);
+    setAccountChoice(null);
+    setExistingAccountsForType([]);
+    setMaxStepReached(1);
     const derived = deriveHeaders(data, initialSkip);
     if (!derived) {
       setError("File appears empty after skipping summary rows.");
@@ -1217,7 +1303,7 @@ export default function ImportPage() {
         setColMap(autoDetect(headers));
         setProfileFound(false);
       }
-      setStep("wizard:data");
+      setStep("wizard:account");
     })();
   }, [profileId, selectedPresetId]);
 
@@ -1270,7 +1356,11 @@ export default function ImportPage() {
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     try {
       const db = await getDb();
-      const accountId = await getOrCreateAccountForProfile(profileId, importKind === "credit" ? "credit" : "checking");
+      const accountId = await resolveAccountId(
+        profileId,
+        importKind === "credit" ? "credit" : "checking",
+        accountChoice ?? { mode: "new", name: "My Account", institution: "Imported" }
+      );
       if (colMap.balanceCol < 0 && currentBalanceInput.trim()) {
         // The entered value is the real balance AFTER all transactions, as of today (when it's
         // submitted) - not before them - so Compass can calculate correctly in both directions.
@@ -1399,7 +1489,11 @@ export default function ImportPage() {
     setRawData(data); setSkipRows(skip); setParsed(derived);
     try {
       const db = await getDb();
-      const accountId = await getOrCreateAccountForProfile(profileId, importKind === "credit" ? "credit" : "checking");
+      const accountId = await resolveAccountId(
+        profileId,
+        importKind === "credit" ? "credit" : "checking",
+        accountChoice ?? { mode: "new", name: "My Account", institution: "Imported" }
+      );
       const rules = await db.select<CategorizationRule[]>(
         "SELECT * FROM categorization_rules WHERE profile_id=? OR profile_id IS NULL ORDER BY priority DESC",
         [profileId]
@@ -1488,6 +1582,9 @@ export default function ImportPage() {
     setHasDedicatedAccount(null);
     setProfileSuggestion(null);
     setProfileSuggestionDecided(false);
+    setAccountChoice(null);
+    setExistingAccountsForType([]);
+    setMaxStepReached(1);
     setCurrentFilename("");
     setSummary(null);
     setError(null);
@@ -1604,22 +1701,30 @@ export default function ImportPage() {
       {wizardNum(step) > 0 && parsed && (
         <div className="mb-6">
           <div className="flex items-center gap-1 mb-2">
-            {WIZARD_STEPS.map((ws, i) => (
-              <div key={ws.step} className="flex items-center gap-1">
-                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
-                  wizardNum(step) === ws.num
-                    ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
-                    : wizardNum(step) > ws.num
-                    ? "bg-green-500 text-white"
-                    : "bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]"
-                }`}>
-                  {wizardNum(step) > ws.num ? "✓" : ws.num}
+            {WIZARD_STEPS.map((ws, i) => {
+              const visited = ws.num <= maxStepReached;
+              return (
+                <div key={ws.step} className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => visited && wizardGo(ws.step, ws.num < wizardNum(step) ? "back" : "forward")}
+                    disabled={!visited}
+                    aria-label={`Go to ${ws.label} step`}
+                    className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
+                      wizardNum(step) === ws.num
+                        ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
+                        : wizardNum(step) > ws.num
+                        ? "bg-green-500 text-white cursor-pointer hover:opacity-80"
+                        : "bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] cursor-not-allowed"
+                    }`}>
+                    {wizardNum(step) > ws.num ? "✓" : ws.num}
+                  </button>
+                  {i < WIZARD_STEPS.length - 1 && (
+                    <div className={`h-0.5 w-6 transition-colors ${wizardNum(step) > ws.num ? "bg-green-500" : "bg-[hsl(var(--muted))]"}`} />
+                  )}
                 </div>
-                {i < WIZARD_STEPS.length - 1 && (
-                  <div className={`h-0.5 w-6 transition-colors ${wizardNum(step) > ws.num ? "bg-green-500" : "bg-[hsl(var(--muted))]"}`} />
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-xs text-[hsl(var(--muted-foreground))]">
@@ -1631,6 +1736,113 @@ export default function ImportPage() {
             <span className="text-xs text-[hsl(var(--muted-foreground))] ml-auto">
               {currentFilename}
             </span>
+          </div>
+        </div>
+      )}
+
+      {step === "wizard:account" && (
+        <div key="wizard:account" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "hsl(var(--primary)/0.1)" }}>
+              {importKind === "credit" ? <CreditCard size={18} className="text-[hsl(var(--primary))]" />
+                : importKind === "investment" ? <TrendingUp size={18} className="text-[hsl(var(--primary))]" />
+                : <Landmark size={18} className="text-[hsl(var(--primary))]" />}
+            </div>
+            <div>
+              <h2 className="text-lg font-bold leading-tight">Which <span className="text-[hsl(var(--primary))]">account</span> is this?</h2>
+              <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">
+                Compass tracks each account's balance separately - pick the right one so nothing gets mixed up or overwritten.
+              </p>
+            </div>
+          </div>
+
+          <div className="border rounded-xl p-5 space-y-4">
+            {accountChoice?.mode === "existing" && (
+              <div className="px-3 py-2.5 rounded-lg text-sm border border-green-300 bg-green-50
+                              text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300 flex items-start gap-2">
+                <CheckCircle2 size={14} className="shrink-0 mt-0.5" />
+                <span>This looks like your existing <strong>{accountChoice.name}</strong> account - we'll add these transactions there.</span>
+              </div>
+            )}
+            {accountChoice?.mode === "new" && existingAccountsForType.length > 0 && (
+              <div className="px-3 py-2.5 rounded-lg text-sm border border-blue-300 bg-blue-50
+                              text-blue-800 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300 flex items-start gap-2">
+                <Info size={14} className="shrink-0 mt-0.5" />
+                <span>This looks like a new account - we'll create <strong>{accountChoice.name || "it"}</strong>.</span>
+              </div>
+            )}
+
+            {existingAccountsForType.length > 0 && (
+              <div className="flex gap-3 text-sm">
+                <button
+                  onClick={() => setAccountChoice((prev) => ({
+                    mode: "new",
+                    name: prev?.name ?? (selectedPresetId ? BANK_PRESETS[selectedPresetId]?.name ?? "" : ""),
+                    institution: prev?.mode === "new" ? prev.institution : (selectedPresetId ? BANK_PRESETS[selectedPresetId]?.name ?? "Imported" : "Imported"),
+                  }))}
+                  className={`px-3 py-1.5 rounded-lg border transition-colors ${(accountChoice?.mode ?? "new") === "new" ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
+                >
+                  New account
+                </button>
+                <button
+                  onClick={() => setAccountChoice({
+                    mode: "existing",
+                    accountId: existingAccountsForType[0].id,
+                    name: existingAccountsForType[0].name,
+                  })}
+                  className={`px-3 py-1.5 rounded-lg border transition-colors ${accountChoice?.mode === "existing" ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
+                >
+                  Existing account
+                </button>
+              </div>
+            )}
+
+            {accountChoice?.mode === "existing" ? (
+              <select
+                value={accountChoice.accountId}
+                onChange={(e) => {
+                  const acct = existingAccountsForType.find((a) => a.id === parseInt(e.target.value));
+                  if (acct) setAccountChoice({ mode: "existing", accountId: acct.id, name: acct.name });
+                }}
+                className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
+                {existingAccountsForType.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}{a.institution && a.institution !== "Imported" ? ` (${a.institution})` : ""}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">Account name</label>
+                <input
+                  type="text"
+                  value={accountChoice?.name ?? ""}
+                  onChange={(e) => setAccountChoice((prev) => ({
+                    mode: "new",
+                    name: e.target.value,
+                    institution: prev?.mode === "new" ? prev.institution : "Imported",
+                  }))}
+                  placeholder={importKind === "credit" ? "e.g. Chase Sapphire" : importKind === "investment" ? "e.g. Fidelity Brokerage" : "e.g. Checking"}
+                  className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-3">
+            <button onClick={() => wizardGo("upload", "back")}
+              className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
+              Back
+            </button>
+            <button
+              onClick={() => wizardGo(importKind === "investment" ? "wizard:investment-preview" : "wizard:data", "forward")}
+              disabled={!accountChoice || (accountChoice.mode === "new" && !accountChoice.name.trim())}
+              className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed">
+              Continue
+            </button>
+            <button onClick={reset} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
+              Cancel
+            </button>
           </div>
         </div>
       )}
@@ -1678,6 +1890,10 @@ export default function ImportPage() {
           )}
 
           <div className="flex gap-3 justify-center">
+            <button onClick={() => wizardGo(backTargetFor(step), "back")}
+              className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
+              Back
+            </button>
             <button onClick={() => wizardGo("wizard:preview", "forward")}
               className="px-5 py-2 border rounded-lg text-sm font-medium hover:bg-[hsl(var(--muted))] transition-colors">
               Skip to Preview
@@ -1736,6 +1952,10 @@ export default function ImportPage() {
           </div>
 
           <div className="flex gap-3">
+            <button onClick={() => wizardGo(backTargetFor(step), "back")}
+              className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
+              Back
+            </button>
             <button onClick={() => wizardGo("wizard:desc", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
               Continue
@@ -1786,6 +2006,10 @@ export default function ImportPage() {
           </div>
 
           <div className="flex gap-3">
+            <button onClick={() => wizardGo(backTargetFor(step), "back")}
+              className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
+              Back
+            </button>
             <button onClick={() => wizardGo("wizard:amount", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
               Continue
@@ -1880,30 +2104,65 @@ export default function ImportPage() {
 
             {/* Sign inversion toggle - for banks that export expenses as positive (Discover, Amex) */}
             <div className="pt-3 border-t space-y-2">
-              <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
-                Are expenses shown as positive numbers?
-              </p>
-              <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                Some banks (Discover, Amex, Capital One) export purchases as positive values instead of negative. Enable this to flip all signs.
-              </p>
-              <div className="flex gap-3 text-sm">
-                <button
-                  onClick={() => setColMap((m) => ({ ...m, invertAmounts: false }))}
-                  className={`px-3 py-1.5 rounded-lg border transition-colors ${!colMap.invertAmounts ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
-                >
-                  No - standard signs
-                </button>
-                <button
-                  onClick={() => setColMap((m) => ({ ...m, invertAmounts: true }))}
-                  className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.invertAmounts ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
-                >
-                  Yes - flip signs
-                </button>
-              </div>
+              {importKind === "credit" ? (
+                <>
+                  <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
+                    How does your statement show purchases vs. payments?
+                  </p>
+                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                    Compass needs <strong>purchases</strong> (charges that increase what you owe) to end up <strong>negative</strong>,
+                    and <strong>payments toward the card</strong> (that reduce what you owe) to end up <strong>positive</strong> - the
+                    same way money-out vs. money-in works on a checking account. Check a purchase row and a payment row in the preview
+                    above: if purchases are already negative and payments already positive, leave this off. If it's the other way
+                    around, flip it.
+                  </p>
+                  <div className="flex gap-3 text-sm">
+                    <button
+                      onClick={() => setColMap((m) => ({ ...m, invertAmounts: false }))}
+                      className={`px-3 py-1.5 rounded-lg border transition-colors ${!colMap.invertAmounts ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
+                    >
+                      No - purchases negative, payments positive
+                    </button>
+                    <button
+                      onClick={() => setColMap((m) => ({ ...m, invertAmounts: true }))}
+                      className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.invertAmounts ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
+                    >
+                      Yes - flip (purchases positive, payments negative)
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
+                    Are expenses shown as positive numbers?
+                  </p>
+                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                    Some banks (Discover, Amex, Capital One) export purchases as positive values instead of negative. Enable this to flip all signs.
+                  </p>
+                  <div className="flex gap-3 text-sm">
+                    <button
+                      onClick={() => setColMap((m) => ({ ...m, invertAmounts: false }))}
+                      className={`px-3 py-1.5 rounded-lg border transition-colors ${!colMap.invertAmounts ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
+                    >
+                      No - standard signs
+                    </button>
+                    <button
+                      onClick={() => setColMap((m) => ({ ...m, invertAmounts: true }))}
+                      className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.invertAmounts ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
+                    >
+                      Yes - flip signs
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
           <div className="flex gap-3">
+            <button onClick={() => wizardGo(backTargetFor(step), "back")}
+              className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
+              Back
+            </button>
             <button onClick={() => wizardGo("wizard:balance", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
               Continue
@@ -2004,6 +2263,10 @@ export default function ImportPage() {
           </div>
 
           <div className="flex gap-3">
+            <button onClick={() => wizardGo(backTargetFor(step), "back")}
+              className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
+              Back
+            </button>
             <button onClick={() => wizardGo("wizard:preview", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
               Continue to Preview
@@ -2029,9 +2292,12 @@ export default function ImportPage() {
             </div>
           </div>
 
-          {hasDedicatedAccount === true && (
+          {accountChoice && (
             <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
-              <CheckCircle2 size={12} /> Adding a new snapshot to your existing investment account.
+              <CheckCircle2 size={12} />
+              {accountChoice.mode === "existing"
+                ? <>Adding a new snapshot to your existing <strong>{accountChoice.name}</strong> account.</>
+                : <>Creating a new account: <strong>{accountChoice.name}</strong>.</>}
             </p>
           )}
 
@@ -2144,6 +2410,10 @@ export default function ImportPage() {
           </p>
 
           <div className="flex gap-3">
+            <button onClick={() => wizardGo(backTargetFor(step), "back")}
+              className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
+              Back
+            </button>
             <button onClick={() => handleInvestmentImport()}
               className="px-6 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg font-medium hover:opacity-90 transition-opacity">
               Import {invTotals.count} Positions
@@ -2159,9 +2429,12 @@ export default function ImportPage() {
 
           {importKind === "credit" && (
             <>
-              {hasDedicatedAccount === true && (
+              {accountChoice && (
                 <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
-                  <CheckCircle2 size={12} /> Adding to your existing credit card account.
+                  <CheckCircle2 size={12} />
+                  {accountChoice.mode === "existing"
+                    ? <>Adding to your existing <strong>{accountChoice.name}</strong> account.</>
+                    : <>Creating a new account: <strong>{accountChoice.name}</strong>.</>}
                 </p>
               )}
               <ProfileSuggestionBanner
@@ -2268,6 +2541,10 @@ export default function ImportPage() {
           )}
 
           <div className="flex gap-3 flex-wrap">
+            <button onClick={() => wizardGo(backTargetFor(step), "back")}
+              className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
+              Back
+            </button>
             <button onClick={handleImport}
               className="px-6 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg font-medium hover:opacity-90 transition-opacity">
               Import {parsed.rows.length} Transactions

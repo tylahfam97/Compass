@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { CategorizationRule } from "./types";
+import type { CategorizationRule, Account } from "./types";
 
 // ─── Invoke-based DB wrapper ──────────────────────────────────────────────────
 // Mirrors the tauri-plugin-sql Database API (select / execute) so all call
@@ -825,6 +825,53 @@ export async function getOrCreateAccountForProfile(
   const result = await db.execute(
     "INSERT INTO accounts (name, account_type, institution, profile_id) VALUES (?, ?, ?, ?)",
     [name, accountType, "Imported", profileId]
+  );
+  return result.lastInsertId as number;
+}
+
+/**
+ * Lists every account a profile has of a given type (e.g. all "credit" accounts), so the
+ * import wizard can offer them as choices instead of always collapsing to a single account
+ * per type. Ordered by name for a stable, predictable dropdown.
+ */
+export async function listAccountsForProfile(profileId: number, accountType: string): Promise<Account[]> {
+  const db = await getDb();
+  return db.select<Account[]>(
+    "SELECT id, name, account_type, institution, created_at, balance_anchor_cents, balance_anchor_date FROM accounts WHERE profile_id=? AND account_type=? ORDER BY name",
+    [profileId, accountType]
+  );
+}
+
+/** The user's decision, made in the import wizard, about which account a statement belongs to. */
+export type AccountChoice =
+  | { mode: "existing"; accountId: number; name: string }
+  | { mode: "new"; name: string; institution: string };
+
+/**
+ * Resolves an `AccountChoice` from the import wizard into a concrete account ID - either the
+ * existing account the user picked/confirmed, or a freshly-created row for a new account (using
+ * the real detected institution name instead of a generic placeholder, so future imports have
+ * something meaningful to match against). Falls through to creating a new account if an
+ * "existing" choice no longer belongs to this profile/type (defensive, shouldn't normally happen).
+ */
+export async function resolveAccountId(
+  profileId: number,
+  accountType: string,
+  choice: AccountChoice
+): Promise<number> {
+  const db = await getDb();
+  if (choice.mode === "existing") {
+    const rows = await db.select<{ id: number }[]>(
+      "SELECT id FROM accounts WHERE id=? AND profile_id=? AND account_type=?",
+      [choice.accountId, profileId, accountType]
+    );
+    if (rows.length > 0) return rows[0].id;
+  }
+  const name = choice.mode === "new" ? choice.name : choice.name;
+  const institution = choice.mode === "new" ? choice.institution : "Imported";
+  const result = await db.execute(
+    "INSERT INTO accounts (name, account_type, institution, profile_id) VALUES (?, ?, ?, ?)",
+    [name || "My Account", accountType, institution || "Imported", profileId]
   );
   return result.lastInsertId as number;
 }

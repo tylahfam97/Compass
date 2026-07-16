@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { getDb } from "@/lib/db";
+import { getDb, recomputeCalculatedBalances } from "@/lib/db";
 import { useCategoryStore } from "@/stores/categoryStore";
 import CategoryOptions from "@/components/CategoryOptions";
 import { Info } from "lucide-react";
@@ -57,6 +57,7 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           [acctRows[0].id, date, amountCents, desc.trim(), catId, notes.trim() || null, hash, profileId]
         );
+        await recomputeCalculatedBalances(acctRows[0].id);
       } else {
         await db.execute(
           `UPDATE transactions
@@ -64,6 +65,9 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
            WHERE id=?`,
           [date, amountCents, desc.trim(), catId, notes.trim() || null, transaction!.id]
         );
+        // Amount/date edits shift every later transaction's running balance - recompute
+        // the whole account so Overview/Dashboard/Trends read correct numbers next load.
+        await recomputeCalculatedBalances(transaction!.account_id);
       }
       onSaved();
       onClose();
@@ -77,6 +81,7 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
     try {
       const db = await getDb();
       await db.execute("DELETE FROM transactions WHERE id=?", [transaction.id]);
+      await recomputeCalculatedBalances(transaction.account_id);
       onSaved();
       onClose();
     } catch (e) { setError(String(e)); setSaving(false); }

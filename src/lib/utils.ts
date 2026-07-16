@@ -60,3 +60,37 @@ export function combineAccountBalances(
   return [...byDate.entries()].map(([date, balance_cents]) => ({ date, balance_cents }));
 }
 
+/** A date with each account's forward-filled balance kept separate (keyed by account_id),
+ *  instead of summed into one combined total. */
+export interface SeparatedBalancePoint {
+  date: string;
+  byAccount: Record<number, number>;
+}
+
+/**
+ * Like {@link combineAccountBalances}, but keeps each account's forward-filled balance as its
+ * own series instead of summing them - so e.g. two credit cards can be drawn as two distinct
+ * lines on a chart instead of collapsing into one combined total.
+ */
+export function separateAccountBalances(
+  rows: { date: string; account_id: number; balance_cents: number }[]
+): SeparatedBalancePoint[] {
+  const lastByAccount = new Map<number, number>();
+  const byDate = new Map<string, Record<number, number>>();
+  for (const r of rows) {
+    lastByAccount.set(r.account_id, r.balance_cents);
+    byDate.set(r.date, Object.fromEntries(lastByAccount));
+  }
+  return [...byDate.entries()].map(([date, byAccount]) => ({ date, byAccount }));
+}
+
+/** A small, distinct color palette for drawing one line per account on a chart, cycling if
+ *  a profile has more accounts than colors. */
+const ACCOUNT_CHART_COLORS = ["#3b82f6", "#f59e0b", "#10b981", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16"];
+
+/** Returns a stable, distinct color for the account at `index` in a sorted account list. */
+export function accountChartColor(index: number): string {
+  return ACCOUNT_CHART_COLORS[index % ACCOUNT_CHART_COLORS.length];
+}
+
+
