@@ -1,7 +1,7 @@
-﻿import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { Calendar, Tag, DollarSign, BarChart2 } from "lucide-react";
+import { Calendar, Tag, DollarSign, BarChart2, Upload, Loader2, CheckCircle2, Info } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { getDb, getOrCreateAccountForProfile, applyCategorizationRules } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -54,7 +54,7 @@ const BANK_PRESETS: Record<string, BankPreset> = {
     descKeywords: ["description"],
     amountKeywords: ["debit"],
     typeKeywords: [],
-    note: "Capital One uses separate Debit and Credit columns. Select the Debit column as the amount â€” expenses will be positive numbers.",
+    note: "Capital One uses separate Debit and Credit columns. Select the Debit column as the amount - expenses will be positive numbers.",
     invertAmounts: true,
   },
   "wells-fargo": {
@@ -70,7 +70,7 @@ const BANK_PRESETS: Record<string, BankPreset> = {
     descKeywords: ["description"],
     amountKeywords: ["amount"],
     balanceKeywords: ["running bal"],
-    note: "Bank of America statements include summary rows at the top â€” Compass skips them automatically.",
+    note: "Bank of America statements include summary rows at the top - Compass skips them automatically.",
   },
   "navy-federal": {
     name: "Navy Federal",
@@ -78,7 +78,7 @@ const BANK_PRESETS: Record<string, BankPreset> = {
     descKeywords: ["description"],
     amountKeywords: ["debit"],
     invertAmounts: true,
-    note: "Navy Federal has header rows before the transaction table â€” Compass skips them automatically.",
+    note: "Navy Federal has header rows before the transaction table - Compass skips them automatically.",
   },
   "discover": {
     name: "Discover",
@@ -108,7 +108,6 @@ const BANK_PRESETS: Record<string, BankPreset> = {
     dateKeywords: ["date"],
     descKeywords: ["name"],
     amountKeywords: ["net amount"],
-    note: "Use the CSV export from Cash App's website under Activity â†’ Export.",
   },
   "paypal": {
     name: "PayPal",
@@ -190,7 +189,6 @@ const HEADER_KEYWORDS = [
 
 /**
  * Scan the first 15 rows and return the index of the row that looks most
- * like a column-header row (contains â‰¥2 header keywords).  Falls back to 0.
  *
  * Handles formats like Bank of America that prepend a summary block before
  * the real transaction table.
@@ -355,7 +353,7 @@ export default function ImportPage() {
     const [first, ...rest] = pending;
     setBatchQueue(rest);
     processFile(first);
-  }, []); // intentionally empty â€” runs once on mount only
+  }, []); // intentionally empty - runs once on mount only
 
   /** Navigate between wizard steps with direction tracking for the slide animation. */
   const wizardGo = (target: Step, dir: "forward" | "back" = "forward") => {
@@ -507,7 +505,7 @@ export default function ImportPage() {
     if (!parsed) return;
     setStep("importing");
     // Yield one animation frame so React can paint the loading UI before the
-    // import loop starts â€” prevents the UI appearing frozen on large files.
+    // import loop starts - prevents the UI appearing frozen on large files.
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     try {
       const db = await getDb();
@@ -567,7 +565,7 @@ export default function ImportPage() {
       }
 
       if (imported === 0) {
-        // Nothing new â€” remove the empty session record
+        // Nothing new - remove the empty session record
         await db.execute("DELETE FROM import_sessions WHERE id=?", [sessionId]);
       } else {
         // Update session with actual counts
@@ -718,7 +716,6 @@ export default function ImportPage() {
         Your data never leaves this device.
       </p>
 
-      {/* â”€â”€ UPLOAD / CHECKING â”€â”€ */}
       {(step === "upload" || step === "checking") && (
         <div>
           <div
@@ -731,10 +728,10 @@ export default function ImportPage() {
                           ? "opacity-60 cursor-wait"
                           : "cursor-pointer hover:border-[hsl(var(--primary))]"}`}
           >
-            <div className="text-5xl mb-4">{step === "checking" ? "â³" : "ðŸ“„"}</div>
+            <div className="flex justify-center mb-4 text-[hsl(var(--muted-foreground))]">{step === "checking" ? (<Loader2 size={48} className="animate-spin" />) : (<Upload size={48} />)}</div>
             <p className="font-medium mb-1">
               {step === "checking"
-                ? "Reading fileâ€¦"
+                ? "Reading file..."
                 : "Drop your CSV here or click to browse"}
             </p>
             <p className="text-sm text-[hsl(var(--muted-foreground))]">
@@ -754,7 +751,7 @@ export default function ImportPage() {
           {step === "upload" && (
             <div className="mt-5 border rounded-xl p-4 space-y-3">
               <p className="text-sm font-medium">
-                Select your bank <span className="text-[hsl(var(--muted-foreground))] font-normal">(optional â€” speeds up column detection)</span>
+                Select your bank <span className="text-[hsl(var(--muted-foreground))] font-normal">(optional - speeds up column detection)</span>
               </p>
               <div className="flex flex-wrap gap-2">
                 {Object.entries(BANK_PRESETS).map(([id, preset]) => (
@@ -772,14 +769,10 @@ export default function ImportPage() {
                 ))}
               </div>
               {selectedPresetId && BANK_PRESETS[selectedPresetId]?.note && (
-                <p className="text-xs text-[hsl(var(--muted-foreground))] border-t pt-2">
-                  â„¹ï¸ {BANK_PRESETS[selectedPresetId].note}
-                </p>
+                <p className="text-xs text-[hsl(var(--muted-foreground))] border-t pt-2 flex items-start gap-1"><Info size={12} className="shrink-0 mt-0.5" /> {BANK_PRESETS[selectedPresetId].note}</p>
               )}
               {selectedPresetId && (
-                <p className="text-xs text-green-600 dark:text-green-400">
-                  âœ“ {BANK_PRESETS[selectedPresetId].name} selected â€” column mapping will be pre-filled when you drop your file.
-                </p>
+                <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1"><CheckCircle2 size={12} /> {BANK_PRESETS[selectedPresetId].name} selected - column mapping will be pre-filled.</p>
               )}
             </div>
           )}
@@ -788,7 +781,6 @@ export default function ImportPage() {
         </div>
       )}
 
-      {/* â”€â”€ WIZARD: shared step indicator â”€â”€ */}
       {wizardNum(step) > 0 && parsed && (
         <div className="mb-6">
           <div className="flex items-center gap-1 mb-2">
@@ -801,7 +793,7 @@ export default function ImportPage() {
                     ? "bg-green-500 text-white"
                     : "bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]"
                 }`}>
-                  {wizardNum(step) > ws.num ? "âœ“" : ws.num}
+                  {wizardNum(step) > ws.num ? "✓" : ws.num}
                 </div>
                 {i < WIZARD_STEPS.length - 1 && (
                   <div className={`h-0.5 w-6 transition-colors ${wizardNum(step) > ws.num ? "bg-green-500" : "bg-[hsl(var(--muted))]"}`} />
@@ -823,14 +815,12 @@ export default function ImportPage() {
         </div>
       )}
 
-      {/* â”€â”€ WIZARD STEP 1: Find Data â”€â”€ */}
       {step === "wizard:data" && parsed && (
         <div key="wizard:data" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           <p className="text-sm text-[hsl(var(--muted-foreground))]">
-            Compass detected the column headers below. If they don't look right, use âˆ’ / + to shift to the correct row.
           </p>
 
-          {/* Header-only display â€” centered column pills */}
+          {/* Header-only display - centered column pills */}
           <div className="border rounded-xl overflow-hidden">
             <div className="text-center py-2 bg-[hsl(var(--primary)/0.08)] border-b">
               <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
@@ -848,8 +838,7 @@ export default function ImportPage() {
 
           {/* Row navigation */}
           <div className="flex items-center justify-center gap-3 text-sm">
-            <button onClick={() => adjustSkipRows(-1)} disabled={skipRows === 0}
-              className="w-8 h-8 flex items-center justify-center border rounded-md disabled:opacity-30 hover:bg-[hsl(var(--muted))] transition-colors text-base">âˆ’</button>
+            <button onClick={() => adjustSkipRows(-1)} disabled={skipRows === 0} className="px-3 py-1.5 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors disabled:opacity-50">- Back</button>
             <span className="text-[hsl(var(--muted-foreground))]">
               Row <span className="font-mono font-bold text-[hsl(var(--foreground))]">{skipRows + 1}</span> of {rawData?.length ?? 0}
             </span>
@@ -863,18 +852,16 @@ export default function ImportPage() {
           {profileFound && (
             <div className="px-4 py-2.5 rounded-lg text-sm border border-green-300 bg-green-50
                             text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
-              âœ“ Column layout recognized from a previous import.
+                  Column layout recognized from a previous import.
             </div>
           )}
 
           <div className="flex gap-3 justify-center">
             <button onClick={() => wizardGo("wizard:preview", "forward")}
               className="px-5 py-2 border rounded-lg text-sm font-medium hover:bg-[hsl(var(--muted))] transition-colors">
-              Skip to Preview â†—
             </button>
             <button onClick={() => wizardGo("wizard:date", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
-              Looks good â†’ Next
             </button>
             <button onClick={reset} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
               Cancel
@@ -883,7 +870,6 @@ export default function ImportPage() {
         </div>
       )}
 
-      {/* â”€â”€ WIZARD STEP 2: Date Column â”€â”€ */}
       {step === "wizard:date" && parsed && (
         <div key="wizard:date" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           <div className="flex items-center gap-3">
@@ -917,7 +903,6 @@ export default function ImportPage() {
                   <div key={i} className="py-3 text-center">
                     <p className="font-mono text-sm text-[hsl(var(--muted-foreground))]">{raw}</p>
                     <p className={`text-base font-semibold mt-0.5 ${ok ? "text-green-600" : "text-red-500"}`}>
-                      {ok ? formatDate(iso) : "âš  could not parse"}
                     </p>
                   </div>
                 );
@@ -927,20 +912,16 @@ export default function ImportPage() {
           </div>
 
           <div className="flex gap-3">
-            <button onClick={() => wizardGo("wizard:data", "back")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">â† Back</button>
             <button onClick={() => wizardGo("wizard:desc", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
-              Next â†’
             </button>
             <button onClick={() => wizardGo("wizard:preview", "forward")}
               className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
-              Skip to Preview â†—
             </button>
           </div>
         </div>
       )}
 
-      {/* â”€â”€ WIZARD STEP 3: Description Column â”€â”€ */}
       {step === "wizard:desc" && parsed && (
         <div key="wizard:desc" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           <div className="flex items-center gap-3">
@@ -949,7 +930,7 @@ export default function ImportPage() {
             </div>
             <div>
               <h2 className="text-lg font-bold leading-tight">Which column is the <span className="text-[hsl(var(--primary))]">Description</span>?</h2>
-              <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">The merchant or payee name â€” used for auto-categorization.</p>
+              <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">The merchant or payee name - used for auto-categorization.</p>
             </div>
           </div>
           <div className="border rounded-xl p-5 space-y-4">
@@ -976,20 +957,16 @@ export default function ImportPage() {
           </div>
 
           <div className="flex gap-3">
-            <button onClick={() => wizardGo("wizard:date", "back")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">â† Back</button>
             <button onClick={() => wizardGo("wizard:amount", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
-              Next â†’
             </button>
             <button onClick={() => wizardGo("wizard:preview", "forward")}
               className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
-              Skip to Preview â†—
             </button>
           </div>
         </div>
       )}
 
-      {/* â”€â”€ WIZARD STEP 4: Amount Column â”€â”€ */}
       {step === "wizard:amount" && parsed && (
         <div key="wizard:amount" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           <div className="flex items-center gap-3">
@@ -1028,7 +1005,6 @@ export default function ImportPage() {
                     <div key={i} className="py-3 text-center">
                       <p className="font-mono text-sm text-[hsl(var(--muted-foreground))]">{raw}</p>
                       <p className={`font-mono text-base font-semibold mt-0.5 ${amt < 0 ? "text-red-500" : amt > 0 ? "text-green-600" : "text-amber-500"}`}>
-                        {amt === 0 ? "âš  zero â€” will be skipped" : formatCurrency(Math.round(amt * 100))}
                       </p>
                     </div>
                   );
@@ -1046,7 +1022,7 @@ export default function ImportPage() {
                   onClick={() => setColMap((m) => ({ ...m, typeCol: -1 }))}
                   className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.typeCol === -1 ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
                 >
-                  No â€” amounts are already signed
+                  No - amounts are already signed
                 </button>
                 <button
                   onClick={() => {
@@ -1055,7 +1031,7 @@ export default function ImportPage() {
                   }}
                   className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.typeCol >= 0 ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
                 >
-                  Yes â€” select that column
+                  Yes - select that column
                 </button>
               </div>
               {colMap.typeCol >= 0 && (
@@ -1067,7 +1043,7 @@ export default function ImportPage() {
               )}
             </div>
 
-            {/* Sign inversion toggle â€” for banks that export expenses as positive (Discover, Amex) */}
+            {/* Sign inversion toggle - for banks that export expenses as positive (Discover, Amex) */}
             <div className="pt-3 border-t space-y-2">
               <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
                 Are expenses shown as positive numbers?
@@ -1080,33 +1056,29 @@ export default function ImportPage() {
                   onClick={() => setColMap((m) => ({ ...m, invertAmounts: false }))}
                   className={`px-3 py-1.5 rounded-lg border transition-colors ${!colMap.invertAmounts ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
                 >
-                  No â€” standard signs
+                  No - standard signs
                 </button>
                 <button
                   onClick={() => setColMap((m) => ({ ...m, invertAmounts: true }))}
                   className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.invertAmounts ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
                 >
-                  Yes â€” flip signs
+                  Yes - flip signs
                 </button>
               </div>
             </div>
           </div>
 
           <div className="flex gap-3">
-            <button onClick={() => wizardGo("wizard:desc", "back")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">â† Back</button>
             <button onClick={() => wizardGo("wizard:balance", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
-              Next â†’
             </button>
             <button onClick={() => wizardGo("wizard:preview", "forward")}
               className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
-              Skip to Preview â†—
             </button>
           </div>
         </div>
       )}
 
-      {/* â”€â”€ WIZARD STEP 5: Balance Column (optional) â”€â”€ */}
       {step === "wizard:balance" && parsed && (
         <div key="wizard:balance" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           <div className="flex items-center gap-3">
@@ -1115,7 +1087,7 @@ export default function ImportPage() {
             </div>
             <div>
               <h2 className="text-lg font-bold leading-tight">Is there a <span className="text-[hsl(var(--primary))]">Balance</span> column? <span className="text-sm font-normal text-[hsl(var(--muted-foreground))]">Optional</span></h2>
-              <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">Running account balance â€” unlocks balance charts and low-balance alerts.</p>
+              <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">Running account balance - unlocks balance charts and low-balance alerts.</p>
             </div>
           </div>
           <div className="border rounded-xl p-5 space-y-4">
@@ -1170,16 +1142,13 @@ export default function ImportPage() {
           </div>
 
           <div className="flex gap-3">
-            <button onClick={() => wizardGo("wizard:amount", "back")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">â† Back</button>
             <button onClick={() => wizardGo("wizard:preview", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
-              Next â†’
             </button>
           </div>
         </div>
       )}
 
-      {/* â”€â”€ WIZARD STEP 6: Preview & Confirm â”€â”€ */}
       {step === "wizard:preview" && parsed && (
         <div key="wizard:preview" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           {error && <p className="text-red-500 text-sm p-3 border border-red-300 rounded-lg">{error}</p>}
@@ -1206,7 +1175,7 @@ export default function ImportPage() {
           {/* Full preview table */}
           <div className="border rounded-xl overflow-hidden">
             <div className="px-4 py-2 bg-[hsl(var(--muted))] border-b text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
-              Preview â€” first 5 rows
+              Preview - first 5 rows
             </div>
             <table className="w-full text-sm">
               <thead>
@@ -1238,7 +1207,7 @@ export default function ImportPage() {
                       </td>
                       {colMap.balanceCol >= 0 && (
                         <td className="px-4 py-2 text-right font-mono text-xs text-[hsl(var(--muted-foreground))]">
-                          {balRaw ? formatCurrency(Math.round(parseAmount(balRaw) * 100)) : "â€”"}
+                          {balRaw ? formatCurrency(Math.round(parseAmount(balRaw) * 100)) : "-"}
                         </td>
                       )}
                     </tr>
@@ -1248,7 +1217,7 @@ export default function ImportPage() {
             </table>
           </div>
 
-          {/* Statement month â€” single or multi-month */}
+          {/* Statement month - single or multi-month */}
           {isMultiMonth ? (
             <div className="p-4 border rounded-xl" style={{ backgroundColor: "hsl(var(--primary)/0.05)" }}>
               <p className="text-sm font-semibold mb-2">This CSV spans {allMonths.length} months</p>
@@ -1276,7 +1245,6 @@ export default function ImportPage() {
           )}
 
           <div className="flex gap-3 flex-wrap">
-            <button onClick={() => wizardGo("wizard:balance", "back")} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">â† Back</button>
             <button onClick={handleImport}
               className="px-6 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg font-medium hover:opacity-90 transition-opacity">
               Import {parsed.rows.length} Transactions
@@ -1295,7 +1263,6 @@ export default function ImportPage() {
                            hover:bg-[hsl(var(--primary)/0.25)] transition-colors"
                 title="Import this file then automatically import all remaining files using the same column settings"
               >
-                âš¡ Import All ({batchQueue.length + 1} files)
               </button>
             )}
             <button onClick={reset} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">Cancel</button>
@@ -1303,14 +1270,13 @@ export default function ImportPage() {
         </div>
       )}
 
-      {/* â”€â”€ IMPORTING â”€â”€ */}
       {step === "importing" && (
         <div className="text-center py-16">
-          <div className="text-5xl mb-4 animate-pulse">âš™ï¸</div>
+              <div className="flex justify-center mb-4 text-blue-500"><Info size={48} /></div>
           {batchAutoMode && totalBatchCount > 1 ? (
             <>
               <p className="font-medium mb-1">
-                Importing file {totalBatchCount - batchQueue.length} of {totalBatchCount}â€¦
+                Importing file {totalBatchCount - batchQueue.length} of {totalBatchCount}...
               </p>
               <p className="text-sm text-[hsl(var(--muted-foreground))] mb-4 truncate max-w-sm mx-auto">
                 {currentFilename}
@@ -1323,26 +1289,25 @@ export default function ImportPage() {
               </div>
             </>
           ) : (
-            <p className="font-medium">Importing and categorizing transactionsâ€¦</p>
+            <p className="font-medium">Importing and categorizing transactions...</p>
           )}
         </div>
       )}
 
-      {/* â”€â”€ DONE â”€â”€ */}
       {step === "done" && summary && (
         <div className="text-center py-12 wizard-enter-done">
           {summary.imported === 0 ? (
             <>
-              <div className="text-5xl mb-4">â„¹ï¸</div>
+              <div className="flex justify-center mb-4 text-blue-500"><Info size={48} /></div>
               <p className="text-xl font-semibold mb-2">Already imported</p>
               <p className="text-[hsl(var(--muted-foreground))] mb-6">
                 All {summary.skipped} rows from <strong>{currentFilename}</strong> already exist
-                â€” this file has been imported before.
+                - this file has been imported before.
               </p>
             </>
           ) : (
             <>
-              <div className="text-5xl mb-4 wizard-enter-done inline-block">âœ…</div>
+              <div className="flex justify-center mb-4 wizard-enter-done"><CheckCircle2 size={48} className="text-green-500" /></div>
               <p className="text-xl font-semibold mb-2">Import complete!</p>
               <p className="text-[hsl(var(--muted-foreground))] mb-6">
                 <span className="text-green-600 font-semibold">{summary.imported} transactions</span>{" "}
@@ -1350,7 +1315,7 @@ export default function ImportPage() {
                 {summary.skipped > 0 && `, ${summary.skipped} duplicates skipped`}.
                 {!profileFound && (
                   <span className="block text-xs mt-1">
-                    Column layout saved â€” this bank's CSV will be recognized automatically next time.
+                    Column layout saved - this bank's CSV will be recognized automatically next time.
                   </span>
                 )}
               </p>
@@ -1401,13 +1366,12 @@ export default function ImportPage() {
         </div>
       )}
 
-      {/* â”€â”€ IMPORT HISTORY â”€â”€ */}
       {importHistory.length > 0 && (step === "upload" || step === "done") && (
         <div className="mt-8">
           <h2 className="text-base font-semibold mb-3 flex items-center gap-2">
             Import History
             <span className="text-xs font-normal text-[hsl(var(--muted-foreground))]">
-              â€” undo removes all transactions from that import
+              - undo removes all transactions from that import
             </span>
           </h2>
           <div className="border rounded-xl overflow-hidden text-sm">

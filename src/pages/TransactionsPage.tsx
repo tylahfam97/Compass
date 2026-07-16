@@ -14,6 +14,7 @@ import EditTransactionModal from "@/components/EditTransactionModal";
 import { setPendingImportFiles } from "@/lib/pendingImport";
 
 const MAX_ROWS = 500;
+const ALL_TIME_LIMIT = 10000;
 
 type SortCol = "date" | "description" | "category" | "amount" | "balance";
 type SortDir = "asc" | "desc";
@@ -165,7 +166,7 @@ export default function TransactionsPage() {
        FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
        WHERE ${where}
        ORDER BY ${orderBy}
-       LIMIT ${MAX_ROWS + 1}`,
+       LIMIT ${allTime ? ALL_TIME_LIMIT + 1 : MAX_ROWS + 1}`,
       params
     );
     setRows(data);
@@ -276,6 +277,7 @@ export default function TransactionsPage() {
     .reduce((s, r) => s + r.amount_cents, 0);
   const totalExpenses = rows.filter((r) => r.amount_cents < 0)
     .reduce((s, r) => s + r.amount_cents, 0);
+  const netAmount = totalIncome + totalExpenses;
 
   const handlePageDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -468,12 +470,21 @@ export default function TransactionsPage() {
         </div>
       </div>
 
-      {/* Summary strip */}
+      {/* Summary card */}
       {!loading && rows.length > 0 && (
-        <div className="flex gap-6 mb-4 text-sm text-[hsl(var(--muted-foreground))]">
-          <span>{Math.min(rows.length, MAX_ROWS)} transaction{rows.length !== 1 ? "s" : ""}{rows.length > MAX_ROWS ? ` (showing first ${MAX_ROWS})` : ""}</span>
-          <span className="text-green-600 font-medium">{formatCurrency(totalIncome)} in</span>
-          <span className="text-red-500 font-medium">{formatCurrency(Math.abs(totalExpenses))} out</span>
+        <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="border rounded-xl px-4 py-3 text-center">
+            <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-1">Income</p>
+            <p className="text-lg font-bold text-green-600">{formatCurrency(totalIncome)}</p>
+          </div>
+          <div className="border rounded-xl px-4 py-3 text-center">
+            <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-1">Expenses</p>
+            <p className="text-lg font-bold text-red-500">{formatCurrency(Math.abs(totalExpenses))}</p>
+          </div>
+          <div className="border rounded-xl px-4 py-3 text-center">
+            <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-1">Net</p>
+            <p className={`text-lg font-bold ${netAmount >= 0 ? "text-green-600" : "text-red-500"}`}>{formatCurrency(netAmount)}</p>
+          </div>
         </div>
       )}
 
@@ -511,7 +522,7 @@ export default function TransactionsPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.slice(0, MAX_ROWS).map((t) => (
+              {rows.slice(0, allTime ? ALL_TIME_LIMIT : MAX_ROWS).map((t) => (
                 <tr key={t.id} className="border-b last:border-0 hover:bg-[hsl(var(--muted))]">
                   <td className="px-4 py-3 text-[hsl(var(--muted-foreground))] whitespace-nowrap">
                     {formatDate(t.date)}
