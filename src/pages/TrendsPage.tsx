@@ -310,45 +310,45 @@ export default function TrendsPage() {
                 </BarChart>
               </ResponsiveContainer>
 
-              <AnimatePresence initial={false}>
-                {expandedMonth && (
-                  <motion.div
-                    key={expandedMonth}
-                    layout
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ type: "spring", stiffness: 420, damping: 42, mass: 0.9 }}
-                    className="overflow-hidden"
-                  >
-                    <div className="mt-1 pt-3 border-t">
-                      <div className="flex items-center justify-between mb-2">
-                        <p className="text-xs font-semibold">Top categories - {expandedMonth}</p>
-                        <Link to="/transactions" state={{ month: expandedMonth }} className="text-[11px] text-[hsl(var(--primary))] hover:underline">
-                          View month →
-                        </Link>
-                      </div>
-                      {expandedMonthCats === null ? (
-                        <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">Loading…</p>
-                      ) : expandedMonthCats.length === 0 ? (
-                        <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">No expenses that month.</p>
-                      ) : (
-                        <div className="space-y-1">
-                          {expandedMonthCats.map((c) => (
-                            <div key={c.name} className="flex items-center justify-between text-xs py-1">
-                              <span className="flex items-center gap-1.5 text-[hsl(var(--muted-foreground))]">
-                                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
-                                {c.name}
-                              </span>
-                              <span className="font-mono">{formatCurrency(c.total)}</span>
-                            </div>
-                          ))}
+              <motion.div layout transition={{ type: "spring", stiffness: 420, damping: 42, mass: 0.9 }} className="overflow-hidden">
+                <AnimatePresence initial={false}>
+                  {expandedMonth && (
+                    <motion.div
+                      key={expandedMonth}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.18 }}
+                    >
+                      <div className="mt-1 pt-3 border-t">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-semibold">Top categories - {expandedMonth}</p>
+                          <Link to="/transactions" state={{ month: expandedMonth }} className="text-[11px] text-[hsl(var(--primary))] hover:underline">
+                            View month →
+                          </Link>
                         </div>
-                      )}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                        {expandedMonthCats === null ? (
+                          <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">Loading…</p>
+                        ) : expandedMonthCats.length === 0 ? (
+                          <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">No expenses that month.</p>
+                        ) : (
+                          <div className="space-y-1">
+                            {expandedMonthCats.map((c) => (
+                              <div key={c.name} className="flex items-center justify-between text-xs py-1">
+                                <span className="flex items-center gap-1.5 text-[hsl(var(--muted-foreground))]">
+                                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
+                                  {c.name}
+                                </span>
+                                <span className="font-mono">{formatCurrency(c.total)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
             </div>
 
             {/* Stacked by category */}
@@ -378,49 +378,49 @@ export default function TrendsPage() {
                   </BarChart>
                 </ResponsiveContainer>
 
-                <AnimatePresence initial={false}>
-                  {expandedCatName && (
-                    <motion.div
-                      key={expandedCatName}
-                      layout
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: "auto", opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ type: "spring", stiffness: 420, damping: 42, mass: 0.9 }}
-                      className="overflow-hidden"
-                    >
-                      <div className="mt-1 pt-3 border-t">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-xs font-semibold flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: catColors[expandedCatName] ?? "#9ca3af" }} />
-                            {expandedCatName} trend
-                          </p>
-                          {catIds[expandedCatName] !== undefined && (
-                            <Link
-                              to="/transactions"
-                              state={{ category: catIds[expandedCatName] }}
-                              className="text-[11px] text-[hsl(var(--primary))] hover:underline"
-                            >
-                              View all →
-                            </Link>
-                          )}
+                <motion.div layout transition={{ type: "spring", stiffness: 420, damping: 42, mass: 0.9 }} className="overflow-hidden">
+                  <AnimatePresence initial={false}>
+                    {expandedCatName && (
+                      <motion.div
+                        key={expandedCatName}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.18 }}
+                      >
+                        <div className="mt-1 pt-3 border-t">
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-semibold flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: catColors[expandedCatName] ?? "#9ca3af" }} />
+                              {expandedCatName} trend
+                            </p>
+                            {catIds[expandedCatName] !== undefined && (
+                              <Link
+                                to="/transactions"
+                                state={{ category: catIds[expandedCatName] }}
+                                className="text-[11px] text-[hsl(var(--primary))] hover:underline"
+                              >
+                                View all →
+                              </Link>
+                            )}
+                          </div>
+                          <div className="space-y-1">
+                            {stacked.map((row) => {
+                              const amt = (row[expandedCatName] as number | undefined) ?? 0;
+                              if (amt === 0) return null;
+                              return (
+                                <div key={row.month} className="flex items-center justify-between text-xs py-1">
+                                  <span className="text-[hsl(var(--muted-foreground))]">{row.month}</span>
+                                  <span className="font-mono">{formatCurrency(amt)}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
-                        <div className="space-y-1">
-                          {stacked.map((row) => {
-                            const amt = (row[expandedCatName] as number | undefined) ?? 0;
-                            if (amt === 0) return null;
-                            return (
-                              <div key={row.month} className="flex items-center justify-between text-xs py-1">
-                                <span className="text-[hsl(var(--muted-foreground))]">{row.month}</span>
-                                <span className="font-mono">{formatCurrency(amt)}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.div>
               </div>
             )}
           </>

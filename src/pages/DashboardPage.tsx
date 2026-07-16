@@ -416,47 +416,47 @@ export default function DashboardPage() {
                 </BarChart>
               </ResponsiveContainer>
 
-              <AnimatePresence initial={false}>
-                {expandedCat && (
-                  <motion.div
-                    key={expandedCat.name}
-                    layout
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ type: "spring", stiffness: 420, damping: 42, mass: 0.9 }}
-                    className="overflow-hidden"
-                  >
-                    <div className="mt-3 pt-3 border-t">
-                      <div className="flex items-center justify-between mb-2">
-                        <p className="text-xs font-semibold flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: expandedCat.color }} />
-                          {expandedCat.name} - {formatCurrency(expandedCat.total)}
-                        </p>
-                        <Link
-                          to="/transactions"
-                          state={{ month, category: expandedCat.categoryId }}
-                          className="text-[11px] text-[hsl(var(--primary))] hover:underline"
-                        >
-                          View all →
-                        </Link>
-                      </div>
-                      {expandedCatTxns === null ? (
-                        <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">Loading…</p>
-                      ) : (
-                        <div className="space-y-1">
-                          {expandedCatTxns.map((t) => (
-                            <div key={t.id} className="flex items-center justify-between text-xs py-1">
-                              <span className="truncate flex-1 text-[hsl(var(--muted-foreground))]">{t.description}</span>
-                              <span className="font-mono ml-3 shrink-0">{formatCurrency(Math.abs(t.amount_cents))}</span>
-                            </div>
-                          ))}
+              <motion.div layout transition={{ type: "spring", stiffness: 420, damping: 42, mass: 0.9 }} className="overflow-hidden">
+                <AnimatePresence initial={false}>
+                  {expandedCat && (
+                    <motion.div
+                      key={expandedCat.name}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.18 }}
+                    >
+                      <div className="mt-3 pt-3 border-t">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-semibold flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: expandedCat.color }} />
+                            {expandedCat.name} - {formatCurrency(expandedCat.total)}
+                          </p>
+                          <Link
+                            to="/transactions"
+                            state={{ month, category: expandedCat.categoryId }}
+                            className="text-[11px] text-[hsl(var(--primary))] hover:underline"
+                          >
+                            View all →
+                          </Link>
                         </div>
-                      )}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                        {expandedCatTxns === null ? (
+                          <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">Loading…</p>
+                        ) : (
+                          <div className="space-y-1">
+                            {expandedCatTxns.map((t) => (
+                              <div key={t.id} className="flex items-center justify-between text-xs py-1">
+                                <span className="truncate flex-1 text-[hsl(var(--muted-foreground))]">{t.description}</span>
+                                <span className="font-mono ml-3 shrink-0">{formatCurrency(Math.abs(t.amount_cents))}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
             </div>
           )}
 
