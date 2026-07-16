@@ -332,6 +332,13 @@ interface ParsedInvestment {
   sections: InvestmentSection[];
 }
 
+/** Guides the user toward a sensible profile for investment holdings before importing. */
+type InvestmentProfileSuggestion =
+  | { mode: "existing"; target: { id: number; name: string } }
+  | { mode: "named"; target: { id: number; name: string } }
+  | { mode: "create" }
+  | null;
+
 /** Maps a section title (as printed in the export) to a broad security type. */
 function classifySection(title: string): SecurityType {
   const key = title.trim().toLowerCase();
@@ -438,6 +445,20 @@ function buildInvestmentRow(dataRow: string[], colMap: Record<string, number>, s
   };
 }
 
+/** Counts how many of a section's raw rows have a non-blank value in a given column - lets the
+ *  "Fix columns" picker show whether a candidate column actually has data before you pick it. */
+function columnFillCount(rawRows: string[][], idx: number): number {
+  return rawRows.reduce((n, row) => n + ((row[idx] ?? "").toString().trim() ? 1 : 0), 0);
+}
+
+/** True when none of a section's value fields (everything but description/symbol) has any data. */
+function sectionHasNoValueData(rows: InvestmentRow[]): boolean {
+  return rows.every((r) =>
+    r.shares === null && r.price === null && r.marketValue === null && r.costBasis === null &&
+    r.tradeDate === null && r.dividendPerShare === null && r.estAnnualIncome === null
+  );
+}
+
 /** Detects a brokerage statement's "Priced as of ..." date from the first few rows. */
 function detectStatementDate(rows: string[][]): string | null {
   for (const row of rows.slice(0, 6)) {
@@ -527,7 +548,7 @@ export default function ImportPage() {
   const [colMapOverrides, setColMapOverrides] = useState<Record<string, Record<string, number>>>({});
   const [fixColumnsOpen, setFixColumnsOpen] = useState<Set<string>>(new Set());
   const [hasInvestmentAccount, setHasInvestmentAccount] = useState<boolean | null>(null);
-  const [showInvestmentProfilePrompt, setShowInvestmentProfilePrompt] = useState(false);
+  const [investmentProfileSuggestion, setInvestmentProfileSuggestion] = useState<InvestmentProfileSuggestion>(null);
   const [investmentProfileDecided, setInvestmentProfileDecided] = useState(false);
   const [currentFilename, setCurrentFilename] = useState("");
   const [colMap, setColMap] = useState<ColMap>({ dateCol: 0, descCol: 1, amountCol: 2, typeCol: -1, balanceCol: -1, invertAmounts: false });
@@ -637,26 +658,62 @@ export default function ImportPage() {
     await loadHistory();
   };
 
-  // Check whether the active profile already has a dedicated investment account -
-  // if not, offer to keep investments in a separate profile before importing.
+  // Decide how to guide the user toward keeping investments separate from everyday spending:
+  // 1) the active profile already has an investment account - nothing to suggest
+  // 2) another profile already has investment holdings - suggest switching there
+  // 3) another profile's name suggests it's meant for investments - suggest switching there
+  // 4) otherwise - offer to create a fresh "Investments" profile
   useEffect(() => {
     if (step !== "wizard:investment-preview" || investmentProfileDecided) return;
     (async () => {
       try {
         const db = await getDb();
-        const rows = await db.select<{ n: number }[]>(
+        const currentRows = await db.select<{ n: number }[]>(
           "SELECT COUNT(*) as n FROM accounts WHERE profile_id=? AND account_type='investment'",
           [profileId]
         );
-        const has = (rows[0]?.n ?? 0) > 0;
-        setHasInvestmentAccount(has);
-        setShowInvestmentProfilePrompt(!has);
+        const currentHas = (currentRows[0]?.n ?? 0) > 0;
+        setHasInvestmentAccount(currentHas);
+        if (currentHas) {
+          setInvestmentProfileSuggestion(null);
+          return;
+        }
+
+        const existing = await db.select<{ id: number; name: string }[]>(
+          `SELECT p.id, p.name FROM accounts a JOIN profiles p ON p.id = a.profile_id
+           WHERE a.account_type='investment' AND a.profile_id != ? LIMIT 1`,
+          [profileId]
+        );
+        if (existing.length > 0) {
+          setInvestmentProfileSuggestion({ mode: "existing", target: existing[0] });
+          return;
+        }
+
+        const named = await db.select<{ id: number; name: string }[]>(
+          "SELECT id, name FROM profiles WHERE id != ? AND LOWER(name) LIKE '%invest%' LIMIT 1",
+          [profileId]
+        );
+        if (named.length > 0) {
+          setInvestmentProfileSuggestion({ mode: "named", target: named[0] });
+          return;
+        }
+
+        setInvestmentProfileSuggestion({ mode: "create" });
       } catch {
         setHasInvestmentAccount(true);
-        setShowInvestmentProfilePrompt(false);
+        setInvestmentProfileSuggestion(null);
       }
     })();
   }, [step, profileId, investmentProfileDecided]);
+
+  /** Switches to an already-existing profile (with or without an investment account yet) instead of creating one. */
+  const switchToSuggestedProfile = (target: { id: number; name: string }, hasAccountAlready: boolean) => {
+    const full = profiles.find((p) => p.id === target.id);
+    if (full) setActiveProfile(full);
+    setInvestmentProfileSuggestion(null);
+    setHasInvestmentAccount(hasAccountAlready);
+    setInvestmentProfileDecided(true);
+  };
 
   /** Creates a dedicated "Investments" profile and switches to it - the user still clicks Import afterward. */
   const createInvestmentProfileAndSwitch = async () => {
@@ -674,7 +731,7 @@ export default function ImportPage() {
     };
     setProfiles([...profiles, newProfile]);
     setActiveProfile(newProfile);
-    setShowInvestmentProfilePrompt(false);
+    setInvestmentProfileSuggestion(null);
     setHasInvestmentAccount(false);
     setInvestmentProfileDecided(true);
   };
@@ -1111,7 +1168,7 @@ export default function ImportPage() {
     setColMapOverrides({});
     setFixColumnsOpen(new Set());
     setHasInvestmentAccount(null);
-    setShowInvestmentProfilePrompt(false);
+    setInvestmentProfileSuggestion(null);
     setInvestmentProfileDecided(false);
     setCurrentFilename("");
     setSummary(null);
@@ -1626,7 +1683,51 @@ export default function ImportPage() {
             </p>
           )}
 
-          {showInvestmentProfilePrompt && (
+          {investmentProfileSuggestion?.mode === "existing" && investmentProfileSuggestion.target && (
+            <div className="border rounded-xl p-4 space-y-3" style={{ backgroundColor: "hsl(var(--primary)/0.05)" }}>
+              <p className="text-sm font-medium flex items-start gap-2">
+                <Info size={16} className="shrink-0 mt-0.5 text-[hsl(var(--primary))]" />
+                You already have investments tracked in the "{investmentProfileSuggestion.target.name}" profile. Switch there so everything stays in one place?
+              </p>
+              <div className="flex gap-2 flex-wrap">
+                <button onClick={() => switchToSuggestedProfile(investmentProfileSuggestion.target!, true)}
+                  className="px-4 py-1.5 rounded-lg text-sm font-medium text-white hover:opacity-90 transition-opacity"
+                  style={{ backgroundColor: "var(--gold)" }}>
+                  Switch to "{investmentProfileSuggestion.target.name}"
+                </button>
+                <button onClick={() => { setInvestmentProfileSuggestion(null); setInvestmentProfileDecided(true); }}
+                  className="px-4 py-1.5 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
+                  Use This Profile Instead
+                </button>
+              </div>
+            </div>
+          )}
+
+          {investmentProfileSuggestion?.mode === "named" && investmentProfileSuggestion.target && (
+            <div className="border rounded-xl p-4 space-y-3" style={{ backgroundColor: "hsl(var(--primary)/0.05)" }}>
+              <p className="text-sm font-medium flex items-start gap-2">
+                <Info size={16} className="shrink-0 mt-0.5 text-[hsl(var(--primary))]" />
+                You have a profile named "{investmentProfileSuggestion.target.name}" - looks like it's meant for this. Switch there instead of creating a new one?
+              </p>
+              <div className="flex gap-2 flex-wrap">
+                <button onClick={() => switchToSuggestedProfile(investmentProfileSuggestion.target!, false)}
+                  className="px-4 py-1.5 rounded-lg text-sm font-medium text-white hover:opacity-90 transition-opacity"
+                  style={{ backgroundColor: "var(--gold)" }}>
+                  Switch to "{investmentProfileSuggestion.target.name}"
+                </button>
+                <button onClick={createInvestmentProfileAndSwitch}
+                  className="px-4 py-1.5 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
+                  Create a New Profile Instead
+                </button>
+                <button onClick={() => { setInvestmentProfileSuggestion(null); setInvestmentProfileDecided(true); }}
+                  className="px-4 py-1.5 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
+                  Use This Profile Instead
+                </button>
+              </div>
+            </div>
+          )}
+
+          {investmentProfileSuggestion?.mode === "create" && (
             <div className="border rounded-xl p-4 space-y-3" style={{ backgroundColor: "hsl(var(--primary)/0.05)" }}>
               <p className="text-sm font-medium flex items-start gap-2">
                 <Info size={16} className="shrink-0 mt-0.5 text-[hsl(var(--primary))]" />
@@ -1638,7 +1739,7 @@ export default function ImportPage() {
                   style={{ backgroundColor: "var(--gold)" }}>
                   Create "Investments" Profile
                 </button>
-                <button onClick={() => { setShowInvestmentProfilePrompt(false); setInvestmentProfileDecided(true); }}
+                <button onClick={() => { setInvestmentProfileSuggestion(null); setInvestmentProfileDecided(true); }}
                   className="px-4 py-1.5 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
                   Use This Profile Instead
                 </button>
@@ -1667,6 +1768,7 @@ export default function ImportPage() {
 
           {derivedSections.map((section) => {
             const isFixOpen = fixColumnsOpen.has(section.title);
+            const noValueData = sectionHasNoValueData(section.rows);
             return (
             <div key={section.title} className="border rounded-xl overflow-hidden">
               <div className="px-4 py-2 bg-[hsl(var(--muted))] border-b text-xs font-medium uppercase tracking-wide flex items-center justify-between gap-2">
@@ -1679,6 +1781,12 @@ export default function ImportPage() {
                   </button>
                 </div>
               </div>
+              {noValueData && (
+                <p className="px-4 py-2 text-xs text-amber-600 dark:text-amber-400 border-b flex items-start gap-1 normal-case font-normal">
+                  <Info size={12} className="shrink-0 mt-0.5" />
+                  This section's file columns are all empty for shares, price, market value, and dates - Compass found the holdings but no numbers to go with them. Check <strong>Fix columns</strong> below to confirm, or re-export the statement with those columns visible.
+                </p>
+              )}
               {isFixOpen && (
                 <div className="px-4 py-3 border-b bg-[hsl(var(--muted))]/30 grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {HOLDING_FIELDS.map((field) => (
@@ -1691,7 +1799,9 @@ export default function ImportPage() {
                       >
                         <option value={-1}>None</option>
                         {section.headerRow.map((h, i) => (
-                          <option key={i} value={i}>{h || `Column ${i + 1}`}</option>
+                          <option key={i} value={i}>
+                            {(h || `Column ${i + 1}`)} - {columnFillCount(section.rawRows, i)}/{section.rawRows.length} filled
+                          </option>
                         ))}
                       </select>
                     </label>
