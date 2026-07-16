@@ -635,7 +635,7 @@ export default function ImportPage() {
   const [profileSuggestionDecided, setProfileSuggestionDecided] = useState(false);
   const [currentFilename, setCurrentFilename] = useState("");
   const [colMap, setColMap] = useState<ColMap>({ dateCol: 0, descCol: 1, amountCol: 2, typeCol: -1, balanceCol: -1, invertAmounts: false });
-  const [startingBalanceInput, setStartingBalanceInput] = useState("");
+  const [currentBalanceInput, setCurrentBalanceInput] = useState("");
   const [profileFound, setProfileFound] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -663,20 +663,20 @@ export default function ImportPage() {
     if (detectedMonth) setTargetMonth(detectedMonth);
   }, [detectedMonth]);
 
-  // When there's no balance column, prefill any previously-set starting balance for this
-  // account/type so returning to the step (or importing again later) shows the current anchor.
+  // When there's no balance column, prefill the account's current balance anchor (the real
+  // balance as of the day it was entered) so returning to the step shows what's already saved.
   useEffect(() => {
     if (step !== "wizard:balance" || colMap.balanceCol >= 0) return;
     (async () => {
       try {
         const db = await getDb();
         const accountType = importKind === "credit" ? "credit" : "checking";
-        const rows = await db.select<{ starting_balance_cents: number | null }[]>(
-          "SELECT starting_balance_cents FROM accounts WHERE profile_id=? AND account_type=?",
+        const rows = await db.select<{ balance_anchor_cents: number | null }[]>(
+          "SELECT balance_anchor_cents FROM accounts WHERE profile_id=? AND account_type=?",
           [profileId, accountType]
         );
-        const cents = rows[0]?.starting_balance_cents;
-        setStartingBalanceInput(cents != null ? (cents / 100).toFixed(2) : "");
+        const cents = rows[0]?.balance_anchor_cents;
+        setCurrentBalanceInput(cents != null ? (cents / 100).toFixed(2) : "");
       } catch { /* leave blank */ }
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1097,9 +1097,15 @@ export default function ImportPage() {
     try {
       const db = await getDb();
       const accountId = await getOrCreateAccountForProfile(profileId, importKind === "credit" ? "credit" : "checking");
-      if (colMap.balanceCol < 0 && startingBalanceInput.trim()) {
-        const startingCents = Math.round(parseAmount(startingBalanceInput) * 100);
-        await db.execute("UPDATE accounts SET starting_balance_cents=? WHERE id=?", [startingCents, accountId]);
+      if (colMap.balanceCol < 0 && currentBalanceInput.trim()) {
+        // The entered value is the real balance AFTER all transactions, as of today (when it's
+        // submitted) - not before them - so Compass can calculate correctly in both directions.
+        const anchorCents = Math.round(parseAmount(currentBalanceInput) * 100);
+        const anchorDate = new Date().toISOString().split("T")[0];
+        await db.execute(
+          "UPDATE accounts SET balance_anchor_cents=?, balance_anchor_date=? WHERE id=?",
+          [anchorCents, anchorDate, accountId]
+        );
       }
       const rules = await db.select<CategorizationRule[]>(
         "SELECT * FROM categorization_rules WHERE profile_id=? OR profile_id IS NULL ORDER BY priority DESC",
@@ -1181,7 +1187,7 @@ export default function ImportPage() {
       );
 
       // No native balance column - (re)calculate a running balance for every transaction on
-      // this account from its starting balance (or 0), so charts/dashboards still have a value.
+      // this account from its balance anchor (or 0), so charts/dashboards still have a value.
       if (colMap.balanceCol < 0) {
         await recomputeCalculatedBalances(accountId);
       }
@@ -1299,7 +1305,7 @@ export default function ImportPage() {
     setInvParsed(null);
     setColMapOverrides({});
     setFixColumnsOpen(new Set());
-    setStartingBalanceInput("");
+    setCurrentBalanceInput("");
     setHasDedicatedAccount(null);
     setProfileSuggestion(null);
     setProfileSuggestionDecided(false);
@@ -1789,10 +1795,10 @@ export default function ImportPage() {
             {colMap.balanceCol === -1 && (
               <div className="pt-3 border-t space-y-2">
                 <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
-                  Starting balance <span className="font-normal">(optional)</span>
+                  Current balance <span className="font-normal">(optional)</span>
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                  Know your real account balance right before these transactions? Enter it and Compass will calculate a running balance for every transaction. Leave it blank and Compass will still calculate a relative running total starting from $0.
+                  Know your real account balance today, after these transactions? Enter it and Compass will calculate each transaction's running balance by working backward from today's date. Leave it blank and Compass will still calculate a relative running total starting from $0.
                 </p>
                 <div className="relative max-w-xs">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[hsl(var(--muted-foreground))]">$</span>
@@ -1800,8 +1806,8 @@ export default function ImportPage() {
                     type="text"
                     inputMode="decimal"
                     placeholder="0.00"
-                    value={startingBalanceInput}
-                    onChange={(e) => setStartingBalanceInput(e.target.value)}
+                    value={currentBalanceInput}
+                    onChange={(e) => setCurrentBalanceInput(e.target.value)}
                     className="w-full border rounded-lg pl-7 pr-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
                   />
                 </div>

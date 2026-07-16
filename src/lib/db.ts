@@ -751,6 +751,21 @@ async function runMigrations(db: CompassDb): Promise<void> {
     }
     await db.execute("PRAGMA user_version = 12");
   }
+
+  // ── v13: Balance anchor represents the balance AFTER transactions as of a
+  //         given date (typically today, when the value is entered), not
+  //         before them - lets Compass calculate correctly in both directions
+  if (version < 13) {
+    assertSafeMigrationIdentifiers("accounts", "balance_anchor_cents");
+    if (!(await colExists(db, "accounts", "balance_anchor_cents"))) {
+      await db.execute("ALTER TABLE accounts ADD COLUMN balance_anchor_cents INTEGER");
+    }
+    assertSafeMigrationIdentifiers("accounts", "balance_anchor_date");
+    if (!(await colExists(db, "accounts", "balance_anchor_date"))) {
+      await db.execute("ALTER TABLE accounts ADD COLUMN balance_anchor_date TEXT");
+    }
+    await db.execute("PRAGMA user_version = 13");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────
@@ -780,23 +795,52 @@ export async function getOrCreateAccountForProfile(
 }
 
 /**
- * Recalculates `balance_cents` for every transaction on an account by walking them in
- * chronological order and accumulating amounts on top of the account's manually-set
- * `starting_balance_cents` (or 0, if never set - a "pure" relative running total).
- * Used for imports whose source file has no native running-balance column.
+ * Recalculates `balance_cents` for every transaction on an account using its manually-set
+ * balance anchor - the real balance AFTER all transactions up to `balance_anchor_date`
+ * (typically "today", the date the value was entered). Transactions on or before that date
+ * are calculated backward from the anchor; any transactions after it (e.g. from a later
+ * import) are calculated forward from it. With no anchor set, falls back to a "pure"
+ * relative running total starting from $0. Used for imports whose source file has no
+ * native running-balance column.
  */
 export async function recomputeCalculatedBalances(accountId: number): Promise<void> {
   const db = await getDb();
-  const [acct] = await db.select<{ starting_balance_cents: number | null }[]>(
-    "SELECT starting_balance_cents FROM accounts WHERE id=?",
+  const [acct] = await db.select<{ balance_anchor_cents: number | null; balance_anchor_date: string | null }[]>(
+    "SELECT balance_anchor_cents, balance_anchor_date FROM accounts WHERE id=?",
     [accountId]
   );
-  let running = acct?.starting_balance_cents ?? 0;
-  const rows = await db.select<{ id: number; amount_cents: number }[]>(
-    "SELECT id, amount_cents FROM transactions WHERE account_id=? ORDER BY date ASC, id ASC",
+  const rows = await db.select<{ id: number; date: string; amount_cents: number }[]>(
+    "SELECT id, date, amount_cents FROM transactions WHERE account_id=? ORDER BY date ASC, id ASC",
     [accountId]
   );
-  for (const row of rows) {
+
+  const anchorCents = acct?.balance_anchor_cents;
+  const anchorDate = acct?.balance_anchor_date;
+  if (anchorCents == null || !anchorDate) {
+    // No anchor - pure relative running total forward from $0.
+    let running = 0;
+    for (const row of rows) {
+      running += row.amount_cents;
+      await db.execute("UPDATE transactions SET balance_cents=? WHERE id=?", [running, row.id]);
+    }
+    return;
+  }
+
+  const upToAnchor = rows.filter((r) => r.date <= anchorDate);
+  const afterAnchor = rows.filter((r) => r.date > anchorDate);
+
+  // Backward pass: the anchor is the balance right after the last transaction on/before
+  // the anchor date, so walk from latest to earliest, subtracting each one's amount.
+  let running = anchorCents;
+  for (let i = upToAnchor.length - 1; i >= 0; i--) {
+    const row = upToAnchor[i];
+    await db.execute("UPDATE transactions SET balance_cents=? WHERE id=?", [running, row.id]);
+    running -= row.amount_cents;
+  }
+
+  // Forward pass: any transactions dated after the anchor build forward from it.
+  running = anchorCents;
+  for (const row of afterAnchor) {
     running += row.amount_cents;
     await db.execute("UPDATE transactions SET balance_cents=? WHERE id=?", [running, row.id]);
   }

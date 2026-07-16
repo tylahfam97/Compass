@@ -100,7 +100,7 @@ Column detection also recognizes distinctive export formats automatically — Am
 | **2 · Date** | Pick the date column; Compass parses dates live and warns on invalid values |
 | **3 · Description** | Pick the merchant/payee column with sample values shown |
 | **4 · Amount** | Pick the amount column; supports banks that use separate Debit/Credit columns |
-| **5 · Balance** *(optional)* | Import your running balance to unlock sparklines and balance charts. No balance column in your export? Enter a starting balance and Compass calculates a running balance for you — or leave it blank for a relative running total from $0 |
+| **5 · Balance** *(optional)* | Import your running balance to unlock sparklines and balance charts. No balance column in your export? Enter your current balance (as of today, after these transactions) and Compass calculates a running balance backward from it — or leave it blank for a relative running total from $0 |
 | **6 · Preview** | Row count, detected month, 5-row preview — then import |
 
 Returning users whose bank layout was previously saved skip straight to Preview. Duplicate transactions are silently skipped using a content hash. **Batch import:** drop multiple CSVs at once — Compass queues them. At the Preview step, **"⚡ Import All (N files)"** applies your current column settings to every remaining file and imports them automatically without further wizard interaction.

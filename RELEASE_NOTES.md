@@ -5,9 +5,9 @@
 ## Compass 0.7.0 — Calculated Running Balances
 
 ### New: Running Balance Without a Balance Column
-Statements that don't export a running balance (most plain Date/Description/Amount CSVs) can now still get one. On the import wizard's Balance step, when you choose "No balance column," an optional **Starting balance** field appears. Enter your real account balance right before these transactions and Compass calculates an accurate running balance for every transaction, chronologically, on top of it. Leave it blank and Compass still calculates a relative running total starting from $0, so balance charts and low-balance alerts always have something to work with.
+Statements that don't export a running balance (most plain Date/Description/Amount CSVs) can now still get one. On the import wizard's Balance step, when you choose "No balance column," an optional **Current balance** field appears. Enter your real account balance as of today (after these transactions) and Compass calculates an accurate running balance for every transaction by working backward from today's date. Leave it blank and Compass still calculates a relative running total starting from $0, so balance charts and low-balance alerts always have something to work with.
 
-The starting balance is saved on the account, so future imports without a balance column keep the running total going automatically — no need to re-enter it every time (though you can update it any time by re-entering a new value on your next import).
+The current balance is saved on the account, so future imports without a balance column keep the running total going automatically — no need to re-enter it every time (though you can update it any time by re-entering a new value on your next import).
 
 
 ### Import Wizard: Manual Column Fix-Up for Investments
