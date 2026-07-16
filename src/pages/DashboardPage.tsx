@@ -5,7 +5,7 @@ import {
   ResponsiveContainer, Cell, AreaChart, Area,
 } from "recharts";
 import { getDb } from "@/lib/db";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, combineAccountBalances } from "@/lib/utils";
 import type { Transaction, Insight } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
@@ -28,6 +28,8 @@ interface BalancePoint {
   date: string;
   balance: number;
 }
+
+const INCLUDE_INVESTMENTS_KEY = "compass_include_investments";
 
 function monthBounds(ym: string): [string, string] {
   const [y, m] = ym.split("-").map(Number);
@@ -52,6 +54,18 @@ export default function DashboardPage() {
   const [confirmClear, setConfirmClear] = useState<"month" | "all" | null>(null);
   const [currentBalance, setCurrentBalance] = useState<number | null>(null);
   const [balancePoints, setBalancePoints] = useState<BalancePoint[]>([]);
+  const [portfolioValueCents, setPortfolioValueCents] = useState(0);
+  const [includeInvestments, setIncludeInvestments] = useState(
+    () => localStorage.getItem(INCLUDE_INVESTMENTS_KEY) !== "false"
+  );
+
+  const toggleIncludeInvestments = () => {
+    setIncludeInvestments((prev) => {
+      const next = !prev;
+      localStorage.setItem(INCLUDE_INVESTMENTS_KEY, String(next));
+      return next;
+    });
+  };
 
   const navMonth = (dir: -1 | 1) => {
     const [y, m] = month.split("-").map(Number);
@@ -63,7 +77,7 @@ export default function DashboardPage() {
     setLoading(true);
     const db = await getDb();
     const [start, end] = monthBounds(month);
-    const [incRow, expRow, catRows, recentRows, monthCountRow, totalCountRow, balanceRow, balancePointRows] = await Promise.all([
+    const [incRow, expRow, catRows, recentRows, monthCountRow, totalCountRow, balanceRow, balancePointRows, portfolioRow] = await Promise.all([
       db.select<{ total: number }[]>(
         "SELECT COALESCE(SUM(amount_cents),0) as total FROM transactions WHERE date>=? AND date<? AND amount_cents>0 AND (category_id IS NULL OR category_id!=20) AND profile_id=?",
         [start, end, profileId]
@@ -92,15 +106,24 @@ export default function DashboardPage() {
         [start, end, profileId]
       ),
       db.select<{ n: number }[]>("SELECT COUNT(*) as n FROM transactions WHERE profile_id=?", [profileId]),
-      db.select<{ balance_cents: number }[]>(
-        "SELECT balance_cents FROM transactions WHERE profile_id=? AND balance_cents IS NOT NULL ORDER BY date DESC, id DESC LIMIT 1",
+      db.select<{ account_id: number; balance_cents: number | null }[]>(
+        `SELECT a.id as account_id,
+           (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
+            ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents
+         FROM accounts a WHERE a.profile_id=? AND a.account_type IN ('checking','credit')`,
         [profileId]
       ),
-      db.select<{ date: string; balance_cents: number }[]>(
-        `SELECT date, balance_cents FROM transactions
-         WHERE profile_id=? AND date>=? AND date<? AND balance_cents IS NOT NULL
-         ORDER BY date ASC, id ASC`,
-        [profileId, start, end]
+      db.select<{ date: string; account_id: number; balance_cents: number }[]>(
+        `SELECT t.date, t.account_id, t.balance_cents FROM transactions t
+         JOIN accounts a ON a.id=t.account_id
+         WHERE t.profile_id=? AND t.date<? AND t.balance_cents IS NOT NULL AND a.account_type IN ('checking','credit')
+         ORDER BY t.date ASC, t.id ASC`,
+        [profileId, end]
+      ),
+      db.select<{ total: number | null }[]>(
+        `SELECT SUM(market_value_cents) as total FROM holdings
+         WHERE profile_id=? AND as_of_date=(SELECT MAX(as_of_date) FROM holdings WHERE profile_id=?)`,
+        [profileId, profileId]
       ),
     ]);
     const inc = incRow[0]?.total ?? 0;
@@ -110,8 +133,11 @@ export default function DashboardPage() {
     setRecent(recentRows);
     setMonthTxnCount(monthCountRow[0]?.n ?? 0);
     setTotalTxnCount(totalCountRow[0]?.n ?? 0);
-    setCurrentBalance(balanceRow[0]?.balance_cents ?? null);
-    setBalancePoints(balancePointRows.map((r) => ({ date: r.date, balance: r.balance_cents / 100 })));
+    const trackedAccounts = balanceRow.filter((r) => r.balance_cents !== null);
+    setCurrentBalance(trackedAccounts.length > 0 ? trackedAccounts.reduce((s, r) => s + (r.balance_cents ?? 0), 0) : null);
+    const combined = combineAccountBalances(balancePointRows);
+    setBalancePoints(combined.filter((r) => r.date >= start).map((r) => ({ date: r.date, balance: r.balance_cents / 100 })));
+    setPortfolioValueCents(portfolioRow[0]?.total ?? 0);
     setLoading(false);
   }, [month, profileId]);
 
@@ -251,13 +277,34 @@ export default function DashboardPage() {
 
           {/* Account balance card + sparkline */}
           {currentBalance != null && (
-            <div className="border rounded-xl p-5 flex gap-6 items-center">
+            <div className="border rounded-xl p-5 flex gap-6 items-center flex-wrap">
               <div className="shrink-0">
-                <p className="text-sm text-[hsl(var(--muted-foreground))] mb-1">Account Balance</p>
-                <p className={`text-2xl font-bold ${currentBalance >= 0 ? "text-green-600" : "text-red-500"}`}>
-                  {formatCurrency(currentBalance)}
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-sm text-[hsl(var(--muted-foreground))]">
+                    {portfolioValueCents > 0 && includeInvestments ? "Net Worth" : "Account Balance"}
+                  </p>
+                  {portfolioValueCents > 0 && (
+                    <button
+                      onClick={toggleIncludeInvestments}
+                      title="Toggle whether investments are included in this figure"
+                      className={`text-[10px] px-2 py-0.5 rounded-full border font-medium transition-colors ${
+                        includeInvestments
+                          ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent"
+                          : "hover:bg-[hsl(var(--muted))]"
+                      }`}
+                    >
+                      + Investments
+                    </button>
+                  )}
+                </div>
+                <p className={`text-2xl font-bold ${(currentBalance + (includeInvestments ? portfolioValueCents : 0)) >= 0 ? "text-green-600" : "text-red-500"}`}>
+                  {formatCurrency(currentBalance + (includeInvestments ? portfolioValueCents : 0))}
                 </p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">Most recent transaction</p>
+                <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
+                  {portfolioValueCents > 0
+                    ? `${formatCurrency(currentBalance)} cash${includeInvestments ? ` + ${formatCurrency(portfolioValueCents)} investments` : ""}`
+                    : "Most recent transaction"}
+                </p>
               </div>
               {balancePoints.length > 1 && (
                 <div className="flex-1 h-16">

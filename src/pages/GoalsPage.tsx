@@ -188,7 +188,10 @@ export default function GoalsPage() {
 
         } else if (g.type === "balance_floor") {
           const [r] = await db.select<{ v: number | null }[]>(
-            "SELECT balance_cents as v FROM transactions WHERE profile_id=? AND balance_cents IS NOT NULL ORDER BY date DESC, id DESC LIMIT 1",
+            `SELECT t.balance_cents as v FROM transactions t
+             JOIN accounts a ON a.id=t.account_id
+             WHERE t.profile_id=? AND t.balance_cents IS NOT NULL AND a.account_type='checking'
+             ORDER BY t.date DESC, t.id DESC LIMIT 1`,
             [profileId]
           );
           if (r?.v == null) { noBalanceData = true; current = 0; }

@@ -25,3 +25,24 @@ export function formatDate(iso: string): string {
     day: "numeric",
   }).format(d);
 }
+
+/**
+ * Merges per-account running-balance rows (e.g. checking + credit, ordered by date ASC, id ASC)
+ * into a single combined daily series, forward-filling each account's last known balance so
+ * a day with activity on only one account still reflects the other account's current balance.
+ * Credit accounts are expected to already store balance_cents negative (a liability).
+ */
+export function combineAccountBalances(
+  rows: { date: string; account_id: number; balance_cents: number }[]
+): { date: string; balance_cents: number }[] {
+  const lastByAccount = new Map<number, number>();
+  const byDate = new Map<string, number>();
+  for (const r of rows) {
+    lastByAccount.set(r.account_id, r.balance_cents);
+    let total = 0;
+    for (const v of lastByAccount.values()) total += v;
+    byDate.set(r.date, total);
+  }
+  return [...byDate.entries()].map(([date, balance_cents]) => ({ date, balance_cents }));
+}
+

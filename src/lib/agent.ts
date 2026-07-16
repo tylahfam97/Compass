@@ -30,11 +30,12 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   const db = await getDb();
   const insights: Insight[] = [];
 
-  // ── 0. Current account balance ───────────────────────────────────────────
+  // ── 0. Current account balance (liquid cash only - checking, not credit) ──
   const [balanceRow] = await db.select<{ balance_cents: number; date: string }[]>(
-    `SELECT balance_cents, date FROM transactions
-     WHERE profile_id=? AND balance_cents IS NOT NULL
-     ORDER BY date DESC, id DESC LIMIT 1`,
+    `SELECT t.balance_cents, t.date FROM transactions t
+     JOIN accounts a ON a.id=t.account_id
+     WHERE t.profile_id=? AND t.balance_cents IS NOT NULL AND a.account_type='checking'
+     ORDER BY t.date DESC, t.id DESC LIMIT 1`,
     [profileId]
   );
   // balanceRow is available for insight logic below
@@ -385,6 +386,58 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         severity: "warning",
         dismissKey: `runway_short_${balanceRow.date}`,
       });
+    }
+  }
+
+  // ── INSIGHT: credit card debt (balance_cents is negative for credit accounts) ──
+  const [creditBalanceRow] = await db.select<{ balance_cents: number; date: string }[]>(
+    `SELECT t.balance_cents, t.date FROM transactions t
+     JOIN accounts a ON a.id=t.account_id
+     WHERE t.profile_id=? AND t.balance_cents IS NOT NULL AND a.account_type='credit'
+     ORDER BY t.date DESC, t.id DESC LIMIT 1`,
+    [profileId]
+  );
+  const [creditBalancePriorRow] = await db.select<{ balance_cents: number }[]>(
+    `SELECT t.balance_cents FROM transactions t
+     JOIN accounts a ON a.id=t.account_id
+     WHERE t.profile_id=? AND t.balance_cents IS NOT NULL AND a.account_type='credit' AND t.date < ?
+     ORDER BY t.date DESC, t.id DESC LIMIT 1`,
+    [profileId, thisStart]
+  );
+  if (creditBalanceRow?.balance_cents != null) {
+    const debt = creditBalanceRow.balance_cents; // negative = amount owed
+    if (debt < -100000) {
+      // Carrying more than $1,000 in credit card debt
+      insights.push({
+        id: `credit_card_debt_high_${creditBalanceRow.date}`,
+        type: "credit_card_debt_high",
+        title: `Credit card debt: ${formatCents(Math.abs(debt))}`,
+        description: `You're carrying a balance of ${formatCents(Math.abs(debt))} on your credit card as of ${creditBalanceRow.date}. Interest charges add up quickly - paying down high-interest debt is usually a better return than most savings accounts.`,
+        severity: "warning",
+        dismissKey: `credit_card_debt_high_${creditBalanceRow.date}`,
+      });
+    }
+    if (creditBalancePriorRow?.balance_cents != null) {
+      const delta = debt - creditBalancePriorRow.balance_cents; // negative = debt grew
+      if (delta < -5000) {
+        insights.push({
+          id: `credit_card_debt_growing_${thisMonth}`,
+          type: "credit_card_debt_growing",
+          title: `Credit card debt grew by ${formatCents(Math.abs(delta))}`,
+          description: `Your credit card balance went from ${formatCents(Math.abs(creditBalancePriorRow.balance_cents))} to ${formatCents(Math.abs(debt))} owed. Keep an eye on this before it compounds with interest.`,
+          severity: "warning",
+          dismissKey: `credit_card_debt_growing_${thisMonth}`,
+        });
+      } else if (delta > 5000) {
+        insights.push({
+          id: `credit_card_debt_improving_${thisMonth}`,
+          type: "credit_card_debt_improving",
+          title: `Paid down ${formatCents(delta)} in credit card debt`,
+          description: `Nice progress - your credit card balance improved from ${formatCents(Math.abs(creditBalancePriorRow.balance_cents))} to ${formatCents(Math.abs(debt))} owed.`,
+          severity: "success",
+          dismissKey: `credit_card_debt_improving_${thisMonth}`,
+        });
+      }
     }
   }
 
@@ -998,9 +1051,12 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
     budgetScore = pct >= 1.0 ? 30 : pct >= 0.8 ? 24 : pct >= 0.6 ? 18 : pct >= 0.4 ? 12 : 6;
   }
 
-  // ── 3. Balance Runway (20 pts) ─────────────────────────────────────────
+  // ── 3. Balance Runway (20 pts) — liquid cash only, not credit card debt ──
   const [balRow] = await db.select<{ balance_cents: number | null }[]>(
-    `SELECT balance_cents FROM transactions WHERE profile_id IN (${ph}) AND balance_cents IS NOT NULL ORDER BY date DESC, id DESC LIMIT 1`,
+    `SELECT t.balance_cents FROM transactions t
+     JOIN accounts a ON a.id=t.account_id
+     WHERE t.profile_id IN (${ph}) AND t.balance_cents IS NOT NULL AND a.account_type='checking'
+     ORDER BY t.date DESC, t.id DESC LIMIT 1`,
     [...profileIds]
   );
   let balanceScore = 10;

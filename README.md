@@ -90,13 +90,17 @@ On your second import from the same bank, Compass remembers the column layout an
 
 A guided import flow that handles any bank's CSV format:
 
+Before the column-mapping steps, Compass asks what you're importing: **Bank Statement**, **Credit Card Statement**, or **Investment / Brokerage**. Bank and credit card statements share the wizard below. Investment statements skip straight to a grouped preview — see [Investments](#-investments) below.
+
+Column detection also recognizes distinctive export formats automatically — American Express's activity export (with its `Extended Details` / `Appears On Your Statement As` columns) is auto-matched and sign-corrected without needing to click the preset button. For credit card imports, Compass also checks whether another profile already tracks a credit card (or has a plausibly-named profile) and offers to switch there instead of mixing it into your current profile — the same smart suggestion used for investments below.
+
 | Step | What happens |
 |---|---|
 | **1 · Find Data** | Auto-detects your header row; adjust with +/− if needed. **Skip to Preview ↗** is always available once you're happy with the columns |
 | **2 · Date** | Pick the date column; Compass parses dates live and warns on invalid values |
 | **3 · Description** | Pick the merchant/payee column with sample values shown |
 | **4 · Amount** | Pick the amount column; supports banks that use separate Debit/Credit columns |
-| **5 · Balance** *(optional)* | Import your running balance to unlock sparklines and balance charts |
+| **5 · Balance** *(optional)* | Import your running balance to unlock sparklines and balance charts. No balance column in your export? Enter your current balance (as of today, after these transactions) and Compass calculates a running balance backward from it — or leave it blank for a relative running total from $0 |
 | **6 · Preview** | Row count, detected month, 5-row preview — then import |
 
 Returning users whose bank layout was previously saved skip straight to Preview. Duplicate transactions are silently skipped using a content hash. **Batch import:** drop multiple CSVs at once — Compass queues them. At the Preview step, **"⚡ Import All (N files)"** applies your current column settings to every remaining file and imports them automatically without further wizard interaction.
@@ -107,11 +111,11 @@ Returning users whose bank layout was previously saved skip straight to Preview.
 
 The **⚙ Rules** modal has a two-tier editor: a simple "contains" field for everyday use, and an expandable Advanced section with regex support and a cheat-sheet for power users. All your rules can be edited inline.
 
-**Transfers** are reserved for same-institution internal moves (checking ↔ savings). Zelle, Venmo, and Cash App are intentionally left uncategorized so you can create rules that match your actual usage.
+**Transfers** are reserved for same-institution internal moves (checking ↔ savings). Zelle, Venmo, and Cash App are intentionally left uncategorized so you can create rules that match your actual usage. Credit card payment descriptions ("___ PAYMENT - THANK YOU", used by Amex, Chase, Discover, and others) are automatically filed under Transfers too, so paying off a card balance never inflates your income totals.
 
 ### 📅 Dashboard & Trends
 
-Your home screen for any month: income, expenses, and net savings as summary cards, a top categories chart, and the 10 most recent transactions. Navigate freely between months. The **Trends** page shows 3, 6, or 12-month income vs. expenses and per-category spending breakdowns.
+Your home screen for any month: income, expenses, and net savings as summary cards, a top categories chart, and the 10 most recent transactions. Navigate freely between months. The **Trends** page shows 3, 6, or 12-month income vs. expenses and per-category spending breakdowns, with a **Profile / Global scope toggle** to aggregate across all profiles. Three all-time KPI tiles (Income, Expenses, Net) are always visible regardless of the selected range. A **Cumulative Net** line chart shows the running total of savings month-by-month across all imported history.
 
 ### 📋 Reports
 
@@ -170,7 +174,13 @@ Each spotlight card includes a forward-looking **“↗ potential” callout** c
 
 ### 🔍 Transactions
 
-Full searchable, filterable transaction list. Filter by month or view all-time history. Re-categorize in one click, and view the running account balance alongside each transaction.
+Full searchable, filterable transaction list. Filter by month or view all-time history (no row cap). Re-categorize in one click, and view the running account balance alongside each transaction.
+
+**Sortable column headers** — Click Date, Description, Category, Amount, or Balance to sort. Click again to reverse. An arrow shows the active column and direction.
+
+**Net summary** — Three tiles above the table show **Income**, **Expenses**, and **Net** for the current filtered view.
+
+**Transfers excluded** — Selecting the Transfers category shows an inline notice that transfers don't count toward income or expense totals anywhere in the app.
 
 **Filter row 1 — date & search:**
 - Filter by month or toggle to **All time**
@@ -186,13 +196,26 @@ Full searchable, filterable transaction list. Filter by month or view all-time h
 - **Edit** any transaction’s date, description, amount, category, or notes
 - **Delete** transactions you don’t need
 - **＋ Add** manual transactions for cash, Venmo, or anything not in a bank export
-- **↓ Export** opens an OS save dialog — choose filename and location; exports exactly the current filtered view as CSV
+- **↓ Export** opens an OS save dialog — choose filename and location; exports exactly the current filtered view as CSV (respects active sort)
 - **✦ Auto-Categorize** applies your rules to all transactions, then system rules fill remaining uncategorized ones
-- **Drag a CSV** onto the Transactions page to jump straight to the import wizard
+- **Drag a CSV or XLSX** onto the Transactions page to jump straight to the import wizard
 
 ### 💼 All Accounts Overview
 
-Aggregates all profiles in one place. Each account card shows current balance, a 60-day sparkline, and this month's income/expenses/net. Click any card to jump to that account's dashboard.
+Aggregates all profiles in one place. Each account card shows current balance, a 60-day sparkline, and this month's income/expenses/net. Click any card to jump to that account's dashboard. A **+ Investments** toggle folds each profile's latest portfolio value into a combined net worth figure, or hides it to show liquid cash only.
+
+### 📈 Investments
+
+Import a brokerage "Portfolio Positions" export (Wells Fargo Advisors format — `.csv`, `.xlsx`, or `.xls`) and Compass will:
+
+- Detect every section of the statement (Stocks, ETFs, Mutual Funds, Cash, Other) along with each security's individual tax lots, scanning every tab in the workbook to find the one that actually contains the positions table
+- Show a grouped preview with per-section totals before anything is imported, with a **Fix columns** control per section if any field was detected wrong — each option shows how many rows actually have data in it, so you're never guessing
+- Check whether another profile already tracks investments, or has a plausibly-named profile, before offering to create a dedicated **Investments** profile — so brokerage holdings never mix into everyday spending totals
+- Track holdings as dated snapshots, so re-importing a later statement builds a value-over-time history instead of overwriting it
+
+The Investments page shows KPI tiles (portfolio value, cost basis, unrealized gain/loss, estimated annual dividend income), holdings grouped by symbol with expandable tax-lot detail, and a portfolio value chart once two or more statements have been imported.
+
+> Dividend and "Est. Annual Income" figures reflect the brokerage's projected estimates as of the statement date — not a history of dividends actually paid.
 
 ### 🔄 In-App Auto-Updates
 
@@ -364,7 +387,7 @@ npm run tauri build     # production build → src-tauri/target/release/bundle/
 Compass is focused on one thing: making it easy to understand your personal finances privately, locally, and without friction.
 
 ### ✅ Phase 1 — Core *(complete)*
-Statement import · Import history + undo · Auto-categorization · Edit/add/delete transactions · CSV export · Spending trends · Budgets with on-pace projection · Goals · Reports with custom date ranges · Insights · Ghost subscriptions · Running balance · All-accounts overview · Smart categorization rules · In-app auto-updates · Demo mode · Batch import · Collapsible sidebar · Profile switcher on launch
+Statement import · Import history + undo · Auto-categorization · Edit/add/delete transactions · CSV export · Spending trends · Budgets with on-pace projection · Goals · Reports with custom date ranges · Insights · Ghost subscriptions · Running balance · All-accounts overview · Smart categorization rules · In-app auto-updates · Demo mode · Batch import · Collapsible sidebar · Profile switcher on launch · Investment portfolio tracking with net worth toggle
 
 ### ✅ Phase 2 — AI Insights *(complete)*
 AI agent for natural-language questions about your data · Automatic insight generation (budget gaps, unusual spending, savings rate, overspend streaks, low balance alerts) · Categorization rules engine with priority ordering

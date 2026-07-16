@@ -1,18 +1,24 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { Calendar, Tag, DollarSign, BarChart2, Upload, Loader2, CheckCircle2, Info } from "lucide-react";
+import {
+  Calendar, Tag, DollarSign, BarChart2, Upload, Loader2, CheckCircle2, Info,
+  Landmark, CreditCard, TrendingUp,
+} from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { getDb, getOrCreateAccountForProfile, applyCategorizationRules } from "@/lib/db";
+import { getDb, getOrCreateAccountForProfile, applyCategorizationRules, recomputeCalculatedBalances } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import type { CategorizationRule } from "@/lib/types";
+import type { CategorizationRule, Profile, SecurityType } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
 import { takePendingImportFiles } from "@/lib/pendingImport";
 
 type Step =
   | "upload" | "checking"
   | "wizard:data" | "wizard:date" | "wizard:desc" | "wizard:amount" | "wizard:balance" | "wizard:preview"
+  | "wizard:investment-preview"
   | "importing" | "done";
+
+type ImportKind = "bank" | "credit" | "investment";
 
 interface ColMap {
   dateCol: number;
@@ -32,6 +38,9 @@ interface BankPreset {
   balanceKeywords?: string[];
   invertAmounts?: boolean;
   note?: string;
+  /** Distinctive column names (beyond date/desc/amount) used to auto-detect this preset
+   *  with confidence, even if the user never manually selects it. */
+  fingerprintKeywords?: string[];
 }
 
 const BANK_PRESETS: Record<string, BankPreset> = {
@@ -95,6 +104,7 @@ const BANK_PRESETS: Record<string, BankPreset> = {
     amountKeywords: ["amount"],
     invertAmounts: true,
     note: "Amex exports expenses as positive numbers. Compass will flip the signs automatically.",
+    fingerprintKeywords: ["extended details", "appears on your statement as"],
   },
   "venmo": {
     name: "Venmo",
@@ -146,6 +156,21 @@ function applyPreset(preset: BankPreset, headers: string[]): Partial<ColMap> {
   return result;
 }
 
+/**
+ * Auto-detects a bank preset purely from distinctive column names, so imports work correctly
+ * (e.g. Amex's expenses-as-positive sign convention) even if the user never clicks the preset
+ * button. Only presets with a `fingerprintKeywords` list participate, to avoid false positives
+ * from generic column names shared across many banks (date/description/amount).
+ */
+function detectPresetByFingerprint(headers: string[]): string | null {
+  const norm = headers.map((h) => (h ?? "").toLowerCase());
+  for (const [id, preset] of Object.entries(BANK_PRESETS)) {
+    if (!preset.fingerprintKeywords || preset.fingerprintKeywords.length === 0) continue;
+    if (preset.fingerprintKeywords.every((kw) => norm.some((h) => h.includes(kw)))) return id;
+  }
+  return null;
+}
+
 interface ParsedData {
   headers: string[];
   rows: string[][];
@@ -162,6 +187,7 @@ interface ImportSession {
   imported_at: string;
   row_count: number;
   skipped_count: number;
+  kind: "bank" | "investment";
 }
 
 const WIZARD_STEPS = [
@@ -295,16 +321,321 @@ function detectAllMonths(rows: string[][], dateColIdx: number): string[] {
   return [...months].sort();
 }
 
+// ─── Investment portfolio import (Wells Fargo Advisors "Portfolio Positions") ─
+
+interface InvestmentRow {
+  securityType: SecurityType;
+  symbol: string | null;
+  description: string;
+  shares: number | null;
+  price: number | null;
+  marketValue: number | null;
+  costBasis: number | null;
+  tradeDate: string | null;
+  dividendPerShare: number | null;
+  estAnnualIncome: number | null;
+}
+
+interface InvestmentSection {
+  title: string;
+  securityType: SecurityType;
+  headerRow: string[];
+  rawRows: string[][];
+  colMap: Record<string, number>;
+  rows: InvestmentRow[];
+  totalMarketValue: number;
+}
+
+interface ParsedInvestment {
+  asOfDate: string;
+  sections: InvestmentSection[];
+}
+
+/** Guides the user toward a sensible profile for investment/credit-card data before importing. */
+type ProfileSuggestion =
+  | { mode: "existing"; target: { id: number; name: string } }
+  | { mode: "named"; target: { id: number; name: string } }
+  | { mode: "create" }
+  | null;
+
+/** Maps a section title (as printed in the export) to a broad security type. */
+function classifySection(title: string): SecurityType {
+  const key = title.trim().toLowerCase();
+  if (key.includes("stock")) return "stock";
+  if (key.includes("etf") || key.includes("exchange")) return "etf";
+  if (key.includes("mutual fund") || key.includes("fund")) return "mutual_fund";
+  if (key.includes("cash")) return "cash";
+  return "other";
+}
+
+/**
+ * Asset-class sub-heading labels that can appear mid-section (e.g. under
+ * "Stocks") to group holdings. They only ever have a value in the first
+ * column, but so can a legitimate holding whose other fields are blank -
+ * so we only skip rows that exactly match this known vocabulary.
+ */
+const ASSET_CLASS_LABELS = new Set([
+  "common stock", "preferred stock", "adr", "american depositary receipt",
+  "exchange traded fund", "exchange-traded fund", "closed end fund",
+  "mutual fund", "money market fund", "municipal bond", "corporate bond",
+  "government bond", "treasury", "reit", "master limited partnership", "mlp",
+  "warrant", "warrants", "option", "options", "unit investment trust",
+]);
+
+/** Column-name aliases (lowercased, trimmed) mapped to a canonical field. */
+const HOLDING_HEADER_ALIASES: Record<string, string[]> = {
+  description: ["description"],
+  symbol: ["symbol", "symbol/cusip"],
+  shares: ["shares", "quantity"],
+  price: ["last price ($)", "estimated price", "price"],
+  marketValue: ["market value", "estimated market value"],
+  costBasis: ["cost basis"],
+  tradeDate: ["trade date1", "trade date"],
+  dividendPerShare: ["dividend"],
+  estAnnualIncome: ["est. annual income"],
+};
+
+/** Field order + display labels for the manual column-remap UI. */
+const HOLDING_FIELDS: { key: string; label: string }[] = [
+  { key: "description", label: "Description" },
+  { key: "symbol", label: "Symbol" },
+  { key: "shares", label: "Shares" },
+  { key: "price", label: "Price" },
+  { key: "marketValue", label: "Market Value" },
+  { key: "costBasis", label: "Cost Basis" },
+  { key: "tradeDate", label: "Trade Date" },
+  { key: "dividendPerShare", label: "Dividend/Share" },
+  { key: "estAnnualIncome", label: "Est. Annual Income" },
+];
+
+function buildHoldingHeaderMap(headerRow: string[]): Record<string, number> {
+  const norm = headerRow.map((h) => (h ?? "").toLowerCase().trim());
+  const map: Record<string, number> = {};
+  for (const [field, aliases] of Object.entries(HOLDING_HEADER_ALIASES)) {
+    for (const alias of aliases) {
+      const idx = norm.findIndex((h) => h === alias);
+      if (idx >= 0) { map[field] = idx; break; }
+    }
+  }
+  return map;
+}
+
+function cellOrNull(row: string[], idx: number | undefined): string | null {
+  if (idx === undefined) return null;
+  const v = (row[idx] ?? "").trim();
+  return !v || v.toUpperCase() === "N/A" ? null : v;
+}
+
+function parseMoneyOrNull(row: string[], idx: number | undefined): number | null {
+  const v = cellOrNull(row, idx);
+  return v === null ? null : parseAmount(v);
+}
+
+function parseSharesOrNull(row: string[], idx: number | undefined): number | null {
+  const v = cellOrNull(row, idx);
+  if (v === null) return null;
+  const n = parseFloat(v.replace(/,/g, ""));
+  return isNaN(n) ? null : n;
+}
+
+function parseTradeDateOrNull(row: string[], idx: number | undefined): string | null {
+  const v = cellOrNull(row, idx);
+  if (v === null) return null;
+  const iso = parseDate(v);
+  return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null;
+}
+
+/** Builds a single holding row from a raw data row using a (possibly user-edited) column map. */
+function buildInvestmentRow(dataRow: string[], colMap: Record<string, number>, securityType: SecurityType): InvestmentRow | null {
+  const dCol0 = (dataRow[0] ?? "").trim();
+  const description = cellOrNull(dataRow, colMap.description) ?? dCol0;
+  if (!description) return null;
+  return {
+    securityType,
+    symbol: cellOrNull(dataRow, colMap.symbol),
+    description,
+    shares: parseSharesOrNull(dataRow, colMap.shares),
+    price: parseMoneyOrNull(dataRow, colMap.price),
+    marketValue: parseMoneyOrNull(dataRow, colMap.marketValue),
+    costBasis: parseMoneyOrNull(dataRow, colMap.costBasis),
+    tradeDate: parseTradeDateOrNull(dataRow, colMap.tradeDate),
+    dividendPerShare: parseMoneyOrNull(dataRow, colMap.dividendPerShare),
+    estAnnualIncome: parseMoneyOrNull(dataRow, colMap.estAnnualIncome),
+  };
+}
+
+/** Counts how many of a section's raw rows have a non-blank value in a given column - lets the
+ *  "Fix columns" picker show whether a candidate column actually has data before you pick it. */
+function columnFillCount(rawRows: string[][], idx: number): number {
+  return rawRows.reduce((n, row) => n + ((row[idx] ?? "").toString().trim() ? 1 : 0), 0);
+}
+
+/** True when none of a section's value fields (everything but description/symbol) has any data. */
+function sectionHasNoValueData(rows: InvestmentRow[]): boolean {
+  return rows.every((r) =>
+    r.shares === null && r.price === null && r.marketValue === null && r.costBasis === null &&
+    r.tradeDate === null && r.dividendPerShare === null && r.estAnnualIncome === null
+  );
+}
+
+/** Detects a brokerage statement's "Priced as of ..." date from the first few rows. */
+function detectStatementDate(rows: string[][]): string | null {
+  for (const row of rows.slice(0, 6)) {
+    for (const cell of row) {
+      if (!cell) continue;
+      const m = cell.match(/priced as of.*?(\d{1,2}\/\d{1,2}\/\d{4})/i);
+      if (m) { const iso = parseDate(m[1]); return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null; }
+    }
+  }
+  return null;
+}
+
+/**
+ * Parses a Wells Fargo Advisors "Portfolio Positions" export into holdings
+ * grouped by section (Stocks, ETFs, Cash, Other, ...). Each section prints
+ * its own title row, its own header row, N data rows, then a "Total <name>"
+ * row. Returns null if no recognizable position sections were found.
+ */
+function parseInvestmentWorkbook(data: string[][]): ParsedInvestment | null {
+  const asOfDate = detectStatementDate(data) ?? new Date().toISOString().split("T")[0];
+  const sections: InvestmentSection[] = [];
+
+  let i = 0;
+  while (i < data.length) {
+    const row = data[i];
+    const col0 = (row[0] ?? "").trim();
+    const restBlank = row.slice(1).every((c) => !c || !c.trim());
+    const isTotalRow = /^total\b/i.test(col0);
+
+    if (col0 && restBlank && !isTotalRow) {
+      const headerRow = data[i + 1];
+      const looksLikeHeader = headerRow?.some((c) => (c ?? "").toLowerCase().trim() === "description");
+      if (looksLikeHeader) {
+        const title = col0;
+        const securityType = classifySection(title);
+        const colMap = buildHoldingHeaderMap(headerRow);
+        const rows: InvestmentRow[] = [];
+        const rawRows: string[][] = [];
+        let j = i + 2;
+        for (; j < data.length; j++) {
+          const dataRow = data[j];
+          const dCol0 = (dataRow[0] ?? "").trim();
+          if (/^total\b/i.test(dCol0)) { j++; break; }
+          if (!dCol0 && dataRow.every((c) => !c || !c.trim())) continue; // blank separator row
+          if (ASSET_CLASS_LABELS.has(dCol0.toLowerCase())) continue; // asset-class sub-heading
+
+          const built = buildInvestmentRow(dataRow, colMap, securityType);
+          if (!built) continue;
+          rows.push(built);
+          rawRows.push(dataRow);
+        }
+        if (rows.length > 0) {
+          sections.push({
+            title, securityType, headerRow, rawRows, colMap, rows,
+            totalMarketValue: rows.reduce((s, r) => s + (r.marketValue ?? 0), 0),
+          });
+        }
+        i = j;
+        continue;
+      }
+    }
+    i++;
+  }
+
+  return sections.length > 0 ? { asOfDate, sections } : null;
+}
+
+const IMPORT_KINDS: { id: ImportKind; label: string; hint: string; Icon: typeof Landmark }[] = [
+  { id: "bank", label: "Bank Statement", hint: "Checking or savings CSV/XLSX export", Icon: Landmark },
+  { id: "credit", label: "Credit Card Statement", hint: "Credit card CSV/XLSX export", Icon: CreditCard },
+  { id: "investment", label: "Investment / Brokerage", hint: "Portfolio positions export (stocks, ETFs)", Icon: TrendingUp },
+];
+
+/** Shared banner that suggests the best profile to import into - an existing one that already
+ *  has this kind of data, a plausibly-named one, or a brand-new dedicated profile. */
+function ProfileSuggestionBanner({
+  suggestion, itemLabel, recommendText, createLabel,
+  onSwitch, onCreate, onDismiss,
+}: {
+  suggestion: ProfileSuggestion;
+  itemLabel: string;
+  recommendText: string;
+  createLabel: string;
+  onSwitch: (target: { id: number; name: string }, hasAccountAlready: boolean) => void;
+  onCreate: () => void;
+  onDismiss: () => void;
+}) {
+  if (!suggestion) return null;
+  const goldButton = "px-4 py-1.5 rounded-lg text-sm font-medium text-white hover:opacity-90 transition-opacity";
+  const outlineButton = "px-4 py-1.5 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors";
+  return (
+    <div className="border rounded-xl p-4 space-y-3" style={{ backgroundColor: "hsl(var(--primary)/0.05)" }}>
+      {suggestion.mode === "existing" && (
+        <>
+          <p className="text-sm font-medium flex items-start gap-2">
+            <Info size={16} className="shrink-0 mt-0.5 text-[hsl(var(--primary))]" />
+            You already have {itemLabel} tracked in the "{suggestion.target.name}" profile. Switch there so everything stays in one place?
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={() => onSwitch(suggestion.target, true)} className={goldButton} style={{ backgroundColor: "var(--gold)" }}>
+              Switch to "{suggestion.target.name}"
+            </button>
+            <button onClick={onDismiss} className={outlineButton}>Use This Profile Instead</button>
+          </div>
+        </>
+      )}
+      {suggestion.mode === "named" && (
+        <>
+          <p className="text-sm font-medium flex items-start gap-2">
+            <Info size={16} className="shrink-0 mt-0.5 text-[hsl(var(--primary))]" />
+            You have a profile named "{suggestion.target.name}" - looks like it's meant for this. Switch there instead of creating a new one?
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={() => onSwitch(suggestion.target, false)} className={goldButton} style={{ backgroundColor: "var(--gold)" }}>
+              Switch to "{suggestion.target.name}"
+            </button>
+            <button onClick={onCreate} className={outlineButton}>Create a New Profile Instead</button>
+            <button onClick={onDismiss} className={outlineButton}>Use This Profile Instead</button>
+          </div>
+        </>
+      )}
+      {suggestion.mode === "create" && (
+        <>
+          <p className="text-sm font-medium flex items-start gap-2">
+            <Info size={16} className="shrink-0 mt-0.5 text-[hsl(var(--primary))]" />
+            {recommendText}
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={onCreate} className={goldButton} style={{ backgroundColor: "var(--gold)" }}>{createLabel}</button>
+            <button onClick={onDismiss} className={outlineButton}>Use This Profile Instead</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function ImportPage() {
   const navigate = useNavigate();
   const activeProfile = useProfileStore((s) => s.activeProfile);
+  const profiles = useProfileStore((s) => s.profiles);
+  const setProfiles = useProfileStore((s) => s.setProfiles);
+  const setActiveProfile = useProfileStore((s) => s.setActiveProfile);
   const profileId = activeProfile?.id ?? 1;
   const [step, setStep] = useState<Step>("upload");
+  const [importKind, setImportKind] = useState<ImportKind | null>(null);
   const [rawData, setRawData] = useState<string[][] | null>(null);
   const [skipRows, setSkipRows] = useState(0);
   const [parsed, setParsed] = useState<ParsedData | null>(null);
+  const [invParsed, setInvParsed] = useState<ParsedInvestment | null>(null);
+  const [colMapOverrides, setColMapOverrides] = useState<Record<string, Record<string, number>>>({});
+  const [fixColumnsOpen, setFixColumnsOpen] = useState<Set<string>>(new Set());
+  const [hasDedicatedAccount, setHasDedicatedAccount] = useState<boolean | null>(null);
+  const [profileSuggestion, setProfileSuggestion] = useState<ProfileSuggestion>(null);
+  const [profileSuggestionDecided, setProfileSuggestionDecided] = useState(false);
   const [currentFilename, setCurrentFilename] = useState("");
   const [colMap, setColMap] = useState<ColMap>({ dateCol: 0, descCol: 1, amountCol: 2, typeCol: -1, balanceCol: -1, invertAmounts: false });
+  const [currentBalanceInput, setCurrentBalanceInput] = useState("");
   const [profileFound, setProfileFound] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -332,10 +663,66 @@ export default function ImportPage() {
     if (detectedMonth) setTargetMonth(detectedMonth);
   }, [detectedMonth]);
 
+  // When there's no balance column, prefill the account's current balance anchor (the real
+  // balance as of the day it was entered) so returning to the step shows what's already saved.
+  useEffect(() => {
+    if (step !== "wizard:balance" || colMap.balanceCol >= 0) return;
+    (async () => {
+      try {
+        const db = await getDb();
+        const accountType = importKind === "credit" ? "credit" : "checking";
+        const rows = await db.select<{ balance_anchor_cents: number | null }[]>(
+          "SELECT balance_anchor_cents FROM accounts WHERE profile_id=? AND account_type=?",
+          [profileId, accountType]
+        );
+        const cents = rows[0]?.balance_anchor_cents;
+        setCurrentBalanceInput(cents != null ? (cents / 100).toFixed(2) : "");
+      } catch { /* leave blank */ }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
+  // Re-derives each section's holding rows after applying any manual column-map overrides
+  // the user made in the "Fix columns" panel, falling back to the auto-detected mapping.
+  const derivedSections = useMemo(() => {
+    if (!invParsed) return [];
+    return invParsed.sections.map((section) => {
+      const override = colMapOverrides[section.title];
+      if (!override) return section;
+      const mergedColMap: Record<string, number> = { ...section.colMap };
+      for (const [field, idx] of Object.entries(override)) {
+        if (idx < 0) delete mergedColMap[field];
+        else mergedColMap[field] = idx;
+      }
+      const rows = section.rawRows
+        .map((raw) => buildInvestmentRow(raw, mergedColMap, section.securityType))
+        .filter((r): r is InvestmentRow => r !== null);
+      return {
+        ...section,
+        colMap: mergedColMap,
+        rows,
+        totalMarketValue: rows.reduce((s, r) => s + (r.marketValue ?? 0), 0),
+      };
+    });
+  }, [invParsed, colMapOverrides]);
+
+  // Grand totals across every (possibly remapped) section of a parsed investment workbook.
+  const invTotals = useMemo(() => {
+    let marketValue = 0, estAnnualIncome = 0, count = 0;
+    for (const section of derivedSections) {
+      for (const row of section.rows) {
+        marketValue += row.marketValue ?? 0;
+        estAnnualIncome += row.estAnnualIncome ?? 0;
+        count++;
+      }
+    }
+    return { marketValue, estAnnualIncome, count };
+  }, [derivedSections]);
+
   const loadHistory = useCallback(async () => {
     const db = await getDb();
     const rows = await db.select<ImportSession[]>(
-      `SELECT id, filename, imported_at, row_count, skipped_count
+      `SELECT id, filename, imported_at, row_count, skipped_count, COALESCE(kind, 'bank') as kind
        FROM import_sessions WHERE profile_id=?
        ORDER BY imported_at DESC LIMIT 15`,
       [profileId]
@@ -363,10 +750,150 @@ export default function ImportPage() {
 
   const undoImport = async (sessionId: number) => {
     const db = await getDb();
-    await db.execute("DELETE FROM transactions WHERE import_session_id=?", [sessionId]);
+    const session = importHistory.find((s) => s.id === sessionId);
+    if (session?.kind === "investment") {
+      await db.execute("DELETE FROM holdings WHERE import_session_id=?", [sessionId]);
+    } else {
+      await db.execute("DELETE FROM transactions WHERE import_session_id=?", [sessionId]);
+    }
     await db.execute("DELETE FROM import_sessions WHERE id=?", [sessionId]);
     setConfirmDeleteId(null);
     await loadHistory();
+  };
+
+  // Decide how to guide the user toward a sensible profile for this import:
+  // 1) the active profile already has a dedicated account of this type - nothing to suggest
+  // 2) another profile already has one - suggest switching there
+  // 3) another profile's name suggests it's meant for this - suggest switching there
+  // 4) otherwise - offer to create a fresh dedicated profile
+  // Runs for the investment-preview step (always) and the bank/credit preview step (credit only -
+  // bank statements are the default/primary flow and never prompt to split into a new profile).
+  const suggestionAccountType = step === "wizard:investment-preview" ? "investment"
+    : step === "wizard:preview" && importKind === "credit" ? "credit"
+    : null;
+
+  useEffect(() => {
+    if (!suggestionAccountType || profileSuggestionDecided) return;
+    const accountType = suggestionAccountType;
+    (async () => {
+      try {
+        const db = await getDb();
+        const currentRows = await db.select<{ n: number }[]>(
+          "SELECT COUNT(*) as n FROM accounts WHERE profile_id=? AND account_type=?",
+          [profileId, accountType]
+        );
+        const currentHas = (currentRows[0]?.n ?? 0) > 0;
+        setHasDedicatedAccount(currentHas);
+        if (currentHas) {
+          setProfileSuggestion(null);
+          return;
+        }
+
+        const existing = await db.select<{ id: number; name: string }[]>(
+          `SELECT p.id, p.name FROM accounts a JOIN profiles p ON p.id = a.profile_id
+           WHERE a.account_type=? AND a.profile_id != ? LIMIT 1`,
+          [accountType, profileId]
+        );
+        if (existing.length > 0) {
+          setProfileSuggestion({ mode: "existing", target: existing[0] });
+          return;
+        }
+
+        const nameLike = accountType === "investment" ? "%invest%" : "%credit%";
+        const named = await db.select<{ id: number; name: string }[]>(
+          "SELECT id, name FROM profiles WHERE id != ? AND LOWER(name) LIKE ? LIMIT 1",
+          [profileId, nameLike]
+        );
+        if (named.length > 0) {
+          setProfileSuggestion({ mode: "named", target: named[0] });
+          return;
+        }
+
+        setProfileSuggestion({ mode: "create" });
+      } catch {
+        setHasDedicatedAccount(true);
+        setProfileSuggestion(null);
+      }
+    })();
+  }, [suggestionAccountType, profileId, profileSuggestionDecided]);
+
+  /** Switches to an already-existing profile (with or without a dedicated account yet) instead of creating one. */
+  const switchToSuggestedProfile = (target: { id: number; name: string }, hasAccountAlready: boolean) => {
+    const full = profiles.find((p) => p.id === target.id);
+    if (full) setActiveProfile(full);
+    setProfileSuggestion(null);
+    setHasDedicatedAccount(hasAccountAlready);
+    setProfileSuggestionDecided(true);
+  };
+
+  /** Creates a fresh dedicated profile and switches to it - the user still clicks Import afterward. */
+  const createDedicatedProfileAndSwitch = async (name: string, avatarColor: string) => {
+    const db = await getDb();
+    const result = await db.execute(
+      "INSERT INTO profiles (name, avatar_color) VALUES (?, ?)",
+      [name, avatarColor]
+    );
+    const newProfile: Profile = {
+      id: result.lastInsertId as number,
+      name,
+      avatar_color: avatarColor,
+      pin_hash: null,
+      created_at: new Date().toISOString(),
+    };
+    setProfiles([...profiles, newProfile]);
+    setActiveProfile(newProfile);
+    setProfileSuggestion(null);
+    setHasDedicatedAccount(false);
+    setProfileSuggestionDecided(true);
+  };
+
+  /** Writes every parsed holding row into the `holdings` table as a new dated snapshot. */
+  const handleInvestmentImport = async (profileIdOverride?: number) => {
+    if (!invParsed) return;
+    const targetProfileId = profileIdOverride ?? profileId;
+    setStep("importing");
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    try {
+      const db = await getDb();
+      const accountId = await getOrCreateAccountForProfile(targetProfileId, "investment");
+      const sessionResult = await db.execute(
+        "INSERT INTO import_sessions (filename, row_count, skipped_count, profile_id, kind) VALUES (?, 0, 0, ?, 'investment')",
+        [currentFilename, targetProfileId]
+      );
+      const sessionId = sessionResult.lastInsertId as number;
+
+      let imported = 0;
+      for (const section of derivedSections) {
+        for (const row of section.rows) {
+          await db.execute(
+            `INSERT INTO holdings
+               (account_id, profile_id, import_session_id, as_of_date, security_type, symbol, description,
+                shares, price_cents, market_value_cents, cost_basis_cents, trade_date,
+                dividend_per_share_cents, est_annual_income_cents)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              accountId, targetProfileId, sessionId, invParsed.asOfDate, row.securityType, row.symbol, row.description,
+              row.shares,
+              row.price !== null ? Math.round(row.price * 100) : null,
+              row.marketValue !== null ? Math.round(row.marketValue * 100) : null,
+              row.costBasis !== null ? Math.round(row.costBasis * 100) : null,
+              row.tradeDate,
+              row.dividendPerShare !== null ? Math.round(row.dividendPerShare * 100) : null,
+              row.estAnnualIncome !== null ? Math.round(row.estAnnualIncome * 100) : null,
+            ]
+          );
+          imported++;
+        }
+      }
+
+      await db.execute("UPDATE import_sessions SET row_count=? WHERE id=?", [imported, sessionId]);
+      setSummary({ imported, skipped: 0 });
+      await loadHistory();
+      setStep("done");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setStep("wizard:investment-preview");
+    }
   };
 
   const processFile = useCallback((file: File) => {
@@ -379,14 +906,32 @@ export default function ImportPage() {
       file.arrayBuffer().then((buf) => {
         try {
           const wb = XLSX.read(buf, { type: "array", cellDates: false });
-          const ws = wb.Sheets[wb.SheetNames[0]];
-          const data = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: "" }) as string[][];
+          // raw:false returns each cell's formatted display text (e.g. "$1,234.56", "07/15/2026")
+          // instead of the underlying number/date serial, matching what our string-based
+          // parsers (parseAmount/parseDate) expect. Every cell is also defensively coerced to
+          // a string so a stray number/Date object can never crash downstream .trim() calls.
+          const sheetToRows = (name: string): string[][] => {
+            const raw = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: "", raw: false }) as unknown[][];
+            return raw.map((row) => row.map((c) => (c === null || c === undefined ? "" : String(c))));
+          };
+
+          let data: string[][];
+          if (importKind === "investment" && wb.SheetNames.length > 1) {
+            // Some brokerage exports include multiple tabs (Summary, Positions, Activity...) -
+            // use whichever sheet actually contains a recognizable Portfolio Positions table.
+            const withPositions = wb.SheetNames.find((name) => parseInvestmentWorkbook(sheetToRows(name)) !== null);
+            data = sheetToRows(withPositions ?? wb.SheetNames[0]);
+          } else {
+            data = sheetToRows(wb.SheetNames[0]);
+          }
+
           if (data.length < 2) {
             setError("Spreadsheet appears empty or has too few rows.");
             setStep("upload");
             return;
           }
-          finishParsingData(data);
+          if (importKind === "investment") finishParsingInvestmentData(data);
+          else finishParsingData(data);
         } catch {
           setError("Could not read the spreadsheet. Make sure it is a valid .xlsx or .xls file.");
           setStep("upload");
@@ -407,7 +952,8 @@ export default function ImportPage() {
           setStep("upload");
           return;
         }
-        finishParsingData(data);
+        if (importKind === "investment") finishParsingInvestmentData(data);
+        else finishParsingData(data);
       },
       error: (err) => {
         setError(err.message);
@@ -415,13 +961,50 @@ export default function ImportPage() {
       },
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profileId]);
+  }, [profileId, importKind]);
+
+  /** Parses a brokerage portfolio-positions export and advances to its review step. */
+  const finishParsingInvestmentData = useCallback((data: string[][]) => {
+    const result = parseInvestmentWorkbook(data);
+    if (!result) {
+      setError("We couldn't detect a Portfolio Positions table in this file. Currently only Wells Fargo Advisors-style portfolio exports are supported for investment imports.");
+      setStep("upload");
+      return;
+    }
+    setInvParsed(result);
+    setColMapOverrides({});
+    setFixColumnsOpen(new Set());
+    setHasDedicatedAccount(null);
+    setProfileSuggestion(null);
+    setProfileSuggestionDecided(false);
+    setWizardDir("forward");
+    setStep("wizard:investment-preview");
+  }, []);
+
+  const toggleFixColumns = (title: string) => {
+    setFixColumnsOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(title)) next.delete(title); else next.add(title);
+      return next;
+    });
+  };
+
+  /** Applies a manual column-map override for one field within one section. -1 clears the override. */
+  const setColumnOverride = (title: string, field: string, idx: number) => {
+    setColMapOverrides((prev) => ({
+      ...prev,
+      [title]: { ...prev[title], [field]: idx },
+    }));
+  };
 
   /** Shared logic to detect headers, load presets, and advance to the wizard after parsing. */
   const finishParsingData = useCallback((data: string[][]) => {
     const initialSkip = findRealHeaderRow(data);
     setRawData(data);
     setSkipRows(initialSkip);
+    setHasDedicatedAccount(null);
+    setProfileSuggestion(null);
+    setProfileSuggestionDecided(false);
     const derived = deriveHeaders(data, initialSkip);
     if (!derived) {
       setError("File appears empty after skipping summary rows.");
@@ -434,21 +1017,23 @@ export default function ImportPage() {
       try {
         const sig = computeHeaderSig(headers);
         const db = await getDb();
-        const profiles = await db.select<{
+        const colProfiles = await db.select<{
           date_col: number; desc_col: number; amount_col: number;
           type_col: number; balance_col: number;
         }[]>(
           "SELECT date_col, desc_col, amount_col, COALESCE(type_col, -1) as type_col, COALESCE(balance_col, -1) as balance_col FROM column_profiles WHERE header_sig=? AND profile_id=?",
           [sig, profileId]
         );
-        if (profiles.length > 0) {
-          const p = profiles[0];
+        if (colProfiles.length > 0) {
+          const p = colProfiles[0];
           setColMap({ dateCol: p.date_col, descCol: p.desc_col, amountCol: p.amount_col, typeCol: p.type_col, balanceCol: p.balance_col, invertAmounts: false });
           setProfileFound(true);
         } else {
           const base = autoDetect(headers);
-          if (selectedPresetId && BANK_PRESETS[selectedPresetId]) {
-            setColMap({ ...base, ...applyPreset(BANK_PRESETS[selectedPresetId], headers) });
+          const presetId = selectedPresetId ?? detectPresetByFingerprint(headers);
+          if (presetId && BANK_PRESETS[presetId]) {
+            setColMap({ ...base, ...applyPreset(BANK_PRESETS[presetId], headers) });
+            if (!selectedPresetId) setSelectedPresetId(presetId);
           } else {
             setColMap(base);
           }
@@ -491,9 +1076,11 @@ export default function ImportPage() {
     if (derived) {
       setParsed(derived);
       const base = autoDetect(derived.headers);
-      if (selectedPresetId && BANK_PRESETS[selectedPresetId]) {
-        const overrides = applyPreset(BANK_PRESETS[selectedPresetId], derived.headers);
+      const presetId = selectedPresetId ?? detectPresetByFingerprint(derived.headers);
+      if (presetId && BANK_PRESETS[presetId]) {
+        const overrides = applyPreset(BANK_PRESETS[presetId], derived.headers);
         setColMap({ ...base, ...overrides });
+        if (!selectedPresetId) setSelectedPresetId(presetId);
       } else {
         setColMap(base);
       }
@@ -509,7 +1096,20 @@ export default function ImportPage() {
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     try {
       const db = await getDb();
-      const accountId = await getOrCreateAccountForProfile(profileId);
+      const accountId = await getOrCreateAccountForProfile(profileId, importKind === "credit" ? "credit" : "checking");
+      if (colMap.balanceCol < 0 && currentBalanceInput.trim()) {
+        // The entered value is the real balance AFTER all transactions, as of today (when it's
+        // submitted) - not before them - so Compass can calculate correctly in both directions.
+        // Credit cards are a liability - always store it negative, regardless of whether the
+        // user typed it as a positive "amount owed" or already-negative number.
+        const rawAnchorCents = Math.round(parseAmount(currentBalanceInput) * 100);
+        const anchorCents = importKind === "credit" ? -Math.abs(rawAnchorCents) : rawAnchorCents;
+        const anchorDate = new Date().toISOString().split("T")[0];
+        await db.execute(
+          "UPDATE accounts SET balance_anchor_cents=?, balance_anchor_date=? WHERE id=?",
+          [anchorCents, anchorDate, accountId]
+        );
+      }
       const rules = await db.select<CategorizationRule[]>(
         "SELECT * FROM categorization_rules WHERE profile_id=? OR profile_id IS NULL ORDER BY priority DESC",
         [profileId]
@@ -545,8 +1145,10 @@ export default function ImportPage() {
         const amountCents = Math.round(amount * 100);
         const hash = await hashRow(row);
         const categoryId = applyCategorizationRules(description, rules, amountCents);
+        // Credit card statements print the amount you owe as a positive number, but that's a
+        // liability - always store it negative, regardless of the file's own sign convention.
         const balanceCents = colMap.balanceCol >= 0 && row[colMap.balanceCol]
-          ? Math.round(parseAmount(row[colMap.balanceCol]) * 100)
+          ? (() => { const c = Math.round(parseAmount(row[colMap.balanceCol]) * 100); return importKind === "credit" ? -Math.abs(c) : c; })()
           : null;
 
         try {
@@ -589,6 +1191,12 @@ export default function ImportPage() {
         [sig, colMap.dateCol, colMap.descCol, colMap.amountCol, colMap.typeCol, colMap.balanceCol, profileId]
       );
 
+      // No native balance column - (re)calculate a running balance for every transaction on
+      // this account from its balance anchor (or 0), so charts/dashboards still have a value.
+      if (colMap.balanceCol < 0) {
+        await recomputeCalculatedBalances(accountId);
+      }
+
       setSummary({ imported, skipped });
       await loadHistory();
       setStep("done");
@@ -617,7 +1225,7 @@ export default function ImportPage() {
     setRawData(data); setSkipRows(skip); setParsed(derived);
     try {
       const db = await getDb();
-      const accountId = await getOrCreateAccountForProfile(profileId);
+      const accountId = await getOrCreateAccountForProfile(profileId, importKind === "credit" ? "credit" : "checking");
       const rules = await db.select<CategorizationRule[]>(
         "SELECT * FROM categorization_rules WHERE profile_id=? OR profile_id IS NULL ORDER BY priority DESC",
         [profileId]
@@ -647,7 +1255,7 @@ export default function ImportPage() {
         const hash = await hashRow(row);
         const categoryId = applyCategorizationRules(description, rules, amountCents);
         const balanceCents = savedColMap.balanceCol >= 0 && row[savedColMap.balanceCol]
-          ? Math.round(parseAmount(row[savedColMap.balanceCol]) * 100) : null;
+          ? (() => { const c = Math.round(parseAmount(row[savedColMap.balanceCol]) * 100); return importKind === "credit" ? -Math.abs(c) : c; })() : null;
         try {
           await db.execute(
             `INSERT INTO transactions (account_id, date, amount_cents, description, category_id,
@@ -666,6 +1274,9 @@ export default function ImportPage() {
           [imported, skipped, sessionId]
         );
       }
+      if (savedColMap.balanceCol < 0) {
+        await recomputeCalculatedBalances(accountId);
+      }
       await loadHistory();
       setSummary({ imported, skipped });
       setStep("done");
@@ -674,7 +1285,7 @@ export default function ImportPage() {
       setSummary({ imported: 0, skipped: 0 });
       setStep("done");
     }
-  }, [profileId, loadHistory]);
+  }, [profileId, loadHistory, importKind]);
 
   // When an import finishes in batch-auto mode, silently process the next queued file.
   useEffect(() => {
@@ -696,6 +1307,13 @@ export default function ImportPage() {
     setRawData(null);
     setSkipRows(0);
     setParsed(null);
+    setInvParsed(null);
+    setColMapOverrides({});
+    setFixColumnsOpen(new Set());
+    setCurrentBalanceInput("");
+    setHasDedicatedAccount(null);
+    setProfileSuggestion(null);
+    setProfileSuggestionDecided(false);
     setCurrentFilename("");
     setSummary(null);
     setError(null);
@@ -716,8 +1334,32 @@ export default function ImportPage() {
         Your data never leaves this device.
       </p>
 
-      {(step === "upload" || step === "checking") && (
+      {step === "upload" && importKind === null && (
+        <div className="space-y-3">
+          <p className="text-sm font-medium">What are you importing?</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {IMPORT_KINDS.map((k) => (
+              <button
+                key={k.id}
+                onClick={() => setImportKind(k.id)}
+                className="border rounded-xl p-5 text-center hover:border-[hsl(var(--primary))] hover:bg-[hsl(var(--muted))] transition-colors"
+              >
+                <div className="flex justify-center mb-2 text-[hsl(var(--primary))]"><k.Icon size={26} /></div>
+                <p className="font-medium text-sm">{k.label}</p>
+                <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">{k.hint}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(step === "upload" || step === "checking") && importKind !== null && (
         <div>
+          {step === "upload" && (
+            <button onClick={() => setImportKind(null)} className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))] mb-2">
+              ‹ Change type
+            </button>
+          )}
           <div
             onDrop={handleDrop}
             onDragOver={(e) => e.preventDefault()}
@@ -732,10 +1374,14 @@ export default function ImportPage() {
             <p className="font-medium mb-1">
               {step === "checking"
                 ? "Reading file..."
+                : importKind === "investment"
+                ? "Drop your portfolio positions export here or click to browse"
                 : "Drop your CSV here or click to browse"}
             </p>
             <p className="text-sm text-[hsl(var(--muted-foreground))]">
-              Works with exports from any bank or credit card
+              {importKind === "investment"
+                ? "Works with Wells Fargo Advisors portfolio positions exports"
+                : "Works with exports from any bank or credit card"}
             </p>
           </div>
           <input
@@ -748,7 +1394,7 @@ export default function ImportPage() {
           />
 
           {/* Bank preset picker */}
-          {step === "upload" && (
+          {step === "upload" && importKind !== "investment" && (
             <div className="mt-5 border rounded-xl p-4 space-y-3">
               <p className="text-sm font-medium">
                 Select your bank <span className="text-[hsl(var(--muted-foreground))] font-normal">(optional - speeds up column detection)</span>
@@ -818,6 +1464,7 @@ export default function ImportPage() {
       {step === "wizard:data" && parsed && (
         <div key="wizard:data" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           <p className="text-sm text-[hsl(var(--muted-foreground))]">
+            Confirm the header row below looks right, then continue to map your columns.
           </p>
 
           {/* Header-only display - centered column pills */}
@@ -859,9 +1506,11 @@ export default function ImportPage() {
           <div className="flex gap-3 justify-center">
             <button onClick={() => wizardGo("wizard:preview", "forward")}
               className="px-5 py-2 border rounded-lg text-sm font-medium hover:bg-[hsl(var(--muted))] transition-colors">
+              Skip to Preview
             </button>
             <button onClick={() => wizardGo("wizard:date", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
+              Continue
             </button>
             <button onClick={reset} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
               Cancel
@@ -903,6 +1552,7 @@ export default function ImportPage() {
                   <div key={i} className="py-3 text-center">
                     <p className="font-mono text-sm text-[hsl(var(--muted-foreground))]">{raw}</p>
                     <p className={`text-base font-semibold mt-0.5 ${ok ? "text-green-600" : "text-red-500"}`}>
+                      {ok ? formatDate(iso) : "Couldn't parse"}
                     </p>
                   </div>
                 );
@@ -914,9 +1564,11 @@ export default function ImportPage() {
           <div className="flex gap-3">
             <button onClick={() => wizardGo("wizard:desc", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
+              Continue
             </button>
             <button onClick={() => wizardGo("wizard:preview", "forward")}
               className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
+              Skip to Preview
             </button>
           </div>
         </div>
@@ -959,9 +1611,11 @@ export default function ImportPage() {
           <div className="flex gap-3">
             <button onClick={() => wizardGo("wizard:amount", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
+              Continue
             </button>
             <button onClick={() => wizardGo("wizard:preview", "forward")}
               className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
+              Skip to Preview
             </button>
           </div>
         </div>
@@ -1005,6 +1659,7 @@ export default function ImportPage() {
                     <div key={i} className="py-3 text-center">
                       <p className="font-mono text-sm text-[hsl(var(--muted-foreground))]">{raw}</p>
                       <p className={`font-mono text-base font-semibold mt-0.5 ${amt < 0 ? "text-red-500" : amt > 0 ? "text-green-600" : "text-amber-500"}`}>
+                        {formatCurrency(Math.round(amt * 100))}
                       </p>
                     </div>
                   );
@@ -1071,9 +1726,11 @@ export default function ImportPage() {
           <div className="flex gap-3">
             <button onClick={() => wizardGo("wizard:balance", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
+              Continue
             </button>
             <button onClick={() => wizardGo("wizard:preview", "forward")}
               className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
+              Skip to Preview
             </button>
           </div>
         </div>
@@ -1139,12 +1796,170 @@ export default function ImportPage() {
                 </div>
               </>
             )}
+
+            {colMap.balanceCol === -1 && (
+              <div className="pt-3 border-t space-y-2">
+                <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
+                  Current balance <span className="font-normal">(optional)</span>
+                </p>
+                <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                  Know your real account balance today, after these transactions? Enter it and Compass will calculate each transaction's running balance by working backward from today's date. Leave it blank and Compass will still calculate a relative running total starting from $0.
+                </p>
+                <div className="relative max-w-xs">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[hsl(var(--muted-foreground))]">$</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={currentBalanceInput}
+                    onChange={(e) => setCurrentBalanceInput(e.target.value)}
+                    className="w-full border rounded-lg pl-7 pr-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex gap-3">
             <button onClick={() => wizardGo("wizard:preview", "forward")}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
+              Continue to Preview
             </button>
+          </div>
+        </div>
+      )}
+
+      {step === "wizard:investment-preview" && invParsed && (
+        <div key="wizard:investment-preview" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
+          {error && <p className="text-red-500 text-sm p-3 border border-red-300 rounded-lg">{error}</p>}
+
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "hsl(var(--primary)/0.1)" }}>
+              <TrendingUp size={18} className="text-[hsl(var(--primary))]" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold leading-tight">Portfolio Positions</h2>
+              <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">Priced as of {formatDate(invParsed.asOfDate)}</p>
+            </div>
+          </div>
+
+          {hasDedicatedAccount === true && (
+            <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+              <CheckCircle2 size={12} /> Adding a new snapshot to your existing investment account.
+            </p>
+          )}
+
+          <ProfileSuggestionBanner
+            suggestion={profileSuggestion}
+            itemLabel="investments"
+            recommendText="We recommend keeping investments in a separate profile so they don't mix with everyday spending totals."
+            createLabel='Create "Investments" Profile'
+            onSwitch={switchToSuggestedProfile}
+            onCreate={() => createDedicatedProfileAndSwitch("Investments", "#0ea5e9")}
+            onDismiss={() => { setProfileSuggestion(null); setProfileSuggestionDecided(true); }}
+          />
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+            <div className="border rounded-xl p-4 text-center">
+              <p className="text-xl font-bold">{formatCurrency(Math.round(invTotals.marketValue * 100))}</p>
+              <p className="text-[hsl(var(--muted-foreground))] text-xs mt-0.5">Total Market Value</p>
+            </div>
+            <div className="border rounded-xl p-4 text-center">
+              <p className="text-xl font-bold">{invTotals.count}</p>
+              <p className="text-[hsl(var(--muted-foreground))] text-xs mt-0.5">Positions</p>
+            </div>
+            <div className="border rounded-xl p-4 text-center">
+              <p className="text-xl font-bold">{formatCurrency(Math.round(invTotals.estAnnualIncome * 100))}</p>
+              <p className="text-[hsl(var(--muted-foreground))] text-xs mt-0.5">Est. Annual Income</p>
+            </div>
+            <div className="border rounded-xl p-4 text-center">
+              <p className="text-xl font-bold">{derivedSections.length}</p>
+              <p className="text-[hsl(var(--muted-foreground))] text-xs mt-0.5">Sections Found</p>
+            </div>
+          </div>
+
+          {derivedSections.map((section) => {
+            const isFixOpen = fixColumnsOpen.has(section.title);
+            const noValueData = sectionHasNoValueData(section.rows);
+            return (
+            <div key={section.title} className="border rounded-xl overflow-hidden">
+              <div className="px-4 py-2 bg-[hsl(var(--muted))] border-b text-xs font-medium uppercase tracking-wide flex items-center justify-between gap-2">
+                <span>{section.title} ({section.rows.length})</span>
+                <div className="flex items-center gap-3">
+                  <span>{formatCurrency(Math.round(section.totalMarketValue * 100))}</span>
+                  <button onClick={() => toggleFixColumns(section.title)}
+                    className="text-[hsl(var(--primary))] hover:underline normal-case font-normal">
+                    {isFixOpen ? "Done" : "Fix columns"}
+                  </button>
+                </div>
+              </div>
+              {noValueData && (
+                <p className="px-4 py-2 text-xs text-amber-600 dark:text-amber-400 border-b flex items-start gap-1 normal-case font-normal">
+                  <Info size={12} className="shrink-0 mt-0.5" />
+                  This section's file columns are all empty for shares, price, market value, and dates - Compass found the holdings but no numbers to go with them. Check <strong>Fix columns</strong> below to confirm, or re-export the statement with those columns visible.
+                </p>
+              )}
+              {isFixOpen && (
+                <div className="px-4 py-3 border-b bg-[hsl(var(--muted))]/30 grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {HOLDING_FIELDS.map((field) => (
+                    <label key={field.key} className="text-xs space-y-1">
+                      <span className="text-[hsl(var(--muted-foreground))]">{field.label}</span>
+                      <select
+                        value={section.colMap[field.key] ?? -1}
+                        onChange={(e) => setColumnOverride(section.title, field.key, parseInt(e.target.value))}
+                        className="w-full border rounded-lg px-2 py-1 text-xs bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
+                      >
+                        <option value={-1}>None</option>
+                        {section.headerRow.map((h, i) => (
+                          <option key={i} value={i}>
+                            {(h || `Column ${i + 1}`)} - {columnFillCount(section.rawRows, i)}/{section.rawRows.length} filled
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ))}
+                </div>
+              )}
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs text-[hsl(var(--muted-foreground))]">
+                    <th className="px-4 py-2 font-medium">Description</th>
+                    <th className="px-4 py-2 font-medium">Symbol</th>
+                    <th className="px-4 py-2 font-medium text-right">Shares</th>
+                    <th className="px-4 py-2 font-medium text-right">Market Value</th>
+                    <th className="px-4 py-2 font-medium text-right">Trade Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {section.rows.slice(0, 8).map((row, i) => (
+                    <tr key={i} className="border-t">
+                      <td className="px-4 py-2 max-w-xs truncate text-xs">{row.description}</td>
+                      <td className="px-4 py-2 text-xs font-mono">{row.symbol ?? "-"}</td>
+                      <td className="px-4 py-2 text-right text-xs font-mono">{row.shares ?? "-"}</td>
+                      <td className="px-4 py-2 text-right text-xs font-mono">{row.marketValue !== null ? formatCurrency(Math.round(row.marketValue * 100)) : "-"}</td>
+                      <td className="px-4 py-2 text-right text-xs font-mono text-[hsl(var(--muted-foreground))]">{row.tradeDate ? formatDate(row.tradeDate) : "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {section.rows.length > 8 && (
+                <div className="px-4 py-2 text-xs text-[hsl(var(--muted-foreground))] border-t">+ {section.rows.length - 8} more</div>
+              )}
+            </div>
+            );
+          })}
+
+          <p className="text-xs text-[hsl(var(--muted-foreground))] flex items-start gap-1">
+            <Info size={12} className="shrink-0 mt-0.5" />
+            Dividend and "Est. Annual Income" figures reflect the brokerage's projected estimates, not a history of dividends actually paid.
+          </p>
+
+          <div className="flex gap-3">
+            <button onClick={() => handleInvestmentImport()}
+              className="px-6 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg font-medium hover:opacity-90 transition-opacity">
+              Import {invTotals.count} Positions
+            </button>
+            <button onClick={reset} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">Cancel</button>
           </div>
         </div>
       )}
@@ -1152,6 +1967,25 @@ export default function ImportPage() {
       {step === "wizard:preview" && parsed && (
         <div key="wizard:preview" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           {error && <p className="text-red-500 text-sm p-3 border border-red-300 rounded-lg">{error}</p>}
+
+          {importKind === "credit" && (
+            <>
+              {hasDedicatedAccount === true && (
+                <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                  <CheckCircle2 size={12} /> Adding to your existing credit card account.
+                </p>
+              )}
+              <ProfileSuggestionBanner
+                suggestion={profileSuggestion}
+                itemLabel="a credit card"
+                recommendText="You can track this credit card in its own profile if you'd like to keep it separate from everyday spending, or just import it here."
+                createLabel='Create "Credit Cards" Profile'
+                onSwitch={switchToSuggestedProfile}
+                onCreate={() => createDedicatedProfileAndSwitch("Credit Cards", "#f59e0b")}
+                onDismiss={() => { setProfileSuggestion(null); setProfileSuggestionDecided(true); }}
+              />
+            </>
+          )}
 
           <div className="grid grid-cols-3 gap-3 text-sm">
             <div className="border rounded-xl p-4 text-center">
@@ -1263,6 +2097,7 @@ export default function ImportPage() {
                            hover:bg-[hsl(var(--primary)/0.25)] transition-colors"
                 title="Import this file then automatically import all remaining files using the same column settings"
               >
+                Auto-Import All ({batchQueue.length + 1} Files)
               </button>
             )}
             <button onClick={reset} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">Cancel</button>
@@ -1324,11 +2159,13 @@ export default function ImportPage() {
           <div className="flex gap-3 justify-center">
             {summary.imported > 0 && (
               <button
-                onClick={() => navigate("/transactions", { state: isMultiMonth ? {} : { month: targetMonth } })}
+                onClick={() => invParsed
+                  ? navigate("/investments")
+                  : navigate("/transactions", { state: isMultiMonth ? {} : { month: targetMonth } })}
                 className="px-6 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
                            rounded-lg font-medium"
               >
-                View Transactions
+                {invParsed ? "View Portfolio" : "View Transactions"}
               </button>
             )}
             {batchQueue.length > 0 ? (
@@ -1388,7 +2225,12 @@ export default function ImportPage() {
                 {importHistory.map((s) => (
                   <tr key={s.id} className="border-b last:border-0 hover:bg-[hsl(var(--muted)/0.5)]">
                     <td className="px-4 py-2 font-mono text-xs max-w-[200px] truncate" title={s.filename}>
-                      {s.filename}
+                      <span className="inline-flex items-center gap-1.5">
+                        {s.kind === "investment"
+                          ? <TrendingUp size={12} className="shrink-0 text-[hsl(var(--primary))]" />
+                          : <Landmark size={12} className="shrink-0 text-[hsl(var(--muted-foreground))]" />}
+                        {s.filename}
+                      </span>
                     </td>
                     <td className="px-4 py-2 text-[hsl(var(--muted-foreground))] whitespace-nowrap">
                       {formatDate(s.imported_at.split("T")[0])}
