@@ -181,11 +181,12 @@ export default function BudgetsPage() {
                 c.name as category_name, c.color as category_color,
                 b.amount_cents, b.period, b.is_global,
                 COALESCE(SUM(CASE WHEN t.amount_cents<0 THEN ABS(t.amount_cents) ELSE 0 END),0) as spent_cents,
-                COALESCE(SUM(CASE WHEN t.amount_cents>0 THEN t.amount_cents ELSE 0 END),0) as earned_cents
+                COALESCE(SUM(CASE WHEN t.amount_cents>0 AND (acc.account_type IS NULL OR acc.account_type!='credit') THEN t.amount_cents ELSE 0 END),0) as earned_cents
          FROM budgets b
          JOIN categories c ON b.category_id=c.id
          LEFT JOIN transactions t ON t.category_id=b.category_id
            AND t.date>=? AND t.date<? AND t.profile_id IN (${ph})
+         LEFT JOIN accounts acc ON acc.id=t.account_id
          WHERE b.is_global=1
          GROUP BY b.id ORDER BY c.name`,
         [start, end, ...ids]
@@ -203,11 +204,12 @@ export default function BudgetsPage() {
                 c.name as category_name, c.color as category_color,
                 b.amount_cents, b.period, b.is_global,
                 COALESCE(SUM(CASE WHEN t.amount_cents<0 THEN ABS(t.amount_cents) ELSE 0 END),0) as spent_cents,
-                COALESCE(SUM(CASE WHEN t.amount_cents>0 THEN t.amount_cents ELSE 0 END),0) as earned_cents
+                COALESCE(SUM(CASE WHEN t.amount_cents>0 AND (acc.account_type IS NULL OR acc.account_type!='credit') THEN t.amount_cents ELSE 0 END),0) as earned_cents
          FROM budgets b
          JOIN categories c ON b.category_id=c.id
          LEFT JOIN transactions t ON t.category_id=b.category_id
            AND t.date>=? AND t.date<? AND t.profile_id=?
+         LEFT JOIN accounts acc ON acc.id=t.account_id
          WHERE b.profile_id=?
          GROUP BY b.id ORDER BY c.name`,
         [start, end, profileId, profileId]

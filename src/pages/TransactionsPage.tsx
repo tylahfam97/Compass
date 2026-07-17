@@ -181,8 +181,9 @@ export default function TransactionsPage() {
       ? `${SORT_EXPR[sortCol]} ${sortDir.toUpperCase()}, t.id ${sortDir.toUpperCase()}`
       : "t.date DESC, t.id DESC";
     const data = await db.select<Transaction[]>(
-      `SELECT t.*, c.name as category_name, c.color as category_color
+      `SELECT t.*, c.name as category_name, c.color as category_color, a.account_type as account_type
        FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
+       LEFT JOIN accounts a ON a.id=t.account_id
        WHERE ${where}
        ORDER BY ${orderBy}
        LIMIT ${allTime ? ALL_TIME_LIMIT + 1 : MAX_ROWS + 1}`,
@@ -315,7 +316,9 @@ export default function TransactionsPage() {
     }
   };
 
-  const totalIncome = rows.filter((r) => r.amount_cents > 0)
+  // Credit-card payments/credits (positive amount on a credit account) are debt reduction,
+  // not real income - exclude them here too so this summary matches Dashboard/Trends/Insights.
+  const totalIncome = rows.filter((r) => r.amount_cents > 0 && r.account_type !== "credit")
     .reduce((s, r) => s + r.amount_cents, 0);
   const totalExpenses = rows.filter((r) => r.amount_cents < 0)
     .reduce((s, r) => s + r.amount_cents, 0);

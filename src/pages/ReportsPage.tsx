@@ -163,10 +163,11 @@ export default function ReportsPage() {
           [prevStart, prevEnd, profileId]
         ),
         db.select<{ month: string; income_cents: number; expense_cents: number }[]>(
-          `SELECT strftime('%Y-%m', date) as month,
-                  SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income_cents,
-                  SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as expense_cents
-           FROM transactions WHERE date>=? AND date<? AND profile_id=? GROUP BY month ORDER BY month`,
+          `SELECT strftime('%Y-%m', t.date) as month,
+                  SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END) as income_cents,
+                  SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as expense_cents
+           FROM transactions t JOIN accounts a ON a.id=t.account_id
+           WHERE t.date>=? AND t.date<? AND t.profile_id=? GROUP BY month ORDER BY month`,
           [chartStart, end, profileId]
         ),
         db.select<Transaction[]>(

@@ -97,7 +97,8 @@ export default function DashboardPage() {
     const [start, end] = monthBounds(month);
     const [incRow, expRow, catRows, recentRows, monthCountRow, totalCountRow, balanceRow, balancePointRows, portfolioRow, balanceAcctRows] = await Promise.all([
       db.select<{ total: number }[]>(
-        "SELECT COALESCE(SUM(amount_cents),0) as total FROM transactions WHERE date>=? AND date<? AND amount_cents>0 AND (category_id IS NULL OR category_id!=20) AND profile_id=?",
+        `SELECT COALESCE(SUM(t.amount_cents),0) as total FROM transactions t JOIN accounts a ON a.id=t.account_id
+         WHERE t.date>=? AND t.date<? AND t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' AND t.profile_id=?`,
         [start, end, profileId]
       ),
       db.select<{ total: number }[]>(

@@ -129,7 +129,9 @@ export default function OverviewPage() {
               [p.id]
             ),
             db.select<{ total: number }[]>(
-              "SELECT COALESCE(SUM(amount_cents),0) as total FROM transactions WHERE profile_id=? AND date>=? AND date<? AND amount_cents>0",
+              `SELECT COALESCE(SUM(t.amount_cents),0) as total FROM transactions t JOIN accounts a ON a.id=t.account_id
+               WHERE t.profile_id=? AND t.date>=? AND t.date<? AND t.amount_cents>0
+                 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit'`,
               [p.id, start, end]
             ),
             db.select<{ total: number }[]>(
