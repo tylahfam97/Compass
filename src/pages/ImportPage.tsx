@@ -750,6 +750,7 @@ export default function ImportPage() {
   const [existingAccountsForType, setExistingAccountsForType] = useState<Account[]>([]);
   const [maxStepReached, setMaxStepReached] = useState(1);
   const [currentFilename, setCurrentFilename] = useState("");
+  const [importSubmitting, setImportSubmitting] = useState(false);
   const [colMap, setColMap] = useState<ColMap>({ dateCol: 0, descCol: 1, amountCol: 2, typeCol: -1, balanceCol: -1, invertAmounts: false });
   const [currentBalanceInput, setCurrentBalanceInput] = useState("");
   const [profileFound, setProfileFound] = useState(false);
@@ -979,6 +980,13 @@ export default function ImportPage() {
 
   const processFile = useCallback((file: File) => {
     setError(null);
+
+    const MAX_IMPORT_FILE_BYTES = 75 * 1024 * 1024; // 75MB - generous for any real statement export
+    if (file.size > MAX_IMPORT_FILE_BYTES) {
+      setError(`"${file.name}" is too large to import (${(file.size / (1024 * 1024)).toFixed(0)}MB, limit is 75MB). Split it into smaller statements and try again.`);
+      return;
+    }
+
     setStep("checking");
     setCurrentFilename(file.name);
 
@@ -1175,7 +1183,8 @@ export default function ImportPage() {
   };
 
   const handleImport = async () => {
-    if (!parsed) return;
+    if (!parsed || importSubmitting) return;
+    setImportSubmitting(true);
     setStep("importing");
     // Yield one animation frame so React can paint the loading UI before the
     // import loop starts - prevents the UI appearing frozen on large files.
@@ -1295,9 +1304,11 @@ export default function ImportPage() {
       setSummary({ imported, skipped });
       await loadHistory();
       setStep("done");
+      setImportSubmitting(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setStep("wizard:preview");
+      setImportSubmitting(false);
     }
   };
 
@@ -2353,8 +2364,8 @@ export default function ImportPage() {
               className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
               Back
             </button>
-            <button onClick={handleImport}
-              className="px-6 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg font-medium hover:opacity-90 transition-opacity">
+            <button onClick={handleImport} disabled={importSubmitting}
+              className="px-6 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50">
               Import {parsed.rows.length} Transactions
             </button>
             {batchQueue.length > 0 && (
@@ -2366,9 +2377,10 @@ export default function ImportPage() {
                   setBatchAutoMode(true);
                   handleImport();
                 }}
+                disabled={importSubmitting}
                 className="px-5 py-2 bg-[hsl(var(--primary)/0.15)] text-[hsl(var(--primary))]
                            border border-[hsl(var(--primary)/0.4)] rounded-lg text-sm font-medium
-                           hover:bg-[hsl(var(--primary)/0.25)] transition-colors"
+                           hover:bg-[hsl(var(--primary)/0.25)] transition-colors disabled:opacity-50"
                 title="Import this file then automatically import all remaining files using the same column settings"
               >
                 Auto-Import All ({batchQueue.length + 1} Files)

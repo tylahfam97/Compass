@@ -8,6 +8,7 @@ import { formatCurrency, formatDate, combineAccountBalances } from "@/lib/utils"
 import type { Transaction } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
+import { Skeleton } from "@/components/Skeleton";
 
 interface BalanceTrendPoint {
   month: string;
@@ -290,7 +291,14 @@ export default function ReportsPage() {
         )}
       </div>
 
-      {loading && <p className="text-[hsl(var(--muted-foreground))]">Loading…</p>}
+      {loading && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-3 gap-4">
+            {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)}
+          </div>
+          <Skeleton className="h-64 rounded-xl" />
+        </div>
+      )}
 
       {!loading && !hasData && (
         <p className="text-[hsl(var(--muted-foreground))] text-center py-16">

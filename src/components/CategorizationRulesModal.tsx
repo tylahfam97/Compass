@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
+import { motion } from "motion/react";
 import { getDb } from "@/lib/db";
 import { useCategoryStore } from "@/stores/categoryStore";
+import { useModalDismiss } from "@/hooks/useModalDismiss";
 import CategoryOptions from "@/components/CategoryOptions";
 import type { CategorizationRule } from "@/lib/types";
 
@@ -244,6 +246,7 @@ function RuleForm({ form, setForm, categories, onSubmit, submitLabel, saving, er
 // ─── Main modal ───────────────────────────────────────────────────────────────
 
 export default function CategorizationRulesModal({ onClose, profileId }: Props) {
+  const { onBackdropClick } = useModalDismiss(onClose);
   const categories = useCategoryStore((s) => s.categories);
   const [rules, setRules] = useState<RuleRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -360,9 +363,16 @@ export default function CategorizationRulesModal({ onClose, profileId }: Props) 
   const systemRules = rules.filter((r) => r.is_system_rule);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-[hsl(var(--background))] border rounded-2xl shadow-xl w-full max-w-2xl
-                      flex flex-col max-h-[90vh]">
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
+      onClick={onBackdropClick}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} transition={{ duration: 0.15 }}
+        className="bg-[hsl(var(--background))] border rounded-2xl shadow-xl w-full max-w-2xl
+                      flex flex-col max-h-[90vh]"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b shrink-0">
           <div>
@@ -507,7 +517,7 @@ export default function CategorizationRulesModal({ onClose, profileId }: Props) 
             Close
           </button>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

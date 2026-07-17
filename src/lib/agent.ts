@@ -64,7 +64,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   }[]>(
     `SELECT strftime('%Y-%m', t.date) as month,
             SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END) as income,
-            SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+            SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN ABS(t.amount_cents) ELSE 0 END) as expenses
      FROM transactions t JOIN accounts a ON a.id=t.account_id
      WHERE t.profile_id=? GROUP BY month ORDER BY month DESC LIMIT 12`,
     [profileId]
@@ -961,7 +961,7 @@ export async function getSpendingProfile(profileIds: number[]): Promise<Spending
     `SELECT AVG(income) as avg_income, AVG(expenses) as avg_expenses
      FROM (
        SELECT SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END) as income,
-              SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+              SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN ABS(t.amount_cents) ELSE 0 END) as expenses
        FROM transactions t JOIN accounts a ON a.id=t.account_id
        WHERE t.profile_id IN (${ph}) AND t.date>=?
        GROUP BY strftime('%Y-%m', t.date)
@@ -1013,7 +1013,7 @@ export async function getSavingsHistory(
   const rows = await db.select<{ month: string; income: number; expenses: number }[]>(
     `SELECT strftime('%Y-%m', t.date) as month,
             SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END) as income,
-            SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+            SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN ABS(t.amount_cents) ELSE 0 END) as expenses
      FROM transactions t JOIN accounts a ON a.id=t.account_id
      WHERE t.profile_id IN (${ph}) AND t.date>=?
      GROUP BY month ORDER BY month`,
@@ -1052,11 +1052,13 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
   const msStart  = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
   const msEnd    = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().split("T")[0];
 
-  // ── 1. Savings Rate (40 pts) — 3-month avg ──────────────────────────────
+  // ── 1. Savings Rate (40 pts) — 3-month avg — checking/investment only, credit
+  // card activity is excluded entirely (both income and expenses) since it's
+  // already covered by the separate Credit Card Health score ──────────────
   const srRows = await db.select<{ income: number; expenses: number }[]>(
     `SELECT
        SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END) as income,
-       SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+       SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN ABS(t.amount_cents) ELSE 0 END) as expenses
      FROM transactions t JOIN accounts a ON a.id=t.account_id
      WHERE t.profile_id IN (${ph}) AND t.date>=?
      GROUP BY strftime('%Y-%m', t.date) LIMIT 3`,
@@ -1074,10 +1076,14 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
   );
   let budgetScore = 15;
   if (budgets.length > 0) {
+    // Credit card purchases don't count against a category budget here, for the same
+    // reason they're excluded from Savings Rate above - credit standing is tracked by
+    // the separate Credit Card Health score, not folded into this one.
     const spendRows = await db.select<{ category_id: number; spent: number }[]>(
-      `SELECT category_id, SUM(ABS(amount_cents)) as spent
-       FROM transactions WHERE profile_id IN (${ph}) AND date>=? AND date<? AND amount_cents<0
-       GROUP BY category_id`,
+      `SELECT t.category_id, SUM(ABS(t.amount_cents)) as spent
+       FROM transactions t JOIN accounts a ON a.id=t.account_id
+       WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<? AND t.amount_cents<0 AND a.account_type!='credit'
+       GROUP BY t.category_id`,
       [...profileIds, msStart, msEnd]
     );
     const sm = new Map(spendRows.map(s => [s.category_id, s.spent]));

@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { motion } from "motion/react";
 import { getDb } from "@/lib/db";
 import { useCategoryStore } from "@/stores/categoryStore";
+import { useModalDismiss } from "@/hooks/useModalDismiss";
 import CategoryOptions from "@/components/CategoryOptions";
 import type { Category } from "@/lib/types";
 
@@ -18,6 +20,7 @@ interface Props {
 
 export default function CategoryModal({ category, onClose }: Props) {
   const { categories, addCategory, updateCategory, removeCategory } = useCategoryStore();
+  const { onBackdropClick } = useModalDismiss(onClose);
   const [name, setName] = useState(category?.name ?? "");
   const [color, setColor] = useState(category?.color ?? "#3b82f6");
   const [parentId, setParentId] = useState<number | "">(category?.parent_id ?? "");
@@ -70,8 +73,15 @@ export default function CategoryModal({ category, onClose }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-[hsl(var(--background))] border rounded-2xl shadow-xl w-full max-w-md p-6">
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
+      onClick={onBackdropClick}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} transition={{ duration: 0.15 }}
+        className="bg-[hsl(var(--background))] border rounded-2xl shadow-xl w-full max-w-md p-6"
+      >
         <h2 className="text-lg font-semibold mb-4">{isEdit ? "Edit Category" : "New Category"}</h2>
 
         {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
@@ -134,7 +144,7 @@ export default function CategoryModal({ category, onClose }: Props) {
             </button>
           </div>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

@@ -18,6 +18,7 @@ import {
 import type { Insight, Profile, HealthScore, SecurityType, CreditCardHealthScore, InvestmentHealthScore } from "@/lib/types";
 import InsightCard from "@/components/InsightCard";
 import InfoTooltip from "@/components/InfoTooltip";
+import { useModalDismiss } from "@/hooks/useModalDismiss";
 import SpotlightCard from "@/components/SpotlightCard";
 import PinModal from "@/components/PinModal";
 
@@ -435,6 +436,7 @@ function ScoreIntroModal({
 }) {
   const [tab, setTab] = useState<"global" | "profile">("global");
   const score = tab === "global" ? globalScore : (profileScore ?? globalScore);
+  const { onBackdropClick } = useModalDismiss(onClose);
 
   const grades = [
     { g: "A", r: "85–100", l: "Excellent",       c: "#059669" },
@@ -451,11 +453,14 @@ function ScoreIntroModal({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-6"
-         style={{ backgroundColor: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
-         onClick={onClose}>
-      <div className="bg-[hsl(var(--background))] border rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto"
-           onClick={(e) => e.stopPropagation()}>
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-6"
+      style={{ backgroundColor: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
+      onClick={onBackdropClick}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} transition={{ duration: 0.15 }}
+        className="bg-[hsl(var(--background))] border rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
 
         {/* Global / Profile tab toggle */}
         <div className="flex border-b">
@@ -535,8 +540,8 @@ function ScoreIntroModal({
             Got it
           </button>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
@@ -834,14 +839,17 @@ export default function AgentPage() {
   return (
     <>
       {pinTarget && <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />}
-      {showScoreIntro && globalHealthScore && (
-        <ScoreIntroModal
-          globalScore={globalHealthScore}
-          profileScore={profileHealthScore}
-          profileName={activeProfile?.name ?? "Profile"}
-          onClose={() => setShowScoreIntro(false)}
-        />
-      )}
+      <AnimatePresence>
+        {showScoreIntro && globalHealthScore && (
+          <ScoreIntroModal
+            key="score-intro-modal"
+            globalScore={globalHealthScore}
+            profileScore={profileHealthScore}
+            profileName={activeProfile?.name ?? "Profile"}
+            onClose={() => setShowScoreIntro(false)}
+          />
+        )}
+      </AnimatePresence>
       {PageHeader}
 
       <div className="p-6 max-w-3xl space-y-6 mx-auto w-full">

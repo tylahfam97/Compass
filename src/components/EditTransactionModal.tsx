@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { motion } from "motion/react";
 import { getDb, recomputeCalculatedBalances } from "@/lib/db";
 import { useCategoryStore } from "@/stores/categoryStore";
+import { useModalDismiss } from "@/hooks/useModalDismiss";
 import CategoryOptions from "@/components/CategoryOptions";
 import { Info } from "lucide-react";
 import type { Transaction } from "@/lib/types";
@@ -26,6 +28,7 @@ function parseDollar(s: string): number {
 export default function EditTransactionModal({ transaction, onClose, onSaved, profileId }: Props) {
   const categories = useCategoryStore((s) => s.categories);
   const isAdd = !transaction;
+  const { onBackdropClick } = useModalDismiss(onClose);
 
   const [date, setDate]         = useState(transaction?.date ?? new Date().toISOString().split("T")[0]);
   const [desc, setDesc]         = useState(transaction?.description ?? "");
@@ -88,8 +91,15 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-[hsl(var(--background))] border rounded-2xl shadow-xl w-full max-w-md p-6">
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
+      onClick={onBackdropClick}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} transition={{ duration: 0.15 }}
+        className="bg-[hsl(var(--background))] border rounded-2xl shadow-xl w-full max-w-md p-6"
+      >
         <h2 className="text-lg font-semibold mb-4">{isAdd ? "Add Transaction" : "Edit Transaction"}</h2>
 
         {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
@@ -168,7 +178,7 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
             </button>
           </div>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

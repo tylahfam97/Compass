@@ -13,6 +13,7 @@ import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
 import { generateInsights } from "@/lib/agent";
 import InsightCard from "@/components/InsightCard";
+import { Skeleton, CardListSkeleton } from "@/components/Skeleton";
 
 interface MonthStats {
   income: number;
@@ -67,6 +68,7 @@ export default function DashboardPage() {
   const [totalTxnCount, setTotalTxnCount] = useState(0);
   const [confirmClear, setConfirmClear] = useState<"month" | "all" | null>(null);
   const [seedingDemo, setSeedingDemo] = useState(false);
+  const [hasDemoAccounts, setHasDemoAccounts] = useState(false);
   const [currentBalance, setCurrentBalance] = useState<number | null>(null);
   const [checkingBalancePoints, setCheckingBalancePoints] = useState<CheckingBalancePoint[]>([]);
   const [creditBalanceAccounts, setCreditBalanceAccounts] = useState<CreditAccountMeta[]>([]);
@@ -97,7 +99,7 @@ export default function DashboardPage() {
     setLoading(true);
     const db = await getDb();
     const [start, end] = monthBounds(month);
-    const [incRow, expRow, catRows, recentRows, monthCountRow, totalCountRow, balanceRow, balancePointRows, portfolioRow, balanceAcctRows] = await Promise.all([
+    const [incRow, expRow, catRows, recentRows, monthCountRow, totalCountRow, balanceRow, balancePointRows, portfolioRow, balanceAcctRows, demoAcctRow] = await Promise.all([
       db.select<{ total: number }[]>(
         `SELECT COALESCE(SUM(t.amount_cents),0) as total FROM transactions t JOIN accounts a ON a.id=t.account_id
          WHERE t.date>=? AND t.date<? AND t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' AND t.profile_id=?`,
@@ -150,6 +152,10 @@ export default function DashboardPage() {
         "SELECT id, name, account_type FROM accounts WHERE profile_id=? AND account_type IN ('checking','credit') ORDER BY account_type, name",
         [profileId]
       ),
+      db.select<{ n: number }[]>(
+        "SELECT COUNT(*) as n FROM accounts WHERE profile_id=? AND name IN ('Demo Checking','Demo Credit Card')",
+        [profileId]
+      ),
     ]);
     const inc = incRow[0]?.total ?? 0;
     const exp = expRow[0]?.total ?? 0;
@@ -159,8 +165,11 @@ export default function DashboardPage() {
     setMonthTxnCount(monthCountRow[0]?.n ?? 0);
     setTotalTxnCount(totalCountRow[0]?.n ?? 0);
     const trackedAccounts = balanceRow.filter((r) => r.balance_cents !== null);
-    setCurrentBalance(trackedAccounts.length > 0 ? trackedAccounts.reduce((s, r) => s + (r.balance_cents ?? 0), 0) : null);
     const checkingIds = new Set(balanceAcctRows.filter((a) => a.account_type === "checking").map((a) => a.id));
+    // Only checking/bank accounts count toward this headline figure - credit card debt and
+    // investments are tracked separately (Credit Card Health, Net Worth) rather than blended in.
+    const checkingTracked = trackedAccounts.filter((r) => checkingIds.has(r.account_id));
+    setCurrentBalance(checkingTracked.length > 0 ? checkingTracked.reduce((s, r) => s + (r.balance_cents ?? 0), 0) : null);
     const creditAccountsMeta = balanceAcctRows
       .filter((a) => a.account_type === "credit")
       .map((a, i) => ({ id: a.id, name: a.name, color: accountChartColor(i) }));
@@ -180,6 +189,7 @@ export default function DashboardPage() {
       })
     );
     setPortfolioValueCents(portfolioRow[0]?.total ?? 0);
+    setHasDemoAccounts((demoAcctRow[0]?.n ?? 0) > 0);
     setExpandedCat(null);
     setExpandedCatTxns(null);
     setExpandedBalanceDate(null);
@@ -300,7 +310,13 @@ export default function DashboardPage() {
       </div>
 
       {loading && (
-        <p className="text-[hsl(var(--muted-foreground))]">Loading…</p>
+        <div className="space-y-6">
+          <div className="grid grid-cols-3 gap-4">
+            {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)}
+          </div>
+          <Skeleton className="h-40 rounded-xl" />
+          <CardListSkeleton count={3} />
+        </div>
       )}
 
       {!loading && !hasData && (
@@ -317,23 +333,25 @@ export default function DashboardPage() {
             >
               Import Transactions
             </Link>
-            <button
-              data-tour="demo-mode"
-              onClick={async () => {
-                setSeedingDemo(true);
-                try {
-                  await seedDemoData(profileId);
-                  await loadData();
-                } finally {
-                  setSeedingDemo(false);
-                }
-              }}
-              disabled={seedingDemo}
-              className="px-5 py-2 border rounded-lg text-sm font-medium hover:bg-[hsl(var(--muted))]
-                         transition-colors disabled:opacity-50"
-            >
-              {seedingDemo ? "Loading demo data…" : "✦ Try Demo Mode"}
-            </button>
+            {!hasDemoAccounts && (
+              <button
+                data-tour="demo-mode"
+                onClick={async () => {
+                  setSeedingDemo(true);
+                  try {
+                    await seedDemoData(profileId);
+                    await loadData();
+                  } finally {
+                    setSeedingDemo(false);
+                  }
+                }}
+                disabled={seedingDemo}
+                className="px-5 py-2 border rounded-lg text-sm font-medium hover:bg-[hsl(var(--muted))]
+                           transition-colors disabled:opacity-50"
+              >
+                {seedingDemo ? "Loading demo data…" : "✦ Try Demo Mode"}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -380,7 +398,7 @@ export default function DashboardPage() {
               <div className="shrink-0">
                 <div className="flex items-center gap-2 mb-1">
                   <p className="text-sm text-[hsl(var(--muted-foreground))]">
-                    {portfolioValueCents > 0 && includeInvestments ? "Net Worth" : "Account Balance"}
+                    Checking Balance
                   </p>
                   {portfolioValueCents > 0 && (
                     <button
@@ -401,8 +419,8 @@ export default function DashboardPage() {
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
                   {portfolioValueCents > 0
-                    ? `${formatCurrency(currentBalance)} cash${includeInvestments ? ` + ${formatCurrency(portfolioValueCents)} investments` : ""}`
-                    : "Most recent transaction"}
+                    ? `${formatCurrency(currentBalance)} checking${includeInvestments ? ` + ${formatCurrency(portfolioValueCents)} investments` : ""} (excludes credit card debt)`
+                    : "Checking/bank accounts only - excludes credit card debt"}
                 </p>
               </div>
               {checkingBalancePoints.length > 1 && (

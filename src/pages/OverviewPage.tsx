@@ -1,13 +1,14 @@
 ﻿import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { AreaChart, Area, ResponsiveContainer, Tooltip } from "recharts";
+import { AreaChart, Area, LineChart, Line, ResponsiveContainer, Tooltip } from "recharts";
 import { getDb } from "@/lib/db";
-import { formatCurrency, combineAccountBalances } from "@/lib/utils";
+import { formatCurrency, combineAccountBalances, separateAccountBalances, accountChartColor } from "@/lib/utils";
 import { computeNetWorth, type NetWorthSnapshot } from "@/lib/netWorth";
 import { useProfileStore } from "@/stores/profileStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import PinModal from "@/components/PinModal";
 import ManageAccountsPanel from "@/components/ManageAccountsPanel";
+import { Skeleton } from "@/components/Skeleton";
 import type { Profile } from "@/lib/types";
 
 interface ProfileData {
@@ -15,7 +16,11 @@ interface ProfileData {
   balance: number | null;
   income: number;
   expenses: number;
-  sparkline: { date: string; balance: number }[];
+  /** Combined checking balance trend - one line, matching Dashboard/Trends. */
+  checkingSparkline: { date: string; balance: number }[];
+  /** Each credit card kept as its own series (never blended) - drawn as one thin line per card. */
+  creditSparkline: { date: string; byAccount: Record<number, number> }[];
+  creditAccounts: { id: number; name: string }[];
   hasTransactions: boolean;
   portfolioValue: number;
 }
@@ -121,8 +126,8 @@ export default function OverviewPage() {
       const entries = await Promise.all(
         visibleProfiles.map(async (p) => {
           const [balRow, incRow, expRow, txRow, sparkRows, portfolioRow] = await Promise.all([
-            db.select<{ account_id: number; balance_cents: number | null }[]>(
-              `SELECT a.id as account_id,
+            db.select<{ account_id: number; account_type: string; name: string; balance_cents: number | null }[]>(
+              `SELECT a.id as account_id, a.account_type, a.name,
                  (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
                   ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents
                FROM accounts a WHERE a.profile_id=? AND a.account_type IN ('checking','credit')`,
@@ -142,8 +147,8 @@ export default function OverviewPage() {
               "SELECT COUNT(*) as n FROM transactions WHERE profile_id=?",
               [p.id]
             ),
-            db.select<{ date: string; account_id: number; balance_cents: number }[]>(
-              `SELECT t.date, t.account_id, t.balance_cents FROM transactions t
+            db.select<{ date: string; account_id: number; account_type: string; balance_cents: number }[]>(
+              `SELECT t.date, t.account_id, a.account_type, t.balance_cents FROM transactions t
                JOIN accounts a ON a.id=t.account_id
                WHERE t.profile_id=? AND t.balance_cents IS NOT NULL AND a.account_type IN ('checking','credit')
                  AND t.date >= date('now','-60 days')
@@ -157,12 +162,16 @@ export default function OverviewPage() {
             ),
           ]);
           const trackedAccounts = balRow.filter((r) => r.balance_cents !== null);
+          const creditAccounts = balRow.filter((r) => r.account_type === "credit").map((r) => ({ id: r.account_id, name: r.name }));
           return [p.id, {
             profileId: p.id,
             balance: trackedAccounts.length > 0 ? trackedAccounts.reduce((s, r) => s + (r.balance_cents ?? 0), 0) : null,
             income: incRow[0]?.total ?? 0,
             expenses: expRow[0]?.total ?? 0,
-            sparkline: combineAccountBalances(sparkRows).map((r) => ({ date: r.date, balance: r.balance_cents / 100 })),
+            checkingSparkline: combineAccountBalances(sparkRows.filter((r) => r.account_type === "checking"))
+              .map((r) => ({ date: r.date, balance: r.balance_cents / 100 })),
+            creditSparkline: separateAccountBalances(sparkRows.filter((r) => r.account_type === "credit")),
+            creditAccounts,
             hasTransactions: (txRow[0]?.n ?? 0) > 0,
             portfolioValue: portfolioRow[0]?.total ?? 0,
           }] as [number, ProfileData];
@@ -300,7 +309,9 @@ export default function OverviewPage() {
 
       {/* Profile cards grid */}
       {loading ? (
-        <p className="text-[hsl(var(--muted-foreground))]">Loading…</p>
+        <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-48 rounded-2xl" />)}
+        </div>
       ) : (
         <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
           {visibleProfiles.map((profile) => {
@@ -345,22 +356,42 @@ export default function OverviewPage() {
                       </div>
                     )}
 
-                    {d.sparkline.length > 1 && (
-                      <div className="h-14 mb-3 -mx-1">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={d.sparkline} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
-                            <defs>
-                              <linearGradient id={`grad-${profile.id}`} x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor={profile.avatar_color} stopOpacity={0.3} />
-                                <stop offset="95%" stopColor={profile.avatar_color} stopOpacity={0} />
-                              </linearGradient>
-                            </defs>
-                            <Tooltip contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
-                              formatter={(v) => [`$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "Balance"]}
-                              labelFormatter={(l) => String(l)} />
-                            <Area type="monotone" dataKey="balance" stroke={profile.avatar_color} strokeWidth={1.5} fill={`url(#grad-${profile.id})`} dot={false} />
-                          </AreaChart>
-                        </ResponsiveContainer>
+                    {(d.checkingSparkline.length > 1 || (d.creditAccounts.length > 0 && d.creditSparkline.length > 1)) && (
+                      <div className="mb-3 -mx-1">
+                        {d.checkingSparkline.length > 1 && (
+                          <div className="h-14">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <AreaChart data={d.checkingSparkline} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+                                <defs>
+                                  <linearGradient id={`grad-${profile.id}`} x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor={profile.avatar_color} stopOpacity={0.3} />
+                                    <stop offset="95%" stopColor={profile.avatar_color} stopOpacity={0} />
+                                  </linearGradient>
+                                </defs>
+                                <Tooltip contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
+                                  formatter={(v) => [`$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "Checking"]}
+                                  labelFormatter={(l) => String(l)} />
+                                <Area type="monotone" dataKey="balance" stroke={profile.avatar_color} strokeWidth={1.5} fill={`url(#grad-${profile.id})`} dot={false} />
+                              </AreaChart>
+                            </ResponsiveContainer>
+                          </div>
+                        )}
+                        {d.creditAccounts.length > 0 && d.creditSparkline.length > 1 && (
+                          <div className="h-8 mt-0.5">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <LineChart data={d.creditSparkline} margin={{ top: 1, right: 2, bottom: 1, left: 2 }}>
+                                <Tooltip contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
+                                  formatter={(v, name) => [`$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`, name]}
+                                  labelFormatter={(l) => String(l)} />
+                                {d.creditAccounts.map((acc, i) => (
+                                  <Line key={acc.id} type="monotone" isAnimationActive={false} name={acc.name}
+                                    dataKey={(pt: { byAccount: Record<number, number> }) => (pt.byAccount[acc.id] ?? 0) / 100}
+                                    stroke={accountChartColor(i)} strokeWidth={1.25} dot={false} />
+                                ))}
+                              </LineChart>
+                            </ResponsiveContainer>
+                          </div>
+                        )}
                       </div>
                     )}
 

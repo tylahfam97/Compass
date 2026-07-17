@@ -22,7 +22,7 @@ interface Particle {
   wanderPhase: number;
 }
 
-const PARTICLE_COUNT = 270;
+const PARTICLE_COUNT = 420;
 const REPEL_RADIUS = 110;
 const REPEL_STRENGTH = 1400;
 const SPRING_K = 0.02;
