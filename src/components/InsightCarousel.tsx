@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import { motion, useMotionValue, useTransform, animate, type MotionValue } from "motion/react";
 import type { Insight } from "@/lib/types";
 import InsightCard from "@/components/InsightCard";
@@ -8,21 +8,27 @@ interface Props {
   onApply: (insight: Insight) => void;
 }
 
-const SPACING = 190; // px between card centers
+const SPACING = 260; // px between card centers - generous so neighbors never overlap
 const CARD_WIDTH = 264;
 const MAX_VISIBLE_OFFSET = 3.4; // cards beyond this are display:none (perf + avoids stray edges)
+// Rotation saturates fast (reaches its max within about one slot of travel) rather than
+// growing forever with distance - each card's tilt is a function of ITS OWN position only,
+// so a card that's already fully tilted stays put (doesn't keep "spinning") while you keep
+// dragging; only the card actually crossing through the center actively rotates, unwinding
+// toward flat as it arrives and winding back up as it leaves on the far side.
+const TILT_MAX_DEG = 58;
+const TILT_SLOPE = 95;
 
 /**
  * A "coverflow"-style 3D carousel: drag anywhere in the box (no visible scrollbar/slider) to
  * spin through insight cards. The centered card is flat and at full size/opacity; cards to
  * either side shrink, fade, and tilt away in 3D (via rotateY) as if receding from the viewer -
- * more of that the further they are from center. Releasing the drag snaps to the nearest card
- * (factoring in flick velocity) and the carousel eases there on its own via a spring animation.
+ * more so the further they are from center. Releasing the drag snaps to the nearest card
+ * (factoring in flick velocity) and the carousel eases there on its own.
  */
 export default function InsightCarousel({ items, onApply }: Props) {
-  const [activeIndex, setActiveIndex] = useState(0);
   // Committed position (settles on an integer index between/after gestures - a plain number
-  // during a spring animation as it eases toward its target).
+  // during the ease-to-target animation as it eases toward its destination).
   const activeIndexMV = useMotionValue(0);
   // Live pointer offset (px) for the drag currently in progress; 0 when not dragging.
   const dragXMV = useMotionValue(0);
@@ -42,11 +48,11 @@ export default function InsightCarousel({ items, onApply }: Props) {
     const target = clampIndex(Math.round(targetIndexRaw));
     // Jump the committed value to the exact spot the drag left off (no visual jump, since
     // dragXMV resets to 0 in the same tick - fromContinuous - 0 === the pre-release position)
-    // then let it spring the rest of the way to the snapped target on its own.
+    // then ease the rest of the way to the snapped target on its own - slow and deliberate,
+    // not a snappy flick, so the carousel reads as smooth/premium rather than twitchy.
     activeIndexMV.set(fromContinuous);
     dragXMV.set(0);
-    animate(activeIndexMV, target, { type: "spring", stiffness: 300, damping: 32, mass: 0.9 });
-    setActiveIndex(target);
+    animate(activeIndexMV, target, { duration: 0.62, ease: [0.22, 1, 0.36, 1] });
   };
 
   const endDrag = () => {
@@ -90,7 +96,7 @@ export default function InsightCarousel({ items, onApply }: Props) {
       aria-label="Insight carousel - drag to browse"
       tabIndex={0}
       className="relative select-none outline-none"
-      style={{ height: 220, perspective: 1200, touchAction: "none" }}
+      style={{ height: 236, perspective: 1200, touchAction: "none" }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -99,49 +105,49 @@ export default function InsightCarousel({ items, onApply }: Props) {
       onKeyDown={onKeyDown}
     >
       {items.map((item, i) => (
-        <CarouselCard
-          key={item.id}
-          item={item}
-          index={i}
-          positionMV={positionMV}
-          onApply={onApply}
-          isFront={i === activeIndex}
-        />
+        <CarouselCard key={item.id} item={item} index={i} positionMV={positionMV} onApply={onApply} />
       ))}
     </div>
   );
 }
 
 function CarouselCard({
-  item, index, positionMV, onApply, isFront,
+  item, index, positionMV, onApply,
 }: {
   item: Insight;
   index: number;
   positionMV: MotionValue<number>;
   onApply: (insight: Insight) => void;
-  isFront: boolean;
 }) {
   // `offset` is this card's continuous distance from dead-center, in card-slots (0 = front).
+  // Every visual property below is a pure function of THIS card's own offset, so as one card
+  // eases toward the center another eases away - each animates independently and continuously,
+  // never in a fixed "large card vs. small cards" binary tied to which one was front when a
+  // drag began.
   const offset = useTransform(positionMV, (pos) => index - pos);
   const x = useTransform(offset, (o) => o * SPACING);
-  const scale = useTransform(offset, (o) => Math.max(0.62, 1 - Math.abs(o) * 0.16));
+  const scale = useTransform(offset, (o) => Math.max(0.5, 1 - Math.abs(o) * 0.22));
   const opacity = useTransform(offset, (o) => Math.max(0, 1 - Math.abs(o) * 0.42));
-  // Tilts away from the viewer in 3D - opposite sign left vs. right, flat (0) at dead-center.
-  const rotateY = useTransform(offset, (o) => Math.max(-42, Math.min(42, o * -26)));
+  // Saturating tilt (see TILT_SLOPE/TILT_MAX_DEG above) - flat at dead-center, quickly winds
+  // up to a fixed max the moment it's off to either side, with opposite sign per side.
+  const rotateY = useTransform(offset, (o) => Math.max(-TILT_MAX_DEG, Math.min(TILT_MAX_DEG, o * -TILT_SLOPE)));
   const zIndex = useTransform(offset, (o) => Math.round(100 - Math.abs(o) * 10));
   const display = useTransform(offset, (o) => (Math.abs(o) > MAX_VISIBLE_OFFSET ? "none" : "block"));
+  // Only the card actually at (or essentially at) dead-center is interactive - this tracks
+  // continuously off the live drag position rather than a static "was front when drag started"
+  // flag, so Apply/Dismiss always work on whichever card is really centered right now.
+  const pointerEvents = useTransform(offset, (o) => (Math.abs(o) < 0.5 ? "auto" : "none"));
 
   return (
     <motion.div
       style={{
         position: "absolute", top: 0, left: "50%", width: CARD_WIDTH,
-        x, scale, opacity, rotateY, zIndex, display,
+        x, scale, opacity, rotateY, zIndex, display, pointerEvents,
         marginLeft: -CARD_WIDTH / 2,
-        pointerEvents: isFront ? "auto" : "none",
         transformStyle: "preserve-3d",
       }}
     >
-      <InsightCard insight={item} onApply={onApply} variant="card" compact={!isFront} />
+      <InsightCard insight={item} onApply={onApply} variant="card" />
     </motion.div>
   );
 }

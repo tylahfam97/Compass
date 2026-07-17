@@ -37,11 +37,9 @@ interface CreditAccountMeta {
   id: number;
   name: string;
   color: string;
-}
-
-interface HiddenAccountMeta {
-  id: number;
-  name: string;
+  /** Collapsed on the dashboard and excluded from net worth - toggled per-card, independent
+   *  of every other account (see setCreditHidden). */
+  hidden: boolean;
 }
 
 interface CreditBalanceRow {
@@ -83,8 +81,6 @@ export default function DashboardPage() {
   const [checkingBalancePoints, setCheckingBalancePoints] = useState<CheckingBalancePoint[]>([]);
   const [creditBalanceAccounts, setCreditBalanceAccounts] = useState<CreditAccountMeta[]>([]);
   const [creditBalanceRows, setCreditBalanceRows] = useState<CreditBalanceRow[]>([]);
-  const [hiddenAccounts, setHiddenAccounts] = useState<HiddenAccountMeta[]>([]);
-  const [hideToast, setHideToast] = useState<HiddenAccountMeta | null>(null);
   const [loans, setLoans] = useState<LoanAccount[]>([]);
   const [loanSeries, setLoanSeries] = useState<Map<number, { date: string; value: number }[]>>(new Map());
   const [loanModal, setLoanModal] = useState<"new" | LoanAccount | null>(null);
@@ -113,7 +109,7 @@ export default function DashboardPage() {
     setLoading(true);
     const db = await getDb();
     const [start, end] = monthBounds(month);
-    const [incRow, expRow, catRows, recentRows, monthCountRow, totalCountRow, balanceRow, balancePointRows, portfolioRow, balanceAcctRows, demoAcctRow, hiddenAcctRows] = await Promise.all([
+    const [incRow, expRow, catRows, recentRows, monthCountRow, totalCountRow, balanceRow, balancePointRows, portfolioRow, balanceAcctRows, demoAcctRow] = await Promise.all([
       db.select<{ total: number }[]>(
         `SELECT COALESCE(SUM(t.amount_cents),0) as total FROM transactions t JOIN accounts a ON a.id=t.account_id
          WHERE t.date>=? AND t.date<? AND t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') AND t.profile_id=?`,
@@ -147,14 +143,13 @@ export default function DashboardPage() {
         `SELECT a.id as account_id,
            (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
             ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents
-         FROM accounts a WHERE a.profile_id=? AND a.account_type IN ('checking','credit') AND a.hidden_from_dashboard=0`,
+         FROM accounts a WHERE a.profile_id=? AND a.account_type IN ('checking','credit')`,
         [profileId]
       ),
       db.select<{ date: string; account_id: number; balance_cents: number }[]>(
         `SELECT t.date, t.account_id, t.balance_cents FROM transactions t
          JOIN accounts a ON a.id=t.account_id
          WHERE t.profile_id=? AND t.date<? AND t.balance_cents IS NOT NULL AND a.account_type IN ('checking','credit')
-           AND a.hidden_from_dashboard=0
          ORDER BY t.date ASC, t.id ASC`,
         [profileId, end]
       ),
@@ -163,16 +158,12 @@ export default function DashboardPage() {
          WHERE profile_id=? AND as_of_date=(SELECT MAX(as_of_date) FROM holdings WHERE profile_id=?)`,
         [profileId, profileId]
       ),
-      db.select<{ id: number; name: string; account_type: string }[]>(
-        "SELECT id, name, account_type FROM accounts WHERE profile_id=? AND account_type IN ('checking','credit') AND hidden_from_dashboard=0 ORDER BY account_type, name",
+      db.select<{ id: number; name: string; account_type: string; hidden_from_dashboard: number }[]>(
+        "SELECT id, name, account_type, hidden_from_dashboard FROM accounts WHERE profile_id=? AND account_type IN ('checking','credit') ORDER BY account_type, name",
         [profileId]
       ),
       db.select<{ n: number }[]>(
         "SELECT COUNT(*) as n FROM accounts WHERE profile_id=? AND name IN ('Demo Checking','Demo Credit Card')",
-        [profileId]
-      ),
-      db.select<HiddenAccountMeta[]>(
-        "SELECT id, name FROM accounts WHERE profile_id=? AND account_type IN ('checking','credit') AND hidden_from_dashboard=1 ORDER BY name",
         [profileId]
       ),
     ]);
@@ -184,14 +175,20 @@ export default function DashboardPage() {
     setMonthTxnCount(monthCountRow[0]?.n ?? 0);
     setTotalTxnCount(totalCountRow[0]?.n ?? 0);
     const trackedAccounts = balanceRow.filter((r) => r.balance_cents !== null);
-    const checkingIds = new Set(balanceAcctRows.filter((a) => a.account_type === "checking").map((a) => a.id));
-    // Only checking/bank accounts count toward this headline figure - credit card debt and
-    // investments are tracked separately (Credit Card Health, Net Worth) rather than blended in.
+    // Only VISIBLE checking/bank accounts count toward this headline figure - credit card debt
+    // and investments are tracked separately (Credit Card Health, Net Worth) rather than
+    // blended in. Credit accounts are never excluded from the fetch itself (unlike checking) -
+    // hidden cards still need their full data on hand so their tile can collapse in place
+    // instead of vanishing, and expand instantly (no reload) when un-hidden.
+    const checkingIds = new Set(
+      balanceAcctRows.filter((a) => a.account_type === "checking" && !a.hidden_from_dashboard).map((a) => a.id)
+    );
+    const creditIds = new Set(balanceAcctRows.filter((a) => a.account_type === "credit").map((a) => a.id));
     const checkingTracked = trackedAccounts.filter((r) => checkingIds.has(r.account_id));
     setCurrentBalance(checkingTracked.length > 0 ? checkingTracked.reduce((s, r) => s + (r.balance_cents ?? 0), 0) : null);
     const creditAccountsMeta = balanceAcctRows
       .filter((a) => a.account_type === "credit")
-      .map((a, i) => ({ id: a.id, name: a.name, color: accountChartColor(i) }));
+      .map((a, i) => ({ id: a.id, name: a.name, color: accountChartColor(i), hidden: !!a.hidden_from_dashboard }));
     setCreditBalanceAccounts(creditAccountsMeta);
     // Checking accounts combine into one line (there's usually just one); credit cards stay
     // separate per-account so multiple cards never get silently summed into one number.
@@ -199,7 +196,7 @@ export default function DashboardPage() {
     setCheckingBalancePoints(
       combinedChecking.filter((r) => r.date >= start).map((r) => ({ date: r.date, balance: r.balance_cents / 100 }))
     );
-    const separatedCredit = separateAccountBalances(balancePointRows.filter((r) => !checkingIds.has(r.account_id)));
+    const separatedCredit = separateAccountBalances(balancePointRows.filter((r) => creditIds.has(r.account_id)));
     setCreditBalanceRows(
       separatedCredit.filter((r) => r.date >= start).map((r) => {
         const row: CreditBalanceRow = { date: r.date };
@@ -209,7 +206,6 @@ export default function DashboardPage() {
     );
     setPortfolioValueCents(portfolioRow[0]?.total ?? 0);
     setHasDemoAccounts((demoAcctRow[0]?.n ?? 0) > 0);
-    setHiddenAccounts(hiddenAcctRows);
     setExpandedCat(null);
     setExpandedCatTxns(null);
     setLoading(false);
@@ -307,24 +303,19 @@ export default function DashboardPage() {
     }
   };
 
-  /** Hides an account's chart/balance from the Dashboard (and net worth) - triggered by
-   *  clicking its chart, or the eye-off icon for accounts with too little history to chart. */
-  const hideAccount = async (id: number, name: string) => {
-    await setAccountHiddenFromDashboard(id, true);
-    setHideToast({ id, name });
-    await loadData();
-  };
-
-  const restoreAccount = async (id: number) => {
-    await setAccountHiddenFromDashboard(id, false);
-    setHideToast(null);
-    await loadData();
+  /** Collapses/expands a single credit card tile in place - collapsing also excludes it from
+   *  net worth, expanding restores it. Purely a local, per-card, optimistic update (no full
+   *  page reload) so toggling one card can never visually affect any other card, and there's
+   *  always an obvious, permanent way to reverse it (click the collapsed tile again). */
+  const setCreditHidden = async (id: number, hidden: boolean) => {
+    setCreditBalanceAccounts((prev) => prev.map((a) => (a.id === id ? { ...a, hidden } : a)));
+    await setAccountHiddenFromDashboard(id, hidden);
   };
 
   const hasData = stats.income !== 0 || stats.expenses !== 0;
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-8 space-y-6 max-w-6xl mx-auto w-full">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
         <div className="flex items-center gap-1">
@@ -500,7 +491,7 @@ export default function DashboardPage() {
           {/* Credit card balances - one compact tile per card (balance + trend + mini-sparkline),
               rather than a shared line chart where multiple near-flat debt lines are hard to
               read and don't convey much at a glance. */}
-          {creditBalanceAccounts.length > 0 && creditBalanceRows.length > 0 && (
+          {creditBalanceAccounts.length > 0 && (
             <div className="space-y-3">
               <div>
                 <h2 className="font-semibold">Credit Cards</h2>
@@ -516,6 +507,31 @@ export default function DashboardPage() {
                   // the card was paid down (improved), a MORE negative one means debt grew.
                   const improved = changeCents > 0;
                   const lastCents = Math.round(last * 100);
+
+                  // Collapsed: a slim row, still in its normal grid position - clicking it
+                  // expands the card back and re-includes it in net worth. This is the ONLY
+                  // way in and out of the hidden state, so it's never a dead end.
+                  if (acc.hidden) {
+                    return (
+                      <button
+                        key={acc.id}
+                        onClick={() => setCreditHidden(acc.id, false)}
+                        title="Show this card on the dashboard again"
+                        className="border rounded-xl px-4 py-3 flex items-center justify-between gap-2 text-left
+                                   hover:bg-[hsl(var(--muted))] transition-colors"
+                      >
+                        <span className="text-sm font-medium flex items-center gap-1.5 min-w-0 text-[hsl(var(--muted-foreground))]">
+                          <span className="w-2 h-2 rounded-full shrink-0 opacity-50" style={{ backgroundColor: acc.color }} />
+                          <span className="truncate">{acc.name}</span>
+                          <span className="text-[9px] font-semibold uppercase tracking-wide shrink-0 px-1.5 py-0.5 rounded-full border">
+                            Hidden
+                          </span>
+                        </span>
+                        <Eye size={14} className="text-[hsl(var(--muted-foreground))] shrink-0" />
+                      </button>
+                    );
+                  }
+
                   return (
                     <div key={acc.id} className="border rounded-xl p-4">
                       <div className="flex items-center justify-between mb-1 gap-2">
@@ -531,8 +547,8 @@ export default function DashboardPage() {
                             </span>
                           )}
                           <button
-                            onClick={() => hideAccount(acc.id, acc.name)}
-                            title="Hide from dashboard"
+                            onClick={() => setCreditHidden(acc.id, true)}
+                            title="Collapse this card (excludes it from net worth)"
                             className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
                           >
                             <EyeOff size={13} />
@@ -543,11 +559,7 @@ export default function DashboardPage() {
                         {formatCurrency(lastCents)}
                       </p>
                       {series.length > 1 && (
-                        <div
-                          className="h-10 -mx-1 cursor-pointer"
-                          title="Click to hide this card from the dashboard"
-                          onClick={() => hideAccount(acc.id, acc.name)}
-                        >
+                        <div className="h-10 -mx-1">
                           <ResponsiveContainer width="100%" height="100%">
                             <AreaChart data={series} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
                               <defs>
@@ -571,21 +583,6 @@ export default function DashboardPage() {
                   );
                 })}
               </div>
-              {hiddenAccounts.length > 0 && (
-                <div className="flex items-center gap-2 flex-wrap text-xs text-[hsl(var(--muted-foreground))]">
-                  <span>Hidden from dashboard:</span>
-                  {hiddenAccounts.map((a) => (
-                    <button
-                      key={a.id}
-                      onClick={() => restoreAccount(a.id)}
-                      title="Show on dashboard again"
-                      className="flex items-center gap-1 px-2 py-1 border rounded-lg hover:bg-[hsl(var(--muted))] transition-colors"
-                    >
-                      <Eye size={11} /> {a.name}
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
           )}
 
@@ -866,36 +863,6 @@ export default function DashboardPage() {
           )}
         </div>
       )}
-
-      {/* Hide-account undo toast - border/rounded live on the inner div, not this
-          fixed-positioned one (see CSS specificity note in TransactionsPage). */}
-      <AnimatePresence>
-        {hideToast && (
-          <motion.div
-            key="hide-account-toast"
-            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} transition={{ duration: 0.2 }}
-            className="fixed bottom-6 right-6 z-50 max-w-sm"
-          >
-            <div className="border shadow-xl rounded-xl px-5 py-3 flex items-center gap-4 text-sm bg-[hsl(var(--background))]">
-              <span className="flex-1 text-[hsl(var(--foreground))]">
-                <strong>{hideToast.name}</strong> hidden from the dashboard.
-              </span>
-              <button
-                onClick={() => restoreAccount(hideToast.id)}
-                className="px-3 py-1.5 border rounded-lg font-medium hover:bg-[hsl(var(--muted))] transition-colors shrink-0"
-              >
-                Undo
-              </button>
-              <button
-                onClick={() => setHideToast(null)}
-                className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] text-lg leading-none"
-              >
-                ✕
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {loanModal && (
         <LoanUploaderModal

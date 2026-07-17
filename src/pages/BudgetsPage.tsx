@@ -237,7 +237,7 @@ export default function BudgetsPage() {
   useEffect(() => { loadBudgets().catch(console.error); }, [loadBudgets]);
 
   useEffect(() => {
-    // Don't clobber a prefill that was just applied — only default-init when truly empty
+    // Don't clobber a prefill that was just applied ï¿½ only default-init when truly empty
     const hasPrefill = !!(location.state as { prefillBudget?: unknown } | null)?.prefillBudget;
     if (categories.length > 0 && formCatId === 0 && !hasPrefill) {
       setFormCatId(categories[0].id);
@@ -300,7 +300,7 @@ export default function BudgetsPage() {
     const db = await getDb();
     if (b.is_global) {
       await db.execute("UPDATE budgets SET is_global=0, profile_id=? WHERE id=?", [profileId, b.id]);
-      // In global view the budget is no longer global — remove it from the list.
+      // In global view the budget is no longer global ï¿½ remove it from the list.
       // In profile view just flip the badge; the budget still belongs to this profile.
       if (viewMode === "global") {
         setBudgets((prev) => prev.filter((row) => row.id !== b.id));
@@ -342,7 +342,7 @@ export default function BudgetsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Budgets</h1>
           <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">
-            Soft limits — no penalties, just awareness.
+            Soft limits ï¿½ no penalties, just awareness.
           </p>
         </div>
 
@@ -374,7 +374,7 @@ export default function BudgetsPage() {
       </div>
 
       {/* Scrollable content */}
-      <div className="max-w-3xl mx-auto px-8 py-8 space-y-6">
+      <div className="max-w-4xl mx-auto px-10 py-8 space-y-6">
 
         {/* Month navigation */}
         <div className="flex items-center justify-end gap-1.5">
@@ -383,7 +383,7 @@ export default function BudgetsPage() {
             aria-label="Previous month"
             className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors"
           >
-            ‹
+            ï¿½
           </button>
           <input
             type="month"
@@ -396,7 +396,7 @@ export default function BudgetsPage() {
             aria-label="Next month"
             className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors"
           >
-            ›
+            ï¿½
           </button>
         </div>
 
@@ -408,7 +408,7 @@ export default function BudgetsPage() {
           >
             <p className="text-sm font-semibold" style={{ color: "#b45309" }}>
               {lockedExcluded.length === 1 ? "1 profile is PIN-locked" : `${lockedExcluded.length} profiles are PIN-locked`}
-              {" "}— their transactions are excluded from global totals.
+              {" "}ï¿½ their transactions are excluded from global totals.
             </p>
             <div className="flex flex-wrap gap-2">
               {lockedExcluded.map((p) => (
@@ -447,7 +447,7 @@ export default function BudgetsPage() {
               <p className="text-sm font-semibold" style={{ color: "#C08A1C" }}>Global view active</p>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">
                 Showing budgets shared across all profiles
-                {profiles.length > 1 ? ` — aggregating ${profiles.length} profiles` : ""}
+                {profiles.length > 1 ? ` ï¿½ aggregating ${profiles.length} profiles` : ""}
               </p>
             </div>
           </div>
@@ -622,7 +622,7 @@ export default function BudgetsPage() {
                     )}
                   </div>
 
-                  {/* Action buttons — always visible but subtle */}
+                  {/* Action buttons ï¿½ always visible but subtle */}
                   <div className="flex items-center gap-2 shrink-0">
                     <button
                       onClick={() => toggleBudgetScope(b)}
@@ -701,7 +701,7 @@ export default function BudgetsPage() {
                     }}
                   >
                     On pace for {formatCurrency(projectedEnd)} by month-end
-                    {projectedOver && !over && " — approaching limit"}
+                    {projectedOver && !over && " ï¿½ approaching limit"}
                   </p>
                 )}
               </div>

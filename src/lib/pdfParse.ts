@@ -9,6 +9,11 @@ GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 export interface PdfParseResult {
   headers: string[];
   rows: string[][];
+  /** True if the extracted text looks like a loan statement (e.g. "Loan Balance", "Personal
+   *  Loan") rather than a bank/credit-card transaction statement - a hint that this file
+   *  belongs in the Loan uploader instead, since loan statements rarely have a itemized
+   *  transaction table this parser can read. */
+  looksLikeLoanStatement: boolean;
 }
 
 // A leading date at the start of a transaction line - covers "07/15/2026", "07/15", and
@@ -93,7 +98,10 @@ export async function parsePdfStatement(file: File): Promise<PdfParseResult> {
     rows.push([dateMatch[0], description, normalizeAmount(amountMatch[0])]);
   }
 
-  return { headers: ["Date", "Description", "Amount"], rows };
+  const fullText = lines.join("\n");
+  const looksLikeLoanStatement = /loan\s+balance|personal\s+loan|payment\s+due(?!\s*date)|scheduled\s+(?:monthly\s+)?payment/i.test(fullText);
+
+  return { headers: ["Date", "Description", "Amount"], rows, looksLikeLoanStatement };
 }
 
 export interface LoanStatementFields {
@@ -137,7 +145,7 @@ export async function parseLoanStatementPdf(file: File): Promise<LoanStatementFi
 
   const balance = findLabeledValue(
     lines,
-    /(?:current|new|principal|outstanding|remaining|total)\s+balance/i,
+    /(?:current|new|principal|outstanding|remaining|total|loan|unpaid)\s+balance/i,
     DOLLAR_VALUE_RE
   );
   const interestRatePct = findLabeledValue(
@@ -147,7 +155,7 @@ export async function parseLoanStatementPdf(file: File): Promise<LoanStatementFi
   );
   const minimumPayment = findLabeledValue(
     lines,
-    /minimum\s+(?:payment|amount)\s*(?:due)?/i,
+    /minimum\s+(?:payment|amount)\s*(?:due)?|payment\s+due(?!\s*date)|amount\s+due(?!\s*date)|scheduled\s+(?:monthly\s+)?payment/i,
     DOLLAR_VALUE_RE
   );
   const statementDate = findLabeledValue(

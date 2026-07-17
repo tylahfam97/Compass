@@ -1068,7 +1068,7 @@ export default function AgentPage() {
       </AnimatePresence>
       {PageHeader}
 
-      <div className="p-6 max-w-3xl space-y-6 mx-auto w-full">
+      <div className="p-8 max-w-4xl space-y-6 mx-auto w-full">
 
         {/* Locked-profile notice */}
         {lockedExcluded.length > 0 && (

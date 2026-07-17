@@ -225,7 +225,7 @@ export default function OverviewPage() {
   };
 
   return (
-    <div className="p-6 space-y-6 max-w-[1200px] mx-auto w-full">
+    <div className="p-8 space-y-6 max-w-[1320px] mx-auto w-full">
       {pinTarget && (
         <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />
       )}

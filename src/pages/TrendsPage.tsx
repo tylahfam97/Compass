@@ -248,7 +248,7 @@ export default function TrendsPage() {
     <>
       {pinTarget && <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />}
 
-      <div className="p-6 space-y-6">
+      <div className="p-8 space-y-6 max-w-6xl mx-auto w-full">
         {/* Header */}
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <h1 className="text-2xl font-semibold">Spending Trends</h1>
@@ -447,7 +447,7 @@ export default function TrendsPage() {
                         </Link>
                       </div>
                       {expandedMonthCats === null ? (
-                        <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">Loading…</p>
+                        <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">Loadingï¿½</p>
                       ) : expandedMonthCats.length === 0 ? (
                         <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">No expenses that month.</p>
                       ) : (

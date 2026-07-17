@@ -1028,9 +1028,13 @@ export default function ImportPage() {
         setStep("upload");
         return;
       }
-      parsePdfStatement(file).then(({ rows }) => {
+      parsePdfStatement(file).then(({ rows, looksLikeLoanStatement }) => {
         if (rows.length === 0) {
-          setError("Couldn't find any transactions in that PDF. It may be a scanned/image statement (no selectable text), which isn't supported - try a CSV/XLSX export from your bank instead.");
+          setError(
+            looksLikeLoanStatement
+              ? "Couldn't find an itemized transaction table in that PDF - it looks like a loan statement, which tracks a balance over time rather than individual transactions. Use the \"Loan Statement\" option on the import screen instead."
+              : "Couldn't find any transactions in that PDF. It may be a scanned/image statement (no selectable text), which isn't supported - try a CSV/XLSX export from your bank instead."
+          );
           setStep("upload");
           return;
         }
@@ -1496,7 +1500,7 @@ export default function ImportPage() {
   };
 
   return (
-    <div className="p-6 max-w-3xl mx-auto w-full">
+    <div className="p-8 max-w-4xl mx-auto w-full">
       <h1 className="text-2xl font-semibold mb-2">Import Statements</h1>
       <p className="text-sm text-[hsl(var(--muted-foreground))] mb-6">
         Your data never leaves this device.
