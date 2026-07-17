@@ -686,26 +686,30 @@ export default function TransactionsPage() {
         />
       )}
 
-      {/* Auto-categorize result / error toast */}
+      {/* Auto-categorize result / error toast - border/rounded live on the inner div, not
+          this fixed-positioned one, since the global .border.rounded-xl decorative-ring
+          rule (index.css) outranks .fixed in specificity and would force position:relative. */}
       {(autoCatResult || autoCatError) && (
-        <div className={`fixed bottom-6 right-6 z-50 border shadow-xl rounded-xl px-5 py-3
-                        flex items-center gap-4 text-sm max-w-sm
-                        bg-[hsl(var(--background))]
-                        ${autoCatError ? "border-red-500" : ""}`}>
-          <span className="flex-1 text-[hsl(var(--foreground))]">
-            {autoCatError
-              ? <span className="text-red-500">Error: {autoCatError}</span>
-              : autoCatResult!.updated === 0
-                ? "No uncategorized transactions matched any rule."
-                : <><strong>{autoCatResult!.updated}</strong> transaction{autoCatResult!.updated !== 1 ? "s" : ""} categorized.</>
-            }
-          </span>
-          <button
-            onClick={() => { setAutoCatResult(null); setAutoCatError(null); }}
-            className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] text-lg leading-none"
-          >
-            ✕
-          </button>
+        <div className="fixed bottom-6 right-6 z-50 max-w-sm">
+          <div className={`border shadow-xl rounded-xl px-5 py-3
+                          flex items-center gap-4 text-sm
+                          bg-[hsl(var(--background))]
+                          ${autoCatError ? "border-red-500" : ""}`}>
+            <span className="flex-1 text-[hsl(var(--foreground))]">
+              {autoCatError
+                ? <span className="text-red-500">Error: {autoCatError}</span>
+                : autoCatResult!.updated === 0
+                  ? "No uncategorized transactions matched any rule."
+                  : <><strong>{autoCatResult!.updated}</strong> transaction{autoCatResult!.updated !== 1 ? "s" : ""} categorized.</>
+              }
+            </span>
+            <button
+              onClick={() => { setAutoCatResult(null); setAutoCatError(null); }}
+              className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] text-lg leading-none"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
 
@@ -714,28 +718,31 @@ export default function TransactionsPage() {
         const cat = categories.find((c) => c.id === rulePrompt.newCatId);
         const key = extractMerchantKey(rulePrompt.txn.description);
         return (
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50
-                          bg-[hsl(var(--background))] border shadow-xl rounded-xl
-                          px-5 py-3 flex items-center gap-4 text-sm max-w-lg w-full">
-            <span className="flex-1 text-[hsl(var(--foreground))]">
-              Always categorize <strong>"{key}"</strong> as{" "}
-              <span className="font-medium" style={{ color: cat?.color }}>
-                {cat?.name ?? "this category"}
-              </span>?
-            </span>
-            <button
-              onClick={createRuleFromPrompt}
-              className="px-3 py-1.5 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
-                         rounded-lg font-medium hover:opacity-90 transition-opacity"
-            >
-              Create Rule
-            </button>
-            <button
-              onClick={() => setRulePrompt(null)}
-              className="px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))] transition-colors"
-            >
-              Dismiss
-            </button>
+          // border/rounded live on the inner div (see note above) - the outer div only
+          // carries fixed/positioning/transform so the centering transform isn't broken.
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-lg w-full">
+            <div className="bg-[hsl(var(--background))] border shadow-xl rounded-xl
+                            px-5 py-3 flex items-center gap-4 text-sm">
+              <span className="flex-1 text-[hsl(var(--foreground))]">
+                Always categorize <strong>"{key}"</strong> as{" "}
+                <span className="font-medium" style={{ color: cat?.color }}>
+                  {cat?.name ?? "this category"}
+                </span>?
+              </span>
+              <button
+                onClick={createRuleFromPrompt}
+                className="px-3 py-1.5 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
+                           rounded-lg font-medium hover:opacity-90 transition-opacity"
+              >
+                Create Rule
+              </button>
+              <button
+                onClick={() => setRulePrompt(null)}
+                className="px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))] transition-colors"
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
         );
       })()}

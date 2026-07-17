@@ -6,6 +6,7 @@ import {
 } from "recharts";
 import { motion, AnimatePresence } from "motion/react";
 import { getDb, recomputeCalculatedBalances } from "@/lib/db";
+import { seedDemoData } from "@/lib/demoData";
 import { formatCurrency, formatDate, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
 import type { Transaction, Insight } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
@@ -65,6 +66,7 @@ export default function DashboardPage() {
   const [monthTxnCount, setMonthTxnCount] = useState(0);
   const [totalTxnCount, setTotalTxnCount] = useState(0);
   const [confirmClear, setConfirmClear] = useState<"month" | "all" | null>(null);
+  const [seedingDemo, setSeedingDemo] = useState(false);
   const [currentBalance, setCurrentBalance] = useState<number | null>(null);
   const [checkingBalancePoints, setCheckingBalancePoints] = useState<CheckingBalancePoint[]>([]);
   const [creditBalanceAccounts, setCreditBalanceAccounts] = useState<CreditAccountMeta[]>([]);
@@ -307,13 +309,32 @@ export default function DashboardPage() {
           <p className="text-sm text-[hsl(var(--muted-foreground))] mb-6">
             Import a bank statement to get started.
           </p>
-          <Link
-            to="/import"
-            className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
-                       rounded-lg text-sm font-medium"
-          >
-            Import Transactions
-          </Link>
+          <div className="flex items-center justify-center gap-3">
+            <Link
+              to="/import"
+              className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
+                         rounded-lg text-sm font-medium"
+            >
+              Import Transactions
+            </Link>
+            <button
+              data-tour="demo-mode"
+              onClick={async () => {
+                setSeedingDemo(true);
+                try {
+                  await seedDemoData(profileId);
+                  await loadData();
+                } finally {
+                  setSeedingDemo(false);
+                }
+              }}
+              disabled={seedingDemo}
+              className="px-5 py-2 border rounded-lg text-sm font-medium hover:bg-[hsl(var(--muted))]
+                         transition-colors disabled:opacity-50"
+            >
+              {seedingDemo ? "Loading demo data…" : "✦ Try Demo Mode"}
+            </button>
+          </div>
         </div>
       )}
 

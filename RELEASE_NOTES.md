@@ -2,7 +2,16 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
-## Compass 0.7.3 — Modern UI Pass & Credit Card Accounting Fixes
+## Compass 0.7.4 — Getting Started Tour & Demo Mode
+
+### New: "Getting Started" Tour
+A guided, click-through spotlight tour is now available for anyone new to Compass - it highlights real parts of the interface (Profiles vs. Accounts, PIN privacy, importing statements, Insights, Manage Accounts, Demo Mode, and dark mode) with a short explanation for each. It's checklist-based rather than a strict Next/Back wizard, so every step can be opened directly, in any order, from a small floating "Getting Started" widget. Progress is remembered between launches, and it can be replayed anytime via "Replay tour" at the bottom of the sidebar, or dismissed for good with "Don't show again."
+
+### New: Demo Mode
+From an empty Dashboard, "✦ Try Demo Mode" now seeds two realistic demo accounts (checking + credit card) with about three months of varied sample transactions - paychecks, rent, subscriptions, groceries, restaurants, gas, shopping, and credit card payments - so the whole app can be explored risk-free before importing any real data. Clear it anytime from Manage Data, same as any other transactions.
+
+### Fixed: Floating Panels Occasionally Rendering in the Wrong Spot
+A global decorative border-ring style was unintentionally overriding `position: fixed` on a few floating elements (the Getting Started checklist and a couple of toast notifications) whenever they combined a rounded border with fixed positioning on the same element, causing them to render out of place instead of pinned to a screen corner. Fixed by keeping positioning and border/shadow styling on separate elements.
 
 ### New: Launch Screen Gold Particle Field
 The profile-picker screen now has a dense field of tiny gold particles gently drifting and jiggling on their own, avoiding the center where your profile cards sit. Move your mouse and they scatter away from the cursor, then spring back to rest once it moves on - all rendered on canvas, so it stays smooth without taxing the app.
