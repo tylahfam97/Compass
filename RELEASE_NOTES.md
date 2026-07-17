@@ -2,6 +2,35 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 0.7.3 — Modern UI Pass & Credit Card Accounting Fixes
+
+### New: Launch Screen Gold Particle Field
+The profile-picker screen now has a dense field of tiny gold particles gently drifting and jiggling on their own, avoiding the center where your profile cards sit. Move your mouse and they scatter away from the cursor, then spring back to rest once it moves on - all rendered on canvas, so it stays smooth without taxing the app.
+
+### New: Animated Border Ring & Status Colors
+Every card across the app now has a subtle, continuously rotating gold hairline ring instead of the old always-on pulsing glow - a calmer, more deliberate "premium" touch instead of ambient noise. Status colors (success/warning/error/neutral) are now shared design tokens instead of hardcoded hex values scattered across pages, making dark mode and future theming more consistent.
+
+### New: Manage Accounts, Front and Center
+The "Manage Accounts" panel has moved to the top of the Overview page and now stands out with a quiet gold accent border and icon, open by default - it's still there on the Import page too. Use it to rename accounts or clean up duplicates identified from your transaction history.
+
+### New: Decluttered Transactions Page
+The Transactions page's action buttons now have real visual hierarchy (a proper primary "Add" button instead of six equal-weight buttons spread across the header), and the six-plus filter controls are tucked behind a "More filters" toggle with an active-filter badge, so the common case - browsing a month or searching - isn't competing with every advanced control at once.
+
+### Polish: Calmer Tables & Goal Badges
+Investments and Reports tables lost their "database admin" look (harsh uppercase labels, heavy muted headers) in favor of quieter, lighter styling. Goals page badges went from 7 near-identical pastel colors down to 3 meaningful groups (savings, spending control, income). Loading states across Budgets, Goals, Investments, and Transactions now show content-shaped skeleton placeholders instead of a bare spinner.
+
+### Changed: Fewer Profile-Creation Prompts
+Now that credit cards and investments are properly tracked as separate accounts within a single profile, importing a credit card or investment statement no longer nudges you to create a brand-new profile just to keep it separate - that workaround is no longer necessary since accounts already keep everything cleanly broken out.
+
+### Fixed: Credit Card Payments Counted as Income
+This was the big one. Every income/spending calculation in the app - Trends' All-Time totals, the Financial Health Score's savings rate, Dashboard/Overview/Reports/Goals/Budgets income figures - summed *every* positive transaction as income, including credit card payments. A payment toward a card is debt reduction, not income, so this was silently inflating income, net, and savings rate app-wide (and explains why the Health Score's letter grade could look fine while the separate Credit Card Health score correctly showed trouble). Credit card purchases still correctly count as real expenses everywhere - only the payment/credit side was miscounted, and that's now fixed across every affected calculation.
+
+### Fixed: Duplicate Accounts Created During Batch Imports
+Auto-importing multiple statement files in one batch for a brand-new account was creating a separate duplicate account for every file instead of reusing the one just created. The wizard now locks onto the account it creates for the first file so the rest of the batch shares it correctly.
+
+### Fixed: Stale Balances After Clearing Transactions
+Clearing an account's transactions (or undoing an import) left its balance anchor behind, which could resurface and produce an incorrect balance the next time you reimported. Balances now reset properly whenever an account ends up with no transactions left.
+
 ## Compass 0.7.2 — Multi-Account Imports & Account Management
 
 ### New: "Which Account Is This?" Import Step
