@@ -9,6 +9,16 @@ const POLL_INTERVAL_MS = 80;
 
 type Align = "flex-start" | "center" | "flex-end";
 
+/** Scattered near the card's edges (percentages) so they never sit over the text/buttons. */
+const SPOTLIGHT_SPARKLES: { top: string; left: string; size: number; delay: string }[] = [
+  { top: "6%", left: "10%", size: 3, delay: "0s" },
+  { top: "14%", left: "90%", size: 4, delay: "0.6s" },
+  { top: "52%", left: "96%", size: 3, delay: "1.2s" },
+  { top: "88%", left: "88%", size: 3, delay: "0.3s" },
+  { top: "94%", left: "8%", size: 4, delay: "0.9s" },
+  { top: "44%", left: "3%", size: 3, delay: "1.6s" },
+];
+
 /**
  * Renders the currently-active onboarding step: either a centered modal (Welcome/Finish,
  * or any step whose target element can't be found on screen) or a real spotlight - a
@@ -162,7 +172,14 @@ export default function Spotlight() {
           display: "flex", justifyContent: justify, alignItems: align,
         }}
       >
-        <div className="w-80 max-w-[90vw] max-h-[80vh] overflow-y-auto bg-[hsl(var(--background))] border rounded-2xl shadow-2xl p-5">
+        <div className="relative w-80 max-w-[90vw] max-h-[80vh] overflow-y-auto bg-[hsl(var(--background))] border rounded-2xl shadow-2xl p-5">
+          {SPOTLIGHT_SPARKLES.map((s, i) => (
+            <span
+              key={i}
+              className="spotlight-sparkle"
+              style={{ top: s.top, left: s.left, width: s.size, height: s.size, animationDelay: s.delay }}
+            />
+          ))}
           <div className="flex items-start justify-between gap-2 mb-2">
             <h3 className="font-semibold text-base leading-snug">{step.title}</h3>
             <button
