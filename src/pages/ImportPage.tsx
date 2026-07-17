@@ -236,7 +236,7 @@ interface ImportSession {
   imported_at: string;
   row_count: number;
   skipped_count: number;
-  kind: "bank" | "investment";
+  kind: "bank" | "investment" | "loan";
 }
 
 const WIZARD_STEPS = [
@@ -934,6 +934,12 @@ export default function ImportPage() {
     const session = importHistory.find((s) => s.id === sessionId);
     if (session?.kind === "investment") {
       await db.execute("DELETE FROM holdings WHERE import_session_id=?", [sessionId]);
+    } else if (session?.kind === "loan") {
+      // Loan statement rows carry their own definitive balance_cents per upload (not a
+      // computed running total from an anchor), so there's nothing to recompute after
+      // removing one - the account's "latest balance" just falls back to whichever
+      // statement (if any) remains.
+      await db.execute("DELETE FROM transactions WHERE import_session_id=?", [sessionId]);
     } else {
       // Recompute the affected account(s)' running balances after removing this batch of
       // transactions, so Overview/Dashboard/Trends don't keep showing stale balances.
@@ -2595,6 +2601,8 @@ export default function ImportPage() {
                       <span className="inline-flex items-center gap-1.5">
                         {s.kind === "investment"
                           ? <TrendingUp size={12} className="shrink-0 text-[hsl(var(--primary))]" />
+                          : s.kind === "loan"
+                          ? <HandCoins size={12} className="shrink-0 text-[hsl(var(--primary))]" />
                           : <Landmark size={12} className="shrink-0 text-[hsl(var(--muted-foreground))]" />}
                         {s.filename}
                       </span>
@@ -2642,7 +2650,7 @@ export default function ImportPage() {
         <LoanUploaderModal
           profileId={profileId}
           onClose={() => setShowLoanUploader(false)}
-          onSaved={() => setShowLoanUploader(false)}
+          onSaved={() => { setShowLoanUploader(false); loadHistory().catch(console.error); }}
         />
       )}
     </div>

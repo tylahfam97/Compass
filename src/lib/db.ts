@@ -1052,6 +1052,35 @@ export async function deleteEmptyAccount(accountId: number): Promise<void> {
   await db.execute("DELETE FROM accounts WHERE id=?", [accountId]);
 }
 
+/**
+ * Permanently deletes an account AND every transaction/holding attached to it (SQLite's
+ * ON DELETE CASCADE isn't relied on here since this app never enables `PRAGMA foreign_keys`,
+ * so the cascade is done by hand). Also cleans up any import_sessions that end up with zero
+ * remaining transactions as a result, so the Import History list doesn't keep a stray empty
+ * entry around. This is deliberately separate from `deleteEmptyAccount` - callers must obtain
+ * their own (more serious) confirmation before calling this, since it is destructive and
+ * cannot be undone.
+ */
+export async function deleteAccountWithData(accountId: number): Promise<void> {
+  const db = await getDb();
+  const sessions = await db.select<{ id: number }[]>(
+    "SELECT DISTINCT import_session_id as id FROM transactions WHERE account_id=? AND import_session_id IS NOT NULL",
+    [accountId]
+  );
+  await db.execute("DELETE FROM transactions WHERE account_id=?", [accountId]);
+  await db.execute("DELETE FROM holdings WHERE account_id=?", [accountId]);
+  for (const { id } of sessions) {
+    const [remaining] = await db.select<{ n: number }[]>(
+      "SELECT COUNT(*) as n FROM transactions WHERE import_session_id=?",
+      [id]
+    );
+    if ((remaining?.n ?? 0) === 0) {
+      await db.execute("DELETE FROM import_sessions WHERE id=?", [id]);
+    }
+  }
+  await db.execute("DELETE FROM accounts WHERE id=?", [accountId]);
+}
+
 /** One group of accounts that share the same type + name (case/whitespace-insensitive) within
  *  a profile - candidates to merge into a single account. */
 export interface DuplicateAccountGroup {
@@ -1205,11 +1234,35 @@ export async function upsertLoanStatement(params: {
   );
   const deltaCents = prior ? balanceCents - prior.balance_cents : 0;
 
+  // Reuse the same import_sessions row on a same-date re-upload (found via the existing
+  // transaction's own session, since import_hash is deterministic per account+date) rather
+  // than piling up an empty duplicate session every time a statement gets re-uploaded - either
+  // way, this session is what lets the Import page's history list show and undo this upload
+  // like any other import.
+  const [existingTxn] = await db.select<{ import_session_id: number | null }[]>(
+    "SELECT import_session_id FROM transactions WHERE import_hash=?",
+    [hash]
+  );
+  let sessionId: number;
+  if (existingTxn?.import_session_id != null) {
+    sessionId = existingTxn.import_session_id;
+    await db.execute(
+      "UPDATE import_sessions SET filename=?, imported_at=datetime('now') WHERE id=?",
+      [`${name} - statement ${params.statementDate}`, sessionId]
+    );
+  } else {
+    const sessionResult = await db.execute(
+      "INSERT INTO import_sessions (filename, row_count, skipped_count, profile_id, kind) VALUES (?, 1, 0, ?, 'loan')",
+      [`${name} - statement ${params.statementDate}`, params.profileId]
+    );
+    sessionId = sessionResult.lastInsertId as number;
+  }
+
   await db.execute(
-    `INSERT INTO transactions (account_id, date, amount_cents, description, category_id, import_hash, balance_cents, profile_id)
-     VALUES (?, ?, ?, ?, 20, ?, ?, ?)
-     ON CONFLICT(import_hash) DO UPDATE SET amount_cents=excluded.amount_cents, balance_cents=excluded.balance_cents`,
-    [accountId, params.statementDate, deltaCents, "Statement balance update", hash, balanceCents, params.profileId]
+    `INSERT INTO transactions (account_id, date, amount_cents, description, category_id, import_hash, balance_cents, profile_id, import_session_id)
+     VALUES (?, ?, ?, ?, 20, ?, ?, ?, ?)
+     ON CONFLICT(import_hash) DO UPDATE SET amount_cents=excluded.amount_cents, balance_cents=excluded.balance_cents, import_session_id=excluded.import_session_id`,
+    [accountId, params.statementDate, deltaCents, "Statement balance update", hash, balanceCents, params.profileId, sessionId]
   );
 
   return accountId;

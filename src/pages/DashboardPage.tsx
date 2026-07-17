@@ -18,6 +18,7 @@ import { useProfileStore } from "@/stores/profileStore";
 import { generateInsights } from "@/lib/agent";
 import InsightCard from "@/components/InsightCard";
 import LoanUploaderModal from "@/components/LoanUploaderModal";
+import AccountDetailModal, { type AccountDetailAccount } from "@/components/AccountDetailModal";
 import { Skeleton, CardListSkeleton } from "@/components/Skeleton";
 
 interface MonthStats {
@@ -84,6 +85,7 @@ export default function DashboardPage() {
   const [loans, setLoans] = useState<LoanAccount[]>([]);
   const [loanSeries, setLoanSeries] = useState<Map<number, { date: string; value: number }[]>>(new Map());
   const [loanModal, setLoanModal] = useState<"new" | LoanAccount | null>(null);
+  const [viewAccount, setViewAccount] = useState<AccountDetailAccount | null>(null);
   const [portfolioValueCents, setPortfolioValueCents] = useState(0);
   const [expandedCat, setExpandedCat] = useState<CatStat | null>(null);
   const [expandedCatTxns, setExpandedCatTxns] = useState<Transaction[] | null>(null);
@@ -533,7 +535,11 @@ export default function DashboardPage() {
                   }
 
                   return (
-                    <div key={acc.id} className="border rounded-xl p-4">
+                    <div
+                      key={acc.id}
+                      className="border rounded-xl p-4 cursor-pointer hover:border-[hsl(var(--primary))] transition-colors"
+                      onClick={() => setViewAccount({ id: acc.id, name: acc.name, accountType: "credit", color: acc.color, balanceCents: lastCents, series })}
+                    >
                       <div className="flex items-center justify-between mb-1 gap-2">
                         <span className="text-sm font-medium flex items-center gap-1.5 min-w-0">
                           <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: acc.color }} />
@@ -547,7 +553,7 @@ export default function DashboardPage() {
                             </span>
                           )}
                           <button
-                            onClick={() => setCreditHidden(acc.id, true)}
+                            onClick={(e) => { e.stopPropagation(); setCreditHidden(acc.id, true); }}
                             title="Collapse this card (excludes it from net worth)"
                             className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
                           >
@@ -618,7 +624,14 @@ export default function DashboardPage() {
                     const lastCents = Math.round(last * 100);
                     const color = accountChartColor(i);
                     return (
-                      <div key={loan.id} className="border rounded-xl p-4">
+                      <div
+                        key={loan.id}
+                        className="border rounded-xl p-4 cursor-pointer hover:border-[hsl(var(--primary))] transition-colors"
+                        onClick={() => setViewAccount({
+                          id: loan.id, name: loan.name, accountType: "loan", color, balanceCents: lastCents, series,
+                          interestRateBps: loan.interest_rate_bps, minimumPaymentCents: loan.minimum_payment_cents,
+                        })}
+                      >
                         <div className="flex items-center justify-between mb-1 gap-2">
                           <span className="text-sm font-medium flex items-center gap-1.5 min-w-0">
                             <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
@@ -632,7 +645,7 @@ export default function DashboardPage() {
                               </span>
                             )}
                             <button
-                              onClick={() => setLoanModal(loan)}
+                              onClick={(e) => { e.stopPropagation(); setLoanModal(loan); }}
                               title="Add a new statement"
                               className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
                             >
@@ -870,6 +883,15 @@ export default function DashboardPage() {
           existingLoan={loanModal === "new" ? undefined : loanModal}
           onClose={() => setLoanModal(null)}
           onSaved={() => loadLoans().catch(console.error)}
+        />
+      )}
+
+      {viewAccount && (
+        <AccountDetailModal
+          account={viewAccount}
+          insights={insights}
+          onApply={handleApplyInsight}
+          onClose={() => setViewAccount(null)}
         />
       )}
     </div>
