@@ -30,6 +30,10 @@ interface HoldingGroup {
   totalShares: number | null;
   totalMarketValueCents: number;
   totalCostBasisCents: number | null;
+  /** Market value of ONLY the lots that also have a cost basis - paired 1:1 with
+   *  totalCostBasisCents so ROI compares like-for-like instead of mixing in market
+   *  value from lots whose cost basis is unknown (which would overstate ROI). */
+  costBasisTrackedMarketValueCents: number;
   estAnnualIncomeCents: number;
   lots: Holding[];
 }
@@ -53,6 +57,7 @@ function groupHoldings(rows: Holding[]): HoldingGroup[] {
         totalShares: null,
         totalMarketValueCents: 0,
         totalCostBasisCents: null,
+        costBasisTrackedMarketValueCents: 0,
         estAnnualIncomeCents: 0,
         lots: [],
       };
@@ -60,14 +65,17 @@ function groupHoldings(rows: Holding[]): HoldingGroup[] {
     }
     if (row.shares !== null) g.totalShares = (g.totalShares ?? 0) + row.shares;
     if (row.market_value_cents !== null) g.totalMarketValueCents += row.market_value_cents;
-    if (row.cost_basis_cents !== null) g.totalCostBasisCents = (g.totalCostBasisCents ?? 0) + row.cost_basis_cents;
+    if (row.cost_basis_cents !== null) {
+      g.totalCostBasisCents = (g.totalCostBasisCents ?? 0) + row.cost_basis_cents;
+      g.costBasisTrackedMarketValueCents += row.market_value_cents ?? 0;
+    }
     if (row.est_annual_income_cents !== null) g.estAnnualIncomeCents += row.est_annual_income_cents;
     g.lots.push(row);
   }
   // Highest ROI% first; groups without a cost basis (ROI unknown) sort to the bottom.
   return [...groups.values()].sort((a, b) => {
-    const roiA = holdingRoiPct(a.totalMarketValueCents, a.totalCostBasisCents);
-    const roiB = holdingRoiPct(b.totalMarketValueCents, b.totalCostBasisCents);
+    const roiA = holdingRoiPct(a.costBasisTrackedMarketValueCents, a.totalCostBasisCents);
+    const roiB = holdingRoiPct(b.costBasisTrackedMarketValueCents, b.totalCostBasisCents);
     if (roiA === null && roiB === null) return 0;
     if (roiA === null) return 1;
     if (roiB === null) return -1;
@@ -277,7 +285,7 @@ export default function InvestmentsPage() {
                 {groups.map((g) => {
                   const hasLots = g.lots.length > 1;
                   const isOpen = expanded.has(g.key);
-                  const roiPct = holdingRoiPct(g.totalMarketValueCents, g.totalCostBasisCents);
+                  const roiPct = holdingRoiPct(g.costBasisTrackedMarketValueCents, g.totalCostBasisCents);
                   return (
                     <Fragment key={g.key}>
                       <tr className={`border-t ${hasLots ? "cursor-pointer hover:bg-[hsl(var(--muted))]/40" : ""}`}
