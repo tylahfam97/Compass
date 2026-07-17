@@ -3,7 +3,7 @@ import logoUrl from "@/assets/logo.svg";
 import { useState, useEffect } from "react";
 import {
   LayoutDashboard, ArrowLeftRight, Upload, TrendingUp, LineChart,
-  Wallet, Target, BarChart2, Lightbulb, Globe, ChevronLeft, ChevronRight, MessageSquare,
+  Wallet, Target, BarChart2, Lightbulb, Globe, ChevronLeft, ChevronRight, MessageSquare, Sparkles,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import DashboardPage from "@/pages/DashboardPage";
@@ -20,24 +20,27 @@ import ProfileSwitcher from "@/components/ProfileSwitcher";
 import UpdateChecker from "@/components/UpdateChecker";
 import PinModal from "@/components/PinModal";
 import GoldParticleField from "@/components/GoldParticleField";
+import Spotlight from "@/components/Spotlight";
+import OnboardingChecklistWidget from "@/components/OnboardingChecklistWidget";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useProfileStore } from "@/stores/profileStore";
+import { useOnboardingStore } from "@/stores/onboardingStore";
 import { getDb } from "@/lib/db";
 import { generateInsights } from "@/lib/agent";
 import type { Category, Profile } from "@/lib/types";
 import "./index.css";
 
 const NAV_ITEMS = [
-  { to: "/overview",      label: "Overview",      Icon: Globe,            showBadge: false },
-  { to: "/",             label: "Dashboard",     Icon: LayoutDashboard,  showBadge: false },
-  { to: "/transactions", label: "Transactions",  Icon: ArrowLeftRight,   showBadge: false },
-  { to: "/import",       label: "Import",        Icon: Upload,           showBadge: false },
-  { to: "/trends",       label: "Trends",        Icon: TrendingUp,       showBadge: false },
-  { to: "/investments",  label: "Investments",   Icon: LineChart,        showBadge: false },
-  { to: "/budgets",      label: "Budgets",       Icon: Wallet,           showBadge: false },
-  { to: "/goals",        label: "Goals",         Icon: Target,           showBadge: false },
-  { to: "/reports",      label: "Reports",       Icon: BarChart2,        showBadge: false },
-  { to: "/agent",        label: "Insights",      Icon: Lightbulb,        showBadge: true  },
+  { to: "/overview",      label: "Overview",      Icon: Globe,            showBadge: false, tourId: undefined },
+  { to: "/",             label: "Dashboard",     Icon: LayoutDashboard,  showBadge: false, tourId: undefined },
+  { to: "/transactions", label: "Transactions",  Icon: ArrowLeftRight,   showBadge: false, tourId: undefined },
+  { to: "/import",       label: "Import",        Icon: Upload,           showBadge: false, tourId: undefined },
+  { to: "/trends",       label: "Trends",        Icon: TrendingUp,       showBadge: false, tourId: undefined },
+  { to: "/investments",  label: "Investments",   Icon: LineChart,        showBadge: false, tourId: undefined },
+  { to: "/budgets",      label: "Budgets",       Icon: Wallet,           showBadge: false, tourId: undefined },
+  { to: "/goals",        label: "Goals",         Icon: Target,           showBadge: false, tourId: undefined },
+  { to: "/reports",      label: "Reports",       Icon: BarChart2,        showBadge: false, tourId: undefined },
+  { to: "/agent",        label: "Insights",      Icon: Lightbulb,        showBadge: true,  tourId: "nav-agent" },
 ];
 
 function greeting(): string {
@@ -57,6 +60,7 @@ function App() {
   );
   const setCategories = useCategoryStore((s) => s.setCategories);
   const { profiles, setProfiles, setActiveProfile } = useProfileStore();
+  const restartOnboarding = useOnboardingStore((s) => s.restart);
   const [insightWarnings, setInsightWarnings] = useState(0);
 
   // Launch picker state
@@ -188,11 +192,12 @@ function App() {
 
           {/* Nav — icon+label when open, icon-only with tooltip when collapsed */}
           <nav className="flex-1 py-3 space-y-0.5 px-2">
-            {NAV_ITEMS.map(({ to, label, Icon, showBadge }) => (
+            {NAV_ITEMS.map(({ to, label, Icon, showBadge, tourId }) => (
               <NavLink
                 key={to}
                 to={to}
                 end={to === "/"}
+                data-tour={tourId}
                 title={!sidebarOpen ? label : undefined}
                 className={({ isActive }) =>
                   `flex items-center gap-2.5 px-2 py-2 rounded-md text-sm font-medium transition-colors
@@ -223,12 +228,22 @@ function App() {
             <div className="px-4 pb-4 space-y-2">
               <ProfileSwitcher />
               <button
+                data-tour="dark-mode-toggle"
                 onClick={() => setDark((d) => !d)}
                 className="w-full text-xs px-3 py-2 rounded-md border hover:bg-[hsl(var(--border))] transition-colors"
               >
                 {dark ? "Light mode" : "Dark mode"}
               </button>
               <UpdateChecker autoCheck />
+              <button
+                onClick={() => restartOnboarding()}
+                className="w-full text-xs px-3 py-1.5 rounded-md text-[hsl(var(--muted-foreground))]
+                           hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--border))]
+                           transition-colors flex items-center justify-center gap-1.5"
+              >
+                <Sparkles size={12} />
+                Replay tour
+              </button>
               <button
                 onClick={() => openUrl("https://github.com/tylahfam97/Compass/issues/new").catch(() => {})}
                 className="w-full text-xs px-3 py-1.5 rounded-md text-[hsl(var(--muted-foreground))]
@@ -265,6 +280,12 @@ function App() {
           </div>
         </main>
       </div>
+      {profileSelected && (
+        <>
+          <Spotlight />
+          <OnboardingChecklistWidget />
+        </>
+      )}
     </BrowserRouter>
   );
 }

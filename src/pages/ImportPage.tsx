@@ -1497,7 +1497,7 @@ export default function ImportPage() {
 
           {/* Bank preset picker */}
           {step === "upload" && importKind !== "investment" && (
-            <div className="mt-5 border rounded-xl p-4 space-y-3">
+            <div data-tour="import-presets" className="mt-5 border rounded-xl p-4 space-y-3">
               <p className="text-sm font-medium">
                 Select your bank <span className="text-[hsl(var(--muted-foreground))] font-normal">(optional - speeds up column detection)</span>
               </p>

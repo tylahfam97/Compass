@@ -95,6 +95,7 @@ export default function ManageAccountsPanel({ profileId, special = false }: Prop
 
   return (
     <div
+      data-tour="manage-accounts"
       className={`border rounded-xl ${special ? "border-2" : ""}`}
       style={special ? { borderColor: "var(--gold)", backgroundColor: "hsl(var(--primary)/0.02)" } : undefined}
     >

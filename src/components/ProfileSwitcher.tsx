@@ -252,6 +252,7 @@ export default function ProfileSwitcher() {
     <>
       {/* Trigger */}
       <button
+        data-tour="profile-switcher-toggle"
         onClick={() => setOpen(true)}
         className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl
                    hover:bg-[hsl(var(--border))] transition-colors text-left group"
