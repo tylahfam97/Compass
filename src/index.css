@@ -154,51 +154,10 @@ body {
   pointer-events: none;
 }
 
-/* ── Launch / profile-picker gold shimmer ────────────────────────────────────
-   A full-canvas ambient gold shimmer behind the launch screen, gently rotating
-   and masked so it fades away right around the profile cards (kept legible)
-   and glows more toward the edges. Rotation is GPU-composited (transform only)
-   so it's cheap even though it covers the whole viewport. */
-@keyframes launch-shimmer-rotate {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
-}
-@keyframes launch-shimmer-pulse {
-  0%, 100% { opacity: 0.55; }
-  50%      { opacity: 1; }
-}
-.launch-shimmer {
-  position: fixed;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-  z-index: 0;
-}
-.launch-shimmer::before {
-  content: "";
-  position: absolute;
-  inset: -35%;
-  background: conic-gradient(
-    from 0deg at 50% 50%,
-    transparent 0deg,
-    rgba(201, 149, 43, 0.5) 35deg,
-    transparent 95deg,
-    transparent 190deg,
-    rgba(201, 149, 43, 0.35) 235deg,
-    transparent 300deg,
-    transparent 360deg
-  );
-  animation: launch-shimmer-rotate 18s linear infinite;
-  -webkit-mask-image: radial-gradient(circle at 50% 60%, transparent 0%, transparent 24%, black 58%);
-          mask-image: radial-gradient(circle at 50% 60%, transparent 0%, transparent 24%, black 58%);
-}
-.launch-shimmer::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at 50% 12%, rgba(201, 149, 43, 0.25), transparent 45%);
-  animation: launch-shimmer-pulse 5s ease-in-out infinite;
-}
+/* ── Launch / profile-picker gold particles ──────────────────────────────────
+   The launch screen's gold-particle-swarm effect is implemented in JS/canvas
+   (src/components/GoldParticleField.tsx) since it needs per-particle physics
+   (spring-back-to-rest + cursor repulsion) that CSS alone can't express. */
 
 /* ── Minimal gradient utilities ───────────────────────────────────────────────
    Used sparingly (headline numbers, key branding) - not meant to be applied

@@ -19,6 +19,7 @@ import InvestmentsPage from "@/pages/InvestmentsPage";
 import ProfileSwitcher from "@/components/ProfileSwitcher";
 import UpdateChecker from "@/components/UpdateChecker";
 import PinModal from "@/components/PinModal";
+import GoldParticleField from "@/components/GoldParticleField";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useProfileStore } from "@/stores/profileStore";
 import { getDb } from "@/lib/db";
@@ -115,7 +116,7 @@ function App() {
       {launchReady && !profileSelected && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center
                         bg-[hsl(var(--background))] wizard-enter-forward overflow-hidden">
-          <div className="launch-shimmer" />
+          <GoldParticleField />
           <div className="relative z-10 flex flex-col items-center">
             <img src={logoUrl} alt="Compass" className="h-12 mb-8 opacity-90" />
             <h1 className="text-2xl font-semibold mb-1 text-gradient-gold">{greeting()}</h1>
