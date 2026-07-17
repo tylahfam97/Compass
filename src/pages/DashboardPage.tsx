@@ -609,7 +609,7 @@ export default function DashboardPage() {
                       <td className="px-5 py-3">
                         <span
                           className="inline-block px-2 py-0.5 rounded-full text-xs text-white"
-                          style={{ backgroundColor: t.category_color ?? "#9ca3af" }}
+                          style={{ backgroundColor: t.category_color ?? "hsl(var(--neutral))" }}
                         >
                           {t.category_name ?? "Uncategorized"}
                         </span>

@@ -12,6 +12,14 @@
   --primary: 221.2 83.2% 53.3%;
   --primary-foreground: 210 40% 98%;
   --gold: #c9952b;
+
+  /* Status colors - shared tokens so success/warning/error/neutral language stays
+     consistent across Budgets/Goals/Reports/Dashboard/Trends/Agent instead of each
+     page picking its own hardcoded hex. */
+  --success: 142 71% 45%;
+  --warning: 38 92% 50%;
+  --error: 0 84% 60%;
+  --neutral: 220 9% 64%;
 }
 
 .dark {
@@ -24,6 +32,11 @@
   --primary: 217.2 91.2% 59.8%;
   --primary-foreground: 222.2 47.4% 11.2%;
   --gold: #d4a832;
+
+  --success: 142 71% 50%;
+  --warning: 38 92% 58%;
+  --error: 0 91% 71%;
+  --neutral: 220 9% 55%;
 }
 
 * {
@@ -94,24 +107,106 @@ body {
   will-change: box-shadow;
   animation: chart-shimmer-glow 3.2s ease-in-out infinite !important;
 }
+/* Charts already signal "clickable" with the glow above - skip the ambient
+   rotating ring on top of it so the two animations don't stack. */
+.chart-clickable::before {
+  display: none;
+}
 
-/* Ambient blue -> white shimmer applied to every card-style box app-wide, so the
-   whole UI shares one subtle, cohesive glow language. Surfaces whose entire box
-   is itself a click target opt into the bolder blue/gold variant above via
-   .chart-clickable instead (which always wins via !important). Excludes form
-   controls (input/textarea/select/button) that happen to share the same
-   rounded-xl/2xl utility so fields and small buttons don't glow unexpectedly.
-   Kept to a single hard-edged ring (no blur layer) since dozens of these can be
-   animating at once app-wide - blurred shadows are far more expensive to
-   repaint every frame, and were a source of jank when combined with other
-   on-screen animations (e.g. expanding a drill-down panel). */
-@keyframes box-shimmer-neutral {
-  0%, 100% { box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.20); }
-  50%      { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22); }
+/* Ambient premium border ring applied to every card-style box app-wide - a thin
+   gold light chases slowly around the border via an animated conic-gradient
+   angle, masked so only the border itself paints (not the whole card interior).
+   This replaces a previous always-on pulsing box-shadow: animating a 1px-thick
+   masked ring composites far cheaper than a page full of blurred box-shadows
+   repainting every frame, while still reading as a deliberate, premium touch
+   instead of ambient noise. Excludes form controls (input/textarea/select/
+   button) that happen to share the same rounded-xl/2xl utility. */
+@property --ring-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes ring-rotate {
+  to { --ring-angle: 360deg; }
 }
 .border.rounded-xl:not(input):not(textarea):not(select):not(button),
 .border.rounded-2xl:not(input):not(textarea):not(select):not(button) {
-  will-change: box-shadow;
-  animation: box-shimmer-neutral 3.8s ease-in-out infinite;
+  position: relative;
+}
+.border.rounded-xl:not(input):not(textarea):not(select):not(button)::before,
+.border.rounded-2xl:not(input):not(textarea):not(select):not(button)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(
+    from var(--ring-angle),
+    transparent 0%,
+    rgba(201, 149, 43, 0.6) 6%,
+    transparent 18%,
+    transparent 100%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: ring-rotate 7s linear infinite;
+  pointer-events: none;
+}
+
+/* ── Launch / profile-picker gold shimmer ────────────────────────────────────
+   A full-canvas ambient gold shimmer behind the launch screen, gently rotating
+   and masked so it fades away right around the profile cards (kept legible)
+   and glows more toward the edges. Rotation is GPU-composited (transform only)
+   so it's cheap even though it covers the whole viewport. */
+@keyframes launch-shimmer-rotate {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes launch-shimmer-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+.launch-shimmer {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+.launch-shimmer::before {
+  content: "";
+  position: absolute;
+  inset: -35%;
+  background: conic-gradient(
+    from 0deg at 50% 50%,
+    transparent 0deg,
+    rgba(201, 149, 43, 0.5) 35deg,
+    transparent 95deg,
+    transparent 190deg,
+    rgba(201, 149, 43, 0.35) 235deg,
+    transparent 300deg,
+    transparent 360deg
+  );
+  animation: launch-shimmer-rotate 18s linear infinite;
+  -webkit-mask-image: radial-gradient(circle at 50% 60%, transparent 0%, transparent 24%, black 58%);
+          mask-image: radial-gradient(circle at 50% 60%, transparent 0%, transparent 24%, black 58%);
+}
+.launch-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 12%, rgba(201, 149, 43, 0.25), transparent 45%);
+  animation: launch-shimmer-pulse 5s ease-in-out infinite;
+}
+
+/* ── Minimal gradient utilities ───────────────────────────────────────────────
+   Used sparingly (headline numbers, key branding) - not meant to be applied
+   broadly. Text gradient reads as foreground fading to the gold accent. */
+.text-gradient-gold {
+  background: linear-gradient(100deg, hsl(var(--foreground)) 25%, var(--gold) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 

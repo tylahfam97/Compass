@@ -9,6 +9,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import { holdingRoiPct } from "@/lib/netWorth";
 import { useProfileStore } from "@/stores/profileStore";
 import InfoTooltip from "@/components/InfoTooltip";
+import { Skeleton, TableSkeleton } from "@/components/Skeleton";
 import type { Holding, SecurityType } from "@/lib/types";
 
 const SECTION_LABELS: Record<SecurityType, string> = {
@@ -163,7 +164,14 @@ export default function InvestmentsPage() {
   const tooltipStyle = { backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" };
 
   if (loading) {
-    return <div className="p-6"><p className="text-[hsl(var(--muted-foreground))]">Loading...</p></div>;
+    return (
+      <div className="p-6 space-y-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)}
+        </div>
+        <TableSkeleton rows={5} cols={5} />
+      </div>
+    );
   }
 
   if (!asOfDate || holdings.length === 0) {
@@ -196,22 +204,22 @@ export default function InvestmentsPage() {
       {/* KPI tiles */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="border rounded-xl px-4 py-4 text-center">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1">Portfolio Value</p>
+          <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1">Portfolio Value</p>
           <p className="text-xl font-bold">{formatCurrency(kpis.marketValue)}</p>
         </div>
         <div className="border rounded-xl px-4 py-4 text-center">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1">Cost Basis</p>
+          <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1">Cost Basis</p>
           <p className="text-xl font-bold">{kpis.costBasis !== null ? formatCurrency(kpis.costBasis) : "-"}</p>
         </div>
         <div className="border rounded-xl px-4 py-4 text-center">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1">Unrealized Gain/Loss</p>
+          <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1">Unrealized Gain/Loss</p>
           <p className={`text-xl font-bold flex items-center justify-center gap-1 ${kpis.unrealized === null ? "" : kpis.unrealized >= 0 ? "text-green-600" : "text-red-500"}`}>
             {kpis.unrealized !== null && (kpis.unrealized >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />)}
             {kpis.unrealized !== null ? formatCurrency(kpis.unrealized) : "-"}
           </p>
         </div>
         <div className="border rounded-xl px-4 py-4 text-center">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1 flex items-center justify-center gap-1">
+          <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1 flex items-center justify-center gap-1">
             Est. Annual Income
             <InfoTooltip text="The brokerage's own projected annual income estimate as of the statement date - typically dividends, interest, and other distributions. It's a forward-looking estimate, not a record of income actually paid." />
           </p>
@@ -249,9 +257,9 @@ export default function InvestmentsPage() {
         const groups = groupsBySection.get(type) ?? [];
         return (
           <div key={type} className="border rounded-xl overflow-hidden">
-            <div className="px-4 py-2 bg-[hsl(var(--muted))] border-b text-xs font-medium uppercase tracking-wide flex items-center justify-between">
-              <span>{SECTION_LABELS[type]} ({groups.length})</span>
-              <span>{formatCurrency(sectionTotals.get(type) ?? 0)}</span>
+            <div className="px-4 py-3 border-b flex items-center justify-between">
+              <span className="font-semibold text-sm">{SECTION_LABELS[type]} <span className="text-[hsl(var(--muted-foreground))] font-normal">({groups.length})</span></span>
+              <span className="font-semibold text-sm">{formatCurrency(sectionTotals.get(type) ?? 0)}</span>
             </div>
             <table className="w-full text-sm">
               <thead>

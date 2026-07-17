@@ -5,6 +5,7 @@ import { useCategoryStore } from "@/stores/categoryStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
 import CategoryOptions from "@/components/CategoryOptions";
+import { CardListSkeleton } from "@/components/Skeleton";
 import WeeklyMiniBar from "@/components/WeeklyMiniBar";
 
 type GoalType =
@@ -61,6 +62,18 @@ const DESCS: Record<GoalType, string> = {
 
 const STREAK_TYPES = new Set<GoalType>(["budget_streak", "savings_rate_habit"]);
 const CLASSIC_TYPES = new Set<GoalType>(["net_savings", "reduce_spend", "increase_income"]);
+
+// Goal-type badge colors, grouped by meaning rather than one hue per type - 7 nearly
+// indistinguishable pastels read as visual noise; 3 clear groups read as intentional.
+const GOAL_TYPE_STYLE: Record<GoalType, string> = {
+  net_savings:        "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+  savings_target:     "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+  balance_floor:      "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+  savings_rate_habit: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+  reduce_spend:       "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
+  budget_streak:      "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
+  increase_income:    "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
+};
 
 function monthBounds(ym: string): [string, string] {
   const [y, m] = ym.split("-").map(Number);
@@ -451,7 +464,7 @@ export default function GoalsPage() {
         </div>
       </div>
 
-      {loading && <p className="text-[hsl(var(--muted-foreground))]">Loading...</p>}
+      {loading && <CardListSkeleton count={3} />}
 
       {!loading && goals.length === 0 && (
         <p className="text-[hsl(var(--muted-foreground))] text-center py-10">
@@ -469,8 +482,8 @@ export default function GoalsPage() {
 
         const barPct = Math.min(100, g.pct);
         const barColor = isSpend
-          ? (g.on_track ? "#22c55e" : "#ef4444")
-          : (g.on_track ? "#22c55e" : g.pct >= 75 ? "#f97316" : "#9ca3af");
+          ? (g.on_track ? "hsl(var(--success))" : "hsl(var(--error))")
+          : (g.on_track ? "hsl(var(--success))" : g.pct >= 75 ? "hsl(var(--warning))" : "hsl(var(--neutral))");
 
         const totalDays = daysInMonth(month);
         const elapsed   = daysElapsed(month);
@@ -485,19 +498,12 @@ export default function GoalsPage() {
             <div className="flex items-start justify-between mb-3 gap-2">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-medium">{g.name}</span>
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium
-                  ${g.type === "net_savings"     ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
-                  : g.type === "reduce_spend"    ? "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300"
-                  : g.type === "increase_income" ? "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300"
-                  : g.type === "savings_target"  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-                  : g.type === "balance_floor"   ? "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300"
-                  : g.type === "budget_streak"   ? "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"
-                  :                               "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"}`}>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${GOAL_TYPE_STYLE[g.type]}`}>
                   {LABELS[g.type]}
                 </span>
                 {g.category_name && (
                   <span className="text-xs px-2 py-0.5 rounded-full text-white"
-                    style={{ backgroundColor: g.category_color ?? "#9ca3af" }}>
+                    style={{ backgroundColor: g.category_color ?? "hsl(var(--neutral))" }}>
                     {g.category_name}
                   </span>
                 )}
