@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, Cell, AreaChart, Area,
+  ResponsiveContainer, Cell, LineChart, Line, AreaChart, Area, Rectangle,
 } from "recharts";
-import { getDb } from "@/lib/db";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { motion, AnimatePresence } from "motion/react";
+import { getDb, recomputeCalculatedBalances } from "@/lib/db";
+import { formatCurrency, formatDate, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
 import type { Transaction, Insight } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
@@ -19,15 +20,29 @@ interface MonthStats {
 }
 
 interface CatStat {
+  categoryId: number | null;
   name: string;
   color: string;
   total: number;
 }
 
-interface BalancePoint {
+interface CreditAccountMeta {
+  id: number;
+  name: string;
+  color: string;
+}
+
+interface CreditBalanceRow {
+  date: string;
+  [accountKey: string]: string | number;
+}
+
+interface CheckingBalancePoint {
   date: string;
   balance: number;
 }
+
+const INCLUDE_INVESTMENTS_KEY = "compass_include_investments";
 
 function monthBounds(ym: string): [string, string] {
   const [y, m] = ym.split("-").map(Number);
@@ -51,7 +66,24 @@ export default function DashboardPage() {
   const [totalTxnCount, setTotalTxnCount] = useState(0);
   const [confirmClear, setConfirmClear] = useState<"month" | "all" | null>(null);
   const [currentBalance, setCurrentBalance] = useState<number | null>(null);
-  const [balancePoints, setBalancePoints] = useState<BalancePoint[]>([]);
+  const [checkingBalancePoints, setCheckingBalancePoints] = useState<CheckingBalancePoint[]>([]);
+  const [creditBalanceAccounts, setCreditBalanceAccounts] = useState<CreditAccountMeta[]>([]);
+  const [creditBalanceRows, setCreditBalanceRows] = useState<CreditBalanceRow[]>([]);
+  const [expandedBalanceDate, setExpandedBalanceDate] = useState<string | null>(null);
+  const [portfolioValueCents, setPortfolioValueCents] = useState(0);
+  const [expandedCat, setExpandedCat] = useState<CatStat | null>(null);
+  const [expandedCatTxns, setExpandedCatTxns] = useState<Transaction[] | null>(null);
+  const [includeInvestments, setIncludeInvestments] = useState(
+    () => localStorage.getItem(INCLUDE_INVESTMENTS_KEY) !== "false"
+  );
+
+  const toggleIncludeInvestments = () => {
+    setIncludeInvestments((prev) => {
+      const next = !prev;
+      localStorage.setItem(INCLUDE_INVESTMENTS_KEY, String(next));
+      return next;
+    });
+  };
 
   const navMonth = (dir: -1 | 1) => {
     const [y, m] = month.split("-").map(Number);
@@ -63,17 +95,18 @@ export default function DashboardPage() {
     setLoading(true);
     const db = await getDb();
     const [start, end] = monthBounds(month);
-    const [incRow, expRow, catRows, recentRows, monthCountRow, totalCountRow, balanceRow, balancePointRows] = await Promise.all([
+    const [incRow, expRow, catRows, recentRows, monthCountRow, totalCountRow, balanceRow, balancePointRows, portfolioRow, balanceAcctRows] = await Promise.all([
       db.select<{ total: number }[]>(
-        "SELECT COALESCE(SUM(amount_cents),0) as total FROM transactions WHERE date>=? AND date<? AND amount_cents>0 AND (category_id IS NULL OR category_id!=20) AND profile_id=?",
+        `SELECT COALESCE(SUM(t.amount_cents),0) as total FROM transactions t JOIN accounts a ON a.id=t.account_id
+         WHERE t.date>=? AND t.date<? AND t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' AND t.profile_id=?`,
         [start, end, profileId]
       ),
       db.select<{ total: number }[]>(
         "SELECT COALESCE(SUM(amount_cents),0) as total FROM transactions WHERE date>=? AND date<? AND amount_cents<0 AND (category_id IS NULL OR category_id!=20) AND profile_id=?",
         [start, end, profileId]
       ),
-      db.select<{ name: string; color: string; total: number }[]>(
-        `SELECT c.name, c.color, SUM(t.amount_cents) as total
+      db.select<{ categoryId: number | null; name: string; color: string; total: number }[]>(
+        `SELECT t.category_id as categoryId, c.name, c.color, SUM(t.amount_cents) as total
          FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
          WHERE t.date>=? AND t.date<? AND t.amount_cents<0 AND t.profile_id=?
            AND (t.category_id IS NULL OR t.category_id != 20)
@@ -92,15 +125,28 @@ export default function DashboardPage() {
         [start, end, profileId]
       ),
       db.select<{ n: number }[]>("SELECT COUNT(*) as n FROM transactions WHERE profile_id=?", [profileId]),
-      db.select<{ balance_cents: number }[]>(
-        "SELECT balance_cents FROM transactions WHERE profile_id=? AND balance_cents IS NOT NULL ORDER BY date DESC, id DESC LIMIT 1",
+      db.select<{ account_id: number; balance_cents: number | null }[]>(
+        `SELECT a.id as account_id,
+           (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
+            ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents
+         FROM accounts a WHERE a.profile_id=? AND a.account_type IN ('checking','credit')`,
         [profileId]
       ),
-      db.select<{ date: string; balance_cents: number }[]>(
-        `SELECT date, balance_cents FROM transactions
-         WHERE profile_id=? AND date>=? AND date<? AND balance_cents IS NOT NULL
-         ORDER BY date ASC, id ASC`,
-        [profileId, start, end]
+      db.select<{ date: string; account_id: number; balance_cents: number }[]>(
+        `SELECT t.date, t.account_id, t.balance_cents FROM transactions t
+         JOIN accounts a ON a.id=t.account_id
+         WHERE t.profile_id=? AND t.date<? AND t.balance_cents IS NOT NULL AND a.account_type IN ('checking','credit')
+         ORDER BY t.date ASC, t.id ASC`,
+        [profileId, end]
+      ),
+      db.select<{ total: number | null }[]>(
+        `SELECT SUM(market_value_cents) as total FROM holdings
+         WHERE profile_id=? AND as_of_date=(SELECT MAX(as_of_date) FROM holdings WHERE profile_id=?)`,
+        [profileId, profileId]
+      ),
+      db.select<{ id: number; name: string; account_type: string }[]>(
+        "SELECT id, name, account_type FROM accounts WHERE profile_id=? AND account_type IN ('checking','credit') ORDER BY account_type, name",
+        [profileId]
       ),
     ]);
     const inc = incRow[0]?.total ?? 0;
@@ -110,15 +156,65 @@ export default function DashboardPage() {
     setRecent(recentRows);
     setMonthTxnCount(monthCountRow[0]?.n ?? 0);
     setTotalTxnCount(totalCountRow[0]?.n ?? 0);
-    setCurrentBalance(balanceRow[0]?.balance_cents ?? null);
-    setBalancePoints(balancePointRows.map((r) => ({ date: r.date, balance: r.balance_cents / 100 })));
+    const trackedAccounts = balanceRow.filter((r) => r.balance_cents !== null);
+    setCurrentBalance(trackedAccounts.length > 0 ? trackedAccounts.reduce((s, r) => s + (r.balance_cents ?? 0), 0) : null);
+    const checkingIds = new Set(balanceAcctRows.filter((a) => a.account_type === "checking").map((a) => a.id));
+    const creditAccountsMeta = balanceAcctRows
+      .filter((a) => a.account_type === "credit")
+      .map((a, i) => ({ id: a.id, name: a.name, color: accountChartColor(i) }));
+    setCreditBalanceAccounts(creditAccountsMeta);
+    // Checking accounts combine into one line (there's usually just one); credit cards stay
+    // separate per-account so multiple cards never get silently summed into one number.
+    const combinedChecking = combineAccountBalances(balancePointRows.filter((r) => checkingIds.has(r.account_id)));
+    setCheckingBalancePoints(
+      combinedChecking.filter((r) => r.date >= start).map((r) => ({ date: r.date, balance: r.balance_cents / 100 }))
+    );
+    const separatedCredit = separateAccountBalances(balancePointRows.filter((r) => !checkingIds.has(r.account_id)));
+    setCreditBalanceRows(
+      separatedCredit.filter((r) => r.date >= start).map((r) => {
+        const row: CreditBalanceRow = { date: r.date };
+        for (const acc of creditAccountsMeta) row[String(acc.id)] = (r.byAccount[acc.id] ?? 0) / 100;
+        return row;
+      })
+    );
+    setPortfolioValueCents(portfolioRow[0]?.total ?? 0);
+    setExpandedCat(null);
+    setExpandedCatTxns(null);
+    setExpandedBalanceDate(null);
     setLoading(false);
   }, [month, profileId]);
+
+  /** Toggles the drill-down panel for a spending category, fetching its top transactions on demand. */
+  const toggleCatExpand = async (cat: CatStat) => {
+    if (expandedCat && expandedCat.categoryId === cat.categoryId && expandedCat.name === cat.name) {
+      setExpandedCat(null);
+      setExpandedCatTxns(null);
+      return;
+    }
+    setExpandedCat(cat);
+    setExpandedCatTxns(null);
+    const db = await getDb();
+    const [start, end] = monthBounds(month);
+    const catCondition = cat.categoryId === null ? "t.category_id IS NULL" : "t.category_id=?";
+    const params = cat.categoryId === null ? [start, end, profileId] : [start, end, profileId, cat.categoryId];
+    const rows = await db.select<Transaction[]>(
+      `SELECT t.*, c.name as category_name, c.color as category_color
+       FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
+       WHERE t.date>=? AND t.date<? AND t.profile_id=? AND ${catCondition}
+       ORDER BY ABS(t.amount_cents) DESC LIMIT 5`,
+      params
+    );
+    setExpandedCatTxns(rows);
+  };
 
   const handleClear = async (scope: "month" | "all") => {
     const db = await getDb();
     if (scope === "month") {
       const [start, end] = monthBounds(month);
+      const affectedAccounts = await db.select<{ account_id: number }[]>(
+        "SELECT DISTINCT account_id FROM transactions WHERE date>=? AND date<? AND profile_id=?",
+        [start, end, profileId]
+      );
       await db.execute("DELETE FROM transactions WHERE date>=? AND date<? AND profile_id=?", [start, end, profileId]);
       // Remove sessions that no longer have any transactions linked to them
       await db.execute(
@@ -129,9 +225,17 @@ export default function DashboardPage() {
          )`,
         [profileId, profileId]
       );
+      for (const { account_id } of affectedAccounts) await recomputeCalculatedBalances(account_id);
     } else {
+      const affectedAccounts = await db.select<{ account_id: number }[]>(
+        "SELECT DISTINCT account_id FROM transactions WHERE profile_id=?",
+        [profileId]
+      );
       await db.execute("DELETE FROM transactions WHERE profile_id=?", [profileId]);
       await db.execute("DELETE FROM import_sessions WHERE profile_id=?", [profileId]);
+      // Every account just lost all its transactions - recompute clears each one's stale
+      // balance anchor too, so a future reimport doesn't resurrect the old balance.
+      for (const { account_id } of affectedAccounts) await recomputeCalculatedBalances(account_id);
     }
     setConfirmClear(null);
     loadData().catch(console.error);
@@ -249,20 +353,41 @@ export default function DashboardPage() {
             ))}
           </div>
 
-          {/* Account balance card + sparkline */}
+          {/* Account balance card + checking sparkline */}
           {currentBalance != null && (
-            <div className="border rounded-xl p-5 flex gap-6 items-center">
+            <div className="border rounded-xl p-5 flex gap-6 items-center flex-wrap">
               <div className="shrink-0">
-                <p className="text-sm text-[hsl(var(--muted-foreground))] mb-1">Account Balance</p>
-                <p className={`text-2xl font-bold ${currentBalance >= 0 ? "text-green-600" : "text-red-500"}`}>
-                  {formatCurrency(currentBalance)}
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-sm text-[hsl(var(--muted-foreground))]">
+                    {portfolioValueCents > 0 && includeInvestments ? "Net Worth" : "Account Balance"}
+                  </p>
+                  {portfolioValueCents > 0 && (
+                    <button
+                      onClick={toggleIncludeInvestments}
+                      title="Toggle whether investments are included in this figure"
+                      className={`text-[10px] px-2 py-0.5 rounded-full border font-medium transition-colors ${
+                        includeInvestments
+                          ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent"
+                          : "hover:bg-[hsl(var(--muted))]"
+                      }`}
+                    >
+                      + Investments
+                    </button>
+                  )}
+                </div>
+                <p className={`text-2xl font-bold ${(currentBalance + (includeInvestments ? portfolioValueCents : 0)) >= 0 ? "text-green-600" : "text-red-500"}`}>
+                  {formatCurrency(currentBalance + (includeInvestments ? portfolioValueCents : 0))}
                 </p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">Most recent transaction</p>
+                <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
+                  {portfolioValueCents > 0
+                    ? `${formatCurrency(currentBalance)} cash${includeInvestments ? ` + ${formatCurrency(portfolioValueCents)} investments` : ""}`
+                    : "Most recent transaction"}
+                </p>
               </div>
-              {balancePoints.length > 1 && (
-                <div className="flex-1 h-16">
+              {checkingBalancePoints.length > 1 && (
+                <div className="flex-1 h-16 min-w-[140px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={balancePoints} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
+                    <AreaChart data={checkingBalancePoints} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
                       <defs>
                         <linearGradient id="balGrad" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} />
@@ -287,10 +412,94 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {/* Credit card balances - kept separate from checking, one line per card */}
+          {creditBalanceRows.length > 1 && (
+            <div className="border rounded-xl p-5 chart-clickable">
+              <h2 className="font-semibold mb-1">Credit Card Balances</h2>
+              <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-3">Click the chart for a breakdown</p>
+              <div className="h-20">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={creditBalanceRows}
+                    margin={{ top: 4, right: 4, bottom: 4, left: 4 }}
+                    onClick={(state) => {
+                      const label = state?.activeLabel as string | undefined;
+                      if (label) setExpandedBalanceDate((cur) => (cur === label ? null : label));
+                    }}
+                  >
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "hsl(var(--background))",
+                        border: "1px solid hsl(var(--border))",
+                        borderRadius: "8px",
+                        fontSize: "12px",
+                      }}
+                      formatter={(v, name) => [
+                        `$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`,
+                        creditBalanceAccounts.find((a) => String(a.id) === name)?.name ?? name,
+                      ]}
+                      labelFormatter={(l) => l}
+                    />
+                    {creditBalanceAccounts.map((acc) => (
+                      <Line key={acc.id} type="monotone" dataKey={String(acc.id)} name={acc.name}
+                        stroke={acc.color} strokeWidth={2} dot={false} />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              {creditBalanceAccounts.length > 1 && (
+                <div className="flex flex-wrap gap-3 mt-3">
+                  {creditBalanceAccounts.map((acc) => (
+                    <span key={acc.id} className="flex items-center gap-1.5 text-[10px] text-[hsl(var(--muted-foreground))]">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: acc.color }} />
+                      {acc.name}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <AnimatePresence initial={false} mode="wait">
+                {expandedBalanceDate && (
+                  <motion.div
+                    key={expandedBalanceDate}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.18 }}
+                  >
+                    <div className="mt-3 pt-3 border-t">
+                      <p className="text-xs font-semibold mb-2">{formatDate(expandedBalanceDate)}</p>
+                      <div className="space-y-1">
+                        {creditBalanceAccounts.map((acc) => {
+                          const row = creditBalanceRows.find((r) => r.date === expandedBalanceDate);
+                          const dollars = row ? Number(row[String(acc.id)]) : null;
+                          if (dollars === null) return null;
+                          const cents = Math.round(dollars * 100);
+                          return (
+                            <div key={acc.id} className="flex items-center justify-between text-xs py-1">
+                              <span className="flex items-center gap-1.5 text-[hsl(var(--muted-foreground))]">
+                                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: acc.color }} />
+                                {acc.name}
+                              </span>
+                              <span className={cents < 0 ? "text-red-500 font-medium" : "font-medium"}>{formatCurrency(cents)}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
+
+
           {/* Top categories */}
           {cats.length > 0 && (
-            <div className="border rounded-xl p-5">
-              <h2 className="font-semibold mb-4">Top Spending Categories</h2>
+            <div className="border rounded-xl p-5 chart-clickable">
+              <h2 className="font-semibold mb-1">Top Spending Categories</h2>
+              <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-3">Click a bar for details</p>
               <ResponsiveContainer width="100%" height={cats.length * 36 + 20}>
                 <BarChart
                   layout="vertical"
@@ -309,6 +518,7 @@ export default function DashboardPage() {
                     width={110}
                   />
                   <Tooltip
+                    cursor={false}
                     contentStyle={{
                       backgroundColor: "hsl(var(--background))",
                       border: "1px solid hsl(var(--border))",
@@ -319,13 +529,64 @@ export default function DashboardPage() {
                     itemStyle={{ color: "hsl(var(--foreground))" }}
                     formatter={(v) => formatCurrency(v as number)}
                   />
-                  <Bar dataKey="total" radius={[0, 4, 4, 0]}>
+                  <Bar
+                    dataKey="total"
+                    radius={[0, 4, 4, 0]}
+                    cursor="pointer"
+                    background={false}
+                    onClick={(data) => toggleCatExpand(data as unknown as CatStat)}
+                    activeBar={(props: unknown) => {
+                      const p = props as { payload?: CatStat } & React.SVGProps<SVGPathElement> & Record<string, unknown>;
+                      const fill = lightenHex(p.payload?.color ?? "#9ca3af");
+                      return <Rectangle {...(p as object)} fill={fill} />;
+                    }}
+                  >
                     {cats.map((c, i) => (
-                      <Cell key={i} fill={c.color} />
+                      <Cell key={i} fill={c.color} opacity={expandedCat && expandedCat.name !== c.name ? 0.45 : 1} />
                     ))}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
+
+              <AnimatePresence initial={false} mode="wait">
+                {expandedCat && (
+                  <motion.div
+                    key={expandedCat.name}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.18 }}
+                  >
+                    <div className="mt-3 pt-3 border-t">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs font-semibold flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: expandedCat.color }} />
+                          {expandedCat.name} - {formatCurrency(expandedCat.total)}
+                        </p>
+                        <Link
+                          to="/transactions"
+                          state={{ month, category: expandedCat.categoryId }}
+                          className="text-[11px] text-[hsl(var(--primary))] hover:underline"
+                        >
+                          View all →
+                        </Link>
+                      </div>
+                      {expandedCatTxns === null ? (
+                        <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">Loading…</p>
+                      ) : (
+                        <div className="space-y-1">
+                          {expandedCatTxns.map((t) => (
+                            <div key={t.id} className="flex items-center justify-between text-xs py-1">
+                              <span className="truncate flex-1 text-[hsl(var(--muted-foreground))]">{t.description}</span>
+                              <span className="font-mono ml-3 shrink-0">{formatCurrency(Math.abs(t.amount_cents))}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           )}
 
@@ -349,7 +610,7 @@ export default function DashboardPage() {
                       <td className="px-5 py-3">
                         <span
                           className="inline-block px-2 py-0.5 rounded-full text-xs text-white"
-                          style={{ backgroundColor: t.category_color ?? "#9ca3af" }}
+                          style={{ backgroundColor: t.category_color ?? "hsl(var(--neutral))" }}
                         >
                           {t.category_name ?? "Uncategorized"}
                         </span>

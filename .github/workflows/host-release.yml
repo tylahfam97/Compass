@@ -15,6 +15,17 @@
 # Pre-releases (dev/feature branch builds) are ignored — only stable
 # releases (IS_PRERELEASE=false in build.yml) trigger this workflow.
 #
+# ── WHY THIS ALSO NEEDS A MANUAL DISPATCH ────────────────────────────────────
+# GitHub does NOT start new workflow runs from `release`/`push`/etc. events that
+# were themselves produced via the API using the default GITHUB_TOKEN (this is
+# an anti-recursion safeguard). scripts/publish-release.ps1 creates releases
+# using GITHUB_TOKEN, so the `release: published` trigger below never actually
+# fires for our own automated releases - it only fires for releases published
+# by hand through the GitHub UI. `workflow_dispatch` IS explicitly exempt from
+# that restriction, so publish-release.ps1 also calls this workflow's dispatch
+# API directly (passing `tag_name`) right after a stable release is created -
+# that's the real trigger path for CI-published releases.
+#
 # ── NGINX CONFIG REQUIRED (add to your server's compass.conf) ───────────────
 # Add this location block inside your server {} block:
 #
@@ -45,6 +56,10 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag to host (blank = latest stable release)"
+        required: false
 
 env:
   DOWNLOADS_DIR: /var/www/compass/downloads
@@ -55,7 +70,10 @@ jobs:
     runs-on: [self-hosted, nginx]
 
     # Skip pre-releases (dev/feature builds). For workflow_dispatch there is
-    # no release event, so the condition evaluates to true and runs regardless.
+    # no release event, so the condition evaluates to true and runs regardless -
+    # the script itself still checks the resolved release's `prerelease` flag
+    # below and exits early if it's a prerelease, so an explicit/automated
+    # dispatch for a dev build is still a no-op.
     if: ${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
 
     steps:
@@ -74,8 +92,14 @@ jobs:
           mkdir -p "$DOWNLOADS_DIR"
 
           # Resolve which release to fetch
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            # Manual run: grab the latest stable release
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.tag_name }}" ]; then
+            # Manual or automated dispatch for a specific tag (e.g. right after publish-release.ps1)
+            RELEASE=$(curl -sf \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO/releases/tags/${{ inputs.tag_name }}")
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual run with no tag specified: grab the latest stable release
             RELEASE=$(curl -sf \
               -H "Authorization: Bearer $GH_TOKEN" \
               -H "Accept: application/vnd.github+json" \
@@ -89,6 +113,13 @@ jobs:
           fi
 
           TAG=$(echo "$RELEASE" | jq -r '.tag_name')
+          IS_PRERELEASE=$(echo "$RELEASE" | jq -r '.prerelease')
+
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            echo "Release $TAG is a prerelease - skipping (dispatch was likely a dev/feature build)."
+            exit 0
+          fi
+
           echo "Hosting release $TAG"
 
           EXE_URL=$(echo "$RELEASE" | jq -r '.assets[] | select(.name | endswith("x64-setup.exe")) | .browser_download_url')

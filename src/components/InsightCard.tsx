@@ -3,7 +3,7 @@ import { useProfileStore } from "@/stores/profileStore";
 import {
   AlertTriangle, CheckCircle, Target, Info, X,
   TrendingUp, TrendingDown, Percent, Zap,
-  RefreshCw, ShoppingBag, Calendar, Shield, DollarSign,
+  RefreshCw, ShoppingBag, Calendar, Shield, DollarSign, CreditCard,
 } from "lucide-react";
 
 // Maps insight type to a descriptive icon for row/scannable contexts.
@@ -42,6 +42,10 @@ const TYPE_ICONS: Record<string, React.ElementType> = {
   // ━━ Account safety / health ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   emergency_fund_runway:  Shield,
   overdraft_alert:        AlertTriangle,
+  // ━━ Credit card debt ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  credit_card_debt_high:      CreditCard,
+  credit_card_debt_growing:   CreditCard,
+  credit_card_debt_improving: CreditCard,
 };
 
 const CARD_STYLES: Record<string, string> = {

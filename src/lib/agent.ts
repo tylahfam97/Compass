@@ -1,5 +1,7 @@
 import { getDb } from "./db";
-import type { Insight, HealthScore } from "./types";
+import type { Insight, HealthScore, CreditCardHealthScore } from "./types";
+import { computeNetWorth } from "./netWorth";
+import { AVG_US_CREDIT_CARD_DEBT_CENTS, scoreGrade } from "./benchmarks";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -30,11 +32,12 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   const db = await getDb();
   const insights: Insight[] = [];
 
-  // ── 0. Current account balance ───────────────────────────────────────────
+  // ── 0. Current account balance (liquid cash only - checking, not credit) ──
   const [balanceRow] = await db.select<{ balance_cents: number; date: string }[]>(
-    `SELECT balance_cents, date FROM transactions
-     WHERE profile_id=? AND balance_cents IS NOT NULL
-     ORDER BY date DESC, id DESC LIMIT 1`,
+    `SELECT t.balance_cents, t.date FROM transactions t
+     JOIN accounts a ON a.id=t.account_id
+     WHERE t.profile_id=? AND t.balance_cents IS NOT NULL AND a.account_type='checking'
+     ORDER BY t.date DESC, t.id DESC LIMIT 1`,
     [profileId]
   );
   // balanceRow is available for insight logic below
@@ -59,10 +62,11 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     income: number;
     expenses: number;
   }[]>(
-    `SELECT strftime('%Y-%m', date) as month,
-            SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income,
-            SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as expenses
-     FROM transactions WHERE profile_id=? GROUP BY month ORDER BY month DESC LIMIT 12`,
+    `SELECT strftime('%Y-%m', t.date) as month,
+            SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END) as income,
+            SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+     FROM transactions t JOIN accounts a ON a.id=t.account_id
+     WHERE t.profile_id=? GROUP BY month ORDER BY month DESC LIMIT 12`,
     [profileId]
   );
 
@@ -385,6 +389,58 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         severity: "warning",
         dismissKey: `runway_short_${balanceRow.date}`,
       });
+    }
+  }
+
+  // ── INSIGHT: credit card debt (balance_cents is negative for credit accounts) ──
+  const [creditBalanceRow] = await db.select<{ balance_cents: number; date: string }[]>(
+    `SELECT t.balance_cents, t.date FROM transactions t
+     JOIN accounts a ON a.id=t.account_id
+     WHERE t.profile_id=? AND t.balance_cents IS NOT NULL AND a.account_type='credit'
+     ORDER BY t.date DESC, t.id DESC LIMIT 1`,
+    [profileId]
+  );
+  const [creditBalancePriorRow] = await db.select<{ balance_cents: number }[]>(
+    `SELECT t.balance_cents FROM transactions t
+     JOIN accounts a ON a.id=t.account_id
+     WHERE t.profile_id=? AND t.balance_cents IS NOT NULL AND a.account_type='credit' AND t.date < ?
+     ORDER BY t.date DESC, t.id DESC LIMIT 1`,
+    [profileId, thisStart]
+  );
+  if (creditBalanceRow?.balance_cents != null) {
+    const debt = creditBalanceRow.balance_cents; // negative = amount owed
+    if (debt < -100000) {
+      // Carrying more than $1,000 in credit card debt
+      insights.push({
+        id: `credit_card_debt_high_${creditBalanceRow.date}`,
+        type: "credit_card_debt_high",
+        title: `Credit card debt: ${formatCents(Math.abs(debt))}`,
+        description: `You're carrying a balance of ${formatCents(Math.abs(debt))} on your credit card as of ${creditBalanceRow.date}. Interest charges add up quickly - paying down high-interest debt is usually a better return than most savings accounts.`,
+        severity: "warning",
+        dismissKey: `credit_card_debt_high_${creditBalanceRow.date}`,
+      });
+    }
+    if (creditBalancePriorRow?.balance_cents != null) {
+      const delta = debt - creditBalancePriorRow.balance_cents; // negative = debt grew
+      if (delta < -5000) {
+        insights.push({
+          id: `credit_card_debt_growing_${thisMonth}`,
+          type: "credit_card_debt_growing",
+          title: `Credit card debt grew by ${formatCents(Math.abs(delta))}`,
+          description: `Your credit card balance went from ${formatCents(Math.abs(creditBalancePriorRow.balance_cents))} to ${formatCents(Math.abs(debt))} owed. Keep an eye on this before it compounds with interest.`,
+          severity: "warning",
+          dismissKey: `credit_card_debt_growing_${thisMonth}`,
+        });
+      } else if (delta > 5000) {
+        insights.push({
+          id: `credit_card_debt_improving_${thisMonth}`,
+          type: "credit_card_debt_improving",
+          title: `Paid down ${formatCents(delta)} in credit card debt`,
+          description: `Nice progress - your credit card balance improved from ${formatCents(Math.abs(creditBalancePriorRow.balance_cents))} to ${formatCents(Math.abs(debt))} owed.`,
+          severity: "success",
+          dismissKey: `credit_card_debt_improving_${thisMonth}`,
+        });
+      }
     }
   }
 
@@ -816,6 +872,35 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     }
   }
 
+  // ── INSIGHT: net_worth_growing / net_worth_declining ─────────────────────
+  const [nowNetWorth, priorNetWorth] = await Promise.all([
+    computeNetWorth([profileId]),
+    computeNetWorth([profileId], thisStart),
+  ]);
+  const netWorthDelta = nowNetWorth.netWorthCents - priorNetWorth.netWorthCents;
+  if (Math.abs(netWorthDelta) >= 20000) {
+    // At least $200 moved since the start of this month
+    if (netWorthDelta > 0) {
+      insights.push({
+        id: `net_worth_growing_${thisMonth}`,
+        type: "net_worth_growing",
+        title: `Net worth grew by ${formatCents(netWorthDelta)} this month`,
+        description: `Your net worth (liquid cash + investments − debt) went from ${formatCents(priorNetWorth.netWorthCents)} to ${formatCents(nowNetWorth.netWorthCents)}.`,
+        severity: "success",
+        dismissKey: `net_worth_growing_${thisMonth}`,
+      });
+    } else {
+      insights.push({
+        id: `net_worth_declining_${thisMonth}`,
+        type: "net_worth_declining",
+        title: `Net worth dropped by ${formatCents(Math.abs(netWorthDelta))} this month`,
+        description: `Your net worth (liquid cash + investments − debt) went from ${formatCents(priorNetWorth.netWorthCents)} to ${formatCents(nowNetWorth.netWorthCents)}.`,
+        severity: "warning",
+        dismissKey: `net_worth_declining_${thisMonth}`,
+      });
+    }
+  }
+
   // ── Sort: warnings → info → success ─────────────────────────────────────
   const order = { warning: 0, info: 1, success: 2 };
   return insights.sort((a, b) => order[a.severity] - order[b.severity]);
@@ -875,10 +960,11 @@ export async function getSpendingProfile(profileIds: number[]): Promise<Spending
   const [summary] = await db.select<{ avg_income: number; avg_expenses: number }[]>(
     `SELECT AVG(income) as avg_income, AVG(expenses) as avg_expenses
      FROM (
-       SELECT SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income,
-              SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as expenses
-       FROM transactions WHERE profile_id IN (${ph}) AND date>=?
-       GROUP BY strftime('%Y-%m', date)
+       SELECT SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END) as income,
+              SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+       FROM transactions t JOIN accounts a ON a.id=t.account_id
+       WHERE t.profile_id IN (${ph}) AND t.date>=?
+       GROUP BY strftime('%Y-%m', t.date)
      )`,
     [...profileIds, startDate]
   );
@@ -925,10 +1011,11 @@ export async function getSavingsHistory(
     return d.toISOString().split("T")[0];
   })();
   const rows = await db.select<{ month: string; income: number; expenses: number }[]>(
-    `SELECT strftime('%Y-%m', date) as month,
-            SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income,
-            SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as expenses
-     FROM transactions WHERE profile_id IN (${ph}) AND date>=?
+    `SELECT strftime('%Y-%m', t.date) as month,
+            SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END) as income,
+            SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+     FROM transactions t JOIN accounts a ON a.id=t.account_id
+     WHERE t.profile_id IN (${ph}) AND t.date>=?
      GROUP BY month ORDER BY month`,
     [...profileIds, startDate]
   );
@@ -968,10 +1055,11 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
   // ── 1. Savings Rate (40 pts) — 3-month avg ──────────────────────────────
   const srRows = await db.select<{ income: number; expenses: number }[]>(
     `SELECT
-       SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income,
-       SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as expenses
-     FROM transactions WHERE profile_id IN (${ph}) AND date>=?
-     GROUP BY strftime('%Y-%m', date) LIMIT 3`,
+       SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END) as income,
+       SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+     FROM transactions t JOIN accounts a ON a.id=t.account_id
+     WHERE t.profile_id IN (${ph}) AND t.date>=?
+     GROUP BY strftime('%Y-%m', t.date) LIMIT 3`,
     [...profileIds, threeAgo]
   );
   const validSR = srRows.filter(r => r.income > 0);
@@ -998,9 +1086,12 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
     budgetScore = pct >= 1.0 ? 30 : pct >= 0.8 ? 24 : pct >= 0.6 ? 18 : pct >= 0.4 ? 12 : 6;
   }
 
-  // ── 3. Balance Runway (20 pts) ─────────────────────────────────────────
+  // ── 3. Balance Runway (20 pts) — liquid cash only, not credit card debt ──
   const [balRow] = await db.select<{ balance_cents: number | null }[]>(
-    `SELECT balance_cents FROM transactions WHERE profile_id IN (${ph}) AND balance_cents IS NOT NULL ORDER BY date DESC, id DESC LIMIT 1`,
+    `SELECT t.balance_cents FROM transactions t
+     JOIN accounts a ON a.id=t.account_id
+     WHERE t.profile_id IN (${ph}) AND t.balance_cents IS NOT NULL AND a.account_type='checking'
+     ORDER BY t.date DESC, t.id DESC LIMIT 1`,
     [...profileIds]
   );
   let balanceScore = 10;
@@ -1021,9 +1112,10 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
 
   // ── 4. Income Stability (10 pts) — 6-month variance ───────────────────
   const incRows = await db.select<{ income: number }[]>(
-    `SELECT SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income
-     FROM transactions WHERE profile_id IN (${ph}) AND date>=?
-     GROUP BY strftime('%Y-%m', date)`,
+    `SELECT SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END) as income
+     FROM transactions t JOIN accounts a ON a.id=t.account_id
+     WHERE t.profile_id IN (${ph}) AND t.date>=?
+     GROUP BY strftime('%Y-%m', t.date)`,
     [...profileIds, sixAgo]
   );
   const incomes = incRows.filter(r => r.income > 0).map(r => r.income);
@@ -1035,9 +1127,7 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
   }
 
   const total = savingsScore + budgetScore + balanceScore + incomeScore;
-  const grade = total >= 85 ? "A" : total >= 70 ? "B" : total >= 55 ? "C" : total >= 40 ? "D" : "—";
-  const label = total >= 85 ? "Excellent" : total >= 70 ? "Good" : total >= 55 ? "Building" : total >= 40 ? "Developing" : "Getting Started";
-  const color = total >= 85 ? "#059669" : total >= 70 ? "#2563eb" : total >= 55 ? "#d97706" : total >= 40 ? "#ea580c" : "#6b7280";
+  const { grade, label, color } = scoreGrade(total);
 
   return {
     total, grade, label, color,
@@ -1048,4 +1138,56 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
       incomeStability: { score: incomeScore,   max: 10, pct: Math.round((incomeScore / 10)   * 100) },
     },
   };
+}
+
+/**
+ * Standalone Credit Card Health score (0-100), benchmarked against the average
+ * U.S. credit card balance rather than folded into the main Health Score.
+ * Scores the current balance against the benchmark, then nudges +/-10 points
+ * for whether the balance shrank or grew over the current month.
+ * Returns hasData=false when the profile(s) have no credit card account at all.
+ */
+export async function computeCreditCardHealthScore(profileIds: number[]): Promise<CreditCardHealthScore> {
+  const benchmarkCents = AVG_US_CREDIT_CARD_DEBT_CENTS;
+  if (profileIds.length === 0) {
+    return { score: 0, hasData: false, grade: "—", label: "Getting Started", color: "#6b7280", detail: "", debtCents: 0, benchmarkCents };
+  }
+  const db = await getDb();
+  const ph = profileIds.map(() => "?").join(",");
+  const [acctRow] = await db.select<{ n: number }[]>(
+    `SELECT COUNT(*) as n FROM accounts WHERE profile_id IN (${ph}) AND account_type='credit'`,
+    [...profileIds]
+  );
+  if ((acctRow?.n ?? 0) === 0) {
+    return { score: 0, hasData: false, grade: "—", label: "Getting Started", color: "#6b7280", detail: "", debtCents: 0, benchmarkCents };
+  }
+
+  const now = new Date();
+  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  const [current, prior] = await Promise.all([
+    computeNetWorth(profileIds),
+    computeNetWorth(profileIds, monthStart),
+  ]);
+  const debtCents = current.debtCents; // <= 0
+  const debtAbs = Math.abs(debtCents);
+
+  let score: number;
+  if (debtAbs === 0) score = 100;
+  else if (debtAbs <= benchmarkCents * 0.25) score = 90;
+  else if (debtAbs <= benchmarkCents * 0.5) score = 75;
+  else if (debtAbs <= benchmarkCents) score = 55;
+  else if (debtAbs <= benchmarkCents * 1.5) score = 35;
+  else score = 15;
+
+  // Trend nudge: paid down more than $50 this month -> +10, grew more than $50 -> -10
+  const delta = debtCents - prior.debtCents;
+  if (delta > 5000) score = Math.min(100, score + 10);
+  else if (delta < -5000) score = Math.max(0, score - 10);
+
+  const { grade, label, color } = scoreGrade(score);
+  const detail = debtAbs === 0
+    ? "No revolving balance - vs the ~$6,000 national average"
+    : `${formatCents(debtAbs)} owed vs the ~${formatCents(benchmarkCents)} national average`;
+
+  return { score, hasData: true, grade, label, color, detail, debtCents, benchmarkCents };
 }

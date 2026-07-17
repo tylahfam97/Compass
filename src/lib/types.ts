@@ -27,7 +27,12 @@ export type InsightType =
   | "spending_velocity"
   | "emergency_fund_runway"
   | "bill_due_soon"
-  | "expense_ratio_drift";
+  | "expense_ratio_drift"
+  | "credit_card_debt_high"
+  | "credit_card_debt_growing"
+  | "credit_card_debt_improving"
+  | "net_worth_growing"
+  | "net_worth_declining";
 
 /** Category ID reserved for internal bank transfers — excluded from expense totals. */
 export const TRANSFER_CATEGORY_ID = 20;
@@ -72,6 +77,8 @@ export interface Account {
   account_type: string;
   institution: string;
   created_at: string;
+  balance_anchor_cents?: number | null;
+  balance_anchor_date?: string | null;
 }
 
 export interface Transaction {
@@ -88,6 +95,8 @@ export interface Transaction {
   // Joined from categories table
   category_name?: string;
   category_color?: string;
+  // Joined from accounts table (only selected in a few places that need it)
+  account_type?: string;
 }
 
 export interface Category {
@@ -98,6 +107,30 @@ export interface Category {
   icon: string;
   is_system: boolean;
 }
+
+/** Broad security classification used to group holdings in the Investments page. */
+export type SecurityType = "stock" | "etf" | "mutual_fund" | "cash" | "other";
+
+/** A single lot/position row imported from a brokerage portfolio-positions export. */
+export interface Holding {
+  id: number;
+  account_id: number;
+  profile_id: number;
+  import_session_id: number | null;
+  as_of_date: string;
+  security_type: SecurityType;
+  symbol: string | null;
+  description: string;
+  shares: number | null;
+  price_cents: number | null;
+  market_value_cents: number | null;
+  cost_basis_cents: number | null;
+  trade_date: string | null;
+  dividend_per_share_cents: number | null;
+  est_annual_income_cents: number | null;
+  created_at: string;
+}
+
 
 export interface Budget {
   id: number;
@@ -135,4 +168,25 @@ export interface HealthScore {
     balanceRunway:   HealthScoreComponent;
     incomeStability: HealthScoreComponent;
   };
+}
+
+/** A standalone 0-100 score benchmarked against a national-average figure,
+ *  shown as its own mini-card rather than folded into the main Health Score. */
+export interface MiniHealthScore {
+  score: number;
+  hasData: boolean;
+  grade: string;
+  label: string;
+  color: string;
+  detail: string;
+}
+
+export interface CreditCardHealthScore extends MiniHealthScore {
+  debtCents: number;
+  benchmarkCents: number;
+}
+
+export interface InvestmentHealthScore extends MiniHealthScore {
+  returnPct: number | null;
+  benchmarkPct: number;
 }

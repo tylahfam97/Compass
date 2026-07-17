@@ -1,18 +1,23 @@
 ﻿import { useState, useEffect, useMemo } from "react";
+import { Link } from "react-router-dom";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip,
   ResponsiveContainer, Legend, LineChart, Line, ReferenceLine,
 } from "recharts";
+import { motion, AnimatePresence } from "motion/react";
 import { getDb } from "@/lib/db";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
 import type { Profile } from "@/lib/types";
 import PinModal from "@/components/PinModal";
 
 interface MonthRow { month: string; income: number; expenses: number; }
-interface CatMonthRow { month: string; category: string; color: string; total: number; }
+interface CatMonthRow { month: string; category: string; color: string; categoryId: number | null; total: number; }
 interface StackedRow { month: string; [cat: string]: string | number; }
 interface CumulativeRow { month: string; net: number; running: number; }
+interface CheckingBalanceMonthRow { month: string; balance: number; }
+interface CreditBalanceMonthRow { month: string; [accountKey: string]: string | number; }
+interface CreditAccountMeta { id: number; name: string; color: string; }
 
 const RANGE_OPTIONS = [3, 6, 12];
 const VIEW_KEY = "compass_trends_view";
@@ -31,8 +36,13 @@ export default function TrendsPage() {
   const [monthly, setMonthly] = useState<MonthRow[]>([]);
   const [stacked, setStacked] = useState<StackedRow[]>([]);
   const [catColors, setCatColors] = useState<Record<string, string>>({});
+  const [catIds, setCatIds] = useState<Record<string, number | null>>({});
   const [catNames, setCatNames] = useState<string[]>([]);
   const [cumulativeData, setCumulativeData] = useState<CumulativeRow[]>([]);
+  const [checkingBalanceMonthly, setCheckingBalanceMonthly] = useState<CheckingBalanceMonthRow[]>([]);
+  const [creditBalanceMonthly, setCreditBalanceMonthly] = useState<CreditBalanceMonthRow[]>([]);
+  const [creditBalanceAccounts, setCreditBalanceAccounts] = useState<CreditAccountMeta[]>([]);
+  const [expandedBalanceMonth, setExpandedBalanceMonth] = useState<string | null>(null);
   const [allTimeIncome, setAllTimeIncome] = useState(0);
   const [allTimeExpenses, setAllTimeExpenses] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -69,6 +79,40 @@ export default function TrendsPage() {
   const ids = viewMode === "global" ? (unlockedProfileIds.length > 0 ? unlockedProfileIds : [profileId]) : [profileId];
   const ph = ids.map(() => "?").join(",");
 
+  // ── Chart drill-downs ────────────────────────────────────────────────────
+  const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
+  const [expandedMonthCats, setExpandedMonthCats] = useState<{ name: string; color: string; total: number }[] | null>(null);
+  const [expandedCatName, setExpandedCatName] = useState<string | null>(null);
+
+  const toggleMonthExpand = async (month: string) => {
+    if (expandedMonth === month) { setExpandedMonth(null); setExpandedMonthCats(null); return; }
+    setExpandedMonth(month);
+    setExpandedMonthCats(null);
+    const db = await getDb();
+    const [y, m] = month.split("-").map(Number);
+    const start = `${y}-${String(m).padStart(2, "0")}-01`;
+    const end = new Date(y, m, 1).toISOString().split("T")[0];
+    const rows = await db.select<{ name: string; color: string; total: number }[]>(
+      `SELECT c.name, c.color, SUM(ABS(t.amount_cents)) as total
+       FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
+       WHERE t.date>=? AND t.date<? AND t.amount_cents<0 AND t.profile_id IN (${ph})
+         AND (t.category_id IS NULL OR t.category_id!=20)
+       GROUP BY t.category_id ORDER BY total DESC LIMIT 3`,
+      [start, end, ...ids]
+    );
+    setExpandedMonthCats(rows);
+  };
+
+  const toggleCatSegmentExpand = (cat: string) => {
+    setExpandedCatName((cur) => (cur === cat ? null : cat));
+  };
+
+  /** Toggles the per-account balance breakdown for a month - purely a lookup into data that's
+   *  already loaded (no query needed), since each account's line is already plotted client-side. */
+  const toggleBalanceMonthExpand = (month: string) => {
+    setExpandedBalanceMonth((cur) => (cur === month ? null : month));
+  };
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -80,17 +124,18 @@ export default function TrendsPage() {
       d.setMonth(d.getMonth() - (range - 1));
       const start = d.toISOString().split("T")[0];
 
-      const [incExpRows, catRows, allTimeRow, cumRows] = await Promise.all([
+      const [incExpRows, catRows, allTimeRow, cumRows, balanceRows, balanceAcctRows] = await Promise.all([
         db.select<{ month: string; income: number; expenses: number }[]>(
-          `SELECT strftime('%Y-%m', date) as month,
-                  SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income,
-                  SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as expenses
-           FROM transactions WHERE date>=? AND profile_id IN (${ph})
+          `SELECT strftime('%Y-%m', t.date) as month,
+                  SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END) as income,
+                  SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+           FROM transactions t JOIN accounts a ON a.id=t.account_id
+           WHERE t.date>=? AND t.profile_id IN (${ph})
            GROUP BY month ORDER BY month`,
           [start, ...ids]
         ),
         db.select<CatMonthRow[]>(
-          `SELECT strftime('%Y-%m', t.date) as month, c.name as category, c.color,
+          `SELECT strftime('%Y-%m', t.date) as month, c.name as category, c.color, t.category_id as categoryId,
                   SUM(ABS(t.amount_cents)) as total
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
            WHERE t.date>=? AND t.amount_cents<0 AND t.profile_id IN (${ph})
@@ -100,17 +145,30 @@ export default function TrendsPage() {
         ),
         db.select<{ income: number; expenses: number }[]>(
           `SELECT
-             SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income,
-             SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as expenses
-           FROM transactions WHERE profile_id IN (${ph})`,
+             SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END) as income,
+             SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+           FROM transactions t JOIN accounts a ON a.id=t.account_id
+           WHERE t.profile_id IN (${ph})`,
           [...ids]
         ),
         db.select<{ month: string; net: number }[]>(
-          `SELECT strftime('%Y-%m', date) as month,
-             SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END)
-             - SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as net
-           FROM transactions WHERE profile_id IN (${ph})
+          `SELECT strftime('%Y-%m', t.date) as month,
+             SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END)
+             - SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as net
+           FROM transactions t JOIN accounts a ON a.id=t.account_id
+           WHERE t.profile_id IN (${ph})
            GROUP BY month ORDER BY month`,
+          [...ids]
+        ),
+        db.select<{ date: string; account_id: number; balance_cents: number }[]>(
+          `SELECT t.date, t.account_id, t.balance_cents FROM transactions t
+           JOIN accounts a ON a.id=t.account_id
+           WHERE t.profile_id IN (${ph}) AND t.balance_cents IS NOT NULL AND a.account_type IN ('checking','credit')
+           ORDER BY t.date ASC, t.id ASC`,
+          [...ids]
+        ),
+        db.select<{ id: number; name: string; account_type: string }[]>(
+          `SELECT id, name, account_type FROM accounts WHERE profile_id IN (${ph}) AND account_type IN ('checking','credit') ORDER BY account_type, name`,
           [...ids]
         ),
       ]);
@@ -125,6 +183,34 @@ export default function TrendsPage() {
       let running = 0;
       setCumulativeData(cumRows.map(r => { running += r.net; return { month: r.month, net: r.net, running }; }));
 
+      // Checking accounts combine into one line (there's usually just one); credit cards stay
+      // separate per-account, downsampled to the last known balance of each month, so e.g. two
+      // credit cards are drawn as two distinct lines instead of being summed with checking.
+      const checkingIds = new Set(balanceAcctRows.filter((a) => a.account_type === "checking").map((a) => a.id));
+      const creditAccountsMeta = balanceAcctRows
+        .filter((a) => a.account_type === "credit")
+        .map((a, i) => ({ id: a.id, name: a.name, color: accountChartColor(i) }));
+      setCreditBalanceAccounts(creditAccountsMeta);
+
+      const combinedChecking = combineAccountBalances(balanceRows.filter((r) => checkingIds.has(r.account_id)));
+      const lastCheckingPerMonth = new Map<string, number>();
+      for (const r of combinedChecking) lastCheckingPerMonth.set(r.date.slice(0, 7), r.balance_cents);
+      setCheckingBalanceMonthly(
+        [...lastCheckingPerMonth.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, balance]) => ({ month, balance }))
+      );
+
+      const separatedCredit = separateAccountBalances(balanceRows.filter((r) => !checkingIds.has(r.account_id)));
+      const lastCreditPerMonth = new Map<string, Record<number, number>>();
+      for (const r of separatedCredit) lastCreditPerMonth.set(r.date.slice(0, 7), r.byAccount);
+      setCreditBalanceMonthly(
+        [...lastCreditPerMonth.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, byAccount]) => {
+          const row: CreditBalanceMonthRow = { month };
+          // Kept in cents (not dollars) to match this chart's existing YAxis/Tooltip formatting.
+          for (const acc of creditAccountsMeta) row[String(acc.id)] = byAccount[acc.id] ?? 0;
+          return row;
+        })
+      );
+
       // Bucket categories
       const TOP_N = 6;
       const catTotals: Record<string, number> = {};
@@ -136,6 +222,9 @@ export default function TrendsPage() {
       catRows.forEach(r => { if (topSet.has(r.category)) colorMap[r.category] = r.color; });
       if (hasOther) colorMap["Other"] = "#9ca3af";
       setCatColors(colorMap);
+      const idMap: Record<string, number | null> = {};
+      catRows.forEach(r => { if (topSet.has(r.category)) idMap[r.category] = r.categoryId; });
+      setCatIds(idMap);
       setCatNames([...topCats, ...(hasOther ? ["Other"] : [])]);
       const byMonth: Record<string, StackedRow> = {};
       catRows.forEach(r => {
@@ -221,36 +310,225 @@ export default function TrendsPage() {
               </div>
             )}
 
+            {/* Checking balance - combined into a single line (there's usually just one account) */}
+            {checkingBalanceMonthly.length >= 2 && (
+              <div className="border rounded-xl p-5">
+                <h2 className="font-semibold mb-4">Checking Balance (All Time)</h2>
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart data={checkingBalanceMonthly} margin={{ left:8,right:8,top:4,bottom:4 }}>
+                    <XAxis dataKey="month" tick={{ fontSize:11 }} />
+                    <YAxis tickFormatter={v => `$${Math.round(v/100)}`} tick={{ fontSize:11 }} />
+                    <Tooltip contentStyle={tooltipStyle} formatter={v => formatCurrency(v as number)} />
+                    <ReferenceLine y={0} stroke="hsl(var(--border))" strokeDasharray="3 3" />
+                    <Line type="monotone" dataKey="balance" name="Balance" stroke="#3b82f6" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* Credit card balances - kept separate from checking, one line per card */}
+            {creditBalanceMonthly.length >= 2 && (
+              <div className="border rounded-xl p-5 chart-clickable">
+                <h2 className="font-semibold mb-1">Credit Card Balances (All Time)</h2>
+                <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-1">Click a point for the per-card breakdown</p>
+                <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">Each card shown separately - debt counts negatively against its own line.</p>
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart
+                    data={creditBalanceMonthly}
+                    margin={{ left:8,right:8,top:4,bottom:4 }}
+                    onClick={(state) => {
+                      const label = state?.activeLabel as string | undefined;
+                      if (label) toggleBalanceMonthExpand(label);
+                    }}
+                  >
+                    <XAxis dataKey="month" tick={{ fontSize:11 }} />
+                    <YAxis tickFormatter={v => `$${Math.round(v/100)}`} tick={{ fontSize:11 }} />
+                    <Tooltip
+                      contentStyle={tooltipStyle}
+                      formatter={(v, name) => [formatCurrency(v as number), creditBalanceAccounts.find(a => String(a.id) === name)?.name ?? name]}
+                    />
+                    <ReferenceLine y={0} stroke="hsl(var(--border))" strokeDasharray="3 3" />
+                    {creditBalanceAccounts.map((acc) => (
+                      <Line key={acc.id} type="monotone" dataKey={String(acc.id)} name={acc.name}
+                        stroke={acc.color} strokeWidth={2} dot={false} />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+
+                {creditBalanceAccounts.length > 1 && (
+                  <div className="flex flex-wrap gap-3 mt-3">
+                    {creditBalanceAccounts.map((acc) => (
+                      <span key={acc.id} className="flex items-center gap-1.5 text-[10px] text-[hsl(var(--muted-foreground))]">
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: acc.color }} />
+                        {acc.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <AnimatePresence initial={false} mode="wait">
+                  {expandedBalanceMonth && (
+                    <motion.div
+                      key={expandedBalanceMonth}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.18 }}
+                    >
+                      <div className="mt-3 pt-3 border-t">
+                        <p className="text-xs font-semibold mb-2">{expandedBalanceMonth}</p>
+                        <div className="space-y-1">
+                          {creditBalanceAccounts.map((acc) => {
+                            const row = creditBalanceMonthly.find((r) => r.month === expandedBalanceMonth);
+                            const cents = row ? Number(row[String(acc.id)]) : null;
+                            if (cents === null) return null;
+                            return (
+                              <div key={acc.id} className="flex items-center justify-between text-xs py-1">
+                                <span className="flex items-center gap-1.5 text-[hsl(var(--muted-foreground))]">
+                                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: acc.color }} />
+                                  {acc.name}
+                                </span>
+                                <span className={cents < 0 ? "text-red-500 font-medium" : "font-medium"}>{formatCurrency(cents)}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+
             {/* Income vs Expenses */}
-            <div className="border rounded-xl p-5">
-              <h2 className="font-semibold mb-4">Income vs Expenses ({range}mo)</h2>
+            <div className="border rounded-xl p-5 chart-clickable">
+              <h2 className="font-semibold mb-1">Income vs Expenses ({range}mo)</h2>
+              <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-3">Click a month for its top categories</p>
               <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={monthly} margin={{ left:8,right:8,top:4,bottom:4 }}>
+                <BarChart
+                  data={monthly}
+                  margin={{ left:8,right:8,top:4,bottom:4 }}
+                  onClick={(state) => {
+                    const label = state?.activeLabel as string | undefined;
+                    if (label) toggleMonthExpand(label);
+                  }}
+                >
                   <XAxis dataKey="month" tick={{ fontSize:11 }} />
                   <YAxis tickFormatter={v => `$${Math.round(v/100)}`} tick={{ fontSize:11 }} />
-                  <Tooltip contentStyle={tooltipStyle} formatter={v => formatCurrency(v as number)} />
+                  <Tooltip cursor={false} contentStyle={tooltipStyle} formatter={v => formatCurrency(v as number)} />
                   <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize:"11px",paddingTop:"8px" }} />
-                  <Bar dataKey="income" name="Income" fill="#22c55e" radius={[4,4,0,0]} />
-                  <Bar dataKey="expenses" name="Expenses" fill="#ef4444" radius={[4,4,0,0]} />
+                  <Bar dataKey="income" name="Income" fill="#22c55e" radius={[4,4,0,0]} cursor="pointer" background={false} activeBar={{ fill: lightenHex("#22c55e") }} />
+                  <Bar dataKey="expenses" name="Expenses" fill="#ef4444" radius={[4,4,0,0]} cursor="pointer" background={false} activeBar={{ fill: lightenHex("#ef4444") }} />
                 </BarChart>
               </ResponsiveContainer>
+
+              <AnimatePresence initial={false} mode="wait">
+                {expandedMonth && (
+                  <motion.div
+                    key={expandedMonth}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.18 }}
+                  >
+                    <div className="mt-1 pt-3 border-t">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs font-semibold">Top categories - {expandedMonth}</p>
+                        <Link to="/transactions" state={{ month: expandedMonth }} className="text-[11px] text-[hsl(var(--primary))] hover:underline">
+                          View month →
+                        </Link>
+                      </div>
+                      {expandedMonthCats === null ? (
+                        <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">Loading…</p>
+                      ) : expandedMonthCats.length === 0 ? (
+                        <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">No expenses that month.</p>
+                      ) : (
+                        <div className="space-y-1">
+                          {expandedMonthCats.map((c) => (
+                            <div key={c.name} className="flex items-center justify-between text-xs py-1">
+                              <span className="flex items-center gap-1.5 text-[hsl(var(--muted-foreground))]">
+                                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
+                                {c.name}
+                              </span>
+                              <span className="font-mono">{formatCurrency(c.total)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
             {/* Stacked by category */}
             {stacked.length > 0 && catNames.length > 0 && (
-              <div className="border rounded-xl p-5">
-                <h2 className="font-semibold mb-4">Spending by Category ({range}mo)</h2>
+              <div className="border rounded-xl p-5 chart-clickable">
+                <h2 className="font-semibold mb-1">Spending by Category ({range}mo)</h2>
+                <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-3">Click a category segment for its trend</p>
                 <ResponsiveContainer width="100%" height={280}>
                   <BarChart data={stacked} margin={{ left:8,right:8,top:4,bottom:4 }}>
                     <XAxis dataKey="month" tick={{ fontSize:11 }} />
                     <YAxis tickFormatter={v => `$${Math.round(v/100)}`} tick={{ fontSize:11 }} />
-                    <Tooltip contentStyle={tooltipStyle} formatter={v => formatCurrency(v as number)} />
+                    <Tooltip cursor={false} contentStyle={tooltipStyle} formatter={v => formatCurrency(v as number)} />
                     <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize:"11px",paddingTop:"8px",lineHeight:"20px" }} />
                     {catNames.map(cat => (
-                      <Bar key={cat} dataKey={cat} stackId="cats" fill={catColors[cat] ?? "#9ca3af"} />
+                      <Bar
+                        key={cat}
+                        dataKey={cat}
+                        stackId="cats"
+                        fill={catColors[cat] ?? "#9ca3af"}
+                        cursor="pointer"
+                        background={false}
+                        activeBar={{ fill: lightenHex(catColors[cat] ?? "#9ca3af") }}
+                        onClick={() => toggleCatSegmentExpand(cat)}
+                        opacity={expandedCatName && expandedCatName !== cat ? 0.4 : 1}
+                      />
                     ))}
                   </BarChart>
                 </ResponsiveContainer>
+
+                <AnimatePresence initial={false} mode="wait">
+                  {expandedCatName && (
+                    <motion.div
+                      key={expandedCatName}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.18 }}
+                    >
+                      <div className="mt-1 pt-3 border-t">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-semibold flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: catColors[expandedCatName] ?? "#9ca3af" }} />
+                            {expandedCatName} trend
+                          </p>
+                          {catIds[expandedCatName] !== undefined && (
+                            <Link
+                              to="/transactions"
+                              state={{ category: catIds[expandedCatName] }}
+                              className="text-[11px] text-[hsl(var(--primary))] hover:underline"
+                            >
+                              View all →
+                            </Link>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          {stacked.map((row) => {
+                            const amt = (row[expandedCatName] as number | undefined) ?? 0;
+                            if (amt === 0) return null;
+                            return (
+                              <div key={row.month} className="flex items-center justify-between text-xs py-1">
+                                <span className="text-[hsl(var(--muted-foreground))]">{row.month}</span>
+                                <span className="font-mono">{formatCurrency(amt)}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             )}
           </>

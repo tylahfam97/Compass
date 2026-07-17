@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { CategorizationRule } from "./types";
+import type { CategorizationRule, Account } from "./types";
 
 // ─── Invoke-based DB wrapper ──────────────────────────────────────────────────
 // Mirrors the tauri-plugin-sql Database API (select / execute) so all call
@@ -50,6 +50,7 @@ const ALLOWED_MIGRATION_TABLES = new Set([
   "column_profiles",
   "profiles",
   "import_sessions",
+  "holdings",
 ]);
 
 const SAFE_COLUMN_NAME_RE = /^[a-z_][a-z0-9_]*$/i;
@@ -688,23 +689,433 @@ async function runMigrations(db: CompassDb): Promise<void> {
     }
     await db.execute("PRAGMA user_version = 9");
   }
+
+  // ── v10: Investment portfolio imports — holdings snapshots + session kind ──
+  if (version < 10) {
+    assertSafeMigrationIdentifiers("import_sessions", "kind");
+    if (!(await colExists(db, "import_sessions", "kind"))) {
+      await db.execute(
+        "ALTER TABLE import_sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'bank'"
+      );
+    }
+
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS holdings (
+        id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+        account_id              INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        profile_id              INTEGER NOT NULL,
+        import_session_id       INTEGER REFERENCES import_sessions(id) ON DELETE CASCADE,
+        as_of_date              TEXT    NOT NULL,
+        security_type           TEXT    NOT NULL, -- stock | etf | mutual_fund | cash | other
+        symbol                  TEXT,
+        description             TEXT    NOT NULL DEFAULT '',
+        shares                  REAL,
+        price_cents             INTEGER,
+        market_value_cents      INTEGER,
+        cost_basis_cents        INTEGER,
+        trade_date              TEXT,
+        dividend_per_share_cents INTEGER,
+        est_annual_income_cents INTEGER,
+        created_at              TEXT    NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+    await db.execute(
+      "CREATE INDEX IF NOT EXISTS idx_holdings_account_date ON holdings(account_id, as_of_date)"
+    );
+
+    await db.execute("PRAGMA user_version = 10");
+  }
+
+  // ── v11: Credit card "payment" transactions → Transfers, so paying off a
+  //         card balance never inflates income totals ─────────────────────
+  if (version < 11) {
+    const v11Rules: [string, string, number, number][] = [
+      ["PAYMENT - THANK YOU", "contains", 20, 200],
+      ["PAYMENT THANK YOU",   "contains", 20, 200],
+    ];
+    for (const [pattern, matchType, categoryId, priority] of v11Rules) {
+      await db.execute(
+        "INSERT OR IGNORE INTO categorization_rules (pattern, match_type, category_id, priority) VALUES (?,?,?,?)",
+        [pattern, matchType, categoryId, priority]
+      );
+    }
+    await db.execute("PRAGMA user_version = 11");
+  }
+
+  // ── v12: Manually-anchored running balance for accounts whose imports have
+  //         no native balance column ────────────────────────────────────────
+  if (version < 12) {
+    assertSafeMigrationIdentifiers("accounts", "starting_balance_cents");
+    if (!(await colExists(db, "accounts", "starting_balance_cents"))) {
+      await db.execute("ALTER TABLE accounts ADD COLUMN starting_balance_cents INTEGER");
+    }
+    await db.execute("PRAGMA user_version = 12");
+  }
+
+  // ── v13: Balance anchor represents the balance AFTER transactions as of a
+  //         given date (typically today, when the value is entered), not
+  //         before them - lets Compass calculate correctly in both directions
+  if (version < 13) {
+    assertSafeMigrationIdentifiers("accounts", "balance_anchor_cents");
+    if (!(await colExists(db, "accounts", "balance_anchor_cents"))) {
+      await db.execute("ALTER TABLE accounts ADD COLUMN balance_anchor_cents INTEGER");
+    }
+    assertSafeMigrationIdentifiers("accounts", "balance_anchor_date");
+    if (!(await colExists(db, "accounts", "balance_anchor_date"))) {
+      await db.execute("ALTER TABLE accounts ADD COLUMN balance_anchor_date TEXT");
+    }
+    await db.execute("PRAGMA user_version = 13");
+  }
+
+  // ── v14: Retroactively fix credit card balances imported/calculated before
+  //         the sign-inversion fix - a credit card balance is a liability and
+  //         should never be stored (or displayed) as a positive number.
+  if (version < 14) {
+    await db.execute(`
+      UPDATE transactions SET balance_cents = -balance_cents
+      WHERE balance_cents IS NOT NULL AND balance_cents > 0
+        AND account_id IN (SELECT id FROM accounts WHERE account_type='credit')
+    `);
+    await db.execute(`
+      UPDATE accounts SET balance_anchor_cents = -balance_anchor_cents
+      WHERE balance_anchor_cents IS NOT NULL AND balance_anchor_cents > 0 AND account_type='credit'
+    `);
+    await db.execute("PRAGMA user_version = 14");
+  }
+
+  // ── v15: v14's per-row sign flip wasn't mathematically correct for credit
+  //         accounts whose balance was calculated from a (wrongly-signed)
+  //         anchor - simply negating each result doesn't reproduce what a
+  //         backward calculation from a negated anchor actually produces.
+  //         Force the anchor negative, then properly recompute from it.
+  if (version < 15) {
+    await db.execute(`
+      UPDATE accounts SET balance_anchor_cents = -ABS(balance_anchor_cents)
+      WHERE balance_anchor_cents IS NOT NULL AND account_type='credit'
+    `);
+    const creditAccountsWithAnchor = await db.select<{ id: number }[]>(
+      "SELECT id FROM accounts WHERE account_type='credit' AND balance_anchor_cents IS NOT NULL"
+    );
+    for (const { id } of creditAccountsWithAnchor) {
+      await recomputeCalculatedBalancesWithDb(db, id);
+    }
+    await db.execute("PRAGMA user_version = 15");
+  }
+
+  // ── v16: New category (Travel) ────────────────────────────────────────────
+  if (version < 16) {
+    await db.execute(`
+      INSERT OR IGNORE INTO categories (id, name, parent_id, color, icon, is_system) VALUES
+        (28, 'Travel', NULL, '#fb7185', 'plane', 1)
+    `);
+
+    // Generic user-category merge (see MAINTAINER NOTE in the v7 migration above).
+    const mergeTargets: { newId: number; upperName: string; color: string; icon: string }[] = [
+      { newId: 28, upperName: "TRAVEL", color: "#fb7185", icon: "plane" },
+    ];
+    for (const { newId, upperName, color, icon } of mergeTargets) {
+      const duplicates = await db.select<{ id: number }[]>(
+        "SELECT id FROM categories WHERE UPPER(name)=? AND is_system=0",
+        [upperName]
+      );
+      for (const dup of duplicates) {
+        if (dup.id === newId) {
+          await db.execute(
+            "UPDATE categories SET is_system=1, color=?, icon=? WHERE id=?",
+            [color, icon, dup.id]
+          );
+        } else {
+          await db.execute("UPDATE transactions SET category_id=? WHERE category_id=?", [newId, dup.id]);
+          await db.execute("UPDATE categorization_rules SET category_id=? WHERE category_id=?", [newId, dup.id]);
+          await db.execute("UPDATE budgets SET category_id=? WHERE category_id=?", [newId, dup.id]);
+          await db.execute("UPDATE goals SET category_id=? WHERE category_id=?", [newId, dup.id]);
+          await db.execute("DELETE FROM categories WHERE id=?", [dup.id]);
+        }
+      }
+    }
+
+    const v16Rules: [string, string, number, number][] = [
+      ["DELTA AIR",           "contains", 28, 82],
+      ["SOUTHWEST AIR",       "contains", 28, 82],
+      ["UNITED AIRLINES",     "contains", 28, 82],
+      ["AMERICAN AIRLINES",   "contains", 28, 82],
+      ["JETBLUE",             "contains", 28, 82],
+      ["ALASKA AIRLINES",     "contains", 28, 82],
+      ["SPIRIT AIRLINES",     "contains", 28, 82],
+      ["FRONTIER AIRLINES",   "contains", 28, 82],
+      ["MARRIOTT",            "contains", 28, 82],
+      ["HILTON",              "contains", 28, 82],
+      ["HYATT",               "contains", 28, 82],
+      ["AIRBNB",              "contains", 28, 82],
+      ["EXPEDIA",             "contains", 28, 82],
+      ["BOOKING.COM",         "contains", 28, 82],
+      ["HERTZ",               "contains", 28, 82],
+      ["ENTERPRISE RENT",     "contains", 28, 82],
+      ["AVIS",                "contains", 28, 82],
+      ["NATIONAL CAR RENTAL", "contains", 28, 82],
+    ];
+    for (const [pattern, matchType, categoryId, priority] of v16Rules) {
+      await db.execute(
+        "INSERT OR IGNORE INTO categorization_rules (pattern, match_type, category_id, priority) VALUES (?,?,?,?)",
+        [pattern, matchType, categoryId, priority]
+      );
+    }
+
+    await db.execute("PRAGMA user_version = 16");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────
 
-/** Returns the account ID for a profile, creating one if it doesn't exist. */
-export async function getOrCreateAccountForProfile(profileId: number): Promise<number> {
+/**
+ * Returns the account ID for a profile+type, creating one if it doesn't exist.
+ * A profile can hold multiple accounts of different types (e.g. a "checking"
+ * account for bank imports and a separate "investment" account for portfolio
+ * imports) - each type gets its own row so totals never mix accidentally.
+ */
+export async function getOrCreateAccountForProfile(
+  profileId: number,
+  accountType: string = "checking"
+): Promise<number> {
   const db = await getDb();
   const rows = await db.select<{ id: number }[]>(
-    "SELECT id FROM accounts WHERE profile_id=? LIMIT 1",
-    [profileId]
+    "SELECT id FROM accounts WHERE profile_id=? AND account_type=? LIMIT 1",
+    [profileId, accountType]
   );
   if (rows.length > 0) return rows[0].id;
+  const name = accountType === "investment" ? "Investment Account" : "My Account";
   const result = await db.execute(
     "INSERT INTO accounts (name, account_type, institution, profile_id) VALUES (?, ?, ?, ?)",
-    ["My Account", "checking", "Imported", profileId]
+    [name, accountType, "Imported", profileId]
   );
   return result.lastInsertId as number;
+}
+
+/**
+ * Lists every account a profile has of a given type (e.g. all "credit" accounts), so the
+ * import wizard can offer them as choices instead of always collapsing to a single account
+ * per type. Ordered by name for a stable, predictable dropdown.
+ */
+export async function listAccountsForProfile(profileId: number, accountType: string): Promise<Account[]> {
+  const db = await getDb();
+  return db.select<Account[]>(
+    "SELECT id, name, account_type, institution, created_at, balance_anchor_cents, balance_anchor_date FROM accounts WHERE profile_id=? AND account_type=? ORDER BY name",
+    [profileId, accountType]
+  );
+}
+
+/** The user's decision, made in the import wizard, about which account a statement belongs to. */
+export type AccountChoice =
+  | { mode: "existing"; accountId: number; name: string }
+  | { mode: "new"; name: string; institution: string };
+
+/**
+ * Resolves an `AccountChoice` from the import wizard into a concrete account ID - either the
+ * existing account the user picked/confirmed, or a freshly-created row for a new account (using
+ * the real detected institution name instead of a generic placeholder, so future imports have
+ * something meaningful to match against). Falls through to creating a new account if an
+ * "existing" choice no longer belongs to this profile/type (defensive, shouldn't normally happen).
+ */
+export async function resolveAccountId(
+  profileId: number,
+  accountType: string,
+  choice: AccountChoice
+): Promise<number> {
+  const db = await getDb();
+  if (choice.mode === "existing") {
+    const rows = await db.select<{ id: number }[]>(
+      "SELECT id FROM accounts WHERE id=? AND profile_id=? AND account_type=?",
+      [choice.accountId, profileId, accountType]
+    );
+    if (rows.length > 0) return rows[0].id;
+  }
+  const name = choice.mode === "new" ? choice.name : choice.name;
+  const institution = choice.mode === "new" ? choice.institution : "Imported";
+  const result = await db.execute(
+    "INSERT INTO accounts (name, account_type, institution, profile_id) VALUES (?, ?, ?, ?)",
+    [name || "My Account", accountType, institution || "Imported", profileId]
+  );
+  return result.lastInsertId as number;
+}
+
+/** An account plus enough summary info to show/manage it in an accounts list (name, current
+ *  balance, and how much data is attached to it, to decide whether it's safe to delete). */
+export interface AccountSummary {
+  id: number;
+  name: string;
+  account_type: string;
+  institution: string;
+  balance_cents: number | null;
+  txn_count: number;
+  holdings_count: number;
+}
+
+/**
+ * Lists every account belonging to a profile (regardless of type) with enough summary info to
+ * render a "Manage Accounts" list - these are the accounts identified from imported/entered
+ * transactions, unrelated to Profiles (which are separate people/entities in the app).
+ */
+export async function getAccountsSummaryForProfile(profileId: number): Promise<AccountSummary[]> {
+  const db = await getDb();
+  return db.select<AccountSummary[]>(
+    `SELECT a.id, a.name, a.account_type, a.institution,
+       (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
+        ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents,
+       (SELECT COUNT(*) FROM transactions t WHERE t.account_id=a.id) as txn_count,
+       (SELECT COUNT(*) FROM holdings h WHERE h.account_id=a.id) as holdings_count
+     FROM accounts a WHERE a.profile_id=? ORDER BY a.account_type, a.name`,
+    [profileId]
+  );
+}
+
+/** Renames an account - the same "which account" naming used during import, editable afterward. */
+export async function renameAccount(accountId: number, name: string): Promise<void> {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Account name cannot be empty.");
+  const db = await getDb();
+  await db.execute("UPDATE accounts SET name=? WHERE id=?", [trimmed, accountId]);
+}
+
+/** Deletes an account, but only if it has no transactions or holdings attached - refuses
+ *  otherwise so data is never silently lost through the accounts list. */
+export async function deleteEmptyAccount(accountId: number): Promise<void> {
+  const db = await getDb();
+  const [row] = await db.select<{ txn_count: number; holdings_count: number }[]>(
+    `SELECT (SELECT COUNT(*) FROM transactions WHERE account_id=?) as txn_count,
+            (SELECT COUNT(*) FROM holdings WHERE account_id=?) as holdings_count`,
+    [accountId, accountId]
+  );
+  if ((row?.txn_count ?? 0) > 0 || (row?.holdings_count ?? 0) > 0) {
+    throw new Error("This account still has transactions or holdings - remove those first.");
+  }
+  await db.execute("DELETE FROM accounts WHERE id=?", [accountId]);
+}
+
+/** One group of accounts that share the same type + name (case/whitespace-insensitive) within
+ *  a profile - candidates to merge into a single account. */
+export interface DuplicateAccountGroup {
+  account_type: string;
+  name: string;
+  accounts: { id: number; created_at: string; txn_count: number; holdings_count: number }[];
+}
+
+/** Finds groups of 2+ accounts in a profile that share the same type and name - typically
+ *  created by a bug or by importing the same account under slightly different sessions. */
+export async function findDuplicateAccountGroups(profileId: number): Promise<DuplicateAccountGroup[]> {
+  const db = await getDb();
+  const rows = await db.select<{
+    id: number; name: string; account_type: string; created_at: string; txn_count: number; holdings_count: number;
+  }[]>(
+    `SELECT a.id, a.name, a.account_type, a.created_at,
+       (SELECT COUNT(*) FROM transactions t WHERE t.account_id=a.id) as txn_count,
+       (SELECT COUNT(*) FROM holdings h WHERE h.account_id=a.id) as holdings_count
+     FROM accounts a WHERE a.profile_id=? ORDER BY a.account_type, a.name, a.created_at ASC`,
+    [profileId]
+  );
+  const groups = new Map<string, DuplicateAccountGroup>();
+  for (const r of rows) {
+    const key = `${r.account_type}::${r.name.trim().toLowerCase()}`;
+    if (!groups.has(key)) groups.set(key, { account_type: r.account_type, name: r.name, accounts: [] });
+    groups.get(key)!.accounts.push({ id: r.id, created_at: r.created_at, txn_count: r.txn_count, holdings_count: r.holdings_count });
+  }
+  return [...groups.values()].filter((g) => g.accounts.length > 1);
+}
+
+/**
+ * Merges every duplicate-account group in a profile (same type + name) into one account each -
+ * keeps the oldest account as the primary, reassigns every other duplicate's transactions and
+ * holdings onto it, deletes the emptied duplicates, then recomputes the primary's running
+ * balance. Returns the number of duplicate rows merged away.
+ */
+export async function mergeDuplicateAccounts(profileId: number): Promise<number> {
+  const db = await getDb();
+  const groups = await findDuplicateAccountGroups(profileId);
+  let merged = 0;
+  for (const group of groups) {
+    const [primary, ...dupes] = group.accounts;
+    for (const dupe of dupes) {
+      await db.execute("UPDATE transactions SET account_id=? WHERE account_id=?", [primary.id, dupe.id]);
+      await db.execute("UPDATE holdings SET account_id=? WHERE account_id=?", [primary.id, dupe.id]);
+      await db.execute("DELETE FROM accounts WHERE id=?", [dupe.id]);
+      merged++;
+    }
+    await recomputeCalculatedBalancesWithDb(db, primary.id);
+  }
+  return merged;
+}
+
+/**
+ * Recalculates `balance_cents` for every transaction on an account using its manually-set
+ * balance anchor - the real balance AFTER all transactions up to `balance_anchor_date`
+ * (typically "today", the date the value was entered). Transactions on or before that date
+ * are calculated backward from the anchor; any transactions after it (e.g. from a later
+ * import) are calculated forward from it. With no anchor set, falls back to a "pure"
+ * relative running total starting from $0. Used for imports whose source file has no
+ * native running-balance column.
+ */
+export async function recomputeCalculatedBalances(accountId: number): Promise<void> {
+  const db = await getDb();
+  await recomputeCalculatedBalancesWithDb(db, accountId);
+}
+
+/**
+ * Same as {@link recomputeCalculatedBalances}, but takes an already-open db handle instead of
+ * calling getDb() itself. Migrations must use this variant - calling getDb() again while the
+ * very first getDb() call is still awaiting runMigrations() would deadlock (getDb() returns the
+ * same in-flight promise it's already inside of, which never resolves).
+ */
+async function recomputeCalculatedBalancesWithDb(db: CompassDb, accountId: number): Promise<void> {
+  const rows = await db.select<{ id: number; date: string; amount_cents: number }[]>(
+    "SELECT id, date, amount_cents FROM transactions WHERE account_id=? ORDER BY date ASC, id ASC",
+    [accountId]
+  );
+
+  if (rows.length === 0) {
+    // No transactions left on this account (e.g. everything was cleared/undone) - a leftover
+    // anchor from before the clear would otherwise silently resurface on the next import
+    // (the wizard:balance step prefills from it), showing a stale balance forever.
+    await db.execute(
+      "UPDATE accounts SET balance_anchor_cents=NULL, balance_anchor_date=NULL WHERE id=?",
+      [accountId]
+    );
+    return;
+  }
+
+  const [acct] = await db.select<{ balance_anchor_cents: number | null; balance_anchor_date: string | null }[]>(
+    "SELECT balance_anchor_cents, balance_anchor_date FROM accounts WHERE id=?",
+    [accountId]
+  );
+
+  const anchorCents = acct?.balance_anchor_cents;
+  const anchorDate = acct?.balance_anchor_date;
+  if (anchorCents == null || !anchorDate) {
+    // No anchor - pure relative running total forward from $0.
+    let running = 0;
+    for (const row of rows) {
+      running += row.amount_cents;
+      await db.execute("UPDATE transactions SET balance_cents=? WHERE id=?", [running, row.id]);
+    }
+    return;
+  }
+
+  const upToAnchor = rows.filter((r) => r.date <= anchorDate);
+  const afterAnchor = rows.filter((r) => r.date > anchorDate);
+
+  // Backward pass: the anchor is the balance right after the last transaction on/before
+  // the anchor date, so walk from latest to earliest, subtracting each one's amount.
+  let running = anchorCents;
+  for (let i = upToAnchor.length - 1; i >= 0; i--) {
+    const row = upToAnchor[i];
+    await db.execute("UPDATE transactions SET balance_cents=? WHERE id=?", [running, row.id]);
+    running -= row.amount_cents;
+  }
+
+  // Forward pass: any transactions dated after the anchor build forward from it.
+  running = anchorCents;
+  for (const row of afterAnchor) {
+    running += row.amount_cents;
+    await db.execute("UPDATE transactions SET balance_cents=? WHERE id=?", [running, row.id]);
+  }
 }
 
 /** @deprecated use getOrCreateAccountForProfile */

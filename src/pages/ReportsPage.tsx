@@ -2,8 +2,9 @@ import { useState, useEffect } from "react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
+import { Ghost } from "lucide-react";
 import { getDb } from "@/lib/db";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, combineAccountBalances } from "@/lib/utils";
 import type { Transaction } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
@@ -162,10 +163,11 @@ export default function ReportsPage() {
           [prevStart, prevEnd, profileId]
         ),
         db.select<{ month: string; income_cents: number; expense_cents: number }[]>(
-          `SELECT strftime('%Y-%m', date) as month,
-                  SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income_cents,
-                  SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as expense_cents
-           FROM transactions WHERE date>=? AND date<? AND profile_id=? GROUP BY month ORDER BY month`,
+          `SELECT strftime('%Y-%m', t.date) as month,
+                  SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END) as income_cents,
+                  SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as expense_cents
+           FROM transactions t JOIN accounts a ON a.id=t.account_id
+           WHERE t.date>=? AND t.date<? AND t.profile_id=? GROUP BY month ORDER BY month`,
           [chartStart, end, profileId]
         ),
         db.select<Transaction[]>(
@@ -202,14 +204,11 @@ export default function ReportsPage() {
            ORDER BY month_count DESC, ABS(t.amount_cents) DESC`,
           [profileId]
         ),
-        db.select<{ month: string; last_balance: number }[]>(
-          `SELECT strftime('%Y-%m', date) as month,
-                  balance_cents as last_balance
-           FROM transactions
-           WHERE profile_id=? AND balance_cents IS NOT NULL
-           GROUP BY strftime('%Y-%m', date)
-           HAVING id = MAX(id)
-           ORDER BY month`,
+        db.select<{ date: string; account_id: number; balance_cents: number }[]>(
+          `SELECT t.date, t.account_id, t.balance_cents FROM transactions t
+           JOIN accounts a ON a.id=t.account_id
+           WHERE t.profile_id=? AND t.balance_cents IS NOT NULL AND a.account_type IN ('checking','credit')
+           ORDER BY t.date ASC, t.id ASC`,
           [profileId]
         ),
       ]);
@@ -223,7 +222,15 @@ export default function ReportsPage() {
       setTopExpenses(top);
       setRecurring(rec);
       setSubscriptions(subs);
-      setBalanceTrend(balTrend.map((r) => ({ month: r.month, balance: r.last_balance / 100 })));
+      const combinedBalance = combineAccountBalances(balTrend);
+      const lastPerMonth = new Map<string, number>();
+      for (const r of combinedBalance) lastPerMonth.set(r.date.slice(0, 7), r.balance_cents);
+      setBalanceTrend(
+        [...lastPerMonth.entries()]
+          .filter(([month]) => month >= chartStart.slice(0, 7))
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([month, balance_cents]) => ({ month, balance: balance_cents / 100 }))
+      );
       setLoading(false);
     }
     load().catch(console.error);
@@ -299,7 +306,7 @@ export default function ReportsPage() {
             <div className="border rounded-xl overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="bg-[hsl(var(--muted))] border-b text-left">
+                  <tr className="border-b text-left text-[hsl(var(--muted-foreground))]">
                     <th className="px-4 py-2.5 font-medium">Category</th>
                     <th className="px-4 py-2.5 font-medium text-right">{rangeMode === "custom" ? "Selected Period" : "This Month"}</th>
                     <th className="px-4 py-2.5 font-medium text-right">{rangeMode === "custom" ? "" : "Last Month"}</th>
@@ -344,7 +351,7 @@ export default function ReportsPage() {
               <div className="border rounded-xl overflow-hidden">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="bg-[hsl(var(--muted))] border-b text-left">
+                    <tr className="border-b text-left text-[hsl(var(--muted-foreground))]">
                       <th className="px-4 py-2.5 font-medium">Month</th>
                       <th className="px-4 py-2.5 font-medium text-right">Income</th>
                       <th className="px-4 py-2.5 font-medium text-right">Expenses</th>
@@ -426,7 +433,7 @@ export default function ReportsPage() {
                         <td className="px-4 py-3 truncate max-w-xs">{t.description}</td>
                         <td className="px-4 py-3">
                           <span className="inline-block px-2 py-0.5 rounded-full text-xs text-white"
-                            style={{ backgroundColor: t.category_color ?? "#9ca3af" }}>
+                            style={{ backgroundColor: t.category_color ?? "hsl(var(--neutral))" }}>
                             {t.category_name ?? "Uncategorized"}
                           </span>
                         </td>
@@ -448,7 +455,7 @@ export default function ReportsPage() {
               <div className="border rounded-xl overflow-hidden">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="bg-[hsl(var(--muted))] border-b text-left">
+                    <tr className="border-b text-left text-[hsl(var(--muted-foreground))]">
                       <th className="px-4 py-2.5 font-medium">Payee</th>
                       <th className="px-4 py-2.5 font-medium text-right">Times</th>
                       <th className="px-4 py-2.5 font-medium text-right">Avg</th>
@@ -461,7 +468,7 @@ export default function ReportsPage() {
                         <td className="px-4 py-2.5">
                           <span className="flex items-center gap-2">
                             <span className="w-2.5 h-2.5 rounded-full shrink-0"
-                              style={{ backgroundColor: r.category_color ?? "#9ca3af" }} />
+                              style={{ backgroundColor: r.category_color ?? "hsl(var(--neutral))" }} />
                             <span className="truncate max-w-xs">{r.description}</span>
                           </span>
                         </td>
@@ -483,7 +490,7 @@ export default function ReportsPage() {
           {/* ── GHOST SUBSCRIPTIONS ── */}
           {subscriptions.length > 0 && (
             <section>
-              <h2 className="font-semibold mb-1">👻 Ghost Subscriptions</h2>
+              <h2 className="font-semibold mb-1 flex items-center gap-1.5"><Ghost size={16} className="text-[hsl(var(--muted-foreground))]" /> Ghost Subscriptions</h2>
               <p className="text-sm text-[hsl(var(--muted-foreground))] mb-3">
                 Transactions with the exact same amount appearing in multiple months — likely recurring subscriptions.
               </p>

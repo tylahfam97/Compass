@@ -2,7 +2,7 @@ import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
 import logoUrl from "@/assets/logo.svg";
 import { useState, useEffect } from "react";
 import {
-  LayoutDashboard, ArrowLeftRight, Upload, TrendingUp,
+  LayoutDashboard, ArrowLeftRight, Upload, TrendingUp, LineChart,
   Wallet, Target, BarChart2, Lightbulb, Globe, ChevronLeft, ChevronRight, MessageSquare,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -15,9 +15,11 @@ import GoalsPage from "@/pages/GoalsPage";
 import ReportsPage from "@/pages/ReportsPage";
 import AgentPage from "@/pages/AgentPage";
 import OverviewPage from "@/pages/OverviewPage";
+import InvestmentsPage from "@/pages/InvestmentsPage";
 import ProfileSwitcher from "@/components/ProfileSwitcher";
 import UpdateChecker from "@/components/UpdateChecker";
 import PinModal from "@/components/PinModal";
+import GoldParticleField from "@/components/GoldParticleField";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useProfileStore } from "@/stores/profileStore";
 import { getDb } from "@/lib/db";
@@ -31,6 +33,7 @@ const NAV_ITEMS = [
   { to: "/transactions", label: "Transactions",  Icon: ArrowLeftRight,   showBadge: false },
   { to: "/import",       label: "Import",        Icon: Upload,           showBadge: false },
   { to: "/trends",       label: "Trends",        Icon: TrendingUp,       showBadge: false },
+  { to: "/investments",  label: "Investments",   Icon: LineChart,        showBadge: false },
   { to: "/budgets",      label: "Budgets",       Icon: Wallet,           showBadge: false },
   { to: "/goals",        label: "Goals",         Icon: Target,           showBadge: false },
   { to: "/reports",      label: "Reports",       Icon: BarChart2,        showBadge: false },
@@ -112,36 +115,39 @@ function App() {
       {/* ── Launch profile picker ─────────────────────────────────── */}
       {launchReady && !profileSelected && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center
-                        bg-[hsl(var(--background))] wizard-enter-forward">
-          <img src={logoUrl} alt="Compass" className="h-12 mb-8 opacity-90" />
-          <h1 className="text-2xl font-semibold mb-1">{greeting()}</h1>
-          <p className="text-sm text-[hsl(var(--muted-foreground))] mb-8">
-            {profiles.length > 1 ? "Who's tracking today?" : "Enter your PIN to continue"}
-          </p>
+                        bg-[hsl(var(--background))] wizard-enter-forward overflow-hidden">
+          <GoldParticleField />
+          <div className="relative z-10 flex flex-col items-center">
+            <img src={logoUrl} alt="Compass" className="h-12 mb-8 opacity-90" />
+            <h1 className="text-2xl font-semibold mb-1 text-gradient-gold">{greeting()}</h1>
+            <p className="text-sm text-[hsl(var(--muted-foreground))] mb-8">
+              {profiles.length > 1 ? "Who's tracking today?" : "Enter your PIN to continue"}
+            </p>
 
-          <div className="flex gap-4 flex-wrap justify-center max-w-xl px-6">
-            {profiles.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => p.pin_hash ? setPinTarget(p) : selectProfile(p)}
-                className="flex flex-col items-center gap-3 p-6 rounded-2xl border
-                           hover:bg-[hsl(var(--muted))] hover:border-[hsl(var(--primary)/0.4)]
-                           transition-all duration-150 w-40 group"
-              >
-                <div
-                  className="w-16 h-16 rounded-full flex items-center justify-center
-                             text-2xl font-bold text-white shadow-sm
-                             group-hover:scale-105 transition-transform duration-150"
-                  style={{ backgroundColor: p.avatar_color }}
+            <div className="flex gap-4 flex-wrap justify-center max-w-xl px-6">
+              {profiles.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => p.pin_hash ? setPinTarget(p) : selectProfile(p)}
+                  className="flex flex-col items-center gap-3 p-6 rounded-2xl border
+                             hover:bg-[hsl(var(--muted))] hover:border-[hsl(var(--primary)/0.4)]
+                             transition-all duration-150 w-40 group"
                 >
-                  {initials(p.name)}
-                </div>
-                <span className="font-medium text-sm">{p.name}</span>
-                {p.pin_hash && (
-                  <span className="text-xs text-[hsl(var(--muted-foreground))]">🔒 PIN</span>
-                )}
-              </button>
-            ))}
+                  <div
+                    className="w-16 h-16 rounded-full flex items-center justify-center
+                               text-2xl font-bold text-white shadow-sm
+                               group-hover:scale-105 transition-transform duration-150"
+                    style={{ backgroundColor: p.avatar_color }}
+                  >
+                    {initials(p.name)}
+                  </div>
+                  <span className="font-medium text-sm">{p.name}</span>
+                  {p.pin_hash && (
+                    <span className="text-xs text-[hsl(var(--muted-foreground))]">🔒 PIN</span>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -250,6 +256,7 @@ function App() {
               <Route path="/transactions" element={<div className="py-6"><TransactionsPage /></div>} />
               <Route path="/import" element={<div className="py-6"><ImportPage /></div>} />
               <Route path="/trends" element={<div className="py-6"><TrendsPage /></div>} />
+              <Route path="/investments" element={<div className="py-6"><InvestmentsPage /></div>} />
               <Route path="/budgets" element={<div className="py-6"><BudgetsPage /></div>} />
               <Route path="/goals" element={<div className="py-6"><GoalsPage /></div>} />
               <Route path="/reports" element={<div className="py-6"><ReportsPage /></div>} />
