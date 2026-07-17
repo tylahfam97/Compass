@@ -212,10 +212,15 @@ function InsightGroup({ label, severity, items, onApply, open, onToggle }: Insig
         />
       </button>
       {open && (
-        <div className="bg-[hsl(var(--background))]">
-          {items.map((ins) => (
-            <InsightCard key={ins.id} insight={ins} onApply={onApply} variant="row" />
-          ))}
+        <div className="bg-[hsl(var(--background))] p-4">
+          <div className="flex gap-3 overflow-x-auto snap-x snap-mandatory pb-1 -mx-1 px-1
+                          [scrollbar-width:thin]">
+            {items.map((ins) => (
+              <div key={ins.id} className="snap-start shrink-0 w-72">
+                <InsightCard insight={ins} onApply={onApply} variant="card" />
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

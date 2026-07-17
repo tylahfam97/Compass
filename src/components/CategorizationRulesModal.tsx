@@ -453,7 +453,6 @@ export default function CategorizationRulesModal({ onClose, profileId }: Props) 
                             )}
                           </div>
                         </div>
-                        <span className="text-xs text-[hsl(var(--muted-foreground))] shrink-0 w-8 text-center">{r.priority}</span>
                         <button
                           onClick={() => startEdit(r)}
                           title="Edit rule"
@@ -505,7 +504,6 @@ export default function CategorizationRulesModal({ onClose, profileId }: Props) 
                       <span className="text-xs">{r.category_name}</span>
                     </span>
                   </div>
-                  <span className="text-xs text-[hsl(var(--muted-foreground))] shrink-0 w-8 text-center">{r.priority}</span>
                 </div>
               ))}
             </div>

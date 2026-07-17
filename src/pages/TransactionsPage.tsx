@@ -367,6 +367,7 @@ export default function TransactionsPage() {
           <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">Opens the import wizard</p>
         </div>
       )}
+      <div className="sticky top-0 z-20 -mt-6 -mx-6 pt-6 px-6 pb-3 bg-[hsl(var(--background))] border-b">
       <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
         <h1 className="text-2xl font-semibold">Transactions</h1>
         <div className="flex items-center gap-2">
@@ -397,18 +398,18 @@ export default function TransactionsPage() {
           <button
             onClick={() => setCatModalOpen(true)}
             title="Manage categories"
-            className="text-sm px-2.5 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
-                       transition-colors flex items-center"
+            className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
+                       transition-colors flex items-center gap-1.5"
           >
-            <Tag size={14} />
+            <Tag size={14} /> Categories
           </button>
           <button
             onClick={() => setRulesModalOpen(true)}
             title="Manage categorization rules"
-            className="text-sm px-2.5 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
-                       transition-colors flex items-center"
+            className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
+                       transition-colors flex items-center gap-1.5"
           >
-            <Settings size={14} />
+            <Settings size={14} /> Rules Manager
           </button>
         </div>
       </div>
@@ -556,6 +557,7 @@ export default function TransactionsPage() {
             </div>
           </div>
         )}
+      </div>
       </div>
 
       {/* Summary card */}

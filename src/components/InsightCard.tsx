@@ -131,7 +131,7 @@ export default function InsightCard({ insight, onApply, compact = false, variant
   }
 
   return (
-    <div className={`rounded-lg px-4 py-3 flex items-start gap-3 ${CARD_STYLES[insight.severity]}`}>
+    <div className={`h-full rounded-2xl px-4 py-3.5 flex items-start gap-3 shadow-sm hover:shadow-md transition-shadow duration-150 ${CARD_STYLES[insight.severity]}`}>
       <Icon size={15} className={`shrink-0 mt-0.5 ${ICON_CLS[insight.severity]}`} />
       <div className="flex-1 min-w-0">
         <p className={`text-sm font-semibold leading-snug ${TITLE_CLS[insight.severity]}`}>

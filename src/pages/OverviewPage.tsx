@@ -369,6 +369,7 @@ export default function OverviewPage() {
                                   </linearGradient>
                                 </defs>
                                 <Tooltip contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
+                                  wrapperStyle={{ zIndex: 50 }}
                                   formatter={(v) => [`$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "Checking"]}
                                   labelFormatter={(l) => String(l)} />
                                 <Area type="monotone" dataKey="balance" stroke={profile.avatar_color} strokeWidth={1.5} fill={`url(#grad-${profile.id})`} dot={false} />
@@ -381,6 +382,7 @@ export default function OverviewPage() {
                             <ResponsiveContainer width="100%" height="100%">
                               <LineChart data={d.creditSparkline} margin={{ top: 1, right: 2, bottom: 1, left: 2 }}>
                                 <Tooltip contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
+                                  wrapperStyle={{ zIndex: 50 }}
                                   formatter={(v, name) => [`$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`, name]}
                                   labelFormatter={(l) => String(l)} />
                                 {d.creditAccounts.map((acc, i) => (
