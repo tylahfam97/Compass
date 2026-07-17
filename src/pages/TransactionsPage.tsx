@@ -13,6 +13,7 @@ import { useProfileStore } from "@/stores/profileStore";
 import CategoryModal from "@/components/CategoryModal";
 import CategorizationRulesModal from "@/components/CategorizationRulesModal";
 import EditTransactionModal from "@/components/EditTransactionModal";
+import TransactionDetailModal from "@/components/TransactionDetailModal";
 import { setPendingImportFiles } from "@/lib/pendingImport";
 import InfoTooltip from "@/components/InfoTooltip";
 import { TableSkeleton } from "@/components/Skeleton";
@@ -126,6 +127,7 @@ export default function TransactionsPage() {
   const [autoCatError, setAutoCatError] = useState<string | null>(null);
   const [editTxn, setEditTxn] = useState<Transaction | null>(null);
   const [addingTxn, setAddingTxn] = useState(false);
+  const [viewTxn, setViewTxn] = useState<Transaction | null>(null);
   const categories = useCategoryStore((s) => s.categories);
   const activeProfile = useProfileStore((s) => s.activeProfile);
   const profileId = activeProfile?.id ?? 1;
@@ -182,7 +184,7 @@ export default function TransactionsPage() {
       ? `${SORT_EXPR[sortCol]} ${sortDir.toUpperCase()}, t.id ${sortDir.toUpperCase()}`
       : "t.date DESC, t.id DESC";
     const data = await db.select<Transaction[]>(
-      `SELECT t.*, c.name as category_name, c.color as category_color, a.account_type as account_type
+      `SELECT t.*, c.name as category_name, c.color as category_color, a.account_type as account_type, a.name as account_name
        FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
        LEFT JOIN accounts a ON a.id=t.account_id
        WHERE ${where}
@@ -613,7 +615,8 @@ export default function TransactionsPage() {
             </thead>
             <tbody>
               {rows.slice(0, allTime ? ALL_TIME_LIMIT : MAX_ROWS).map((t) => (
-                <tr key={t.id} className="border-b last:border-0 hover:bg-[hsl(var(--muted))]">
+                <tr key={t.id} onClick={() => setViewTxn(t)}
+                  className="border-b last:border-0 hover:bg-[hsl(var(--muted))] cursor-pointer">
                   <td className="px-4 py-3 text-[hsl(var(--muted-foreground))] whitespace-nowrap">
                     {formatDate(t.date)}
                   </td>
@@ -625,6 +628,7 @@ export default function TransactionsPage() {
                         defaultValue={t.category_id ?? 15}
                         onBlur={() => setEditingId(null)}
                         onChange={(e) => recategorize(t, parseInt(e.target.value))}
+                        onClick={(e) => e.stopPropagation()}
                         className="border rounded px-2 py-1 text-xs bg-[hsl(var(--background))]
                                    text-[hsl(var(--foreground))]"
                       >
@@ -632,7 +636,7 @@ export default function TransactionsPage() {
                       </select>
                     ) : (
                       <button
-                        onClick={() => setEditingId(t.id)}
+                        onClick={(e) => { e.stopPropagation(); setEditingId(t.id); }}
                         title={`${t.category_name ?? "Uncategorized"} — click to change category`}
                         className="inline-block max-w-[10rem] truncate align-bottom px-2 py-0.5 rounded-full text-xs text-white
                                    hover:opacity-80 transition-opacity"
@@ -650,7 +654,7 @@ export default function TransactionsPage() {
                   </td>
                   <td className="px-2 py-3 text-center">
                     <button
-                      onClick={() => setEditTxn(t)}
+                      onClick={(e) => { e.stopPropagation(); setEditTxn(t); }}
                       title={t.notes ? `Note: ${t.notes}` : "Edit transaction"}
                       className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors"
                     >
@@ -696,6 +700,12 @@ export default function TransactionsPage() {
             onSaved={() => loadRows()}
             profileId={profileId}
           />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {viewTxn && (
+          <TransactionDetailModal key="view-txn-modal" transaction={viewTxn} onClose={() => setViewTxn(null)} />
         )}
       </AnimatePresence>
 

@@ -97,6 +97,7 @@ export interface Transaction {
   category_color?: string;
   // Joined from accounts table (only selected in a few places that need it)
   account_type?: string;
+  account_name?: string;
 }
 
 export interface Category {
