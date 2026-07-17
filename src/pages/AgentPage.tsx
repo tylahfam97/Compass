@@ -16,7 +16,7 @@ import {
   type NetWorthSnapshot, type InvestmentReturn, type TopRoiHolding,
 } from "@/lib/netWorth";
 import type { Insight, Profile, HealthScore, SecurityType, CreditCardHealthScore, InvestmentHealthScore } from "@/lib/types";
-import InsightCard from "@/components/InsightCard";
+import InsightCarousel from "@/components/InsightCarousel";
 import InfoTooltip from "@/components/InfoTooltip";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import SpotlightCard from "@/components/SpotlightCard";
@@ -292,14 +292,7 @@ function InsightGroup({ label, severity, items, onApply, open, onToggle }: Insig
       </button>
       {open && (
         <div className="bg-[hsl(var(--background))] p-4">
-          <div className="flex gap-3 overflow-x-auto snap-x snap-mandatory pb-1 -mx-1 px-1
-                          [scrollbar-width:thin]">
-            {items.map((ins) => (
-              <div key={ins.id} className="snap-start shrink-0 w-72">
-                <InsightCard insight={ins} onApply={onApply} variant="card" />
-              </div>
-            ))}
-          </div>
+          <InsightCarousel items={items} onApply={onApply} />
         </div>
       )}
     </div>
