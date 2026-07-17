@@ -10,6 +10,7 @@ import { formatCurrency, combineAccountBalances, separateAccountBalances, accoun
 import { useProfileStore } from "@/stores/profileStore";
 import type { Profile } from "@/lib/types";
 import PinModal from "@/components/PinModal";
+import { Skeleton } from "@/components/Skeleton";
 
 interface MonthRow { month: string; income: number; expenses: number; }
 interface CatMonthRow { month: string; category: string; color: string; categoryId: number | null; total: number; }
@@ -128,7 +129,7 @@ export default function TrendsPage() {
         db.select<{ month: string; income: number; expenses: number }[]>(
           `SELECT strftime('%Y-%m', t.date) as month,
                   SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END) as income,
-                  SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+                  SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN ABS(t.amount_cents) ELSE 0 END) as expenses
            FROM transactions t JOIN accounts a ON a.id=t.account_id
            WHERE t.date>=? AND t.profile_id IN (${ph})
            GROUP BY month ORDER BY month`,
@@ -286,7 +287,14 @@ export default function TrendsPage() {
           </div>
         </div>
 
-        {loading && <p className="text-[hsl(var(--muted-foreground))]">Loading...</p>}
+        {loading && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-4">
+              {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)}
+            </div>
+            <Skeleton className="h-64 rounded-xl" />
+          </div>
+        )}
 
         {!loading && !hasData && (
           <p className="text-[hsl(var(--muted-foreground))] text-center mt-16">No data yet. Import a bank statement to see trends.</p>

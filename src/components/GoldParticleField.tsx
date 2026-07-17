@@ -22,7 +22,7 @@ interface Particle {
   wanderPhase: number;
 }
 
-const PARTICLE_COUNT = 270;
+const PARTICLE_COUNT = 420;
 const REPEL_RADIUS = 110;
 const REPEL_STRENGTH = 1400;
 const SPRING_K = 0.02;
@@ -30,8 +30,8 @@ const DAMPING = 0.9;
 
 /** Ellipse (as a fraction of width/height) that particles avoid spawning inside,
  *  so the profile-picker content in the middle of the screen stays uncluttered. */
-const EXCLUDE_RX_FRAC = 0.26;
-const EXCLUDE_RY_FRAC = 0.34;
+const EXCLUDE_RX_FRAC = 0.15;
+const EXCLUDE_RY_FRAC = 0.2;
 
 function randomHomePosition(width: number, height: number): { x: number; y: number } {
   const cx = width / 2;

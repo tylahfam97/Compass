@@ -145,7 +145,7 @@ function App() {
                   >
                     {initials(p.name)}
                   </div>
-                  <span className="font-medium text-sm">{p.name}</span>
+                  <span className="font-medium text-sm w-full text-center truncate" title={p.name}>{p.name}</span>
                   {p.pin_hash && (
                     <span className="text-xs text-[hsl(var(--muted-foreground))]">🔒 PIN</span>
                   )}

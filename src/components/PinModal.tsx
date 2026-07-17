@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect } from "react";
+import { motion } from "motion/react";
+import { useModalDismiss } from "@/hooks/useModalDismiss";
 import type { Profile } from "@/lib/types";
 
 const COOLDOWN_SECS = 10;
@@ -57,6 +59,7 @@ interface PinModalProps {
 }
 
 export default function PinModal({ profile, onSuccess, onCancel }: PinModalProps) {
+  const { onBackdropClick } = useModalDismiss(onCancel);
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [attempts, setAttempts] = useState(0);
@@ -111,8 +114,15 @@ export default function PinModal({ profile, onSuccess, onCancel }: PinModalProps
     .join("");
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-[hsl(var(--background))] border rounded-2xl p-8 w-80 shadow-2xl space-y-5">
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
+      onClick={onBackdropClick}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} transition={{ duration: 0.15 }}
+        className="bg-[hsl(var(--background))] border rounded-2xl p-8 w-80 shadow-2xl space-y-5"
+      >
         {/* Avatar */}
         <div className="flex flex-col items-center gap-3">
           <div
@@ -173,7 +183,7 @@ export default function PinModal({ profile, onSuccess, onCancel }: PinModalProps
         >
           Cancel
         </button>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
