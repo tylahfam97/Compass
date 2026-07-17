@@ -224,6 +224,8 @@ export default function OverviewPage() {
         </div>
       </div>
 
+      <ManageAccountsPanel profileId={profileId} special />
+
       {/* Locked-profile warning */}
       {lockedExcluded.length > 0 && (
         <div className="rounded-2xl px-5 py-4 flex flex-col gap-3"
@@ -403,8 +405,6 @@ export default function OverviewPage() {
           ))}
         </div>
       )}
-
-      <ManageAccountsPanel profileId={profileId} />
     </div>
   );
 }

@@ -66,7 +66,7 @@ function makeParticle(width: number, height: number): Particle {
     baseAlpha: 0.25 + Math.random() * 0.45,
     twinkleSpeed: 0.6 + Math.random() * 1.2,
     twinklePhase: Math.random() * Math.PI * 2,
-    wanderRadius: 3 + Math.random() * 7,
+    wanderRadius: 4 + Math.random() * 10,
     wanderSpeed: 0.15 + Math.random() * 0.3,
     wanderPhase: Math.random() * Math.PI * 2,
   };
