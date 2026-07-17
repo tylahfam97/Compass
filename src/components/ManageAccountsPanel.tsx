@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Pencil, Check, X, Trash2, ChevronDown, ChevronUp, Info } from "lucide-react";
+import { Pencil, Check, X, Trash2, ChevronDown, ChevronUp, Info, Wallet } from "lucide-react";
 import {
   getAccountsSummaryForProfile, renameAccount, deleteEmptyAccount,
   findDuplicateAccountGroups, mergeDuplicateAccounts,
@@ -13,6 +13,9 @@ const TYPE_LABELS: Record<string, string> = {
 
 interface Props {
   profileId: number;
+  /** Gives the panel a quiet gold accent (border + icon) and opens it by default -
+   *  for when it's the featured element on a page, without adding any animation/motion. */
+  special?: boolean;
 }
 
 /**
@@ -20,8 +23,8 @@ interface Props {
  * manually-entered transactions, with the ability to rename them or clean up duplicates -
  * unrelated to Profiles (separate people/entities), which are managed via the profile switcher.
  */
-export default function ManageAccountsPanel({ profileId }: Props) {
-  const [open, setOpen] = useState(false);
+export default function ManageAccountsPanel({ profileId, special = false }: Props) {
+  const [open, setOpen] = useState(special);
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -91,12 +94,19 @@ export default function ManageAccountsPanel({ profileId }: Props) {
   const duplicateCount = duplicateGroups.reduce((s, g) => s + g.accounts.length - 1, 0);
 
   return (
-    <div className="border rounded-xl">
+    <div
+      data-tour="manage-accounts"
+      className={`border rounded-xl ${special ? "border-2" : ""}`}
+      style={special ? { borderColor: "var(--gold)", backgroundColor: "hsl(var(--primary)/0.02)" } : undefined}
+    >
       <button
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center justify-between p-4 text-left"
       >
-        <span className="font-semibold text-sm">Manage Accounts</span>
+        <span className="font-semibold text-sm flex items-center gap-2">
+          {special && <Wallet size={16} style={{ color: "var(--gold)" }} />}
+          Manage Accounts
+        </span>
         {open ? <ChevronUp size={16} className="text-[hsl(var(--muted-foreground))]" /> : <ChevronDown size={16} className="text-[hsl(var(--muted-foreground))]" />}
       </button>
 

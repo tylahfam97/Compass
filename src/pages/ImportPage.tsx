@@ -12,7 +12,7 @@ import {
 } from "@/lib/db";
 import type { AccountChoice } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import type { CategorizationRule, Profile, SecurityType, Account } from "@/lib/types";
+import type { CategorizationRule, SecurityType, Account } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
 import { takePendingImportFiles } from "@/lib/pendingImport";
 import InfoTooltip from "@/components/InfoTooltip";
@@ -372,13 +372,6 @@ interface ParsedInvestment {
   asOfDate: string;
   sections: InvestmentSection[];
 }
-
-/** Guides the user toward a sensible profile for investment/credit-card data before importing. */
-type ProfileSuggestion =
-  | { mode: "existing"; target: { id: number; name: string } }
-  | { mode: "named"; target: { id: number; name: string } }
-  | { mode: "create" }
-  | null;
 
 /** Maps a section title (as printed in the export) to a broad security type. */
 function classifySection(title: string): SecurityType {
@@ -741,76 +734,9 @@ const IMPORT_KINDS: { id: ImportKind; label: string; hint: string; Icon: typeof 
   { id: "investment", label: "Investment / Brokerage", hint: "Portfolio positions export (stocks, ETFs)", Icon: TrendingUp },
 ];
 
-/** Shared banner that suggests the best profile to import into - an existing one that already
- *  has this kind of data, a plausibly-named one, or a brand-new dedicated profile. */
-function ProfileSuggestionBanner({
-  suggestion, itemLabel, recommendText, createLabel,
-  onSwitch, onCreate, onDismiss,
-}: {
-  suggestion: ProfileSuggestion;
-  itemLabel: string;
-  recommendText: string;
-  createLabel: string;
-  onSwitch: (target: { id: number; name: string }, hasAccountAlready: boolean) => void;
-  onCreate: () => void;
-  onDismiss: () => void;
-}) {
-  if (!suggestion) return null;
-  const goldButton = "px-4 py-1.5 rounded-lg text-sm font-medium text-white hover:opacity-90 transition-opacity";
-  const outlineButton = "px-4 py-1.5 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors";
-  return (
-    <div className="border rounded-xl p-4 space-y-3" style={{ backgroundColor: "hsl(var(--primary)/0.05)" }}>
-      {suggestion.mode === "existing" && (
-        <>
-          <p className="text-sm font-medium flex items-start gap-2">
-            <Info size={16} className="shrink-0 mt-0.5 text-[hsl(var(--primary))]" />
-            You already have {itemLabel} tracked in the "{suggestion.target.name}" profile. Switch there so everything stays in one place?
-          </p>
-          <div className="flex gap-2 flex-wrap">
-            <button onClick={() => onSwitch(suggestion.target, true)} className={goldButton} style={{ backgroundColor: "var(--gold)" }}>
-              Switch to "{suggestion.target.name}"
-            </button>
-            <button onClick={onDismiss} className={outlineButton}>Use This Profile Instead</button>
-          </div>
-        </>
-      )}
-      {suggestion.mode === "named" && (
-        <>
-          <p className="text-sm font-medium flex items-start gap-2">
-            <Info size={16} className="shrink-0 mt-0.5 text-[hsl(var(--primary))]" />
-            You have a profile named "{suggestion.target.name}" - looks like it's meant for this. Switch there instead of creating a new one?
-          </p>
-          <div className="flex gap-2 flex-wrap">
-            <button onClick={() => onSwitch(suggestion.target, false)} className={goldButton} style={{ backgroundColor: "var(--gold)" }}>
-              Switch to "{suggestion.target.name}"
-            </button>
-            <button onClick={onCreate} className={outlineButton}>Create a New Profile Instead</button>
-            <button onClick={onDismiss} className={outlineButton}>Use This Profile Instead</button>
-          </div>
-        </>
-      )}
-      {suggestion.mode === "create" && (
-        <>
-          <p className="text-sm font-medium flex items-start gap-2">
-            <Info size={16} className="shrink-0 mt-0.5 text-[hsl(var(--primary))]" />
-            {recommendText}
-          </p>
-          <div className="flex gap-2 flex-wrap">
-            <button onClick={onCreate} className={goldButton} style={{ backgroundColor: "var(--gold)" }}>{createLabel}</button>
-            <button onClick={onDismiss} className={outlineButton}>Use This Profile Instead</button>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
 export default function ImportPage() {
   const navigate = useNavigate();
   const activeProfile = useProfileStore((s) => s.activeProfile);
-  const profiles = useProfileStore((s) => s.profiles);
-  const setProfiles = useProfileStore((s) => s.setProfiles);
-  const setActiveProfile = useProfileStore((s) => s.setActiveProfile);
   const profileId = activeProfile?.id ?? 1;
   const [step, setStep] = useState<Step>("upload");
   const [importKind, setImportKind] = useState<ImportKind | null>(null);
@@ -820,14 +746,9 @@ export default function ImportPage() {
   const [invParsed, setInvParsed] = useState<ParsedInvestment | null>(null);
   const [colMapOverrides, setColMapOverrides] = useState<Record<string, Record<string, number>>>({});
   const [fixColumnsOpen, setFixColumnsOpen] = useState<Set<string>>(new Set());
-  // Kept as write-only bookkeeping: the account-level messaging that used to read this now
-  // uses `accountChoice` instead, but the setter calls remain wired for future use.
-  const [, setHasDedicatedAccount] = useState<boolean | null>(null);
   const [accountChoice, setAccountChoice] = useState<AccountChoice | null>(null);
   const [existingAccountsForType, setExistingAccountsForType] = useState<Account[]>([]);
   const [maxStepReached, setMaxStepReached] = useState(1);
-  const [profileSuggestion, setProfileSuggestion] = useState<ProfileSuggestion>(null);
-  const [profileSuggestionDecided, setProfileSuggestionDecided] = useState(false);
   const [currentFilename, setCurrentFilename] = useState("");
   const [colMap, setColMap] = useState<ColMap>({ dateCol: 0, descCol: 1, amountCol: 2, typeCol: -1, balanceCol: -1, invertAmounts: false });
   const [currentBalanceInput, setCurrentBalanceInput] = useState("");
@@ -999,100 +920,6 @@ export default function ImportPage() {
     await loadHistory();
   };
 
-  // Decide how to guide the user toward a sensible profile for this import:
-  // 1) the active profile already has a dedicated account of this type - nothing to suggest
-  // 2) another profile already has one - suggest switching there
-  // 3) another profile's name suggests it's meant for this - suggest switching there
-  // 4) otherwise - offer to create a fresh dedicated profile
-  // Runs for the investment-preview step (always) and the bank/credit preview step (credit only -
-  // bank statements are the default/primary flow and never prompt to split into a new profile).
-  const suggestionAccountType = step === "wizard:investment-preview" ? "investment"
-    : step === "wizard:preview" && importKind === "credit" ? "credit"
-    : null;
-
-  useEffect(() => {
-    if (!suggestionAccountType || profileSuggestionDecided) return;
-    const accountType = suggestionAccountType;
-    (async () => {
-      try {
-        const db = await getDb();
-        const currentRows = await db.select<{ n: number }[]>(
-          "SELECT COUNT(*) as n FROM accounts WHERE profile_id=? AND account_type=?",
-          [profileId, accountType]
-        );
-        const currentHas = (currentRows[0]?.n ?? 0) > 0;
-        setHasDedicatedAccount(currentHas);
-        if (currentHas) {
-          setProfileSuggestion(null);
-          return;
-        }
-
-        const existing = await db.select<{ id: number; name: string }[]>(
-          `SELECT p.id, p.name FROM accounts a JOIN profiles p ON p.id = a.profile_id
-           WHERE a.account_type=? AND a.profile_id != ? LIMIT 1`,
-          [accountType, profileId]
-        );
-        if (existing.length > 0) {
-          setProfileSuggestion({ mode: "existing", target: existing[0] });
-          return;
-        }
-
-        const nameLike = accountType === "investment" ? "%invest%" : "%credit%";
-        const named = await db.select<{ id: number; name: string }[]>(
-          "SELECT id, name FROM profiles WHERE id != ? AND LOWER(name) LIKE ? LIMIT 1",
-          [profileId, nameLike]
-        );
-        if (named.length > 0) {
-          setProfileSuggestion({ mode: "named", target: named[0] });
-          return;
-        }
-
-        setProfileSuggestion({ mode: "create" });
-      } catch {
-        setHasDedicatedAccount(true);
-        setProfileSuggestion(null);
-      }
-    })();
-  }, [suggestionAccountType, profileId, profileSuggestionDecided]);
-
-  /** Switches to an already-existing profile (with or without a dedicated account yet) instead of creating one. */
-  const switchToSuggestedProfile = (target: { id: number; name: string }, hasAccountAlready: boolean) => {
-    const full = profiles.find((p) => p.id === target.id);
-    if (full) setActiveProfile(full);
-    setProfileSuggestion(null);
-    setHasDedicatedAccount(hasAccountAlready);
-    setProfileSuggestionDecided(true);
-    // The account list/choice made in the earlier "which account" step belonged to the
-    // profile we're switching away from - fall back to a fresh "new account" so we never
-    // write into an account that belongs to a different profile.
-    setAccountChoice((prev) => (prev ? { mode: "new", name: prev.name, institution: prev.mode === "new" ? prev.institution : "Imported" } : null));
-    setExistingAccountsForType([]);
-  };
-
-  /** Creates a fresh dedicated profile and switches to it - the user still clicks Import afterward. */
-  const createDedicatedProfileAndSwitch = async (name: string, avatarColor: string) => {
-    const db = await getDb();
-    const result = await db.execute(
-      "INSERT INTO profiles (name, avatar_color) VALUES (?, ?)",
-      [name, avatarColor]
-    );
-    const newProfile: Profile = {
-      id: result.lastInsertId as number,
-      name,
-      avatar_color: avatarColor,
-      pin_hash: null,
-      created_at: new Date().toISOString(),
-    };
-    setProfiles([...profiles, newProfile]);
-    setActiveProfile(newProfile);
-    setProfileSuggestion(null);
-    setHasDedicatedAccount(false);
-    setProfileSuggestionDecided(true);
-    // Same reasoning as switchToSuggestedProfile - the new profile has no accounts yet.
-    setAccountChoice((prev) => (prev ? { mode: "new", name: prev.name, institution: prev.mode === "new" ? prev.institution : "Imported" } : null));
-    setExistingAccountsForType([]);
-  };
-
   /** Writes every parsed holding row into the `holdings` table as a new dated snapshot. */
   const handleInvestmentImport = async (profileIdOverride?: number) => {
     if (!invParsed) return;
@@ -1228,9 +1055,6 @@ export default function ImportPage() {
     setInvParsed(result);
     setColMapOverrides({});
     setFixColumnsOpen(new Set());
-    setHasDedicatedAccount(null);
-    setProfileSuggestion(null);
-    setProfileSuggestionDecided(false);
     setAccountChoice(null);
     setExistingAccountsForType([]);
     setMaxStepReached(1);
@@ -1259,9 +1083,6 @@ export default function ImportPage() {
     const initialSkip = findRealHeaderRow(data);
     setRawData(data);
     setSkipRows(initialSkip);
-    setHasDedicatedAccount(null);
-    setProfileSuggestion(null);
-    setProfileSuggestionDecided(false);
     setAccountChoice(null);
     setExistingAccountsForType([]);
     setMaxStepReached(1);
@@ -1592,9 +1413,6 @@ export default function ImportPage() {
     setColMapOverrides({});
     setFixColumnsOpen(new Set());
     setCurrentBalanceInput("");
-    setHasDedicatedAccount(null);
-    setProfileSuggestion(null);
-    setProfileSuggestionDecided(false);
     setAccountChoice(null);
     setExistingAccountsForType([]);
     setMaxStepReached(1);
@@ -1679,7 +1497,7 @@ export default function ImportPage() {
 
           {/* Bank preset picker */}
           {step === "upload" && importKind !== "investment" && (
-            <div className="mt-5 border rounded-xl p-4 space-y-3">
+            <div data-tour="import-presets" className="mt-5 border rounded-xl p-4 space-y-3">
               <p className="text-sm font-medium">
                 Select your bank <span className="text-[hsl(var(--muted-foreground))] font-normal">(optional - speeds up column detection)</span>
               </p>
@@ -2314,16 +2132,6 @@ export default function ImportPage() {
             </p>
           )}
 
-          <ProfileSuggestionBanner
-            suggestion={profileSuggestion}
-            itemLabel="investments"
-            recommendText="We recommend keeping investments in a separate profile so they don't mix with everyday spending totals."
-            createLabel='Create "Investments" Profile'
-            onSwitch={switchToSuggestedProfile}
-            onCreate={() => createDedicatedProfileAndSwitch("Investments", "#0ea5e9")}
-            onDismiss={() => { setProfileSuggestion(null); setProfileSuggestionDecided(true); }}
-          />
-
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
             <div className="border rounded-xl p-4 text-center">
               <p className="text-xl font-bold">{formatCurrency(Math.round(invTotals.marketValue * 100))}</p>
@@ -2440,26 +2248,13 @@ export default function ImportPage() {
         <div key="wizard:preview" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           {error && <p className="text-red-500 text-sm p-3 border border-red-300 rounded-lg">{error}</p>}
 
-          {importKind === "credit" && (
-            <>
-              {accountChoice && (
-                <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
-                  <CheckCircle2 size={12} />
-                  {accountChoice.mode === "existing"
-                    ? <>Adding to your existing <strong>{accountChoice.name}</strong> account.</>
-                    : <>Creating a new account: <strong>{accountChoice.name}</strong>.</>}
-                </p>
-              )}
-              <ProfileSuggestionBanner
-                suggestion={profileSuggestion}
-                itemLabel="a credit card"
-                recommendText="You can track this credit card in its own profile if you'd like to keep it separate from everyday spending, or just import it here."
-                createLabel='Create "Credit Cards" Profile'
-                onSwitch={switchToSuggestedProfile}
-                onCreate={() => createDedicatedProfileAndSwitch("Credit Cards", "#f59e0b")}
-                onDismiss={() => { setProfileSuggestion(null); setProfileSuggestionDecided(true); }}
-              />
-            </>
+          {importKind === "credit" && accountChoice && (
+            <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+              <CheckCircle2 size={12} />
+              {accountChoice.mode === "existing"
+                ? <>Adding to your existing <strong>{accountChoice.name}</strong> account.</>
+                : <>Creating a new account: <strong>{accountChoice.name}</strong>.</>}
+            </p>
           )}
 
           <div className="grid grid-cols-3 gap-3 text-sm">

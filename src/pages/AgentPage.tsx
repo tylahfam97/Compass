@@ -1019,7 +1019,7 @@ export default function AgentPage() {
                     borderRadius: "6px", fontSize: "11px",
                   }}
                 />
-                <ReferenceLine y={20} stroke="#f59e0b" strokeDasharray="4 4" strokeOpacity={0.6} />
+                <ReferenceLine y={20} stroke="hsl(var(--warning))" strokeDasharray="4 4" strokeOpacity={0.6} />
                 <Area type="monotone" dataKey="rate" stroke="#6366f1" strokeWidth={2}
                       fill="url(#sparkGrad)" dot={false} />
               </AreaChart>
@@ -1141,7 +1141,7 @@ export default function AgentPage() {
                     <td className="px-5 py-2.5 max-w-xs truncate">{s.description}</td>
                     <td className="px-5 py-2.5">
                       <span className="text-xs px-2 py-0.5 rounded-full text-white"
-                        style={{ backgroundColor: s.category_color ?? "#9ca3af" }}>
+                        style={{ backgroundColor: s.category_color ?? "hsl(var(--neutral))" }}>
                         {s.category_name ?? "Uncategorized"}
                       </span>
                     </td>

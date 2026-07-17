@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { ArrowUpDown, ArrowUp, ArrowDown, Plus, Sparkles, Download, Tag, Settings, SlidersHorizontal, ChevronDown, ChevronUp, Upload, Pencil, StickyNote } from "lucide-react";
 import { getDb, reapplyCategorizationRules } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
@@ -14,6 +14,7 @@ import CategorizationRulesModal from "@/components/CategorizationRulesModal";
 import EditTransactionModal from "@/components/EditTransactionModal";
 import { setPendingImportFiles } from "@/lib/pendingImport";
 import InfoTooltip from "@/components/InfoTooltip";
+import { TableSkeleton } from "@/components/Skeleton";
 
 const MAX_ROWS = 500;
 const ALL_TIME_LIMIT = 10000;
@@ -136,6 +137,11 @@ export default function TransactionsPage() {
   const [filterType, setFilterType]         = useState<"all" | "income" | "expense">("all");
   const [filterAmountMin, setFilterAmountMin] = useState("");
   const [filterAmountMax, setFilterAmountMax] = useState("");
+  // Advanced filters start expanded if one is already active (e.g. arriving via a
+  // "View all" link from another page with a category pre-filled) so nothing feels hidden.
+  const [showMoreFilters, setShowMoreFilters] = useState(
+    () => filterCategory !== "" || filterType !== "all" || filterAmountMin !== "" || filterAmountMax !== ""
+  );
 
   // Column sort state — null = default (date DESC)
   const [sortCol, setSortCol] = useState<SortCol | null>(null);
@@ -155,6 +161,9 @@ export default function TransactionsPage() {
   const hasActiveFilters =
     filterCategory !== "" || filterType !== "all" ||
     filterAmountMin !== "" || filterAmountMax !== "";
+  const activeFilterCount =
+    [filterCategory !== "", filterType !== "all", filterAmountMin !== "", filterAmountMax !== ""]
+      .filter(Boolean).length;
 
   const clearFilters = () => {
     setFilterCategory(""); setFilterType("all");
@@ -172,8 +181,9 @@ export default function TransactionsPage() {
       ? `${SORT_EXPR[sortCol]} ${sortDir.toUpperCase()}, t.id ${sortDir.toUpperCase()}`
       : "t.date DESC, t.id DESC";
     const data = await db.select<Transaction[]>(
-      `SELECT t.*, c.name as category_name, c.color as category_color
+      `SELECT t.*, c.name as category_name, c.color as category_color, a.account_type as account_type
        FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
+       LEFT JOIN accounts a ON a.id=t.account_id
        WHERE ${where}
        ORDER BY ${orderBy}
        LIMIT ${allTime ? ALL_TIME_LIMIT + 1 : MAX_ROWS + 1}`,
@@ -306,7 +316,9 @@ export default function TransactionsPage() {
     }
   };
 
-  const totalIncome = rows.filter((r) => r.amount_cents > 0)
+  // Credit-card payments/credits (positive amount on a credit account) are debt reduction,
+  // not real income - exclude them here too so this summary matches Dashboard/Trends/Insights.
+  const totalIncome = rows.filter((r) => r.amount_cents > 0 && r.account_type !== "credit")
     .reduce((s, r) => s + r.amount_cents, 0);
   const totalExpenses = rows.filter((r) => r.amount_cents < 0)
     .reduce((s, r) => s + r.amount_cents, 0);
@@ -349,51 +361,55 @@ export default function TransactionsPage() {
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center
                         bg-black/20 backdrop-blur-sm border-2 border-dashed
                         border-[hsl(var(--primary))] rounded-xl pointer-events-none">
-          <div className="text-5xl mb-3">📄</div>
+          <Upload size={40} className="text-[hsl(var(--primary))] mb-3" />
           <p className="font-semibold text-[hsl(var(--primary))] text-lg">Drop CSV to import</p>
           <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">Opens the import wizard</p>
         </div>
       )}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
         <h1 className="text-2xl font-semibold">Transactions</h1>
-        <button
-          onClick={exportCsv}
-          title="Export current view as CSV"
-          className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
-                     transition-colors"
-        >
-          ↓ Export
-        </button>
-        <button
-          onClick={() => setAddingTxn(true)}
-          className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
-                     transition-colors"
-        >
-          ＋ Add
-        </button>
-        <button
-          onClick={() => runAutoCategorize("uncategorized")}
-          disabled={autoCatRunning}
-          title="Apply your rules to all transactions; system rules fill remaining uncategorized ones"
-          className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
-                     transition-colors disabled:opacity-50"
-        >
-          {autoCatRunning ? "Running…" : "✦ Auto-Categorize"}
-        </button>
-        <button
-          onClick={() => setCatModalOpen(true)}
-          className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
-                     transition-colors"
-        >
-          ＋ Category
-        </button>
-        <button
-          onClick={() => setRulesModalOpen(true)}
-          className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
-                     transition-colors"
-        >
-          ⚙ Rules
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setAddingTxn(true)}
+            className="text-sm px-3 py-1.5 rounded-lg bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
+                       hover:opacity-90 transition-opacity flex items-center gap-1.5 font-medium"
+          >
+            <Plus size={14} /> Add
+          </button>
+          <button
+            onClick={() => runAutoCategorize("uncategorized")}
+            disabled={autoCatRunning}
+            title="Apply your rules to all transactions; system rules fill remaining uncategorized ones"
+            className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
+                       transition-colors disabled:opacity-50 flex items-center gap-1.5"
+          >
+            <Sparkles size={14} /> {autoCatRunning ? "Running…" : "Auto-Categorize"}
+          </button>
+          <button
+            onClick={exportCsv}
+            title="Export current view as CSV"
+            className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
+                       transition-colors flex items-center gap-1.5"
+          >
+            <Download size={14} /> Export
+          </button>
+          <button
+            onClick={() => setCatModalOpen(true)}
+            title="Manage categories"
+            className="text-sm px-2.5 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
+                       transition-colors flex items-center"
+          >
+            <Tag size={14} />
+          </button>
+          <button
+            onClick={() => setRulesModalOpen(true)}
+            title="Manage categorization rules"
+            className="text-sm px-2.5 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
+                       transition-colors flex items-center"
+          >
+            <Settings size={14} />
+          </button>
+        </div>
       </div>
 
       {/* Transfers explainer - shows once per session (or until permanently dismissed) */}
@@ -419,8 +435,8 @@ export default function TransactionsPage() {
 
       {/* Filters */}
       <div className="space-y-2 mb-4">
-        {/* Row 1 — date + search */}
-        <div className="flex gap-3 flex-wrap">
+        {/* Row 1 — the essentials, always visible */}
+        <div className="flex gap-3 flex-wrap items-center">
           {!allTime && (
             <input
               ref={monthInputRef}
@@ -450,79 +466,95 @@ export default function TransactionsPage() {
             className="flex-1 min-w-40 border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))]
                        text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]"
           />
-        </div>
-
-        {/* Row 2 — category + type + amount */}
-        <div className="flex gap-3 flex-wrap items-center">
-          {/* Category */}
-          <select
-            value={filterCategory}
-            onChange={(e) => setFilterCategory(e.target.value)}
-            className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))]
-                       text-[hsl(var(--foreground))] cursor-pointer"
+          <button
+            onClick={() => setShowMoreFilters((v) => !v)}
+            className={`text-sm px-3 py-1.5 border rounded-lg transition-colors flex items-center gap-1.5 ${
+              hasActiveFilters ? "bg-[hsl(var(--primary)/0.1)] border-[hsl(var(--primary)/0.4)] text-[hsl(var(--primary))]" : "hover:bg-[hsl(var(--muted))]"
+            }`}
           >
-            <option value="">All categories</option>
-            <option value="uncategorized">Uncategorized</option>
-            <CategoryOptions categories={categories.filter((c) => c.id !== 15)} />
-          </select>
-          <InfoTooltip text={TRANSFER_DISCLAIMER_TEXT} />
-
-          {/* Income / Expense / All toggle */}
-          <div className="flex border rounded-lg overflow-hidden text-sm">
-            {(["all", "income", "expense"] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => setFilterType(t)}
-                className={`px-3 py-1.5 transition-colors ${
-                  filterType === t
-                    ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
-                    : "hover:bg-[hsl(var(--muted))]"
-                } ${
-                  t === "income" ? "border-x" : ""
-                }`}
-              >
-                {t === "all" ? "All" : t === "income" ? "Income" : "Expenses"}
-              </button>
-            ))}
-          </div>
-
-          {/* Amount range */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs text-[hsl(var(--muted-foreground))]">$</span>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              placeholder="Min"
-              value={filterAmountMin}
-              onChange={(e) => setFilterAmountMin(e.target.value)}
-              className="w-20 border rounded-lg px-2 py-1.5 text-sm bg-[hsl(var(--background))]
-                         text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]"
-            />
-            <span className="text-[hsl(var(--muted-foreground))] text-sm">—</span>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              placeholder="Max"
-              value={filterAmountMax}
-              onChange={(e) => setFilterAmountMax(e.target.value)}
-              className="w-24 border rounded-lg px-2 py-1.5 text-sm bg-[hsl(var(--background))]
-                         text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]"
-            />
-          </div>
-
-          {/* Clear filters */}
+            <SlidersHorizontal size={14} />
+            More filters
+            {hasActiveFilters && (
+              <span className="w-4 h-4 rounded-full bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] text-[10px] font-bold flex items-center justify-center">
+                {activeFilterCount}
+              </span>
+            )}
+            {showMoreFilters ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </button>
           {hasActiveFilters && (
             <button
               onClick={clearFilters}
               className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]
                          transition-colors px-1"
             >
-              × Clear filters
+              × Clear
             </button>
           )}
         </div>
+
+        {/* Row 2 — category + type + amount, tucked behind "More filters" so the common
+            case (just browsing a month or searching) isn't competing with 6+ controls */}
+        {showMoreFilters && (
+          <div className="flex gap-3 flex-wrap items-center border-t pt-3">
+            {/* Category */}
+            <select
+              value={filterCategory}
+              onChange={(e) => setFilterCategory(e.target.value)}
+              className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))]
+                         text-[hsl(var(--foreground))] cursor-pointer"
+            >
+              <option value="">All categories</option>
+              <option value="uncategorized">Uncategorized</option>
+              <CategoryOptions categories={categories.filter((c) => c.id !== 15)} />
+            </select>
+            <InfoTooltip text={TRANSFER_DISCLAIMER_TEXT} />
+
+            {/* Income / Expense / All toggle */}
+            <div className="flex border rounded-lg overflow-hidden text-sm">
+              {(["all", "income", "expense"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setFilterType(t)}
+                  className={`px-3 py-1.5 transition-colors ${
+                    filterType === t
+                      ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
+                      : "hover:bg-[hsl(var(--muted))]"
+                  } ${
+                    t === "income" ? "border-x" : ""
+                  }`}
+                >
+                  {t === "all" ? "All" : t === "income" ? "Income" : "Expenses"}
+                </button>
+              ))}
+            </div>
+
+            {/* Amount range */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-[hsl(var(--muted-foreground))]">$</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Min"
+                value={filterAmountMin}
+                onChange={(e) => setFilterAmountMin(e.target.value)}
+                className="w-20 border rounded-lg px-2 py-1.5 text-sm bg-[hsl(var(--background))]
+                           text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]"
+              />
+              <span className="text-[hsl(var(--muted-foreground))] text-sm">—</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Max"
+                value={filterAmountMax}
+                onChange={(e) => setFilterAmountMax(e.target.value)}
+                className="w-24 border rounded-lg px-2 py-1.5 text-sm bg-[hsl(var(--background))]
+                           text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]"
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Summary card */}
@@ -543,7 +575,7 @@ export default function TransactionsPage() {
         </div>
       )}
 
-      {loading && <p className="text-[hsl(var(--muted-foreground))]">Loading…</p>}
+      {loading && <TableSkeleton rows={8} cols={5} />}
 
       {!loading && rows.length === 0 && (
         <p className="text-[hsl(var(--muted-foreground))] mt-8 text-center">
@@ -555,7 +587,7 @@ export default function TransactionsPage() {
         <div className="border rounded-xl overflow-x-auto flex-1">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-[hsl(var(--muted))] text-left border-b">
+              <tr className="text-left border-b text-[hsl(var(--muted-foreground))]">
                 {([
                   { key: "date",        label: "Date",        cls: "w-28" },
                   { key: "description", label: "Description", cls: "" },
@@ -601,7 +633,7 @@ export default function TransactionsPage() {
                         title="Click to change category"
                         className="inline-block px-2 py-0.5 rounded-full text-xs text-white
                                    hover:opacity-80 transition-opacity"
-                        style={{ backgroundColor: t.category_color ?? "#9ca3af" }}
+                        style={{ backgroundColor: t.category_color ?? "hsl(var(--neutral))" }}
                       >
                         {t.category_name ?? "Uncategorized"}
                       </button>
@@ -617,9 +649,9 @@ export default function TransactionsPage() {
                     <button
                       onClick={() => setEditTxn(t)}
                       title={t.notes ? `Note: ${t.notes}` : "Edit transaction"}
-                      className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors text-sm"
+                      className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors"
                     >
-                      {t.notes ? "📝" : "✏️"}
+                      {t.notes ? <StickyNote size={14} /> : <Pencil size={14} />}
                     </button>
                   </td>
                 </tr>
@@ -654,26 +686,30 @@ export default function TransactionsPage() {
         />
       )}
 
-      {/* Auto-categorize result / error toast */}
+      {/* Auto-categorize result / error toast - border/rounded live on the inner div, not
+          this fixed-positioned one, since the global .border.rounded-xl decorative-ring
+          rule (index.css) outranks .fixed in specificity and would force position:relative. */}
       {(autoCatResult || autoCatError) && (
-        <div className={`fixed bottom-6 right-6 z-50 border shadow-xl rounded-xl px-5 py-3
-                        flex items-center gap-4 text-sm max-w-sm
-                        bg-[hsl(var(--background))]
-                        ${autoCatError ? "border-red-500" : ""}`}>
-          <span className="flex-1 text-[hsl(var(--foreground))]">
-            {autoCatError
-              ? <span className="text-red-500">Error: {autoCatError}</span>
-              : autoCatResult!.updated === 0
-                ? "No uncategorized transactions matched any rule."
-                : <><strong>{autoCatResult!.updated}</strong> transaction{autoCatResult!.updated !== 1 ? "s" : ""} categorized.</>
-            }
-          </span>
-          <button
-            onClick={() => { setAutoCatResult(null); setAutoCatError(null); }}
-            className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] text-lg leading-none"
-          >
-            ✕
-          </button>
+        <div className="fixed bottom-6 right-6 z-50 max-w-sm">
+          <div className={`border shadow-xl rounded-xl px-5 py-3
+                          flex items-center gap-4 text-sm
+                          bg-[hsl(var(--background))]
+                          ${autoCatError ? "border-red-500" : ""}`}>
+            <span className="flex-1 text-[hsl(var(--foreground))]">
+              {autoCatError
+                ? <span className="text-red-500">Error: {autoCatError}</span>
+                : autoCatResult!.updated === 0
+                  ? "No uncategorized transactions matched any rule."
+                  : <><strong>{autoCatResult!.updated}</strong> transaction{autoCatResult!.updated !== 1 ? "s" : ""} categorized.</>
+              }
+            </span>
+            <button
+              onClick={() => { setAutoCatResult(null); setAutoCatError(null); }}
+              className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] text-lg leading-none"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
 
@@ -682,28 +718,31 @@ export default function TransactionsPage() {
         const cat = categories.find((c) => c.id === rulePrompt.newCatId);
         const key = extractMerchantKey(rulePrompt.txn.description);
         return (
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50
-                          bg-[hsl(var(--background))] border shadow-xl rounded-xl
-                          px-5 py-3 flex items-center gap-4 text-sm max-w-lg w-full">
-            <span className="flex-1 text-[hsl(var(--foreground))]">
-              Always categorize <strong>"{key}"</strong> as{" "}
-              <span className="font-medium" style={{ color: cat?.color }}>
-                {cat?.name ?? "this category"}
-              </span>?
-            </span>
-            <button
-              onClick={createRuleFromPrompt}
-              className="px-3 py-1.5 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
-                         rounded-lg font-medium hover:opacity-90 transition-opacity"
-            >
-              Create Rule
-            </button>
-            <button
-              onClick={() => setRulePrompt(null)}
-              className="px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))] transition-colors"
-            >
-              Dismiss
-            </button>
+          // border/rounded live on the inner div (see note above) - the outer div only
+          // carries fixed/positioning/transform so the centering transform isn't broken.
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-lg w-full">
+            <div className="bg-[hsl(var(--background))] border shadow-xl rounded-xl
+                            px-5 py-3 flex items-center gap-4 text-sm">
+              <span className="flex-1 text-[hsl(var(--foreground))]">
+                Always categorize <strong>"{key}"</strong> as{" "}
+                <span className="font-medium" style={{ color: cat?.color }}>
+                  {cat?.name ?? "this category"}
+                </span>?
+              </span>
+              <button
+                onClick={createRuleFromPrompt}
+                className="px-3 py-1.5 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
+                           rounded-lg font-medium hover:opacity-90 transition-opacity"
+              >
+                Create Rule
+              </button>
+              <button
+                onClick={() => setRulePrompt(null)}
+                className="px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))] transition-colors"
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
         );
       })()}

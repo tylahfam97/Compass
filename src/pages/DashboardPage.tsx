@@ -6,6 +6,7 @@ import {
 } from "recharts";
 import { motion, AnimatePresence } from "motion/react";
 import { getDb, recomputeCalculatedBalances } from "@/lib/db";
+import { seedDemoData } from "@/lib/demoData";
 import { formatCurrency, formatDate, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
 import type { Transaction, Insight } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
@@ -65,6 +66,7 @@ export default function DashboardPage() {
   const [monthTxnCount, setMonthTxnCount] = useState(0);
   const [totalTxnCount, setTotalTxnCount] = useState(0);
   const [confirmClear, setConfirmClear] = useState<"month" | "all" | null>(null);
+  const [seedingDemo, setSeedingDemo] = useState(false);
   const [currentBalance, setCurrentBalance] = useState<number | null>(null);
   const [checkingBalancePoints, setCheckingBalancePoints] = useState<CheckingBalancePoint[]>([]);
   const [creditBalanceAccounts, setCreditBalanceAccounts] = useState<CreditAccountMeta[]>([]);
@@ -97,7 +99,8 @@ export default function DashboardPage() {
     const [start, end] = monthBounds(month);
     const [incRow, expRow, catRows, recentRows, monthCountRow, totalCountRow, balanceRow, balancePointRows, portfolioRow, balanceAcctRows] = await Promise.all([
       db.select<{ total: number }[]>(
-        "SELECT COALESCE(SUM(amount_cents),0) as total FROM transactions WHERE date>=? AND date<? AND amount_cents>0 AND (category_id IS NULL OR category_id!=20) AND profile_id=?",
+        `SELECT COALESCE(SUM(t.amount_cents),0) as total FROM transactions t JOIN accounts a ON a.id=t.account_id
+         WHERE t.date>=? AND t.date<? AND t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' AND t.profile_id=?`,
         [start, end, profileId]
       ),
       db.select<{ total: number }[]>(
@@ -306,13 +309,32 @@ export default function DashboardPage() {
           <p className="text-sm text-[hsl(var(--muted-foreground))] mb-6">
             Import a bank statement to get started.
           </p>
-          <Link
-            to="/import"
-            className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
-                       rounded-lg text-sm font-medium"
-          >
-            Import Transactions
-          </Link>
+          <div className="flex items-center justify-center gap-3">
+            <Link
+              to="/import"
+              className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
+                         rounded-lg text-sm font-medium"
+            >
+              Import Transactions
+            </Link>
+            <button
+              data-tour="demo-mode"
+              onClick={async () => {
+                setSeedingDemo(true);
+                try {
+                  await seedDemoData(profileId);
+                  await loadData();
+                } finally {
+                  setSeedingDemo(false);
+                }
+              }}
+              disabled={seedingDemo}
+              className="px-5 py-2 border rounded-lg text-sm font-medium hover:bg-[hsl(var(--muted))]
+                         transition-colors disabled:opacity-50"
+            >
+              {seedingDemo ? "Loading demo data…" : "✦ Try Demo Mode"}
+            </button>
+          </div>
         </div>
       )}
 
@@ -609,7 +631,7 @@ export default function DashboardPage() {
                       <td className="px-5 py-3">
                         <span
                           className="inline-block px-2 py-0.5 rounded-full text-xs text-white"
-                          style={{ backgroundColor: t.category_color ?? "#9ca3af" }}
+                          style={{ backgroundColor: t.category_color ?? "hsl(var(--neutral))" }}
                         >
                           {t.category_name ?? "Uncategorized"}
                         </span>

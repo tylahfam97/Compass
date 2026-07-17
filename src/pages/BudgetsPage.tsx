@@ -8,6 +8,7 @@ import { useProfileStore } from "@/stores/profileStore";
 import CategoryOptions from "@/components/CategoryOptions";
 import WeeklyMiniBar from "@/components/WeeklyMiniBar";
 import PinModal from "@/components/PinModal";
+import { CardListSkeleton } from "@/components/Skeleton";
 import type { Profile } from "@/lib/types";
 
 interface BudgetRow {
@@ -180,11 +181,12 @@ export default function BudgetsPage() {
                 c.name as category_name, c.color as category_color,
                 b.amount_cents, b.period, b.is_global,
                 COALESCE(SUM(CASE WHEN t.amount_cents<0 THEN ABS(t.amount_cents) ELSE 0 END),0) as spent_cents,
-                COALESCE(SUM(CASE WHEN t.amount_cents>0 THEN t.amount_cents ELSE 0 END),0) as earned_cents
+                COALESCE(SUM(CASE WHEN t.amount_cents>0 AND (acc.account_type IS NULL OR acc.account_type!='credit') THEN t.amount_cents ELSE 0 END),0) as earned_cents
          FROM budgets b
          JOIN categories c ON b.category_id=c.id
          LEFT JOIN transactions t ON t.category_id=b.category_id
            AND t.date>=? AND t.date<? AND t.profile_id IN (${ph})
+         LEFT JOIN accounts acc ON acc.id=t.account_id
          WHERE b.is_global=1
          GROUP BY b.id ORDER BY c.name`,
         [start, end, ...ids]
@@ -202,11 +204,12 @@ export default function BudgetsPage() {
                 c.name as category_name, c.color as category_color,
                 b.amount_cents, b.period, b.is_global,
                 COALESCE(SUM(CASE WHEN t.amount_cents<0 THEN ABS(t.amount_cents) ELSE 0 END),0) as spent_cents,
-                COALESCE(SUM(CASE WHEN t.amount_cents>0 THEN t.amount_cents ELSE 0 END),0) as earned_cents
+                COALESCE(SUM(CASE WHEN t.amount_cents>0 AND (acc.account_type IS NULL OR acc.account_type!='credit') THEN t.amount_cents ELSE 0 END),0) as earned_cents
          FROM budgets b
          JOIN categories c ON b.category_id=c.id
          LEFT JOIN transactions t ON t.category_id=b.category_id
            AND t.date>=? AND t.date<? AND t.profile_id=?
+         LEFT JOIN accounts acc ON acc.id=t.account_id
          WHERE b.profile_id=?
          GROUP BY b.id ORDER BY c.name`,
         [start, end, profileId, profileId]
@@ -535,17 +538,7 @@ export default function BudgetsPage() {
         </div>
 
         {/* Loading state */}
-        {loading && (
-          <div className="flex items-center justify-center py-16">
-            <div className="flex flex-col items-center gap-3 text-[hsl(var(--muted-foreground))]">
-              <div
-                className="w-8 h-8 rounded-full border-2 border-current border-t-transparent animate-spin"
-                style={{ borderTopColor: "transparent" }}
-              />
-              <p className="text-sm">Loading budgets...</p>
-            </div>
-          </div>
-        )}
+        {loading && <CardListSkeleton count={3} />}
 
         {/* Empty state */}
         {!loading && budgets.length === 0 && (
@@ -587,7 +580,7 @@ export default function BudgetsPage() {
           const projectedOver = !isIncome && projectedEnd > b.amount_cents;
           const projectedOverBy = projectedEnd - b.amount_cents;
 
-          const accentColor = over ? "#ef4444" : b.is_global ? "#C08A1C" : b.category_color;
+          const accentColor = over ? "hsl(var(--error))" : b.is_global ? "var(--gold)" : b.category_color;
 
           return (
             <div
@@ -652,8 +645,8 @@ export default function BudgetsPage() {
                     <button
                       onClick={() => deleteBudget(b.id)}
                       className="text-xs px-2.5 py-1 rounded-lg border transition-all opacity-0 group-hover:opacity-100"
-                      style={{ color: "#ef4444", borderColor: "rgba(239,68,68,0.3)", backgroundColor: "transparent" }}
-                      onMouseOver={(e) => { e.currentTarget.style.backgroundColor = "rgba(239,68,68,0.07)"; }}
+                      style={{ color: "hsl(var(--error))", borderColor: "hsl(var(--error) / 0.3)", backgroundColor: "transparent" }}
+                      onMouseOver={(e) => { e.currentTarget.style.backgroundColor = "hsl(var(--error) / 0.07)"; }}
                       onMouseOut={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
                     >
                       Remove
@@ -678,7 +671,7 @@ export default function BudgetsPage() {
                   <span
                     className="font-medium"
                     style={{
-                      color: over ? "#ef4444" : under ? "#f97316" : "hsl(var(--muted-foreground))",
+                      color: over ? "hsl(var(--error))" : under ? "hsl(var(--warning))" : "hsl(var(--muted-foreground))",
                     }}
                   >
                     {formatCurrency(displayCents)}{" "}
@@ -702,7 +695,7 @@ export default function BudgetsPage() {
                     className="text-xs mt-2"
                     style={{
                       color: projectedOver
-                        ? over ? "#ef4444" : "#f59e0b"
+                        ? over ? "hsl(var(--error))" : "hsl(var(--warning))"
                         : "hsl(var(--muted-foreground))",
                       fontWeight: projectedOver ? 500 : 400,
                     }}

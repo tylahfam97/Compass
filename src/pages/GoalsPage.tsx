@@ -5,6 +5,7 @@ import { useCategoryStore } from "@/stores/categoryStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
 import CategoryOptions from "@/components/CategoryOptions";
+import { CardListSkeleton } from "@/components/Skeleton";
 import WeeklyMiniBar from "@/components/WeeklyMiniBar";
 
 type GoalType =
@@ -61,6 +62,18 @@ const DESCS: Record<GoalType, string> = {
 
 const STREAK_TYPES = new Set<GoalType>(["budget_streak", "savings_rate_habit"]);
 const CLASSIC_TYPES = new Set<GoalType>(["net_savings", "reduce_spend", "increase_income"]);
+
+// Goal-type badge colors, grouped by meaning rather than one hue per type - 7 nearly
+// indistinguishable pastels read as visual noise; 3 clear groups read as intentional.
+const GOAL_TYPE_STYLE: Record<GoalType, string> = {
+  net_savings:        "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+  savings_target:     "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+  balance_floor:      "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+  savings_rate_habit: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+  reduce_spend:       "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
+  budget_streak:      "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
+  increase_income:    "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
+};
 
 function monthBounds(ym: string): [string, string] {
   const [y, m] = ym.split("-").map(Number);
@@ -145,7 +158,9 @@ export default function GoalsPage() {
 
         if (g.type === "net_savings") {
           const [r] = await db.select<{ v: number }[]>(
-            "SELECT COALESCE(SUM(amount_cents),0) as v FROM transactions WHERE date>=? AND date<? AND profile_id=? AND (category_id IS NULL OR category_id!=20)",
+            `SELECT COALESCE(SUM(CASE WHEN a.account_type='credit' AND t.amount_cents>0 THEN 0 ELSE t.amount_cents END),0) as v
+             FROM transactions t JOIN accounts a ON a.id=t.account_id
+             WHERE t.date>=? AND t.date<? AND t.profile_id=? AND (t.category_id IS NULL OR t.category_id!=20)`,
             [start, end, profileId]
           );
           current = r?.v ?? 0;
@@ -162,12 +177,13 @@ export default function GoalsPage() {
           current = r?.v ?? 0;
 
         } else if (g.type === "increase_income") {
-          const extra = g.category_id ? " AND category_id=?" : "";
+          const extra = g.category_id ? " AND t.category_id=?" : "";
           const params: unknown[] = g.category_id
             ? [start, end, profileId, g.category_id]
             : [start, end, profileId];
           const [r] = await db.select<{ v: number }[]>(
-            `SELECT COALESCE(SUM(amount_cents),0) as v FROM transactions WHERE date>=? AND date<? AND profile_id=? AND amount_cents>0${extra}`,
+            `SELECT COALESCE(SUM(t.amount_cents),0) as v FROM transactions t JOIN accounts a ON a.id=t.account_id
+             WHERE t.date>=? AND t.date<? AND t.profile_id=? AND t.amount_cents>0 AND a.account_type!='credit'${extra}`,
             params
           );
           current = r?.v ?? 0;
@@ -176,10 +192,11 @@ export default function GoalsPage() {
           // Sum of positive monthly nets since goal creation
           const [r] = await db.select<{ v: number }[]>(
             `SELECT COALESCE(SUM(net),0) as v FROM (
-               SELECT strftime('%Y-%m',date) as mo,
-                 SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END)
-                 - SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as net
-               FROM transactions WHERE profile_id=? AND date>=?
+               SELECT strftime('%Y-%m',t.date) as mo,
+                 SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END)
+                 - SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as net
+               FROM transactions t JOIN accounts a ON a.id=t.account_id
+               WHERE t.profile_id=? AND t.date>=?
                GROUP BY mo
              ) WHERE net>0`,
             [profileId, g.created_at.slice(0, 10)]
@@ -231,9 +248,10 @@ export default function GoalsPage() {
             const [ms, me] = monthBounds(mo);
             const [r] = await db.select<{ income: number; expenses: number }[]>(
               `SELECT
-                 COALESCE(SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END),0) as income,
-                 COALESCE(SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END),0) as expenses
-               FROM transactions WHERE profile_id=? AND date>=? AND date<?`,
+                 COALESCE(SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END),0) as income,
+                 COALESCE(SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END),0) as expenses
+               FROM transactions t JOIN accounts a ON a.id=t.account_id
+               WHERE t.profile_id=? AND t.date>=? AND t.date<?`,
               [profileId, ms, me]
             );
             if (!r || r.income === 0) break;
@@ -451,7 +469,7 @@ export default function GoalsPage() {
         </div>
       </div>
 
-      {loading && <p className="text-[hsl(var(--muted-foreground))]">Loading...</p>}
+      {loading && <CardListSkeleton count={3} />}
 
       {!loading && goals.length === 0 && (
         <p className="text-[hsl(var(--muted-foreground))] text-center py-10">
@@ -469,8 +487,8 @@ export default function GoalsPage() {
 
         const barPct = Math.min(100, g.pct);
         const barColor = isSpend
-          ? (g.on_track ? "#22c55e" : "#ef4444")
-          : (g.on_track ? "#22c55e" : g.pct >= 75 ? "#f97316" : "#9ca3af");
+          ? (g.on_track ? "hsl(var(--success))" : "hsl(var(--error))")
+          : (g.on_track ? "hsl(var(--success))" : g.pct >= 75 ? "hsl(var(--warning))" : "hsl(var(--neutral))");
 
         const totalDays = daysInMonth(month);
         const elapsed   = daysElapsed(month);
@@ -485,19 +503,12 @@ export default function GoalsPage() {
             <div className="flex items-start justify-between mb-3 gap-2">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-medium">{g.name}</span>
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium
-                  ${g.type === "net_savings"     ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
-                  : g.type === "reduce_spend"    ? "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300"
-                  : g.type === "increase_income" ? "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300"
-                  : g.type === "savings_target"  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-                  : g.type === "balance_floor"   ? "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300"
-                  : g.type === "budget_streak"   ? "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"
-                  :                               "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"}`}>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${GOAL_TYPE_STYLE[g.type]}`}>
                   {LABELS[g.type]}
                 </span>
                 {g.category_name && (
                   <span className="text-xs px-2 py-0.5 rounded-full text-white"
-                    style={{ backgroundColor: g.category_color ?? "#9ca3af" }}>
+                    style={{ backgroundColor: g.category_color ?? "hsl(var(--neutral))" }}>
                     {g.category_name}
                   </span>
                 )}

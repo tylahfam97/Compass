@@ -62,10 +62,11 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     income: number;
     expenses: number;
   }[]>(
-    `SELECT strftime('%Y-%m', date) as month,
-            SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income,
-            SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as expenses
-     FROM transactions WHERE profile_id=? GROUP BY month ORDER BY month DESC LIMIT 12`,
+    `SELECT strftime('%Y-%m', t.date) as month,
+            SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END) as income,
+            SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+     FROM transactions t JOIN accounts a ON a.id=t.account_id
+     WHERE t.profile_id=? GROUP BY month ORDER BY month DESC LIMIT 12`,
     [profileId]
   );
 
@@ -959,10 +960,11 @@ export async function getSpendingProfile(profileIds: number[]): Promise<Spending
   const [summary] = await db.select<{ avg_income: number; avg_expenses: number }[]>(
     `SELECT AVG(income) as avg_income, AVG(expenses) as avg_expenses
      FROM (
-       SELECT SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income,
-              SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as expenses
-       FROM transactions WHERE profile_id IN (${ph}) AND date>=?
-       GROUP BY strftime('%Y-%m', date)
+       SELECT SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END) as income,
+              SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+       FROM transactions t JOIN accounts a ON a.id=t.account_id
+       WHERE t.profile_id IN (${ph}) AND t.date>=?
+       GROUP BY strftime('%Y-%m', t.date)
      )`,
     [...profileIds, startDate]
   );
@@ -1009,10 +1011,11 @@ export async function getSavingsHistory(
     return d.toISOString().split("T")[0];
   })();
   const rows = await db.select<{ month: string; income: number; expenses: number }[]>(
-    `SELECT strftime('%Y-%m', date) as month,
-            SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income,
-            SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as expenses
-     FROM transactions WHERE profile_id IN (${ph}) AND date>=?
+    `SELECT strftime('%Y-%m', t.date) as month,
+            SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END) as income,
+            SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+     FROM transactions t JOIN accounts a ON a.id=t.account_id
+     WHERE t.profile_id IN (${ph}) AND t.date>=?
      GROUP BY month ORDER BY month`,
     [...profileIds, startDate]
   );
@@ -1052,10 +1055,11 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
   // ── 1. Savings Rate (40 pts) — 3-month avg ──────────────────────────────
   const srRows = await db.select<{ income: number; expenses: number }[]>(
     `SELECT
-       SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income,
-       SUM(CASE WHEN amount_cents<0 AND (category_id IS NULL OR category_id!=20) THEN ABS(amount_cents) ELSE 0 END) as expenses
-     FROM transactions WHERE profile_id IN (${ph}) AND date>=?
-     GROUP BY strftime('%Y-%m', date) LIMIT 3`,
+       SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END) as income,
+       SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+     FROM transactions t JOIN accounts a ON a.id=t.account_id
+     WHERE t.profile_id IN (${ph}) AND t.date>=?
+     GROUP BY strftime('%Y-%m', t.date) LIMIT 3`,
     [...profileIds, threeAgo]
   );
   const validSR = srRows.filter(r => r.income > 0);
@@ -1108,9 +1112,10 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
 
   // ── 4. Income Stability (10 pts) — 6-month variance ───────────────────
   const incRows = await db.select<{ income: number }[]>(
-    `SELECT SUM(CASE WHEN amount_cents>0 AND (category_id IS NULL OR category_id!=20) THEN amount_cents ELSE 0 END) as income
-     FROM transactions WHERE profile_id IN (${ph}) AND date>=?
-     GROUP BY strftime('%Y-%m', date)`,
+    `SELECT SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END) as income
+     FROM transactions t JOIN accounts a ON a.id=t.account_id
+     WHERE t.profile_id IN (${ph}) AND t.date>=?
+     GROUP BY strftime('%Y-%m', t.date)`,
     [...profileIds, sixAgo]
   );
   const incomes = incRows.filter(r => r.income > 0).map(r => r.income);
