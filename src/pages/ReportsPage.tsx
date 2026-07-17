@@ -165,7 +165,7 @@ export default function ReportsPage() {
         ),
         db.select<{ month: string; income_cents: number; expense_cents: number }[]>(
           `SELECT strftime('%Y-%m', t.date) as month,
-                  SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END) as income_cents,
+                  SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income_cents,
                   SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as expense_cents
            FROM transactions t JOIN accounts a ON a.id=t.account_id
            WHERE t.date>=? AND t.date<? AND t.profile_id=? GROUP BY month ORDER BY month`,
@@ -242,7 +242,7 @@ export default function ReportsPage() {
   const hasData = catThis.length > 0 || topExpenses.length > 0;
 
   return (
-    <div className="p-6 space-y-8 max-w-3xl mx-auto w-full">
+    <div className="p-8 space-y-8 max-w-4xl mx-auto w-full">
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Reports</h1>

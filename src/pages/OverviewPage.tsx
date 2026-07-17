@@ -1,7 +1,9 @@
-﻿import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { AreaChart, Area, LineChart, Line, ResponsiveContainer, Tooltip } from "recharts";
-import { getDb } from "@/lib/db";
+import { Eye, EyeOff } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import { getDb, setAccountHiddenFromDashboard } from "@/lib/db";
 import { formatCurrency, combineAccountBalances, separateAccountBalances, accountChartColor } from "@/lib/utils";
 import { computeNetWorth, type NetWorthSnapshot } from "@/lib/netWorth";
 import { useProfileStore } from "@/stores/profileStore";
@@ -21,6 +23,9 @@ interface ProfileData {
   /** Each credit card kept as its own series (never blended) - drawn as one thin line per card. */
   creditSparkline: { date: string; byAccount: Record<number, number> }[];
   creditAccounts: { id: number; name: string }[];
+  /** Accounts (checking/credit) hidden from the dashboard/overview via the eye-off toggle -
+   *  kept separately so they can be restored from the same card. */
+  hiddenAccounts: { id: number; name: string }[];
   hasTransactions: boolean;
   portfolioValue: number;
 }
@@ -66,6 +71,8 @@ export default function OverviewPage() {
   const [data, setData] = useState<Map<number, ProfileData>>(new Map());
   const [loading, setLoading] = useState(true);
   const [netWorth, setNetWorth] = useState<NetWorthSnapshot | null>(null);
+  const [reloadTick, setReloadTick] = useState(0);
+  const [hideToast, setHideToast] = useState<{ id: number; name: string } | null>(null);
 
   const [viewMode, setViewMode] = useState<"profile" | "global">(() => {
     const saved = localStorage.getItem(viewModeKey(profileId));
@@ -125,18 +132,18 @@ export default function OverviewPage() {
       const [start, end] = monthBounds(month);
       const entries = await Promise.all(
         visibleProfiles.map(async (p) => {
-          const [balRow, incRow, expRow, txRow, sparkRows, portfolioRow] = await Promise.all([
+          const [balRow, incRow, expRow, txRow, sparkRows, portfolioRow, hiddenRow] = await Promise.all([
             db.select<{ account_id: number; account_type: string; name: string; balance_cents: number | null }[]>(
               `SELECT a.id as account_id, a.account_type, a.name,
                  (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
                   ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents
-               FROM accounts a WHERE a.profile_id=? AND a.account_type IN ('checking','credit')`,
+               FROM accounts a WHERE a.profile_id=? AND a.account_type IN ('checking','credit') AND a.hidden_from_dashboard=0`,
               [p.id]
             ),
             db.select<{ total: number }[]>(
               `SELECT COALESCE(SUM(t.amount_cents),0) as total FROM transactions t JOIN accounts a ON a.id=t.account_id
                WHERE t.profile_id=? AND t.date>=? AND t.date<? AND t.amount_cents>0
-                 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit'`,
+                 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan')`,
               [p.id, start, end]
             ),
             db.select<{ total: number }[]>(
@@ -151,7 +158,7 @@ export default function OverviewPage() {
               `SELECT t.date, t.account_id, a.account_type, t.balance_cents FROM transactions t
                JOIN accounts a ON a.id=t.account_id
                WHERE t.profile_id=? AND t.balance_cents IS NOT NULL AND a.account_type IN ('checking','credit')
-                 AND t.date >= date('now','-60 days')
+                 AND a.hidden_from_dashboard=0 AND t.date >= date('now','-60 days')
                ORDER BY t.date ASC, t.id ASC`,
               [p.id]
             ),
@@ -159,6 +166,10 @@ export default function OverviewPage() {
               `SELECT SUM(market_value_cents) as total FROM holdings
                WHERE profile_id=? AND as_of_date=(SELECT MAX(as_of_date) FROM holdings WHERE profile_id=?)`,
               [p.id, p.id]
+            ),
+            db.select<{ id: number; name: string }[]>(
+              "SELECT id, name FROM accounts WHERE profile_id=? AND account_type IN ('checking','credit') AND hidden_from_dashboard=1 ORDER BY name",
+              [p.id]
             ),
           ]);
           const trackedAccounts = balRow.filter((r) => r.balance_cents !== null);
@@ -172,6 +183,7 @@ export default function OverviewPage() {
               .map((r) => ({ date: r.date, balance: r.balance_cents / 100 })),
             creditSparkline: separateAccountBalances(sparkRows.filter((r) => r.account_type === "credit")),
             creditAccounts,
+            hiddenAccounts: hiddenRow,
             hasTransactions: (txRow[0]?.n ?? 0) > 0,
             portfolioValue: portfolioRow[0]?.total ?? 0,
           }] as [number, ProfileData];
@@ -180,7 +192,7 @@ export default function OverviewPage() {
       setData(new Map(entries));
       setLoading(false);
     })().catch(console.error);
-  }, [visibleProfiles, month]);
+  }, [visibleProfiles, month, reloadTick]);
 
   useEffect(() => {
     const ids = isGlobalActive ? unlockedProfileIds : [profileId];
@@ -198,8 +210,22 @@ export default function OverviewPage() {
     navigate("/");
   }
 
+  /** Hides an account's chart/balance from the Dashboard/Overview (and net worth) - triggered
+   *  by the eye-off icon next to each credit-card legend chip. */
+  const hideAccount = async (id: number, name: string) => {
+    await setAccountHiddenFromDashboard(id, true);
+    setHideToast({ id, name });
+    setReloadTick((t) => t + 1);
+  };
+
+  const restoreAccount = async (id: number) => {
+    await setAccountHiddenFromDashboard(id, false);
+    setHideToast(null);
+    setReloadTick((t) => t + 1);
+  };
+
   return (
-    <div className="p-6 space-y-6 max-w-[1200px] mx-auto w-full">
+    <div className="p-8 space-y-6 max-w-[1320px] mx-auto w-full">
       {pinTarget && (
         <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />
       )}
@@ -226,11 +252,11 @@ export default function OverviewPage() {
           </div>
           <div className="flex items-center gap-1">
             <button onClick={() => navMonth(-1)} aria-label="Previous month"
-              className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors">‹</button>
+              className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors">�</button>
             <input type="month" value={month} onChange={(e) => setMonth(e.target.value)}
               className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]" />
             <button onClick={() => navMonth(1)} aria-label="Next month"
-              className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors">›</button>
+              className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors">�</button>
           </div>
         </div>
       </div>
@@ -243,7 +269,7 @@ export default function OverviewPage() {
           style={{ border: "1px solid rgba(245,158,11,0.35)", backgroundColor: "rgba(245,158,11,0.07)" }}>
           <p className="text-sm font-semibold" style={{ color: "#b45309" }}>
             {lockedExcluded.length === 1 ? "1 profile is PIN-locked" : `${lockedExcluded.length} profiles are PIN-locked`}
-            {" "}— excluded from combined totals below.
+            {" "}� excluded from combined totals below.
           </p>
           <div className="flex flex-wrap gap-2">
             {lockedExcluded.map((p) => (
@@ -264,7 +290,7 @@ export default function OverviewPage() {
       {!loading && netWorth !== null && (
         <div className="border rounded-2xl p-5 bg-[hsl(var(--muted))]/40">
           <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wide font-medium mb-3">
-            {isGlobalActive ? "Combined — unlocked profiles" : "This profile"}
+            {isGlobalActive ? "Combined � unlocked profiles" : "This profile"}
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
             <div>
@@ -277,8 +303,8 @@ export default function OverviewPage() {
             </div>
             <div>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">Debt</p>
-              <p className={`text-xl font-bold ${netWorth.debtCents < 0 ? "text-red-500" : ""}`}>
-                {formatCurrency(netWorth.debtCents)}
+              <p className={`text-xl font-bold ${(netWorth.debtCents + netWorth.loanDebtCents) < 0 ? "text-red-500" : ""}`}>
+                {formatCurrency(netWorth.debtCents + netWorth.loanDebtCents)}
               </p>
             </div>
             <div>
@@ -334,7 +360,7 @@ export default function OverviewPage() {
                   <div>
                     <p className="font-semibold leading-tight">{profile.name}</p>
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                      {d?.hasTransactions ? "Click to switch →" : "No data imported yet"}
+                      {d?.hasTransactions ? "Click to switch ?" : "No data imported yet"}
                     </p>
                   </div>
                 </div>
@@ -394,6 +420,38 @@ export default function OverviewPage() {
                             </ResponsiveContainer>
                           </div>
                         )}
+                        {d.creditAccounts.length > 0 && (
+                          <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                            {d.creditAccounts.map((acc, i) => (
+                              <button
+                                key={acc.id}
+                                onClick={(e) => { e.stopPropagation(); hideAccount(acc.id, acc.name); }}
+                                title="Hide this card from the dashboard/overview"
+                                className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border hover:bg-[hsl(var(--muted))] transition-colors"
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: accountChartColor(i) }} />
+                                <span className="truncate max-w-[70px]">{acc.name}</span>
+                                <EyeOff size={9} />
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {d.hiddenAccounts.length > 0 && (
+                      <div className="flex items-center gap-1.5 flex-wrap mb-3 text-[10px] text-[hsl(var(--muted-foreground))]">
+                        <span>Hidden:</span>
+                        {d.hiddenAccounts.map((a) => (
+                          <button
+                            key={a.id}
+                            onClick={(e) => { e.stopPropagation(); restoreAccount(a.id); }}
+                            title="Show on dashboard/overview again"
+                            className="flex items-center gap-1 px-1.5 py-0.5 rounded-full border hover:bg-[hsl(var(--muted))] transition-colors"
+                          >
+                            <Eye size={9} /> {a.name}
+                          </button>
+                        ))}
                       </div>
                     )}
 
@@ -434,12 +492,42 @@ export default function OverviewPage() {
                 </div>
               </div>
               <p className="text-sm text-[hsl(var(--muted-foreground))] italic py-4 text-center">
-                🔒 Enter PIN to include in totals
+                ?? Enter PIN to include in totals
               </p>
             </button>
           ))}
         </div>
       )}
+
+      {/* Hide-account undo toast - border/rounded live on the inner div, not this
+          fixed-positioned one (see CSS specificity note in TransactionsPage). */}
+      <AnimatePresence>
+        {hideToast && (
+          <motion.div
+            key="hide-account-toast"
+            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} transition={{ duration: 0.2 }}
+            className="fixed bottom-6 right-6 z-50 max-w-sm"
+          >
+            <div className="border shadow-xl rounded-xl px-5 py-3 flex items-center gap-4 text-sm bg-[hsl(var(--background))]">
+              <span className="flex-1 text-[hsl(var(--foreground))]">
+                <strong>{hideToast.name}</strong> hidden from the dashboard/overview.
+              </span>
+              <button
+                onClick={() => restoreAccount(hideToast.id)}
+                className="px-3 py-1.5 border rounded-lg font-medium hover:bg-[hsl(var(--muted))] transition-colors shrink-0"
+              >
+                Undo
+              </button>
+              <button
+                onClick={() => setHideToast(null)}
+                className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] text-lg leading-none"
+              >
+                ?
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

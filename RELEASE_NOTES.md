@@ -2,47 +2,39 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
-## Compass 0.7.5 — Accuracy Fixes & Interface Polish
+## Compass 0.8.0 — Loans Have Arrived! 🎉
 
-### Fixed: Investment ROI Overstated on Mixed-Data Holdings
-When a symbol had multiple lots and only some of them carried a cost basis (common with partial imports), the Investments page was comparing the *full* market value of the position against only the *partial* cost basis it had data for - overstating ROI, sometimes dramatically. ROI now only compares market value against cost basis for the lots that actually have both, so the percentage reflects the real return on what you actually paid.
+This is a big one! Compass now understands **loans** - car loans, student loans, mortgages, personal loans, whatever you're paying down - alongside a bunch of import improvements, a slicker Insights experience, and a pile of account-management fixes we're genuinely excited about. Let's get into it.
 
-### New: Transaction Detail Popup
-Click anywhere on a transaction row (other than the category or edit buttons) to see a clean, read-only summary - account, balance right after that transaction, full description, and any note - in a quick popup rather than opening the edit form. Closes on Escape or a click outside, with a smooth fade in/out, and never disturbs your scroll position on the page.
+### New: Loan Tracking
+Add a loan the way that makes sense for you: upload a statement PDF and let Compass pull the balance, interest rate, minimum payment, and statement date for you (always shown as editable fields first, since lender formats vary wildly), or just enter it by hand. Loans get their own tile section on the Dashboard - name, balance, trend, and a mini sparkline - and they're never counted toward liquidity or your income/expense totals, exactly like credit cards.
 
-### New: Sticky Transactions Header
-The title, action buttons, and search/filter row on the Transactions page now stay pinned at the top while you scroll through a long list, instead of scrolling out of view.
+### New: Loan Dashboard
+Head to Insights for a dedicated Loan Dashboard: rank your loans by **Avalanche** (highest interest rate first - saves the most money), **Snowball** (smallest balance first - the fastest full payoff and a quick psychological win), or **Cash-flow First** (highest minimum payment first - frees up the most monthly breathing room, fastest). Each ranking comes with a plain-English reason why, plus a little debt-psychology context on why one method might suit you better than another.
 
-### Polish: Launch Screen
-The gold particle field now drifts closer in around the profile picker instead of leaving a large empty gap, and the Compass wordmark is now truly centered above "Good afternoon" and the picker card (its SVG had extra invisible padding on one side throwing off the centering).
+### New: PDF Statement Import
+You can now drop a text-based PDF bank or credit card statement straight into the Import page, right alongside CSV and XLSX - Compass reads the transactions out of the PDF and walks you through the same familiar review wizard before anything's saved. (Scanned/photographed statements aren't supported yet - there's no text in those to read - but real digital statements from your bank should just work.)
 
-### Fixed: Savings Rate & Health Score Still Counting Credit Card Spending
-A few calculations were missed in the earlier credit-card-accounting fix: the "Avg Savings Rate" stat, the Insights savings-rate warning, and the Financial Health Score's Budget Health component were still counting credit card purchases as expenses, understating how healthy your savings rate actually is. These now correctly reflect checking and investment activity only, consistent with the rest of the app - and no longer double-count debt that's already tracked separately by the Credit Card Health score.
+### New: Hide Accounts From Your Dashboard, Without Losing Them
+Click the eye icon on any credit card tile to collapse it right there in place - it's excluded from net worth while collapsed, and expanding it again brings it right back, calculations and all. No more hunting for a way to undo a hide.
 
-### Changed: Dashboard "Checking Balance"
-The Dashboard's headline balance figure is now explicitly checking/bank accounts only - credit card debt no longer gets blended into it. It's relabeled "Checking Balance" so it's clear what it represents; investments remain an optional add-on via the existing toggle.
+### New: Exclude Accounts From Insights
+A new dropdown next to the Profile/Global switch on the Insights page lets you pick specific accounts to leave out of savings rate, health score, and spending calculations - handy for a joint account or something you just don't want skewing your numbers - without hiding it from the Dashboard.
 
-### Changed: Credit Card Balances, Redesigned
-Replaced the shared line chart on the Dashboard (multiple near-flat debt lines competing for space) with a clean per-card tile layout - each card shows its current balance, a small trend sparkline, and a paid-down/grew-by indicator at a glance, no click required.
+### New: Account Detail View
+Click any credit card or loan tile on the Dashboard for a proper detail view: balance, trend chart, the top 2 insights relevant to that account, and recent activity (transactions for credit cards, statement history for loans).
 
-### New: Per-Account Balance Trends on Overview
-The Overview page's profile summary cards now split checking and credit card balances into separate trend lines instead of blending them into one number, matching how the Dashboard and Trends pages already handle multi-account balances.
+### New: Delete Accounts, Properly
+The Manage Accounts panel now lets you delete an account even if it isn't empty - you'll get a clear warning about exactly how many transactions/holdings will go with it, plus a second "are you sure" before anything's removed. Deleting cleans up everything tied to that account, no orphaned data left behind.
 
-### Changed: Insights - Wins, Observations & Action Items
-The expanded list under each Insights category is now a horizontally-scrolling row of polished cards instead of a long vertical list, making it easier to browse at a glance.
+### Redesigned: Insights Carousel
+The Wins/Observations/Action Items cards now live in a real drag-to-browse 3D carousel - grab and slide anywhere in the box, watch cards tilt and fade as they pass by, and let go to have it glide to a stop on whichever one's centered. No scrollbar, no slider, just drag.
 
-### Changed: Rules Manager & Categories Buttons
-Both buttons on the Transactions page now clearly say "Rules Manager" and "Categories" instead of being bare icons. The Rules Manager's rule list no longer shows the internal priority number for each rule - one less thing to parse when you're just scanning your rules.
+### Fixed: Import History Now Covers Loan Statements
+Uploading a loan statement shows up in the Import page's history list just like any other import, complete with a working Undo.
 
-### Fixed: Overview Chart Tooltip Rendering Behind Other Content
-Hovering over the balance sparklines on the Overview page could show the tooltip clipped behind the In/Out/Net summary box below it. The tooltip now always renders on top.
+### Fixed: A Couple of Silent Failures in Manage Accounts
+The insights-exclusion toggle in Manage Accounts could fail without telling you anything went wrong - it now surfaces a clear error if something does go sideways, same as everywhere else in the app.
 
-### Fixed: Import Hardening
-Added a file-size limit on CSV/XLSX imports to prevent an accidental huge file from freezing the app, and the Import button now disables itself while an import is in progress to prevent accidental double-imports. "Try Demo Mode" now hides itself once demo accounts already exist for a profile, instead of allowing duplicates.
-
-### Changed: Modal Consistency
-Every modal in the app (transaction editing, categories, rules, PIN entry, the health score breakdown) now closes on Escape or a click on the dimmed backdrop, and fades in/out smoothly instead of appearing and disappearing instantly.
-
-### Polish: Loading States & Small Details
-Dashboard, Overview, Reports, and Trends now show shaped skeleton placeholders while loading instead of plain "Loading…" text. Long category and profile names now truncate cleanly instead of breaking their containers. The launch-screen particle field is denser.
-
+### Polish: More Breathing Room, Everywhere
+Every page got a touch more padding and a bit more width - Transactions especially - for a more spacious, professional feel on larger screens.

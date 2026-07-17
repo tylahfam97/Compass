@@ -64,7 +64,12 @@ function buildQueryParts(opts: {
   filterAmountMin: string;         // dollar string, empty = no bound
   filterAmountMax: string;         // dollar string, empty = no bound
 }): { where: string; params: unknown[] } {
-  const conditions: string[] = ["t.profile_id=?"];
+  const conditions: string[] = [
+    "t.profile_id=?",
+    // Loan "transactions" are just balance-snapshot rows from statement uploads, not itemized
+    // purchases - they belong on the Loan Dashboard, not the everyday transaction list.
+    "t.account_id NOT IN (SELECT id FROM accounts WHERE account_type='loan')",
+  ];
   const params: unknown[] = [opts.profileId];
 
   if (!opts.allTime) {
@@ -353,7 +358,7 @@ export default function TransactionsPage() {
 
   return (
     <div
-      className="p-6 flex flex-col h-full relative"
+      className="p-8 flex flex-col h-full relative"
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={(e) => e.preventDefault()}
@@ -369,7 +374,7 @@ export default function TransactionsPage() {
           <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">Opens the import wizard</p>
         </div>
       )}
-      <div className="sticky top-0 z-20 -mt-6 -mx-6 pt-6 px-6 pb-3 bg-[hsl(var(--background))] border-b">
+      <div className="sticky top-0 z-20 -mt-8 -mx-8 pt-8 px-8 pb-3 bg-[hsl(var(--background))] border-b">
       <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
         <h1 className="text-2xl font-semibold">Transactions</h1>
         <div className="flex items-center gap-2">

@@ -863,6 +863,40 @@ async function runMigrations(db: CompassDb): Promise<void> {
 
     await db.execute("PRAGMA user_version = 16");
   }
+
+  // ── v17: Per-account dashboard-visibility + insights-exclusion flags.
+  //         hidden_from_dashboard also removes the account from net worth;
+  //         excluded_from_insights only affects agent.ts calculations. ─────
+  if (version < 17) {
+    const v17Alterations: [string, string, string][] = [
+      ["accounts", "hidden_from_dashboard", "INTEGER NOT NULL DEFAULT 0"],
+      ["accounts", "excluded_from_insights", "INTEGER NOT NULL DEFAULT 0"],
+    ];
+    for (const [table, col, def] of v17Alterations) {
+      assertSafeMigrationIdentifiers(table, col);
+      if (!(await colExists(db, table, col))) {
+        await db.execute(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
+      }
+    }
+    await db.execute("PRAGMA user_version = 17");
+  }
+
+  // ── v18: Loan accounts (account_type='loan') - interest rate and minimum payment are
+  //         purely informational (never used in any calculation), since the loan's own
+  //         statements already carry that information. ────────────────────────────────
+  if (version < 18) {
+    const v18Alterations: [string, string, string][] = [
+      ["accounts", "interest_rate_bps", "INTEGER"],
+      ["accounts", "minimum_payment_cents", "INTEGER"],
+    ];
+    for (const [table, col, def] of v18Alterations) {
+      assertSafeMigrationIdentifiers(table, col);
+      if (!(await colExists(db, table, col))) {
+        await db.execute(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
+      }
+    }
+    await db.execute("PRAGMA user_version = 18");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────
@@ -948,6 +982,8 @@ export interface AccountSummary {
   balance_cents: number | null;
   txn_count: number;
   holdings_count: number;
+  hidden_from_dashboard: boolean;
+  excluded_from_insights: boolean;
 }
 
 /**
@@ -957,8 +993,11 @@ export interface AccountSummary {
  */
 export async function getAccountsSummaryForProfile(profileId: number): Promise<AccountSummary[]> {
   const db = await getDb();
-  return db.select<AccountSummary[]>(
+  const rows = await db.select<(Omit<AccountSummary, "hidden_from_dashboard" | "excluded_from_insights"> & {
+    hidden_from_dashboard: number; excluded_from_insights: number;
+  })[]>(
     `SELECT a.id, a.name, a.account_type, a.institution,
+       a.hidden_from_dashboard, a.excluded_from_insights,
        (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
         ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents,
        (SELECT COUNT(*) FROM transactions t WHERE t.account_id=a.id) as txn_count,
@@ -966,6 +1005,11 @@ export async function getAccountsSummaryForProfile(profileId: number): Promise<A
      FROM accounts a WHERE a.profile_id=? ORDER BY a.account_type, a.name`,
     [profileId]
   );
+  return rows.map((r) => ({
+    ...r,
+    hidden_from_dashboard: !!r.hidden_from_dashboard,
+    excluded_from_insights: !!r.excluded_from_insights,
+  }));
 }
 
 /** Renames an account - the same "which account" naming used during import, editable afterward. */
@@ -974,6 +1018,23 @@ export async function renameAccount(accountId: number, name: string): Promise<vo
   if (!trimmed) throw new Error("Account name cannot be empty.");
   const db = await getDb();
   await db.execute("UPDATE accounts SET name=? WHERE id=?", [trimmed, accountId]);
+}
+
+/** Hides/shows an account's chart on the Dashboard/Overview pages. Hiding also removes it
+ *  from net-worth totals (see computeNetWorth in netWorth.ts) - a single toggle for "don't
+ *  count this account visually or in net worth right now" (e.g. a joint/shared account, or a
+ *  loan you don't want reflected in your net worth). Defaults to visible/included. */
+export async function setAccountHiddenFromDashboard(accountId: number, hidden: boolean): Promise<void> {
+  const db = await getDb();
+  await db.execute("UPDATE accounts SET hidden_from_dashboard=? WHERE id=?", [hidden ? 1 : 0, accountId]);
+}
+
+/** Excludes/includes an account from the Insights/health-score calculations in agent.ts
+ *  (savings rate, budget health, spending profile, etc.) without affecting whether it's shown
+ *  on the Dashboard/Overview or counted in net worth. Defaults to included. */
+export async function setAccountExcludedFromInsights(accountId: number, excluded: boolean): Promise<void> {
+  const db = await getDb();
+  await db.execute("UPDATE accounts SET excluded_from_insights=? WHERE id=?", [excluded ? 1 : 0, accountId]);
 }
 
 /** Deletes an account, but only if it has no transactions or holdings attached - refuses
@@ -987,6 +1048,35 @@ export async function deleteEmptyAccount(accountId: number): Promise<void> {
   );
   if ((row?.txn_count ?? 0) > 0 || (row?.holdings_count ?? 0) > 0) {
     throw new Error("This account still has transactions or holdings - remove those first.");
+  }
+  await db.execute("DELETE FROM accounts WHERE id=?", [accountId]);
+}
+
+/**
+ * Permanently deletes an account AND every transaction/holding attached to it (SQLite's
+ * ON DELETE CASCADE isn't relied on here since this app never enables `PRAGMA foreign_keys`,
+ * so the cascade is done by hand). Also cleans up any import_sessions that end up with zero
+ * remaining transactions as a result, so the Import History list doesn't keep a stray empty
+ * entry around. This is deliberately separate from `deleteEmptyAccount` - callers must obtain
+ * their own (more serious) confirmation before calling this, since it is destructive and
+ * cannot be undone.
+ */
+export async function deleteAccountWithData(accountId: number): Promise<void> {
+  const db = await getDb();
+  const sessions = await db.select<{ id: number }[]>(
+    "SELECT DISTINCT import_session_id as id FROM transactions WHERE account_id=? AND import_session_id IS NOT NULL",
+    [accountId]
+  );
+  await db.execute("DELETE FROM transactions WHERE account_id=?", [accountId]);
+  await db.execute("DELETE FROM holdings WHERE account_id=?", [accountId]);
+  for (const { id } of sessions) {
+    const [remaining] = await db.select<{ n: number }[]>(
+      "SELECT COUNT(*) as n FROM transactions WHERE import_session_id=?",
+      [id]
+    );
+    if ((remaining?.n ?? 0) === 0) {
+      await db.execute("DELETE FROM import_sessions WHERE id=?", [id]);
+    }
   }
   await db.execute("DELETE FROM accounts WHERE id=?", [accountId]);
 }
@@ -1042,6 +1132,147 @@ export async function mergeDuplicateAccounts(profileId: number): Promise<number>
     await recomputeCalculatedBalancesWithDb(db, primary.id);
   }
   return merged;
+}
+
+// ─── Loan accounts ────────────────────────────────────────────────────────────
+// Loans are their own account_type ('loan'), never counted toward liquidity or
+// income/expense totals. Each statement upload records a single balance-snapshot
+// `transactions` row (balance_cents only, no itemized purchases) - the same shape
+// credit cards already use for their running balance - so the existing per-account
+// tile/sparkline rendering works unmodified. interest_rate_bps/minimum_payment_cents
+// are purely informational and are never used in any calculation.
+//
+// The snapshot row is filed under category_id=20 (Transfers) rather than NULL -
+// nearly every income/expense query across the app already excludes category 20 via
+// the ubiquitous `(t.category_id IS NULL OR t.category_id != 20)` filter, so this one
+// choice keeps loan snapshots out of spending/income totals everywhere, not just the
+// handful of queries that were explicitly updated to also exclude account_type='loan'.
+
+export interface LoanAccount {
+  id: number;
+  name: string;
+  institution: string;
+  interest_rate_bps: number | null;
+  minimum_payment_cents: number | null;
+  balance_cents: number | null; // negative (amount owed), or null if no statement uploaded yet
+  hidden_from_dashboard: boolean;
+}
+
+export async function getLoanAccountsForProfile(profileId: number): Promise<LoanAccount[]> {
+  const db = await getDb();
+  const rows = await db.select<(Omit<LoanAccount, "hidden_from_dashboard"> & { hidden_from_dashboard: number })[]>(
+    `SELECT a.id, a.name, a.institution, a.interest_rate_bps, a.minimum_payment_cents, a.hidden_from_dashboard,
+       (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
+        ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents
+     FROM accounts a WHERE a.profile_id=? AND a.account_type='loan' ORDER BY a.name`,
+    [profileId]
+  );
+  return rows.map((r) => ({ ...r, hidden_from_dashboard: !!r.hidden_from_dashboard }));
+}
+
+/** Balance history (one point per statement) for a loan account's sparkline - same shape as
+ *  the credit-card tile chart data. */
+export async function getLoanBalanceHistory(accountId: number): Promise<{ date: string; value: number }[]> {
+  const db = await getDb();
+  const rows = await db.select<{ date: string; balance_cents: number }[]>(
+    `SELECT date, balance_cents FROM transactions
+     WHERE account_id=? AND balance_cents IS NOT NULL ORDER BY date ASC, id ASC`,
+    [accountId]
+  );
+  return rows.map((r) => ({ date: r.date, value: r.balance_cents / 100 }));
+}
+
+/**
+ * Creates a new loan account (or reuses an existing one, either by explicit id or by
+ * case-insensitive name match within the profile) and records one statement snapshot as a
+ * `transactions` row. Re-uploading a statement for the same account+date updates that
+ * snapshot in place instead of creating a duplicate (import_hash is deterministic:
+ * `loan_stmt_<accountId>_<date>`). Returns the account id.
+ */
+export async function upsertLoanStatement(params: {
+  profileId: number;
+  accountId?: number | null;
+  name: string;
+  institution: string;
+  interestRateBps: number | null;
+  minimumPaymentCents: number | null;
+  statementDate: string; // YYYY-MM-DD
+  balanceCents: number; // positive amount owed - stored negative, matching credit accounts
+}): Promise<number> {
+  const db = await getDb();
+  const name = params.name.trim() || "Loan";
+  const institution = params.institution.trim();
+
+  let accountId = params.accountId ?? null;
+  if (accountId == null) {
+    const existing = await db.select<{ id: number }[]>(
+      "SELECT id FROM accounts WHERE profile_id=? AND account_type='loan' AND name=? COLLATE NOCASE",
+      [params.profileId, name]
+    );
+    if (existing.length > 0) accountId = existing[0].id;
+  }
+
+  if (accountId == null) {
+    const result = await db.execute(
+      "INSERT INTO accounts (name, account_type, institution, profile_id, interest_rate_bps, minimum_payment_cents) VALUES (?, 'loan', ?, ?, ?, ?)",
+      [name, institution, params.profileId, params.interestRateBps, params.minimumPaymentCents]
+    );
+    accountId = result.lastInsertId as number;
+  } else {
+    await db.execute(
+      "UPDATE accounts SET name=?, institution=?, interest_rate_bps=?, minimum_payment_cents=? WHERE id=?",
+      [name, institution, params.interestRateBps, params.minimumPaymentCents, accountId]
+    );
+  }
+
+  const balanceCents = -Math.abs(params.balanceCents);
+  const hash = `loan_stmt_${accountId}_${params.statementDate}`;
+  const [prior] = await db.select<{ balance_cents: number }[]>(
+    `SELECT balance_cents FROM transactions WHERE account_id=? AND balance_cents IS NOT NULL AND date<?
+     ORDER BY date DESC, id DESC LIMIT 1`,
+    [accountId, params.statementDate]
+  );
+  const deltaCents = prior ? balanceCents - prior.balance_cents : 0;
+
+  // Reuse the same import_sessions row on a same-date re-upload (found via the existing
+  // transaction's own session, since import_hash is deterministic per account+date) rather
+  // than piling up an empty duplicate session every time a statement gets re-uploaded - either
+  // way, this session is what lets the Import page's history list show and undo this upload
+  // like any other import.
+  const [existingTxn] = await db.select<{ import_session_id: number | null }[]>(
+    "SELECT import_session_id FROM transactions WHERE import_hash=?",
+    [hash]
+  );
+  let sessionId: number;
+  if (existingTxn?.import_session_id != null) {
+    sessionId = existingTxn.import_session_id;
+    await db.execute(
+      "UPDATE import_sessions SET filename=?, imported_at=datetime('now') WHERE id=?",
+      [`${name} - statement ${params.statementDate}`, sessionId]
+    );
+  } else {
+    const sessionResult = await db.execute(
+      "INSERT INTO import_sessions (filename, row_count, skipped_count, profile_id, kind) VALUES (?, 1, 0, ?, 'loan')",
+      [`${name} - statement ${params.statementDate}`, params.profileId]
+    );
+    sessionId = sessionResult.lastInsertId as number;
+  }
+
+  await db.execute(
+    `INSERT INTO transactions (account_id, date, amount_cents, description, category_id, import_hash, balance_cents, profile_id, import_session_id)
+     VALUES (?, ?, ?, ?, 20, ?, ?, ?, ?)
+     ON CONFLICT(import_hash) DO UPDATE SET amount_cents=excluded.amount_cents, balance_cents=excluded.balance_cents, import_session_id=excluded.import_session_id`,
+    [accountId, params.statementDate, deltaCents, "Statement balance update", hash, balanceCents, params.profileId, sessionId]
+  );
+
+  return accountId;
+}
+
+/** Deletes a loan account and its statement-snapshot rows - unlike deleteEmptyAccount, this is
+ *  always allowed since a loan account's only "transactions" are its own balance snapshots. */
+export async function deleteLoanAccount(accountId: number): Promise<void> {
+  const db = await getDb();
+  await db.execute("DELETE FROM accounts WHERE id=? AND account_type='loan'", [accountId]);
 }
 
 /**

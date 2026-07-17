@@ -5,8 +5,11 @@ import {
   ResponsiveContainer, Cell, AreaChart, Area, Rectangle,
 } from "recharts";
 import { motion, AnimatePresence } from "motion/react";
-import { TrendingUp, TrendingDown } from "lucide-react";
-import { getDb, recomputeCalculatedBalances } from "@/lib/db";
+import { TrendingUp, TrendingDown, EyeOff, Eye, Landmark, Plus } from "lucide-react";
+import {
+  getDb, recomputeCalculatedBalances, setAccountHiddenFromDashboard,
+  getLoanAccountsForProfile, getLoanBalanceHistory, type LoanAccount,
+} from "@/lib/db";
 import { seedDemoData } from "@/lib/demoData";
 import { formatCurrency, formatDate, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
 import type { Transaction, Insight } from "@/lib/types";
@@ -14,6 +17,8 @@ import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
 import { generateInsights } from "@/lib/agent";
 import InsightCard from "@/components/InsightCard";
+import LoanUploaderModal from "@/components/LoanUploaderModal";
+import AccountDetailModal, { type AccountDetailAccount } from "@/components/AccountDetailModal";
 import { Skeleton, CardListSkeleton } from "@/components/Skeleton";
 
 interface MonthStats {
@@ -33,6 +38,9 @@ interface CreditAccountMeta {
   id: number;
   name: string;
   color: string;
+  /** Collapsed on the dashboard and excluded from net worth - toggled per-card, independent
+   *  of every other account (see setCreditHidden). */
+  hidden: boolean;
 }
 
 interface CreditBalanceRow {
@@ -74,6 +82,10 @@ export default function DashboardPage() {
   const [checkingBalancePoints, setCheckingBalancePoints] = useState<CheckingBalancePoint[]>([]);
   const [creditBalanceAccounts, setCreditBalanceAccounts] = useState<CreditAccountMeta[]>([]);
   const [creditBalanceRows, setCreditBalanceRows] = useState<CreditBalanceRow[]>([]);
+  const [loans, setLoans] = useState<LoanAccount[]>([]);
+  const [loanSeries, setLoanSeries] = useState<Map<number, { date: string; value: number }[]>>(new Map());
+  const [loanModal, setLoanModal] = useState<"new" | LoanAccount | null>(null);
+  const [viewAccount, setViewAccount] = useState<AccountDetailAccount | null>(null);
   const [portfolioValueCents, setPortfolioValueCents] = useState(0);
   const [expandedCat, setExpandedCat] = useState<CatStat | null>(null);
   const [expandedCatTxns, setExpandedCatTxns] = useState<Transaction[] | null>(null);
@@ -102,7 +114,7 @@ export default function DashboardPage() {
     const [incRow, expRow, catRows, recentRows, monthCountRow, totalCountRow, balanceRow, balancePointRows, portfolioRow, balanceAcctRows, demoAcctRow] = await Promise.all([
       db.select<{ total: number }[]>(
         `SELECT COALESCE(SUM(t.amount_cents),0) as total FROM transactions t JOIN accounts a ON a.id=t.account_id
-         WHERE t.date>=? AND t.date<? AND t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' AND t.profile_id=?`,
+         WHERE t.date>=? AND t.date<? AND t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') AND t.profile_id=?`,
         [start, end, profileId]
       ),
       db.select<{ total: number }[]>(
@@ -148,8 +160,8 @@ export default function DashboardPage() {
          WHERE profile_id=? AND as_of_date=(SELECT MAX(as_of_date) FROM holdings WHERE profile_id=?)`,
         [profileId, profileId]
       ),
-      db.select<{ id: number; name: string; account_type: string }[]>(
-        "SELECT id, name, account_type FROM accounts WHERE profile_id=? AND account_type IN ('checking','credit') ORDER BY account_type, name",
+      db.select<{ id: number; name: string; account_type: string; hidden_from_dashboard: number }[]>(
+        "SELECT id, name, account_type, hidden_from_dashboard FROM accounts WHERE profile_id=? AND account_type IN ('checking','credit') ORDER BY account_type, name",
         [profileId]
       ),
       db.select<{ n: number }[]>(
@@ -165,14 +177,20 @@ export default function DashboardPage() {
     setMonthTxnCount(monthCountRow[0]?.n ?? 0);
     setTotalTxnCount(totalCountRow[0]?.n ?? 0);
     const trackedAccounts = balanceRow.filter((r) => r.balance_cents !== null);
-    const checkingIds = new Set(balanceAcctRows.filter((a) => a.account_type === "checking").map((a) => a.id));
-    // Only checking/bank accounts count toward this headline figure - credit card debt and
-    // investments are tracked separately (Credit Card Health, Net Worth) rather than blended in.
+    // Only VISIBLE checking/bank accounts count toward this headline figure - credit card debt
+    // and investments are tracked separately (Credit Card Health, Net Worth) rather than
+    // blended in. Credit accounts are never excluded from the fetch itself (unlike checking) -
+    // hidden cards still need their full data on hand so their tile can collapse in place
+    // instead of vanishing, and expand instantly (no reload) when un-hidden.
+    const checkingIds = new Set(
+      balanceAcctRows.filter((a) => a.account_type === "checking" && !a.hidden_from_dashboard).map((a) => a.id)
+    );
+    const creditIds = new Set(balanceAcctRows.filter((a) => a.account_type === "credit").map((a) => a.id));
     const checkingTracked = trackedAccounts.filter((r) => checkingIds.has(r.account_id));
     setCurrentBalance(checkingTracked.length > 0 ? checkingTracked.reduce((s, r) => s + (r.balance_cents ?? 0), 0) : null);
     const creditAccountsMeta = balanceAcctRows
       .filter((a) => a.account_type === "credit")
-      .map((a, i) => ({ id: a.id, name: a.name, color: accountChartColor(i) }));
+      .map((a, i) => ({ id: a.id, name: a.name, color: accountChartColor(i), hidden: !!a.hidden_from_dashboard }));
     setCreditBalanceAccounts(creditAccountsMeta);
     // Checking accounts combine into one line (there's usually just one); credit cards stay
     // separate per-account so multiple cards never get silently summed into one number.
@@ -180,7 +198,7 @@ export default function DashboardPage() {
     setCheckingBalancePoints(
       combinedChecking.filter((r) => r.date >= start).map((r) => ({ date: r.date, balance: r.balance_cents / 100 }))
     );
-    const separatedCredit = separateAccountBalances(balancePointRows.filter((r) => !checkingIds.has(r.account_id)));
+    const separatedCredit = separateAccountBalances(balancePointRows.filter((r) => creditIds.has(r.account_id)));
     setCreditBalanceRows(
       separatedCredit.filter((r) => r.date >= start).map((r) => {
         const row: CreditBalanceRow = { date: r.date };
@@ -262,6 +280,18 @@ export default function DashboardPage() {
     generateInsights([profileId]).then(setInsights).catch(console.error);
   }, [profileId, activeProfile]);
 
+  const loadLoans = useCallback(async () => {
+    const rows = await getLoanAccountsForProfile(profileId);
+    setLoans(rows);
+    const histories = await Promise.all(rows.map((l) => getLoanBalanceHistory(l.id)));
+    setLoanSeries(new Map(rows.map((l, i) => [l.id, histories[i]])));
+  }, [profileId]);
+
+  // Loans aren't tied to month selection either - full history, not just the visible month.
+  useEffect(() => {
+    loadLoans().catch(console.error);
+  }, [loadLoans]);
+
   const visibleInsights = insights
     .filter((i) => !dismissedInsights.includes(i.dismissKey))
     .slice(0, 3);
@@ -275,10 +305,19 @@ export default function DashboardPage() {
     }
   };
 
+  /** Collapses/expands a single credit card tile in place - collapsing also excludes it from
+   *  net worth, expanding restores it. Purely a local, per-card, optimistic update (no full
+   *  page reload) so toggling one card can never visually affect any other card, and there's
+   *  always an obvious, permanent way to reverse it (click the collapsed tile again). */
+  const setCreditHidden = async (id: number, hidden: boolean) => {
+    setCreditBalanceAccounts((prev) => prev.map((a) => (a.id === id ? { ...a, hidden } : a)));
+    await setAccountHiddenFromDashboard(id, hidden);
+  };
+
   const hasData = stats.income !== 0 || stats.expenses !== 0;
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-8 space-y-6 max-w-6xl mx-auto w-full">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
         <div className="flex items-center gap-1">
@@ -454,7 +493,7 @@ export default function DashboardPage() {
           {/* Credit card balances - one compact tile per card (balance + trend + mini-sparkline),
               rather than a shared line chart where multiple near-flat debt lines are hard to
               read and don't convey much at a glance. */}
-          {creditBalanceAccounts.length > 0 && creditBalanceRows.length > 0 && (
+          {creditBalanceAccounts.length > 0 && (
             <div className="space-y-3">
               <div>
                 <h2 className="font-semibold">Credit Cards</h2>
@@ -470,19 +509,57 @@ export default function DashboardPage() {
                   // the card was paid down (improved), a MORE negative one means debt grew.
                   const improved = changeCents > 0;
                   const lastCents = Math.round(last * 100);
+
+                  // Collapsed: a slim row, still in its normal grid position - clicking it
+                  // expands the card back and re-includes it in net worth. This is the ONLY
+                  // way in and out of the hidden state, so it's never a dead end.
+                  if (acc.hidden) {
+                    return (
+                      <button
+                        key={acc.id}
+                        onClick={() => setCreditHidden(acc.id, false)}
+                        title="Show this card on the dashboard again"
+                        className="border rounded-xl px-4 py-3 flex items-center justify-between gap-2 text-left
+                                   hover:bg-[hsl(var(--muted))] transition-colors"
+                      >
+                        <span className="text-sm font-medium flex items-center gap-1.5 min-w-0 text-[hsl(var(--muted-foreground))]">
+                          <span className="w-2 h-2 rounded-full shrink-0 opacity-50" style={{ backgroundColor: acc.color }} />
+                          <span className="truncate">{acc.name}</span>
+                          <span className="text-[9px] font-semibold uppercase tracking-wide shrink-0 px-1.5 py-0.5 rounded-full border">
+                            Hidden
+                          </span>
+                        </span>
+                        <Eye size={14} className="text-[hsl(var(--muted-foreground))] shrink-0" />
+                      </button>
+                    );
+                  }
+
                   return (
-                    <div key={acc.id} className="border rounded-xl p-4">
+                    <div
+                      key={acc.id}
+                      className="border rounded-xl p-4 cursor-pointer hover:border-[hsl(var(--primary))] transition-colors"
+                      onClick={() => setViewAccount({ id: acc.id, name: acc.name, accountType: "credit", color: acc.color, balanceCents: lastCents, series })}
+                    >
                       <div className="flex items-center justify-between mb-1 gap-2">
                         <span className="text-sm font-medium flex items-center gap-1.5 min-w-0">
                           <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: acc.color }} />
                           <span className="truncate">{acc.name}</span>
                         </span>
-                        {series.length > 1 && Math.abs(changeCents) >= 100 && (
-                          <span className={`text-xs font-semibold flex items-center gap-0.5 shrink-0 ${improved ? "text-green-600" : "text-red-500"}`}>
-                            {improved ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                            {formatCurrency(Math.abs(changeCents))}
-                          </span>
-                        )}
+                        <span className="flex items-center gap-2 shrink-0">
+                          {series.length > 1 && Math.abs(changeCents) >= 100 && (
+                            <span className={`text-xs font-semibold flex items-center gap-0.5 ${improved ? "text-green-600" : "text-red-500"}`}>
+                              {improved ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                              {formatCurrency(Math.abs(changeCents))}
+                            </span>
+                          )}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setCreditHidden(acc.id, true); }}
+                            title="Collapse this card (excludes it from net worth)"
+                            className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
+                          >
+                            <EyeOff size={13} />
+                          </button>
+                        </span>
                       </div>
                       <p className={`text-xl font-bold mb-2 ${lastCents < 0 ? "text-red-500" : "text-green-600"}`}>
                         {formatCurrency(lastCents)}
@@ -515,6 +592,104 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {/* Loans - same per-account tile pattern as Credit Cards, but never counted toward
+              liquidity/income/expenses; balance history comes from statement uploads instead
+              of imported transactions. Always shown (even with zero loans) so "Add Loan" stays
+              discoverable. */}
+          <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="font-semibold flex items-center gap-1.5"><Landmark size={15} /> Loans</h2>
+                  <p className="text-[10px] text-[hsl(var(--muted-foreground))]">Not counted toward liquidity or income/expenses</p>
+                </div>
+                <button
+                  onClick={() => setLoanModal("new")}
+                  className="flex items-center gap-1 text-xs px-2.5 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))] transition-colors shrink-0"
+                >
+                  <Plus size={13} /> Add Loan
+                </button>
+              </div>
+              {loans.length === 0 ? (
+                <p className="text-sm text-[hsl(var(--muted-foreground))] italic border rounded-xl p-5 text-center">
+                  No loans added yet - car loans, student loans, mortgages, or personal loans.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {loans.map((loan, i) => {
+                    const series = loanSeries.get(loan.id) ?? [];
+                    const last = series.length > 0 ? series[series.length - 1].value : (loan.balance_cents ?? 0) / 100;
+                    const first = series.length > 0 ? series[0].value : last;
+                    const changeCents = Math.round((last - first) * 100);
+                    const improved = changeCents > 0; // less negative balance = paid down
+                    const lastCents = Math.round(last * 100);
+                    const color = accountChartColor(i);
+                    return (
+                      <div
+                        key={loan.id}
+                        className="border rounded-xl p-4 cursor-pointer hover:border-[hsl(var(--primary))] transition-colors"
+                        onClick={() => setViewAccount({
+                          id: loan.id, name: loan.name, accountType: "loan", color, balanceCents: lastCents, series,
+                          interestRateBps: loan.interest_rate_bps, minimumPaymentCents: loan.minimum_payment_cents,
+                        })}
+                      >
+                        <div className="flex items-center justify-between mb-1 gap-2">
+                          <span className="text-sm font-medium flex items-center gap-1.5 min-w-0">
+                            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                            <span className="truncate">{loan.name}</span>
+                          </span>
+                          <span className="flex items-center gap-2 shrink-0">
+                            {series.length > 1 && Math.abs(changeCents) >= 100 && (
+                              <span className={`text-xs font-semibold flex items-center gap-0.5 ${improved ? "text-green-600" : "text-red-500"}`}>
+                                {improved ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                                {formatCurrency(Math.abs(changeCents))}
+                              </span>
+                            )}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setLoanModal(loan); }}
+                              title="Add a new statement"
+                              className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
+                            >
+                              <Plus size={13} />
+                            </button>
+                          </span>
+                        </div>
+                        <p className={`text-xl font-bold mb-1 ${lastCents < 0 ? "text-red-500" : "text-green-600"}`}>
+                          {formatCurrency(lastCents)}
+                        </p>
+                        {(loan.interest_rate_bps != null || loan.minimum_payment_cents != null) && (
+                          <p className="text-[11px] text-[hsl(var(--muted-foreground))] mb-2">
+                            {loan.interest_rate_bps != null && <>{(loan.interest_rate_bps / 100).toFixed(2)}% APR</>}
+                            {loan.interest_rate_bps != null && loan.minimum_payment_cents != null && " · "}
+                            {loan.minimum_payment_cents != null && <>{formatCurrency(loan.minimum_payment_cents)} min/mo</>}
+                          </p>
+                        )}
+                        {series.length > 1 && (
+                          <div className="h-10 -mx-1">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <AreaChart data={series} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+                                <defs>
+                                  <linearGradient id={`loan-grad-${loan.id}`} x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor={color} stopOpacity={0.3} />
+                                    <stop offset="95%" stopColor={color} stopOpacity={0} />
+                                  </linearGradient>
+                                </defs>
+                                <Tooltip
+                                  contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
+                                  wrapperStyle={{ zIndex: 50 }}
+                                  formatter={(v) => [formatCurrency(Math.round(Number(v) * 100)), loan.name]}
+                                  labelFormatter={(l) => formatDate(String(l))}
+                                />
+                                <Area type="monotone" dataKey="value" stroke={color} strokeWidth={1.5} fill={`url(#loan-grad-${loan.id})`} dot={false} />
+                              </AreaChart>
+                            </ResponsiveContainer>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
           {/* Top categories */}
           {cats.length > 0 && (
@@ -700,6 +875,24 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+      )}
+
+      {loanModal && (
+        <LoanUploaderModal
+          profileId={profileId}
+          existingLoan={loanModal === "new" ? undefined : loanModal}
+          onClose={() => setLoanModal(null)}
+          onSaved={() => loadLoans().catch(console.error)}
+        />
+      )}
+
+      {viewAccount && (
+        <AccountDetailModal
+          account={viewAccount}
+          insights={insights}
+          onApply={handleApplyInsight}
+          onClose={() => setViewAccount(null)}
+        />
       )}
     </div>
   );

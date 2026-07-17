@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip,
@@ -80,7 +80,7 @@ export default function TrendsPage() {
   const ids = viewMode === "global" ? (unlockedProfileIds.length > 0 ? unlockedProfileIds : [profileId]) : [profileId];
   const ph = ids.map(() => "?").join(",");
 
-  // ── Chart drill-downs ────────────────────────────────────────────────────
+  // -- Chart drill-downs ----------------------------------------------------
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
   const [expandedMonthCats, setExpandedMonthCats] = useState<{ name: string; color: string; total: number }[] | null>(null);
   const [expandedCatName, setExpandedCatName] = useState<string | null>(null);
@@ -128,8 +128,8 @@ export default function TrendsPage() {
       const [incExpRows, catRows, allTimeRow, cumRows, balanceRows, balanceAcctRows] = await Promise.all([
         db.select<{ month: string; income: number; expenses: number }[]>(
           `SELECT strftime('%Y-%m', t.date) as month,
-                  SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END) as income,
-                  SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+                  SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income,
+                  SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') THEN ABS(t.amount_cents) ELSE 0 END) as expenses
            FROM transactions t JOIN accounts a ON a.id=t.account_id
            WHERE t.date>=? AND t.profile_id IN (${ph})
            GROUP BY month ORDER BY month`,
@@ -146,7 +146,7 @@ export default function TrendsPage() {
         ),
         db.select<{ income: number; expenses: number }[]>(
           `SELECT
-             SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END) as income,
+             SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income,
              SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as expenses
            FROM transactions t JOIN accounts a ON a.id=t.account_id
            WHERE t.profile_id IN (${ph})`,
@@ -154,7 +154,7 @@ export default function TrendsPage() {
         ),
         db.select<{ month: string; net: number }[]>(
           `SELECT strftime('%Y-%m', t.date) as month,
-             SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END)
+             SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END)
              - SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as net
            FROM transactions t JOIN accounts a ON a.id=t.account_id
            WHERE t.profile_id IN (${ph})
@@ -248,7 +248,7 @@ export default function TrendsPage() {
     <>
       {pinTarget && <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />}
 
-      <div className="p-6 space-y-6">
+      <div className="p-8 space-y-6 max-w-6xl mx-auto w-full">
         {/* Header */}
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <h1 className="text-2xl font-semibold">Spending Trends</h1>
@@ -443,11 +443,11 @@ export default function TrendsPage() {
                       <div className="flex items-center justify-between mb-2">
                         <p className="text-xs font-semibold">Top categories - {expandedMonth}</p>
                         <Link to="/transactions" state={{ month: expandedMonth }} className="text-[11px] text-[hsl(var(--primary))] hover:underline">
-                          View month →
+                          View month ?
                         </Link>
                       </div>
                       {expandedMonthCats === null ? (
-                        <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">Loading…</p>
+                        <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">Loading�</p>
                       ) : expandedMonthCats.length === 0 ? (
                         <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">No expenses that month.</p>
                       ) : (
@@ -517,7 +517,7 @@ export default function TrendsPage() {
                               state={{ category: catIds[expandedCatName] }}
                               className="text-[11px] text-[hsl(var(--primary))] hover:underline"
                             >
-                              View all →
+                              View all ?
                             </Link>
                           )}
                         </div>

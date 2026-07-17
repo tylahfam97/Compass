@@ -2,11 +2,16 @@ import { getDb } from "./db";
 import type { SecurityType, InvestmentHealthScore } from "./types";
 import { AVG_US_MARKET_RETURN_PCT, scoreGrade } from "./benchmarks";
 
-/** Net worth broken into its three components. `debtCents` is <= 0 (credit
- *  card balances are stored negative), so netWorthCents = liquid + debt + investment. */
+/** Net worth broken into its components. `debtCents` and `loanDebtCents` are <= 0 (credit
+ *  card / loan balances are stored negative), so
+ *  netWorthCents = liquid + debt + loanDebt + investment. */
 export interface NetWorthSnapshot {
   liquidCents: number;
   debtCents: number;
+  /** Loan account balances - kept separate from `debtCents` (credit cards) since loans are a
+   *  distinct feature (Loan Dashboard) with their own optional net-worth-inclusion toggle
+   *  (hidden_from_dashboard), even though both are folded into netWorthCents the same way. */
+  loanDebtCents: number;
   investmentCents: number;
   netWorthCents: number;
 }
@@ -40,11 +45,11 @@ export function holdingRoiPct(marketValueCents: number | null, costBasisCents: n
  * snapshot (all lookups are capped to that date, inclusive).
  */
 export async function computeNetWorth(profileIds: number[], asOfDate?: string): Promise<NetWorthSnapshot> {
-  if (profileIds.length === 0) return { liquidCents: 0, debtCents: 0, investmentCents: 0, netWorthCents: 0 };
+  if (profileIds.length === 0) return { liquidCents: 0, debtCents: 0, loanDebtCents: 0, investmentCents: 0, netWorthCents: 0 };
   const db = await getDb();
   const ph = profileIds.map(() => "?").join(",");
 
-  // Latest balance per checking/credit account, optionally capped at asOfDate.
+  // Latest balance per checking/credit/loan account, optionally capped at asOfDate.
   // Note: the date-filter "?" appears textually before the profile-id "?"s below
   // (it's inside the correlated subquery, which is in the SELECT list), so it
   // must be the first bound parameter.
@@ -54,13 +59,14 @@ export async function computeNetWorth(profileIds: number[], asOfDate?: string): 
     `SELECT a.account_type,
        (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL ${dateFilter}
         ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents
-     FROM accounts a WHERE a.profile_id IN (${ph}) AND a.account_type IN ('checking','credit')`,
+     FROM accounts a WHERE a.profile_id IN (${ph}) AND a.account_type IN ('checking','credit','loan') AND a.hidden_from_dashboard=0`,
     balParams
   );
-  let liquidCents = 0, debtCents = 0;
+  let liquidCents = 0, debtCents = 0, loanDebtCents = 0;
   for (const row of balRows) {
     if (row.balance_cents === null) continue;
     if (row.account_type === "credit") debtCents += row.balance_cents;
+    else if (row.account_type === "loan") loanDebtCents += row.balance_cents;
     else liquidCents += row.balance_cents;
   }
 
@@ -79,8 +85,9 @@ export async function computeNetWorth(profileIds: number[], asOfDate?: string): 
   return {
     liquidCents,
     debtCents,
+    loanDebtCents,
     investmentCents,
-    netWorthCents: liquidCents + debtCents + investmentCents,
+    netWorthCents: liquidCents + debtCents + loanDebtCents + investmentCents,
   };
 }
 
@@ -90,7 +97,7 @@ export async function computeNetWorth(profileIds: number[], asOfDate?: string): 
 export async function getNetWorthHistory(
   profileIds: number[],
   months = 12
-): Promise<{ month: string; netWorthCents: number; liquidCents: number; debtCents: number; investmentCents: number }[]> {
+): Promise<{ month: string; netWorthCents: number; liquidCents: number; debtCents: number; loanDebtCents: number; investmentCents: number }[]> {
   if (profileIds.length === 0) return [];
   const now = new Date();
   const points: { month: string; cutoff: string }[] = [];
@@ -109,6 +116,7 @@ export async function getNetWorthHistory(
     netWorthCents: snapshots[i].netWorthCents,
     liquidCents: snapshots[i].liquidCents,
     debtCents: snapshots[i].debtCents,
+    loanDebtCents: snapshots[i].loanDebtCents,
     investmentCents: snapshots[i].investmentCents,
   }));
 }
