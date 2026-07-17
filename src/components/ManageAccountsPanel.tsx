@@ -1,14 +1,15 @@
 import { useState, useEffect, useCallback } from "react";
-import { Pencil, Check, X, Trash2, ChevronDown, ChevronUp, Info, Wallet } from "lucide-react";
+import { Pencil, Check, X, Trash2, ChevronDown, ChevronUp, Info, Wallet, Eye, EyeOff, SlidersHorizontal } from "lucide-react";
 import {
   getAccountsSummaryForProfile, renameAccount, deleteEmptyAccount,
   findDuplicateAccountGroups, mergeDuplicateAccounts,
+  setAccountHiddenFromDashboard, setAccountExcludedFromInsights,
   type AccountSummary, type DuplicateAccountGroup,
 } from "@/lib/db";
 import { formatCurrency } from "@/lib/utils";
 
 const TYPE_LABELS: Record<string, string> = {
-  checking: "Checking", savings: "Savings", credit: "Credit Card", investment: "Investment",
+  checking: "Checking", savings: "Savings", credit: "Credit Card", investment: "Investment", loan: "Loan",
 };
 
 interface Props {
@@ -91,6 +92,16 @@ export default function ManageAccountsPanel({ profileId, special = false }: Prop
     }
   };
 
+  const toggleHidden = async (a: AccountSummary) => {
+    await setAccountHiddenFromDashboard(a.id, !a.hidden_from_dashboard);
+    await load();
+  };
+
+  const toggleExcluded = async (a: AccountSummary) => {
+    await setAccountExcludedFromInsights(a.id, !a.excluded_from_insights);
+    await load();
+  };
+
   const duplicateCount = duplicateGroups.reduce((s, g) => s + g.accounts.length - 1, 0);
 
   return (
@@ -153,6 +164,20 @@ export default function ManageAccountsPanel({ profileId, special = false }: Prop
                             ? formatCurrency(a.balance_cents)
                             : `${a.txn_count} txn${a.txn_count === 1 ? "" : "s"}`}
                       </span>
+                      <button
+                        onClick={() => toggleHidden(a)}
+                        title={a.hidden_from_dashboard ? "Show on dashboard/overview" : "Hide from dashboard/overview"}
+                        className={a.hidden_from_dashboard ? "text-amber-500" : "text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"}
+                      >
+                        {a.hidden_from_dashboard ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </button>
+                      <button
+                        onClick={() => toggleExcluded(a)}
+                        title={a.excluded_from_insights ? "Excluded from Insights - click to include" : "Included in Insights - click to exclude"}
+                        className={a.excluded_from_insights ? "text-amber-500" : "text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"}
+                      >
+                        <SlidersHorizontal size={14} />
+                      </button>
                       <button onClick={() => startEdit(a)} title="Rename" className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]">
                         <Pencil size={14} />
                       </button>

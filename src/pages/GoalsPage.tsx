@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { getDb } from "@/lib/db";
 import { formatCurrency } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
@@ -160,7 +160,7 @@ export default function GoalsPage() {
           const [r] = await db.select<{ v: number }[]>(
             `SELECT COALESCE(SUM(CASE WHEN a.account_type='credit' AND t.amount_cents>0 THEN 0 ELSE t.amount_cents END),0) as v
              FROM transactions t JOIN accounts a ON a.id=t.account_id
-             WHERE t.date>=? AND t.date<? AND t.profile_id=? AND (t.category_id IS NULL OR t.category_id!=20)`,
+             WHERE t.date>=? AND t.date<? AND t.profile_id=? AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='loan'`,
             [start, end, profileId]
           );
           current = r?.v ?? 0;
@@ -183,7 +183,7 @@ export default function GoalsPage() {
             : [start, end, profileId];
           const [r] = await db.select<{ v: number }[]>(
             `SELECT COALESCE(SUM(t.amount_cents),0) as v FROM transactions t JOIN accounts a ON a.id=t.account_id
-             WHERE t.date>=? AND t.date<? AND t.profile_id=? AND t.amount_cents>0 AND a.account_type!='credit'${extra}`,
+             WHERE t.date>=? AND t.date<? AND t.profile_id=? AND t.amount_cents>0 AND a.account_type NOT IN ('credit','loan')${extra}`,
             params
           );
           current = r?.v ?? 0;
@@ -193,7 +193,7 @@ export default function GoalsPage() {
           const [r] = await db.select<{ v: number }[]>(
             `SELECT COALESCE(SUM(net),0) as v FROM (
                SELECT strftime('%Y-%m',t.date) as mo,
-                 SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END)
+                 SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END)
                  - SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as net
                FROM transactions t JOIN accounts a ON a.id=t.account_id
                WHERE t.profile_id=? AND t.date>=?
@@ -248,7 +248,7 @@ export default function GoalsPage() {
             const [ms, me] = monthBounds(mo);
             const [r] = await db.select<{ income: number; expenses: number }[]>(
               `SELECT
-                 COALESCE(SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' THEN t.amount_cents ELSE 0 END),0) as income,
+                 COALESCE(SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END),0) as income,
                  COALESCE(SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END),0) as expenses
                FROM transactions t JOIN accounts a ON a.id=t.account_id
                WHERE t.profile_id=? AND t.date>=? AND t.date<?`,
@@ -400,11 +400,11 @@ export default function GoalsPage() {
         </div>
         <div className="flex items-center gap-1">
           <button onClick={() => navMonth(-1)} aria-label="Previous month"
-            className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors">‹</button>
+            className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors">�</button>
           <input type="month" value={month} onChange={(e) => setMonth(e.target.value)}
             className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]" />
           <button onClick={() => navMonth(1)} aria-label="Next month"
-            className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors">›</button>
+            className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors">�</button>
         </div>
       </div>
 

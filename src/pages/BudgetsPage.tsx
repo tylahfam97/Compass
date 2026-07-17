@@ -1,4 +1,4 @@
-ï»¿import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { getDb } from "@/lib/db";
 import { formatCurrency } from "@/lib/utils";
@@ -181,7 +181,7 @@ export default function BudgetsPage() {
                 c.name as category_name, c.color as category_color,
                 b.amount_cents, b.period, b.is_global,
                 COALESCE(SUM(CASE WHEN t.amount_cents<0 THEN ABS(t.amount_cents) ELSE 0 END),0) as spent_cents,
-                COALESCE(SUM(CASE WHEN t.amount_cents>0 AND (acc.account_type IS NULL OR acc.account_type!='credit') THEN t.amount_cents ELSE 0 END),0) as earned_cents
+                COALESCE(SUM(CASE WHEN t.amount_cents>0 AND (acc.account_type IS NULL OR acc.account_type NOT IN ('credit','loan')) THEN t.amount_cents ELSE 0 END),0) as earned_cents
          FROM budgets b
          JOIN categories c ON b.category_id=c.id
          LEFT JOIN transactions t ON t.category_id=b.category_id
@@ -204,7 +204,7 @@ export default function BudgetsPage() {
                 c.name as category_name, c.color as category_color,
                 b.amount_cents, b.period, b.is_global,
                 COALESCE(SUM(CASE WHEN t.amount_cents<0 THEN ABS(t.amount_cents) ELSE 0 END),0) as spent_cents,
-                COALESCE(SUM(CASE WHEN t.amount_cents>0 AND (acc.account_type IS NULL OR acc.account_type!='credit') THEN t.amount_cents ELSE 0 END),0) as earned_cents
+                COALESCE(SUM(CASE WHEN t.amount_cents>0 AND (acc.account_type IS NULL OR acc.account_type NOT IN ('credit','loan')) THEN t.amount_cents ELSE 0 END),0) as earned_cents
          FROM budgets b
          JOIN categories c ON b.category_id=c.id
          LEFT JOIN transactions t ON t.category_id=b.category_id
@@ -237,7 +237,7 @@ export default function BudgetsPage() {
   useEffect(() => { loadBudgets().catch(console.error); }, [loadBudgets]);
 
   useEffect(() => {
-    // Don't clobber a prefill that was just applied â€” only default-init when truly empty
+    // Don't clobber a prefill that was just applied — only default-init when truly empty
     const hasPrefill = !!(location.state as { prefillBudget?: unknown } | null)?.prefillBudget;
     if (categories.length > 0 && formCatId === 0 && !hasPrefill) {
       setFormCatId(categories[0].id);
@@ -300,7 +300,7 @@ export default function BudgetsPage() {
     const db = await getDb();
     if (b.is_global) {
       await db.execute("UPDATE budgets SET is_global=0, profile_id=? WHERE id=?", [profileId, b.id]);
-      // In global view the budget is no longer global â€” remove it from the list.
+      // In global view the budget is no longer global — remove it from the list.
       // In profile view just flip the badge; the budget still belongs to this profile.
       if (viewMode === "global") {
         setBudgets((prev) => prev.filter((row) => row.id !== b.id));
@@ -342,7 +342,7 @@ export default function BudgetsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Budgets</h1>
           <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">
-            Soft limits â€” no penalties, just awareness.
+            Soft limits — no penalties, just awareness.
           </p>
         </div>
 
@@ -383,7 +383,7 @@ export default function BudgetsPage() {
             aria-label="Previous month"
             className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors"
           >
-            â€¹
+            ‹
           </button>
           <input
             type="month"
@@ -396,7 +396,7 @@ export default function BudgetsPage() {
             aria-label="Next month"
             className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors"
           >
-            â€º
+            ›
           </button>
         </div>
 
@@ -408,7 +408,7 @@ export default function BudgetsPage() {
           >
             <p className="text-sm font-semibold" style={{ color: "#b45309" }}>
               {lockedExcluded.length === 1 ? "1 profile is PIN-locked" : `${lockedExcluded.length} profiles are PIN-locked`}
-              {" "}â€” their transactions are excluded from global totals.
+              {" "}— their transactions are excluded from global totals.
             </p>
             <div className="flex flex-wrap gap-2">
               {lockedExcluded.map((p) => (
@@ -447,7 +447,7 @@ export default function BudgetsPage() {
               <p className="text-sm font-semibold" style={{ color: "#C08A1C" }}>Global view active</p>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">
                 Showing budgets shared across all profiles
-                {profiles.length > 1 ? ` â€” aggregating ${profiles.length} profiles` : ""}
+                {profiles.length > 1 ? ` — aggregating ${profiles.length} profiles` : ""}
               </p>
             </div>
           </div>
@@ -622,7 +622,7 @@ export default function BudgetsPage() {
                     )}
                   </div>
 
-                  {/* Action buttons â€” always visible but subtle */}
+                  {/* Action buttons — always visible but subtle */}
                   <div className="flex items-center gap-2 shrink-0">
                     <button
                       onClick={() => toggleBudgetScope(b)}
@@ -640,7 +640,7 @@ export default function BudgetsPage() {
                       }}
                       onMouseOut={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
                     >
-                      {b.is_global ? "â†“ Profile" : "â†‘ Global"}
+                      {b.is_global ? "? Profile" : "? Global"}
                     </button>
                     <button
                       onClick={() => deleteBudget(b.id)}
@@ -701,7 +701,7 @@ export default function BudgetsPage() {
                     }}
                   >
                     On pace for {formatCurrency(projectedEnd)} by month-end
-                    {projectedOver && !over && " â€” approaching limit"}
+                    {projectedOver && !over && " — approaching limit"}
                   </p>
                 )}
               </div>

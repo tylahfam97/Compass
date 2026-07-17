@@ -5,8 +5,11 @@ import {
   ResponsiveContainer, Cell, AreaChart, Area, Rectangle,
 } from "recharts";
 import { motion, AnimatePresence } from "motion/react";
-import { TrendingUp, TrendingDown } from "lucide-react";
-import { getDb, recomputeCalculatedBalances } from "@/lib/db";
+import { TrendingUp, TrendingDown, EyeOff, Eye, Landmark, Plus } from "lucide-react";
+import {
+  getDb, recomputeCalculatedBalances, setAccountHiddenFromDashboard,
+  getLoanAccountsForProfile, getLoanBalanceHistory, type LoanAccount,
+} from "@/lib/db";
 import { seedDemoData } from "@/lib/demoData";
 import { formatCurrency, formatDate, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
 import type { Transaction, Insight } from "@/lib/types";
@@ -14,6 +17,7 @@ import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
 import { generateInsights } from "@/lib/agent";
 import InsightCard from "@/components/InsightCard";
+import LoanUploaderModal from "@/components/LoanUploaderModal";
 import { Skeleton, CardListSkeleton } from "@/components/Skeleton";
 
 interface MonthStats {
@@ -33,6 +37,11 @@ interface CreditAccountMeta {
   id: number;
   name: string;
   color: string;
+}
+
+interface HiddenAccountMeta {
+  id: number;
+  name: string;
 }
 
 interface CreditBalanceRow {
@@ -74,6 +83,11 @@ export default function DashboardPage() {
   const [checkingBalancePoints, setCheckingBalancePoints] = useState<CheckingBalancePoint[]>([]);
   const [creditBalanceAccounts, setCreditBalanceAccounts] = useState<CreditAccountMeta[]>([]);
   const [creditBalanceRows, setCreditBalanceRows] = useState<CreditBalanceRow[]>([]);
+  const [hiddenAccounts, setHiddenAccounts] = useState<HiddenAccountMeta[]>([]);
+  const [hideToast, setHideToast] = useState<HiddenAccountMeta | null>(null);
+  const [loans, setLoans] = useState<LoanAccount[]>([]);
+  const [loanSeries, setLoanSeries] = useState<Map<number, { date: string; value: number }[]>>(new Map());
+  const [loanModal, setLoanModal] = useState<"new" | LoanAccount | null>(null);
   const [portfolioValueCents, setPortfolioValueCents] = useState(0);
   const [expandedCat, setExpandedCat] = useState<CatStat | null>(null);
   const [expandedCatTxns, setExpandedCatTxns] = useState<Transaction[] | null>(null);
@@ -99,10 +113,10 @@ export default function DashboardPage() {
     setLoading(true);
     const db = await getDb();
     const [start, end] = monthBounds(month);
-    const [incRow, expRow, catRows, recentRows, monthCountRow, totalCountRow, balanceRow, balancePointRows, portfolioRow, balanceAcctRows, demoAcctRow] = await Promise.all([
+    const [incRow, expRow, catRows, recentRows, monthCountRow, totalCountRow, balanceRow, balancePointRows, portfolioRow, balanceAcctRows, demoAcctRow, hiddenAcctRows] = await Promise.all([
       db.select<{ total: number }[]>(
         `SELECT COALESCE(SUM(t.amount_cents),0) as total FROM transactions t JOIN accounts a ON a.id=t.account_id
-         WHERE t.date>=? AND t.date<? AND t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='credit' AND t.profile_id=?`,
+         WHERE t.date>=? AND t.date<? AND t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') AND t.profile_id=?`,
         [start, end, profileId]
       ),
       db.select<{ total: number }[]>(
@@ -133,13 +147,14 @@ export default function DashboardPage() {
         `SELECT a.id as account_id,
            (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
             ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents
-         FROM accounts a WHERE a.profile_id=? AND a.account_type IN ('checking','credit')`,
+         FROM accounts a WHERE a.profile_id=? AND a.account_type IN ('checking','credit') AND a.hidden_from_dashboard=0`,
         [profileId]
       ),
       db.select<{ date: string; account_id: number; balance_cents: number }[]>(
         `SELECT t.date, t.account_id, t.balance_cents FROM transactions t
          JOIN accounts a ON a.id=t.account_id
          WHERE t.profile_id=? AND t.date<? AND t.balance_cents IS NOT NULL AND a.account_type IN ('checking','credit')
+           AND a.hidden_from_dashboard=0
          ORDER BY t.date ASC, t.id ASC`,
         [profileId, end]
       ),
@@ -149,11 +164,15 @@ export default function DashboardPage() {
         [profileId, profileId]
       ),
       db.select<{ id: number; name: string; account_type: string }[]>(
-        "SELECT id, name, account_type FROM accounts WHERE profile_id=? AND account_type IN ('checking','credit') ORDER BY account_type, name",
+        "SELECT id, name, account_type FROM accounts WHERE profile_id=? AND account_type IN ('checking','credit') AND hidden_from_dashboard=0 ORDER BY account_type, name",
         [profileId]
       ),
       db.select<{ n: number }[]>(
         "SELECT COUNT(*) as n FROM accounts WHERE profile_id=? AND name IN ('Demo Checking','Demo Credit Card')",
+        [profileId]
+      ),
+      db.select<HiddenAccountMeta[]>(
+        "SELECT id, name FROM accounts WHERE profile_id=? AND account_type IN ('checking','credit') AND hidden_from_dashboard=1 ORDER BY name",
         [profileId]
       ),
     ]);
@@ -190,6 +209,7 @@ export default function DashboardPage() {
     );
     setPortfolioValueCents(portfolioRow[0]?.total ?? 0);
     setHasDemoAccounts((demoAcctRow[0]?.n ?? 0) > 0);
+    setHiddenAccounts(hiddenAcctRows);
     setExpandedCat(null);
     setExpandedCatTxns(null);
     setLoading(false);
@@ -262,6 +282,18 @@ export default function DashboardPage() {
     generateInsights([profileId]).then(setInsights).catch(console.error);
   }, [profileId, activeProfile]);
 
+  const loadLoans = useCallback(async () => {
+    const rows = await getLoanAccountsForProfile(profileId);
+    setLoans(rows);
+    const histories = await Promise.all(rows.map((l) => getLoanBalanceHistory(l.id)));
+    setLoanSeries(new Map(rows.map((l, i) => [l.id, histories[i]])));
+  }, [profileId]);
+
+  // Loans aren't tied to month selection either - full history, not just the visible month.
+  useEffect(() => {
+    loadLoans().catch(console.error);
+  }, [loadLoans]);
+
   const visibleInsights = insights
     .filter((i) => !dismissedInsights.includes(i.dismissKey))
     .slice(0, 3);
@@ -273,6 +305,20 @@ export default function DashboardPage() {
     } else if (insight.action.type === "create_goal") {
       navigate("/goals");
     }
+  };
+
+  /** Hides an account's chart/balance from the Dashboard (and net worth) - triggered by
+   *  clicking its chart, or the eye-off icon for accounts with too little history to chart. */
+  const hideAccount = async (id: number, name: string) => {
+    await setAccountHiddenFromDashboard(id, true);
+    setHideToast({ id, name });
+    await loadData();
+  };
+
+  const restoreAccount = async (id: number) => {
+    await setAccountHiddenFromDashboard(id, false);
+    setHideToast(null);
+    await loadData();
   };
 
   const hasData = stats.income !== 0 || stats.expenses !== 0;
@@ -477,18 +523,31 @@ export default function DashboardPage() {
                           <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: acc.color }} />
                           <span className="truncate">{acc.name}</span>
                         </span>
-                        {series.length > 1 && Math.abs(changeCents) >= 100 && (
-                          <span className={`text-xs font-semibold flex items-center gap-0.5 shrink-0 ${improved ? "text-green-600" : "text-red-500"}`}>
-                            {improved ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                            {formatCurrency(Math.abs(changeCents))}
-                          </span>
-                        )}
+                        <span className="flex items-center gap-2 shrink-0">
+                          {series.length > 1 && Math.abs(changeCents) >= 100 && (
+                            <span className={`text-xs font-semibold flex items-center gap-0.5 ${improved ? "text-green-600" : "text-red-500"}`}>
+                              {improved ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                              {formatCurrency(Math.abs(changeCents))}
+                            </span>
+                          )}
+                          <button
+                            onClick={() => hideAccount(acc.id, acc.name)}
+                            title="Hide from dashboard"
+                            className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
+                          >
+                            <EyeOff size={13} />
+                          </button>
+                        </span>
                       </div>
                       <p className={`text-xl font-bold mb-2 ${lastCents < 0 ? "text-red-500" : "text-green-600"}`}>
                         {formatCurrency(lastCents)}
                       </p>
                       {series.length > 1 && (
-                        <div className="h-10 -mx-1">
+                        <div
+                          className="h-10 -mx-1 cursor-pointer"
+                          title="Click to hide this card from the dashboard"
+                          onClick={() => hideAccount(acc.id, acc.name)}
+                        >
                           <ResponsiveContainer width="100%" height="100%">
                             <AreaChart data={series} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
                               <defs>
@@ -512,9 +571,115 @@ export default function DashboardPage() {
                   );
                 })}
               </div>
+              {hiddenAccounts.length > 0 && (
+                <div className="flex items-center gap-2 flex-wrap text-xs text-[hsl(var(--muted-foreground))]">
+                  <span>Hidden from dashboard:</span>
+                  {hiddenAccounts.map((a) => (
+                    <button
+                      key={a.id}
+                      onClick={() => restoreAccount(a.id)}
+                      title="Show on dashboard again"
+                      className="flex items-center gap-1 px-2 py-1 border rounded-lg hover:bg-[hsl(var(--muted))] transition-colors"
+                    >
+                      <Eye size={11} /> {a.name}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
+          {/* Loans - same per-account tile pattern as Credit Cards, but never counted toward
+              liquidity/income/expenses; balance history comes from statement uploads instead
+              of imported transactions. Always shown (even with zero loans) so "Add Loan" stays
+              discoverable. */}
+          <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="font-semibold flex items-center gap-1.5"><Landmark size={15} /> Loans</h2>
+                  <p className="text-[10px] text-[hsl(var(--muted-foreground))]">Not counted toward liquidity or income/expenses</p>
+                </div>
+                <button
+                  onClick={() => setLoanModal("new")}
+                  className="flex items-center gap-1 text-xs px-2.5 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))] transition-colors shrink-0"
+                >
+                  <Plus size={13} /> Add Loan
+                </button>
+              </div>
+              {loans.length === 0 ? (
+                <p className="text-sm text-[hsl(var(--muted-foreground))] italic border rounded-xl p-5 text-center">
+                  No loans added yet - car loans, student loans, mortgages, or personal loans.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {loans.map((loan, i) => {
+                    const series = loanSeries.get(loan.id) ?? [];
+                    const last = series.length > 0 ? series[series.length - 1].value : (loan.balance_cents ?? 0) / 100;
+                    const first = series.length > 0 ? series[0].value : last;
+                    const changeCents = Math.round((last - first) * 100);
+                    const improved = changeCents > 0; // less negative balance = paid down
+                    const lastCents = Math.round(last * 100);
+                    const color = accountChartColor(i);
+                    return (
+                      <div key={loan.id} className="border rounded-xl p-4">
+                        <div className="flex items-center justify-between mb-1 gap-2">
+                          <span className="text-sm font-medium flex items-center gap-1.5 min-w-0">
+                            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                            <span className="truncate">{loan.name}</span>
+                          </span>
+                          <span className="flex items-center gap-2 shrink-0">
+                            {series.length > 1 && Math.abs(changeCents) >= 100 && (
+                              <span className={`text-xs font-semibold flex items-center gap-0.5 ${improved ? "text-green-600" : "text-red-500"}`}>
+                                {improved ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                                {formatCurrency(Math.abs(changeCents))}
+                              </span>
+                            )}
+                            <button
+                              onClick={() => setLoanModal(loan)}
+                              title="Add a new statement"
+                              className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
+                            >
+                              <Plus size={13} />
+                            </button>
+                          </span>
+                        </div>
+                        <p className={`text-xl font-bold mb-1 ${lastCents < 0 ? "text-red-500" : "text-green-600"}`}>
+                          {formatCurrency(lastCents)}
+                        </p>
+                        {(loan.interest_rate_bps != null || loan.minimum_payment_cents != null) && (
+                          <p className="text-[11px] text-[hsl(var(--muted-foreground))] mb-2">
+                            {loan.interest_rate_bps != null && <>{(loan.interest_rate_bps / 100).toFixed(2)}% APR</>}
+                            {loan.interest_rate_bps != null && loan.minimum_payment_cents != null && " · "}
+                            {loan.minimum_payment_cents != null && <>{formatCurrency(loan.minimum_payment_cents)} min/mo</>}
+                          </p>
+                        )}
+                        {series.length > 1 && (
+                          <div className="h-10 -mx-1">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <AreaChart data={series} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+                                <defs>
+                                  <linearGradient id={`loan-grad-${loan.id}`} x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor={color} stopOpacity={0.3} />
+                                    <stop offset="95%" stopColor={color} stopOpacity={0} />
+                                  </linearGradient>
+                                </defs>
+                                <Tooltip
+                                  contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
+                                  wrapperStyle={{ zIndex: 50 }}
+                                  formatter={(v) => [formatCurrency(Math.round(Number(v) * 100)), loan.name]}
+                                  labelFormatter={(l) => formatDate(String(l))}
+                                />
+                                <Area type="monotone" dataKey="value" stroke={color} strokeWidth={1.5} fill={`url(#loan-grad-${loan.id})`} dot={false} />
+                              </AreaChart>
+                            </ResponsiveContainer>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
           {/* Top categories */}
           {cats.length > 0 && (
@@ -700,6 +865,45 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Hide-account undo toast - border/rounded live on the inner div, not this
+          fixed-positioned one (see CSS specificity note in TransactionsPage). */}
+      <AnimatePresence>
+        {hideToast && (
+          <motion.div
+            key="hide-account-toast"
+            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} transition={{ duration: 0.2 }}
+            className="fixed bottom-6 right-6 z-50 max-w-sm"
+          >
+            <div className="border shadow-xl rounded-xl px-5 py-3 flex items-center gap-4 text-sm bg-[hsl(var(--background))]">
+              <span className="flex-1 text-[hsl(var(--foreground))]">
+                <strong>{hideToast.name}</strong> hidden from the dashboard.
+              </span>
+              <button
+                onClick={() => restoreAccount(hideToast.id)}
+                className="px-3 py-1.5 border rounded-lg font-medium hover:bg-[hsl(var(--muted))] transition-colors shrink-0"
+              >
+                Undo
+              </button>
+              <button
+                onClick={() => setHideToast(null)}
+                className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] text-lg leading-none"
+              >
+                ✕
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {loanModal && (
+        <LoanUploaderModal
+          profileId={profileId}
+          existingLoan={loanModal === "new" ? undefined : loanModal}
+          onClose={() => setLoanModal(null)}
+          onSaved={() => loadLoans().catch(console.error)}
+        />
       )}
     </div>
   );

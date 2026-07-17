@@ -1,11 +1,11 @@
 ﻿import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ChevronDown, ChevronRight, CheckCircle, Target, Info, HelpCircle, TrendingUp, TrendingDown } from "lucide-react";
+import { ChevronDown, ChevronRight, CheckCircle, Target, Info, HelpCircle, TrendingUp, TrendingDown, SlidersHorizontal } from "lucide-react";
 import { motion, AnimatePresence, animate, useMotionValue } from "motion/react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
-import { getDb } from "@/lib/db";
+import { getDb, getAccountsSummaryForProfile, setAccountExcludedFromInsights, getLoanAccountsForProfile, getLoanBalanceHistory, type AccountSummary, type LoanAccount } from "@/lib/db";
 import { formatCurrency } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
 import {
@@ -131,6 +131,85 @@ function ScopeToggle({ isGlobal, onToggle }: ScopeToggleProps) {
         boxShadow: "0 1px 4px rgba(0,0,0,0.28)", flexShrink: 0,
       }} />
     </button>
+  );
+}
+
+// ── Insights account-exclusion dropdown (sits next to the Profile/Global scope toggle) ────────
+interface InsightsExcludeDropdownProps {
+  profileIds: number[];
+  profileNames: Map<number, string>;
+  onChanged: () => void;
+}
+function InsightsExcludeDropdown({ profileIds, profileNames, onChanged }: InsightsExcludeDropdownProps) {
+  const [open, setOpen] = useState(false);
+  const [accounts, setAccounts] = useState<AccountSummary[]>([]);
+  const [accountProfile, setAccountProfile] = useState<Map<number, number>>(new Map());
+  const { onBackdropClick } = useModalDismiss(() => setOpen(false));
+
+  useEffect(() => {
+    if (!open) return;
+    (async () => {
+      const lists = await Promise.all(profileIds.map((id) => getAccountsSummaryForProfile(id)));
+      const merged: AccountSummary[] = [];
+      const ownerMap = new Map<number, number>();
+      lists.forEach((list, i) => list.forEach((a) => { merged.push(a); ownerMap.set(a.id, profileIds[i]); }));
+      setAccounts(merged);
+      setAccountProfile(ownerMap);
+    })().catch(console.error);
+  }, [open, profileIds]);
+
+  const toggleAccount = async (a: AccountSummary) => {
+    const next = !a.excluded_from_insights;
+    await setAccountExcludedFromInsights(a.id, next);
+    setAccounts((prev) => prev.map((x) => (x.id === a.id ? { ...x, excluded_from_insights: next } : x)));
+    onChanged();
+  };
+
+  const excludedCount = accounts.filter((a) => a.excluded_from_insights).length;
+  const showProfileName = profileIds.length > 1;
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title="Exclude accounts from Insights"
+        className="flex items-center gap-1 text-xs px-2 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))] transition-colors"
+      >
+        <SlidersHorizontal size={13} />
+        {excludedCount > 0 && <span className="font-semibold">{excludedCount}</span>}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={onBackdropClick} />
+          <div className="absolute right-0 top-full mt-2 z-50 w-72 border rounded-xl bg-[hsl(var(--background))] shadow-xl p-3">
+            <p className="text-xs font-semibold mb-1">Exclude from Insights</p>
+            <p className="text-[11px] text-[hsl(var(--muted-foreground))] mb-2">
+              Excluded accounts are skipped in savings rate, health score, and spending insights -
+              they still show normally on the Dashboard/Overview.
+            </p>
+            {accounts.length === 0 ? (
+              <p className="text-xs text-[hsl(var(--muted-foreground))] py-1">No accounts yet.</p>
+            ) : (
+              <div className="space-y-0.5 max-h-64 overflow-y-auto">
+                {accounts.map((a) => (
+                  <label key={a.id} className="flex items-center gap-2 text-xs px-1.5 py-1.5 rounded-lg hover:bg-[hsl(var(--muted))] cursor-pointer">
+                    <input type="checkbox" checked={a.excluded_from_insights} onChange={() => toggleAccount(a)} className="shrink-0" />
+                    <span className="flex-1 truncate">
+                      {a.name}
+                      {showProfileName && (
+                        <span className="text-[hsl(var(--muted-foreground))]">
+                          {" "}({profileNames.get(accountProfile.get(a.id) ?? -1) ?? ""})
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -336,7 +415,7 @@ function NetWorthCard({
           </div>
           <div>
             <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wide">Debt</p>
-            <p className={`text-sm font-bold ${netWorth.debtCents < 0 ? "text-red-500" : ""}`}>{formatCurrency(netWorth.debtCents)}</p>
+            <p className={`text-sm font-bold ${(netWorth.debtCents + netWorth.loanDebtCents) < 0 ? "text-red-500" : ""}`}>{formatCurrency(netWorth.debtCents + netWorth.loanDebtCents)}</p>
           </div>
         </div>
 
@@ -430,7 +509,124 @@ function NetWorthCard({
   );
 }
 
-// ── Health Score Intro Modal ──────────────────────────────────────────────────
+// ── Loan Dashboard ─────────────────────────────────────────────────────────────
+const DEBT_TIPS: Record<"avalanche" | "snowball" | "cashflow", string> = {
+  avalanche: "The avalanche method targets your highest interest rate first, no matter the balance - mathematically it saves the most money over time, but the first \"win\" can take a while if that loan has a large balance.",
+  snowball: "The snowball method targets your smallest balance first. Research on debt payoff behavior consistently finds people are more likely to stick with a payoff plan when they get a quick win early - even though it's not always the cheapest path on paper.",
+  cashflow: "Paying off the loan with the highest minimum payment first frees up the most monthly cash flow the soonest - useful if your goal is breathing room in your budget rather than minimizing total interest paid.",
+};
+
+type LoanRankMethod = "avalanche" | "snowball" | "cashflow";
+
+interface RankedLoan extends LoanAccount {
+  trendCents: number | null;
+  rankable: boolean;
+}
+
+function rankLoans(loans: (LoanAccount & { trendCents: number | null })[], method: LoanRankMethod): RankedLoan[] {
+  const withFlag = loans.map((l) => ({
+    ...l,
+    rankable: method === "avalanche" ? l.interest_rate_bps != null
+      : method === "cashflow" ? l.minimum_payment_cents != null
+      : true,
+  }));
+  const rankableLoans = withFlag.filter((l) => l.rankable);
+  const unrankable = withFlag.filter((l) => !l.rankable);
+  rankableLoans.sort((a, b) => {
+    if (method === "avalanche") return (b.interest_rate_bps ?? 0) - (a.interest_rate_bps ?? 0);
+    if (method === "cashflow") return (b.minimum_payment_cents ?? 0) - (a.minimum_payment_cents ?? 0);
+    return Math.abs(a.balance_cents ?? 0) - Math.abs(b.balance_cents ?? 0); // snowball: smallest balance first
+  });
+  return [...rankableLoans, ...unrankable];
+}
+
+function LoanDashboardCard({ loans }: { loans: (LoanAccount & { trendCents: number | null })[] }) {
+  const [method, setMethod] = useState<LoanRankMethod>("avalanche");
+  const hasAnyRate = loans.some((l) => l.interest_rate_bps != null);
+  const hasAnyPayment = loans.some((l) => l.minimum_payment_cents != null);
+  const totalDebtCents = loans.reduce((s, l) => s + Math.abs(l.balance_cents ?? 0), 0);
+  const ranked = rankLoans(loans, method);
+
+  const methodLabel: Record<LoanRankMethod, string> = {
+    avalanche: "Avalanche - saves the most money",
+    snowball: "Snowball - fastest full payoff",
+    cashflow: "Cash-flow first - frees up money fastest",
+  };
+
+  return (
+    <section className="border rounded-2xl overflow-hidden shadow-sm">
+      <div className="px-6 pt-5 pb-5">
+        <div className="flex items-start justify-between mb-4 flex-wrap gap-2">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2">
+              Loan Dashboard
+            </p>
+            <p className="text-3xl font-black tabular-nums text-red-500">
+              {formatCurrency(-totalDebtCents)}
+            </p>
+            <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
+              {loans.length} loan{loans.length !== 1 ? "s" : ""} total - not counted toward liquidity or income/expenses
+            </p>
+          </div>
+        </div>
+
+        <div className="flex gap-2 mb-3 flex-wrap">
+          {(["avalanche", "snowball", "cashflow"] as LoanRankMethod[]).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMethod(m)}
+              disabled={m === "cashflow" && !hasAnyPayment}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed
+                ${method === m
+                  ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
+                  : "border hover:bg-[hsl(var(--muted))]"}`}
+            >
+              {m === "avalanche" ? "Avalanche" : m === "snowball" ? "Snowball" : "Cash-flow First"}
+            </button>
+          ))}
+        </div>
+
+        <p className="text-xs text-[hsl(var(--muted-foreground))] mb-3">{methodLabel[method]}</p>
+
+        <div className="space-y-1.5 mb-4">
+          {ranked.map((loan, i) => (
+            <div key={loan.id} className={`flex items-center gap-3 border rounded-lg px-3 py-2 ${!loan.rankable ? "opacity-50" : ""}`}>
+              <span className="text-xs font-bold w-5 text-center shrink-0 text-[hsl(var(--muted-foreground))]">
+                {loan.rankable ? i + 1 : "—"}
+              </span>
+              <span className="flex-1 min-w-0 truncate text-sm font-medium">{loan.name}</span>
+              <span className="text-sm font-semibold text-red-500 shrink-0">{formatCurrency(loan.balance_cents ?? 0)}</span>
+              {method === "avalanche" && (
+                <span className="text-xs text-[hsl(var(--muted-foreground))] shrink-0 w-16 text-right">
+                  {loan.interest_rate_bps != null ? `${(loan.interest_rate_bps / 100).toFixed(2)}%` : "no rate"}
+                </span>
+              )}
+              {method === "cashflow" && (
+                <span className="text-xs text-[hsl(var(--muted-foreground))] shrink-0 w-20 text-right">
+                  {loan.minimum_payment_cents != null ? `${formatCurrency(loan.minimum_payment_cents)}/mo` : "no payment"}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {method === "avalanche" && !hasAnyRate && (
+          <p className="text-xs text-amber-600 dark:text-amber-400 mb-3 flex items-start gap-1.5">
+            <Info size={12} className="shrink-0 mt-0.5" />
+            Add an interest rate to your loans (via "Add a Statement") to rank them by avalanche priority.
+          </p>
+        )}
+
+        <div className="rounded-xl p-3 bg-[hsl(var(--muted))]/40 flex items-start gap-2">
+          <Info size={13} className="shrink-0 mt-0.5 text-[hsl(var(--muted-foreground))]" />
+          <p className="text-xs text-[hsl(var(--muted-foreground))]">{DEBT_TIPS[method]}</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+
 function ScoreIntroModal({
   globalScore, profileScore, profileName, onClose,
 }: {
@@ -579,6 +775,7 @@ export default function AgentPage() {
   const [creditScore, setCreditScore]           = useState<CreditCardHealthScore | null>(null);
   const [investmentScore, setInvestmentScore]   = useState<InvestmentHealthScore | null>(null);
   const [topRoi, setTopRoi]                     = useState<Partial<Record<SecurityType, TopRoiHolding[]>>>({});
+  const [loans, setLoans]                       = useState<(LoanAccount & { trendCents: number | null })[]>([]);
 
   const [sectExpanded, setSectExpanded] = useState<{ trends: boolean; subs: boolean; topRoi: boolean }>(() => {
     try { const s = localStorage.getItem("compass_insight_sections"); return s ? JSON.parse(s) : { trends: false, subs: false, topRoi: false }; }
@@ -605,6 +802,13 @@ export default function AgentPage() {
     () => profiles.filter((p) => !p.pin_hash || p.id === profileId || unlockedIds.has(p.id)).map((p) => p.id),
     [profiles, profileId, unlockedIds]
   );
+
+  const scopeIds = useMemo(
+    () => viewMode === "global" ? (unlockedProfileIds.length > 0 ? unlockedProfileIds : [profileId]) : [profileId],
+    [viewMode, unlockedProfileIds, profileId]
+  );
+  const profileNames = useMemo(() => new Map(profiles.map((p) => [p.id, p.name])), [profiles]);
+  const [reloadTick, setReloadTick] = useState(0);
 
   const handleSwitchToGlobal = () => {
     const locked = profiles.filter((p) => p.pin_hash && p.id !== profileId && !unlockedIds.has(p.id));
@@ -655,7 +859,7 @@ export default function AgentPage() {
   useEffect(() => {
     if (!activeProfile) return;
     let cancelled = false;
-    const ids = viewMode === "global" ? (unlockedProfileIds.length > 0 ? unlockedProfileIds : [profileId]) : [profileId];
+    const ids = scopeIds;
 
     async function load() {
       setLoading(true);
@@ -690,6 +894,15 @@ export default function AgentPage() {
       setTopRoi(topRoiHoldings);
       setCreditScore(ccScore);
       setInvestmentScore(invHealthScore);
+
+      const loanLists = await Promise.all(ids.map((id) => getLoanAccountsForProfile(id)));
+      const allLoans = loanLists.flat();
+      const loanTrends = await Promise.all(allLoans.map((l) => getLoanBalanceHistory(l.id)));
+      setLoans(allLoans.map((l, i) => {
+        const series = loanTrends[i];
+        const trendCents = series.length > 1 ? Math.round((series[series.length - 1].value - series[0].value) * 100) : null;
+        return { ...l, trendCents };
+      }));
 
       const thisMonth = currentYM();
       const lMonth = prevYM(thisMonth);
@@ -741,7 +954,7 @@ export default function AgentPage() {
     }
     load().catch(console.error);
     return () => { cancelled = true; };
-  }, [profileId, activeProfile, viewMode, unlockedProfileIds]);
+  }, [profileId, activeProfile, viewMode, unlockedProfileIds, scopeIds, reloadTick]);
 
   const visibleInsights  = insights.filter((i) => !dismissedInsights.includes(i.dismissKey));
   const successInsights  = visibleInsights.filter((i) => i.severity === "success");
@@ -800,6 +1013,11 @@ export default function AgentPage() {
           style={{ color: viewMode === "global" ? "#C08A1C" : "hsl(var(--muted-foreground))", transition: "color 0.3s" }}>
           Global
         </span>
+        <InsightsExcludeDropdown
+          profileIds={scopeIds}
+          profileNames={profileNames}
+          onChanged={() => setReloadTick((t) => t + 1)}
+        />
       </div>
     </div>
   );
@@ -929,6 +1147,13 @@ export default function AgentPage() {
               score={investmentScore}
               infoText="Scored against the long-run ~7%/yr average U.S. stock market return, adjusted for inflation."
             />
+          </motion.div>
+        )}
+
+        {/* ── Loan Dashboard ── */}
+        {loans.length > 0 && (
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.09 }}>
+            <LoanDashboardCard loans={loans} />
           </motion.div>
         )}
 

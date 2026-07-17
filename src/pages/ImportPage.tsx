@@ -3,7 +3,7 @@ import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import {
   Calendar, Tag, DollarSign, BarChart2, Upload, Loader2, CheckCircle2, Info,
-  Landmark, CreditCard, TrendingUp,
+  Landmark, CreditCard, TrendingUp, HandCoins,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -15,8 +15,10 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import type { CategorizationRule, SecurityType, Account } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
 import { takePendingImportFiles } from "@/lib/pendingImport";
+import { parsePdfStatement } from "@/lib/pdfParse";
 import InfoTooltip from "@/components/InfoTooltip";
 import ManageAccountsPanel from "@/components/ManageAccountsPanel";
+import LoanUploaderModal from "@/components/LoanUploaderModal";
 
 type Step =
   | "upload" | "checking"
@@ -37,6 +39,32 @@ function backTargetFor(step: Step): Step {
   if (step === "wizard:investment-preview") return "wizard:account";
   const idx = STEP_ORDER.indexOf(step);
   return idx > 0 ? STEP_ORDER[idx - 1] : "upload";
+}
+
+/** Reads a CSV/XLSX/PDF bank or credit-card statement into raw string[][] rows (header row
+ *  first) - shared by the interactive wizard (processFile) and the "Auto-Import All" batch
+ *  path (autoImportFile) so every supported file type behaves the same in both. PDFs only ever
+ *  yield a synthetic Date/Description/Amount header (see parsePdfStatement) since there's no
+ *  real column structure to detect in a statement's text layer. XLSX uses the first sheet -
+ *  multi-sheet investment workbooks are handled separately in processFile's investment branch. */
+async function readStatementRows(file: File): Promise<string[][]> {
+  if (/\.pdf$/i.test(file.name)) {
+    const { headers, rows } = await parsePdfStatement(file);
+    return [headers, ...rows];
+  }
+  if (/\.xlsx?$/i.test(file.name)) {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array", cellDates: false });
+    const raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "", raw: false }) as unknown[][];
+    return raw.map((row) => row.map((c) => (c === null || c === undefined ? "" : String(c))));
+  }
+  return new Promise((resolve, reject) => {
+    Papa.parse<string[]>(file, {
+      skipEmptyLines: true,
+      complete: (r) => resolve(r.data as string[][]),
+      error: (e) => reject(e),
+    });
+  });
 }
 
 type ImportKind = "bank" | "credit" | "investment";
@@ -750,6 +778,7 @@ export default function ImportPage() {
   const [existingAccountsForType, setExistingAccountsForType] = useState<Account[]>([]);
   const [maxStepReached, setMaxStepReached] = useState(1);
   const [currentFilename, setCurrentFilename] = useState("");
+  const [isPdfImport, setIsPdfImport] = useState(false);
   const [importSubmitting, setImportSubmitting] = useState(false);
   const [colMap, setColMap] = useState<ColMap>({ dateCol: 0, descCol: 1, amountCol: 2, typeCol: -1, balanceCol: -1, invertAmounts: false });
   const [currentBalanceInput, setCurrentBalanceInput] = useState("");
@@ -765,6 +794,7 @@ export default function ImportPage() {
   const [batchAutoMode, setBatchAutoMode] = useState(false);
   const [totalBatchCount, setTotalBatchCount] = useState(0);
   const batchSavedColMapRef = useRef<ColMap | null>(null);
+  const [showLoanUploader, setShowLoanUploader] = useState(false);
 
   // Auto-detect the dominant month whenever the parsed data or date column changes
   const detectedMonth = useMemo(
@@ -990,6 +1020,28 @@ export default function ImportPage() {
     setStep("checking");
     setCurrentFilename(file.name);
 
+    const isPdf = /\.pdf$/i.test(file.name);
+    setIsPdfImport(isPdf);
+    if (isPdf) {
+      if (importKind === "investment") {
+        setError("PDF import isn't supported for investment portfolios yet - export a CSV or XLSX from your brokerage instead.");
+        setStep("upload");
+        return;
+      }
+      parsePdfStatement(file).then(({ rows }) => {
+        if (rows.length === 0) {
+          setError("Couldn't find any transactions in that PDF. It may be a scanned/image statement (no selectable text), which isn't supported - try a CSV/XLSX export from your bank instead.");
+          setStep("upload");
+          return;
+        }
+        finishParsingData([["Date", "Description", "Amount"], ...rows]);
+      }).catch(() => {
+        setError("Could not read that PDF. Make sure it's a valid, text-based statement.");
+        setStep("upload");
+      });
+      return;
+    }
+
     const isXlsx = /\.xlsx?$/i.test(file.name);
     if (isXlsx) {
       file.arrayBuffer().then((buf) => {
@@ -1144,8 +1196,8 @@ export default function ImportPage() {
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
-      const files = Array.from(e.dataTransfer.files).filter((f) => /\.(csv|xlsx?)$/i.test(f.name));
-      if (files.length === 0) { setError("Please drop one or more .csv or .xlsx files."); return; }
+      const files = Array.from(e.dataTransfer.files).filter((f) => /\.(csv|xlsx?|pdf)$/i.test(f.name));
+      if (files.length === 0) { setError("Please drop one or more .csv, .xlsx, or .pdf files."); return; }
       const [first, ...rest] = files;
       setBatchQueue(rest);
       processFile(first);
@@ -1317,13 +1369,15 @@ export default function ImportPage() {
     setError(null);
     setCurrentFilename(file.name);
     setStep("importing");
-    const data: string[][] = await new Promise((resolve, reject) => {
-      Papa.parse<string[]>(file, {
-        skipEmptyLines: true,
-        complete: (r) => resolve(r.data as string[][]),
-        error: (e) => reject(e),
-      });
-    });
+    let data: string[][];
+    try {
+      data = await readStatementRows(file);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setSummary({ imported: 0, skipped: 0 });
+      setStep("done");
+      return;
+    }
     if (data.length < 2) { setStep("done"); setSummary({ imported: 0, skipped: 0 }); return; }
     const skip = findRealHeaderRow(data);
     const derived = deriveHeaders(data, skip);
@@ -1428,6 +1482,7 @@ export default function ImportPage() {
     setExistingAccountsForType([]);
     setMaxStepReached(1);
     setCurrentFilename("");
+    setIsPdfImport(false);
     setSummary(null);
     setError(null);
     setProfileFound(false);
@@ -1447,10 +1502,16 @@ export default function ImportPage() {
         Your data never leaves this device.
       </p>
 
+      {(step === "upload" || step === "done") && (
+        <div className="mb-6">
+          <ManageAccountsPanel profileId={profileId} />
+        </div>
+      )}
+
       {step === "upload" && importKind === null && (
         <div className="space-y-3">
           <p className="text-sm font-medium">What are you importing?</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {IMPORT_KINDS.map((k) => (
               <button
                 key={k.id}
@@ -1462,6 +1523,14 @@ export default function ImportPage() {
                 <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">{k.hint}</p>
               </button>
             ))}
+            <button
+              onClick={() => setShowLoanUploader(true)}
+              className="border rounded-xl p-5 text-center hover:border-[hsl(var(--primary))] hover:bg-[hsl(var(--muted))] transition-colors chart-clickable"
+            >
+              <div className="flex justify-center mb-2 text-[hsl(var(--primary))]"><HandCoins size={26} /></div>
+              <p className="font-medium text-sm">Loan Statement</p>
+              <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">Car, student, personal loan, or mortgage - balance snapshot, not itemized transactions</p>
+            </button>
           </div>
         </div>
       )}
@@ -1489,7 +1558,7 @@ export default function ImportPage() {
                 ? "Reading file..."
                 : importKind === "investment"
                 ? "Drop your portfolio positions export here or click to browse"
-                : "Drop your CSV here or click to browse"}
+                : "Drop your CSV, XLSX, or PDF statement here or click to browse"}
             </p>
             <p className="text-sm text-[hsl(var(--muted-foreground))]">
               {importKind === "investment"
@@ -1500,7 +1569,7 @@ export default function ImportPage() {
           <input
             id="csv-input"
             type="file"
-            accept=".csv,.xlsx,.xls"
+            accept={importKind === "investment" ? ".csv,.xlsx,.xls" : ".csv,.xlsx,.xls,.pdf"}
             multiple
             className="hidden"
             onChange={handleFileInput}
@@ -2259,6 +2328,14 @@ export default function ImportPage() {
         <div key="wizard:preview" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           {error && <p className="text-red-500 text-sm p-3 border border-red-300 rounded-lg">{error}</p>}
 
+          {isPdfImport && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1.5 p-3 border border-amber-300/50 rounded-lg bg-amber-500/5">
+              <Info size={13} className="shrink-0 mt-0.5" />
+              PDF statements are read with text-extraction heuristics, not a guaranteed column layout -
+              double-check the rows below before importing. A CSV/XLSX export from your bank is more reliable when available.
+            </p>
+          )}
+
           {importKind === "credit" && accountChoice && (
             <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
               <CheckCircle2 size={12} />
@@ -2557,10 +2634,12 @@ export default function ImportPage() {
         </div>
       )}
 
-      {(step === "upload" || step === "done") && (
-        <div className="mt-6">
-          <ManageAccountsPanel profileId={profileId} />
-        </div>
+      {showLoanUploader && (
+        <LoanUploaderModal
+          profileId={profileId}
+          onClose={() => setShowLoanUploader(false)}
+          onSaved={() => setShowLoanUploader(false)}
+        />
       )}
     </div>
   );

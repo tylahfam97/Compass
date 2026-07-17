@@ -79,6 +79,11 @@ export interface Account {
   created_at: string;
   balance_anchor_cents?: number | null;
   balance_anchor_date?: string | null;
+  hidden_from_dashboard?: boolean;
+  excluded_from_insights?: boolean;
+  /** Loan accounts only - purely informational, never used in any calculation. */
+  interest_rate_bps?: number | null;
+  minimum_payment_cents?: number | null;
 }
 
 export interface Transaction {

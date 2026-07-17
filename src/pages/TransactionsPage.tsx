@@ -64,7 +64,12 @@ function buildQueryParts(opts: {
   filterAmountMin: string;         // dollar string, empty = no bound
   filterAmountMax: string;         // dollar string, empty = no bound
 }): { where: string; params: unknown[] } {
-  const conditions: string[] = ["t.profile_id=?"];
+  const conditions: string[] = [
+    "t.profile_id=?",
+    // Loan "transactions" are just balance-snapshot rows from statement uploads, not itemized
+    // purchases - they belong on the Loan Dashboard, not the everyday transaction list.
+    "t.account_id NOT IN (SELECT id FROM accounts WHERE account_type='loan')",
+  ];
   const params: unknown[] = [opts.profileId];
 
   if (!opts.allTime) {
