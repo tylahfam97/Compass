@@ -94,50 +94,55 @@ export default function OnboardingChecklistWidget() {
   }
 
   // ── Expanded checklist ───────────────────────────────────────────────────
+  // NOTE: keep `border`/`rounded-2xl` off this outer `fixed` element - a global decorative-
+  // ring rule (index.css) targets `.border.rounded-2xl` with higher specificity than the
+  // `.fixed` utility and forces `position: relative` on any element with both classes,
+  // silently breaking fixed positioning. That styling lives on the inner div instead.
   return (
-    <div className="fixed bottom-5 right-5 z-[90] w-72 bg-[hsl(var(--background))] border rounded-2xl shadow-2xl overflow-hidden"
-      style={{ borderColor: "var(--gold)" }}>
-      <div className="flex items-center justify-between px-4 py-3 border-b">
-        <span className="font-semibold text-sm flex items-center gap-1.5">
-          <Sparkles size={14} style={{ color: "var(--gold)" }} />
-          Getting Started
-        </span>
-        <div className="flex items-center gap-1">
-          <button onClick={() => setMinimized(true)} title="Minimize" className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors">
-            <ChevronDown size={16} />
-          </button>
-        </div>
-      </div>
-
-      <div className="max-h-80 overflow-y-auto py-1">
-        {ONBOARDING_STEPS.map((step) => {
-          const done = visitedSteps.has(step.id);
-          return (
-            <button
-              key={step.id}
-              onClick={() => startStep(step.id)}
-              className="w-full flex items-center gap-2.5 px-4 py-2 text-left text-sm hover:bg-[hsl(var(--muted))] transition-colors"
-            >
-              <span
-                className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${done ? "border-transparent" : ""}`}
-                style={done ? { backgroundColor: "var(--gold)" } : undefined}
-              >
-                {done && <Check size={10} className="text-white" />}
-              </span>
-              <span className={done ? "text-[hsl(var(--muted-foreground))] line-through" : ""}>{step.title}</span>
+    <div className="fixed bottom-5 right-5 z-[90] w-72 overflow-hidden">
+      <div className="bg-[hsl(var(--background))] border rounded-2xl shadow-2xl overflow-hidden" style={{ borderColor: "var(--gold)" }}>
+        <div className="flex items-center justify-between px-4 py-3 border-b">
+          <span className="font-semibold text-sm flex items-center gap-1.5">
+            <Sparkles size={14} style={{ color: "var(--gold)" }} />
+            Getting Started
+          </span>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setMinimized(true)} title="Minimize" className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors">
+              <ChevronDown size={16} />
             </button>
-          );
-        })}
-      </div>
+          </div>
+        </div>
 
-      <div className="flex items-center justify-between px-4 py-2.5 border-t">
-        <button
-          onClick={dismissForever}
-          className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors flex items-center gap-1"
-        >
-          <X size={11} /> Don't show again
-        </button>
-        <span className="text-xs text-[hsl(var(--muted-foreground))]">{visitedCount}/{total}</span>
+        <div className="max-h-80 overflow-y-auto py-1">
+          {ONBOARDING_STEPS.map((step) => {
+            const done = visitedSteps.has(step.id);
+            return (
+              <button
+                key={step.id}
+                onClick={() => startStep(step.id)}
+                className="w-full flex items-center gap-2.5 px-4 py-2 text-left text-sm hover:bg-[hsl(var(--muted))] transition-colors"
+              >
+                <span
+                  className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${done ? "border-transparent" : ""}`}
+                  style={done ? { backgroundColor: "var(--gold)" } : undefined}
+                >
+                  {done && <Check size={10} className="text-white" />}
+                </span>
+                <span className={done ? "text-[hsl(var(--muted-foreground))] line-through" : ""}>{step.title}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center justify-between px-4 py-2.5 border-t">
+          <button
+            onClick={dismissForever}
+            className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors flex items-center gap-1"
+          >
+            <X size={11} /> Don't show again
+          </button>
+          <span className="text-xs text-[hsl(var(--muted-foreground))]">{visitedCount}/{total}</span>
+        </div>
       </div>
     </div>
   );

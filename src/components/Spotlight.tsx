@@ -134,7 +134,7 @@ export default function Spotlight() {
   }
 
   return (
-    <div className="fixed inset-0 z-[100]">
+    <div className="z-[100]" style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh" }}>
       {/* Backdrop - only a flat dim when there's no real target to cut out around */}
       {!showHighlight && <div className="absolute inset-0 bg-black/50" />}
 
@@ -156,8 +156,11 @@ export default function Spotlight() {
 
       {/* Callout card - flexbox alignment guarantees it stays fully within the viewport. */}
       <div
-        className="fixed inset-0 z-[101] flex p-6"
-        style={{ justifyContent: justify, alignItems: align }}
+        className="z-[101] flex p-6"
+        style={{
+          position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
+          display: "flex", justifyContent: justify, alignItems: align,
+        }}
       >
         <div className="w-80 max-w-[90vw] max-h-[80vh] overflow-y-auto bg-[hsl(var(--background))] border rounded-2xl shadow-2xl p-5">
           <div className="flex items-start justify-between gap-2 mb-2">

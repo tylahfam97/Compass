@@ -167,7 +167,7 @@ function App() {
       <div className="flex h-screen overflow-hidden">
         {/* Sidebar */}
         <aside
-          className={`shrink-0 flex flex-col bg-[hsl(var(--muted))] transition-all duration-200
+          className={`shrink-0 flex flex-col overflow-y-auto bg-[hsl(var(--muted))] transition-all duration-200
                       ${sidebarOpen ? "w-52" : "w-12"}`}
           style={{ borderRight: '1.5px solid var(--gold)' }}
         >
