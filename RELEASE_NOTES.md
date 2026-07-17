@@ -4,6 +4,18 @@
 
 ## Compass 0.7.5 — Accuracy Fixes & Interface Polish
 
+### Fixed: Investment ROI Overstated on Mixed-Data Holdings
+When a symbol had multiple lots and only some of them carried a cost basis (common with partial imports), the Investments page was comparing the *full* market value of the position against only the *partial* cost basis it had data for - overstating ROI, sometimes dramatically. ROI now only compares market value against cost basis for the lots that actually have both, so the percentage reflects the real return on what you actually paid.
+
+### New: Transaction Detail Popup
+Click anywhere on a transaction row (other than the category or edit buttons) to see a clean, read-only summary - account, balance right after that transaction, full description, and any note - in a quick popup rather than opening the edit form. Closes on Escape or a click outside, with a smooth fade in/out, and never disturbs your scroll position on the page.
+
+### New: Sticky Transactions Header
+The title, action buttons, and search/filter row on the Transactions page now stay pinned at the top while you scroll through a long list, instead of scrolling out of view.
+
+### Polish: Launch Screen
+The gold particle field now drifts closer in around the profile picker instead of leaving a large empty gap, and the Compass wordmark is now truly centered above "Good afternoon" and the picker card (its SVG had extra invisible padding on one side throwing off the centering).
+
 ### Fixed: Savings Rate & Health Score Still Counting Credit Card Spending
 A few calculations were missed in the earlier credit-card-accounting fix: the "Avg Savings Rate" stat, the Insights savings-rate warning, and the Financial Health Score's Budget Health component were still counting credit card purchases as expenses, understating how healthy your savings rate actually is. These now correctly reflect checking and investment activity only, consistent with the rest of the app - and no longer double-count debt that's already tracked separately by the Credit Card Health score.
 
