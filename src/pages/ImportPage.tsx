@@ -15,7 +15,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import type { CategorizationRule, SecurityType, Account } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
 import { takePendingImportFiles } from "@/lib/pendingImport";
-import { parsePdfStatement } from "@/lib/pdfParse";
+import { parsePdfStatement, extractPdfRows } from "@/lib/pdfParse";
 import InfoTooltip from "@/components/InfoTooltip";
 import ManageAccountsPanel from "@/components/ManageAccountsPanel";
 import LoanUploaderModal from "@/components/LoanUploaderModal";
@@ -1030,8 +1030,17 @@ export default function ImportPage() {
     setIsPdfImport(isPdf);
     if (isPdf) {
       if (importKind === "investment") {
-        setError("PDF import isn't supported for investment portfolios yet - export a CSV or XLSX from your brokerage instead.");
-        setStep("upload");
+        extractPdfRows(file).then((data) => {
+          if (data.length < 2) {
+            setError("Couldn't find any recognizable holdings table in that PDF. It may be a scanned/image statement (no selectable text) - try a CSV/XLSX export from your brokerage instead.");
+            setStep("upload");
+            return;
+          }
+          finishParsingInvestmentData(data);
+        }).catch(() => {
+          setError("Could not read that PDF. Make sure it's a valid, text-based statement.");
+          setStep("upload");
+        });
         return;
       }
       parsePdfStatement(file).then(({ rows, looksLikeLoanStatement }) => {
@@ -1572,14 +1581,14 @@ export default function ImportPage() {
             </p>
             <p className="text-sm text-[hsl(var(--muted-foreground))]">
               {importKind === "investment"
-                ? "Works with Wells Fargo Advisors portfolio positions exports"
+                ? "Works with Wells Fargo Advisors, Fidelity, and Thrivent exports (CSV, XLSX, or PDF)"
                 : "Works with exports from any bank or credit card"}
             </p>
           </div>
           <input
             id="csv-input"
             type="file"
-            accept={importKind === "investment" ? ".csv,.xlsx,.xls" : ".csv,.xlsx,.xls,.pdf"}
+            accept=".csv,.xlsx,.xls,.pdf"
             multiple
             className="hidden"
             onChange={handleFileInput}
@@ -2202,6 +2211,15 @@ export default function ImportPage() {
       {step === "wizard:investment-preview" && invParsed && (
         <div key="wizard:investment-preview" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           {error && <p className="text-red-500 text-sm p-3 border border-red-300 rounded-lg">{error}</p>}
+
+          {isPdfImport && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1.5 p-3 border border-amber-300/50 rounded-lg bg-amber-500/5">
+              <Info size={13} className="shrink-0 mt-0.5" />
+              PDF portfolio statements are read with text-extraction heuristics, not a guaranteed column layout -
+              double-check the sections and columns below (use "Fix columns" if anything looks misaligned) before importing.
+              A CSV/XLSX export from your brokerage is more reliable when available.
+            </p>
+          )}
 
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "hsl(var(--primary)/0.1)" }}>
