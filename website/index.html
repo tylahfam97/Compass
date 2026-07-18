@@ -532,7 +532,7 @@
           Is the database encrypted?
         </div>
         <div class="qa-a">
-          Yes. <strong>SQLCipher AES-256</strong> encrypts the database at rest. The key is a 32-byte random value stored in <strong>Windows Credential Manager</strong> (DPAPI-backed), bound to your Windows user account. It is never visible in the app UI.
+          Yes. <strong>SQLCipher AES-256</strong> encrypts the database at rest. The key is a 32-byte random value stored in your OS's native secure credential store - <strong>Windows Credential Manager</strong> (DPAPI-backed) on Windows, or <strong>Keychain</strong> on macOS - bound to your OS user account. It is never visible in the app UI.
         </div>
       </div>
 

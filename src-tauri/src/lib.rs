@@ -1,9 +1,12 @@
 // ─── Compass — encrypted SQLite backend ──────────────────────────────────────
 //
 // Replaces tauri-plugin-sql with a custom command layer backed by rusqlite +
-// SQLCipher.  The encryption key is a 32-byte random value stored in Windows
-// Credential Manager (DPAPI-backed) via the `keyring` crate, so it is bound
-// to the current Windows user account and is never visible to the user.
+// SQLCipher.  The encryption key is a 32-byte random value stored in the OS's
+// native secure credential store via the `keyring` crate - Windows Credential
+// Manager (DPAPI-backed) on Windows, Keychain on macOS - so it is bound to the
+// current OS user account and is never visible to the user. The `keyring`
+// crate picks the correct backend per-platform automatically; nothing here is
+// Windows-specific despite the historical comments below.
 //
 // On first launch the key is generated and the database is created encrypted.
 // On upgrade from an unencrypted build, the existing plaintext DB is silently
@@ -164,7 +167,9 @@ const KEYRING_SERVICE: &str = "com.compass.app";
 const KEYRING_USER: &str = "db_encryption_key";
 
 /// Load the encryption key, using a two-tier strategy:
-///  1. Windows Credential Manager (keyring) — primary, backward-compatible
+///  1. OS native credential store (via `keyring`) - primary, backward-compatible.
+///     Windows Credential Manager on Windows, Keychain on macOS - `keyring`
+///     selects the right backend automatically per-platform.
 ///  2. `compass.key` file in the app data dir — backup / fallback
 ///
 /// On every successful keyring read the key is also written to the file so
