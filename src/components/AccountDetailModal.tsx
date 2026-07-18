@@ -11,11 +11,11 @@ import InsightCard from "@/components/InsightCard";
 export interface AccountDetailAccount {
   id: number;
   name: string;
-  accountType: "credit" | "loan";
+  accountType: "credit" | "loan" | "checking";
   color: string;
   balanceCents: number | null;
   series: { date: string; value: number }[];
-  /** Loans only - informational, shown as-is. */
+  /** Loans and credit cards - informational, shown as-is. */
   interestRateBps?: number | null;
   minimumPaymentCents?: number | null;
 }
@@ -29,11 +29,15 @@ interface Props {
   onClose: () => void;
 }
 
-// Insights aren't tagged to a specific account, so this is a best-effort relevance mapping by
-// type - good enough to surface the 1-2 most pertinent existing insights without needing a
-// whole separate per-account insights engine.
+// Insights aren't tagged to a specific account (besides the credit-card-debt ones below, which
+// are), so this is a best-effort relevance mapping by type for everything else - good enough
+// to surface the 1-2 most pertinent existing insights without needing a whole separate
+// per-account insights engine.
 const CREDIT_RELEVANT_TYPES: InsightType[] = [
   "credit_card_debt_high", "credit_card_debt_growing", "credit_card_debt_improving",
+];
+const CHECKING_RELEVANT_TYPES: InsightType[] = [
+  "overdraft_alert", "emergency_fund_runway", "income_irregular", "savings_rate_low",
 ];
 
 interface DerivedNote {
@@ -49,22 +53,25 @@ const NOTE_ICON_CLS: Record<DerivedNote["severity"], string> = {
   info: "text-blue-500", success: "text-emerald-600", warning: "text-amber-500",
 };
 
-/** Loans have no generic Insight type of their own (see agent.ts) - these are simple, honest
- *  observations computed straight from the account's own data, not a full insights pipeline. */
-function derivedLoanNotes(account: AccountDetailAccount): DerivedNote[] {
+/** Loans and credit cards have no generic Insight type of their own for balance-trend/rate
+ *  observations (see agent.ts) - these are simple, honest observations computed straight from
+ *  the account's own data, not a full insights pipeline. */
+function derivedDebtNotes(account: AccountDetailAccount): DerivedNote[] {
   const notes: DerivedNote[] = [];
   if (account.series.length > 1) {
     const changeCents = Math.round((account.series[account.series.length - 1].value - account.series[0].value) * 100);
     if (Math.abs(changeCents) >= 100) {
       notes.push(changeCents > 0
-        ? { title: "Balance improving", description: `Paid down ${formatCurrency(Math.abs(changeCents))} since the earliest statement on file.`, severity: "success" }
-        : { title: "Balance growing", description: `Grew by ${formatCurrency(Math.abs(changeCents))} since the earliest statement on file.`, severity: "warning" });
+        ? { title: "Balance improving", description: `Paid down ${formatCurrency(Math.abs(changeCents))} since the earliest statement/transaction on file.`, severity: "success" }
+        : { title: "Balance growing", description: `Grew by ${formatCurrency(Math.abs(changeCents))} since the earliest statement/transaction on file.`, severity: "warning" });
     }
   }
   if (account.interestRateBps == null) {
     notes.push({
       title: "No interest rate on file",
-      description: "Add one (via \"Add a Statement\") to include this loan in Avalanche ranking on the Loan Dashboard.",
+      description: account.accountType === "credit"
+        ? "Add one next time you import a statement to include this card in Avalanche ranking on the Debt Dashboard."
+        : "Add one (via \"Add a Statement\") to include this loan in Avalanche ranking on the Debt Dashboard.",
       severity: "info",
     });
   } else if (account.interestRateBps >= 1000) {
@@ -77,13 +84,28 @@ function derivedLoanNotes(account: AccountDetailAccount): DerivedNote[] {
   return notes;
 }
 
+/** Checking accounts get a simple balance-trend observation, same spirit as `derivedDebtNotes`
+ *  but without any debt-specific framing (interest rate, Avalanche ranking, etc). */
+function derivedCheckingNotes(account: AccountDetailAccount): DerivedNote[] {
+  const notes: DerivedNote[] = [];
+  if (account.series.length > 1) {
+    const changeCents = Math.round((account.series[account.series.length - 1].value - account.series[0].value) * 100);
+    if (Math.abs(changeCents) >= 100) {
+      notes.push(changeCents > 0
+        ? { title: "Balance growing", description: `Up ${formatCurrency(Math.abs(changeCents))} over the period shown.`, severity: "success" }
+        : { title: "Balance shrinking", description: `Down ${formatCurrency(Math.abs(changeCents))} over the period shown.`, severity: "warning" });
+    }
+  }
+  return notes;
+}
+
 export default function AccountDetailModal({ account, insights, onApply, onClose }: Props) {
   const { onBackdropClick } = useModalDismiss(onClose);
   const [txns, setTxns] = useState<Transaction[]>([]);
-  const [loadingTxns, setLoadingTxns] = useState(account.accountType === "credit");
+  const [loadingTxns, setLoadingTxns] = useState(account.accountType === "credit" || account.accountType === "checking");
 
   useEffect(() => {
-    if (account.accountType !== "credit") return;
+    if (account.accountType !== "credit" && account.accountType !== "checking") return;
     (async () => {
       setLoadingTxns(true);
       try {
@@ -111,9 +133,13 @@ export default function AccountDetailModal({ account, insights, onApply, onClose
   const lastCents = Math.round(last * 100);
 
   const matchedInsights = account.accountType === "credit"
-    ? insights.filter((i) => CREDIT_RELEVANT_TYPES.includes(i.type)).slice(0, 2)
+    ? insights.filter((i) => CREDIT_RELEVANT_TYPES.includes(i.type) && i.accountId === account.id).slice(0, 2)
+    : account.accountType === "checking"
+    ? insights.filter((i) => CHECKING_RELEVANT_TYPES.includes(i.type)).slice(0, 2)
     : [];
-  const notes = account.accountType === "loan" ? derivedLoanNotes(account).slice(0, 2) : [];
+  const notes = account.accountType === "loan" || account.accountType === "credit"
+    ? derivedDebtNotes(account).slice(0, 2)
+    : derivedCheckingNotes(account).slice(0, 2);
 
   return (
     <motion.div
@@ -132,7 +158,7 @@ export default function AccountDetailModal({ account, insights, onApply, onClose
             <div className="min-w-0">
               <h2 className="text-lg font-semibold truncate">{account.name}</h2>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                {account.accountType === "credit" ? "Credit Card" : "Loan"}
+                {account.accountType === "credit" ? "Credit Card" : account.accountType === "checking" ? "Bank Account" : "Loan"}
               </p>
             </div>
           </div>
@@ -153,7 +179,7 @@ export default function AccountDetailModal({ account, insights, onApply, onClose
           )}
         </div>
 
-        {account.accountType === "loan" && (account.interestRateBps != null || account.minimumPaymentCents != null) && (
+        {(account.accountType === "loan" || account.accountType === "credit") && (account.interestRateBps != null || account.minimumPaymentCents != null) && (
           <p className="text-xs text-[hsl(var(--muted-foreground))] mb-3">
             {account.interestRateBps != null && <>{(account.interestRateBps / 100).toFixed(2)}% APR</>}
             {account.interestRateBps != null && account.minimumPaymentCents != null && " · "}
@@ -208,7 +234,7 @@ export default function AccountDetailModal({ account, insights, onApply, onClose
           </div>
         )}
 
-        {account.accountType === "credit" ? (
+        {account.accountType === "credit" || account.accountType === "checking" ? (
           <div>
             <h3 className="text-xs font-semibold uppercase tracking-wide text-[hsl(var(--muted-foreground))] mb-2">
               Recent Transactions

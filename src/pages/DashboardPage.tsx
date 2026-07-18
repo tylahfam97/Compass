@@ -41,6 +41,8 @@ interface CreditAccountMeta {
   /** Collapsed on the dashboard and excluded from net worth - toggled per-card, independent
    *  of every other account (see setCreditHidden). */
   hidden: boolean;
+  /** Credit cards only (optional, entered on import) - null for bank accounts. */
+  interestRateBps: number | null;
 }
 
 interface CreditBalanceRow {
@@ -80,6 +82,8 @@ export default function DashboardPage() {
   const [hasDemoAccounts, setHasDemoAccounts] = useState(false);
   const [currentBalance, setCurrentBalance] = useState<number | null>(null);
   const [checkingBalancePoints, setCheckingBalancePoints] = useState<CheckingBalancePoint[]>([]);
+  const [bankAccountsMeta, setBankAccountsMeta] = useState<CreditAccountMeta[]>([]);
+  const [bankBalanceRows, setBankBalanceRows] = useState<CreditBalanceRow[]>([]);
   const [creditBalanceAccounts, setCreditBalanceAccounts] = useState<CreditAccountMeta[]>([]);
   const [creditBalanceRows, setCreditBalanceRows] = useState<CreditBalanceRow[]>([]);
   const [loans, setLoans] = useState<LoanAccount[]>([]);
@@ -160,8 +164,8 @@ export default function DashboardPage() {
          WHERE profile_id=? AND as_of_date=(SELECT MAX(as_of_date) FROM holdings WHERE profile_id=?)`,
         [profileId, profileId]
       ),
-      db.select<{ id: number; name: string; account_type: string; hidden_from_dashboard: number }[]>(
-        "SELECT id, name, account_type, hidden_from_dashboard FROM accounts WHERE profile_id=? AND account_type IN ('checking','credit') ORDER BY account_type, name",
+      db.select<{ id: number; name: string; account_type: string; hidden_from_dashboard: number; interest_rate_bps: number | null }[]>(
+        "SELECT id, name, account_type, hidden_from_dashboard, interest_rate_bps FROM accounts WHERE profile_id=? AND account_type IN ('checking','credit') ORDER BY account_type, name",
         [profileId]
       ),
       db.select<{ n: number }[]>(
@@ -190,13 +194,27 @@ export default function DashboardPage() {
     setCurrentBalance(checkingTracked.length > 0 ? checkingTracked.reduce((s, r) => s + (r.balance_cents ?? 0), 0) : null);
     const creditAccountsMeta = balanceAcctRows
       .filter((a) => a.account_type === "credit")
-      .map((a, i) => ({ id: a.id, name: a.name, color: accountChartColor(i), hidden: !!a.hidden_from_dashboard }));
+      .map((a, i) => ({ id: a.id, name: a.name, color: accountChartColor(i), hidden: !!a.hidden_from_dashboard, interestRateBps: a.interest_rate_bps }));
     setCreditBalanceAccounts(creditAccountsMeta);
     // Checking accounts combine into one line (there's usually just one); credit cards stay
     // separate per-account so multiple cards never get silently summed into one number.
     const combinedChecking = combineAccountBalances(balancePointRows.filter((r) => checkingIds.has(r.account_id)));
     setCheckingBalancePoints(
       combinedChecking.filter((r) => r.date >= start).map((r) => ({ date: r.date, balance: r.balance_cents / 100 }))
+    );
+    // Per-account checking tiles (clickable, same pattern as credit cards) - only visible
+    // accounts, matching the headline figure above.
+    const checkingAccountsMeta = balanceAcctRows
+      .filter((a) => a.account_type === "checking" && !a.hidden_from_dashboard)
+      .map((a, i) => ({ id: a.id, name: a.name, color: accountChartColor(i), hidden: false, interestRateBps: null }));
+    setBankAccountsMeta(checkingAccountsMeta);
+    const separatedChecking = separateAccountBalances(balancePointRows.filter((r) => checkingIds.has(r.account_id)));
+    setBankBalanceRows(
+      separatedChecking.filter((r) => r.date >= start).map((r) => {
+        const row: CreditBalanceRow = { date: r.date };
+        for (const acc of checkingAccountsMeta) row[String(acc.id)] = (r.byAccount[acc.id] ?? 0) / 100;
+        return row;
+      })
     );
     const separatedCredit = separateAccountBalances(balancePointRows.filter((r) => creditIds.has(r.account_id)));
     setCreditBalanceRows(
@@ -490,6 +508,74 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {/* Bank accounts - one clickable tile per checking account (balance + trend +
+              mini-sparkline), same pattern as Credit Cards below, so each account's own
+              recent activity and relevant insights are a click away instead of only ever
+              seeing the combined total above. */}
+          {bankAccountsMeta.length > 0 && (
+            <div className="space-y-3">
+              <div>
+                <h2 className="font-semibold">Bank Accounts</h2>
+                <p className="text-[10px] text-[hsl(var(--muted-foreground))]">Current balance and this month's trend, per account</p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {bankAccountsMeta.map((acc) => {
+                  const series = bankBalanceRows.map((r) => ({ date: r.date, value: Number(r[String(acc.id)] ?? 0) }));
+                  const last = series.length > 0 ? series[series.length - 1].value : 0;
+                  const first = series.length > 0 ? series[0].value : 0;
+                  const changeCents = Math.round((last - first) * 100);
+                  const improved = changeCents > 0;
+                  const lastCents = Math.round(last * 100);
+
+                  return (
+                    <div
+                      key={acc.id}
+                      className="border rounded-xl p-4 cursor-pointer hover:border-[hsl(var(--primary))] transition-colors"
+                      onClick={() => setViewAccount({ id: acc.id, name: acc.name, accountType: "checking", color: acc.color, balanceCents: lastCents, series })}
+                    >
+                      <div className="flex items-center justify-between mb-1 gap-2">
+                        <span className="text-sm font-medium flex items-center gap-1.5 min-w-0">
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: acc.color }} />
+                          <span className="truncate">{acc.name}</span>
+                        </span>
+                        {series.length > 1 && Math.abs(changeCents) >= 100 && (
+                          <span className={`text-xs font-semibold flex items-center gap-0.5 shrink-0 ${improved ? "text-green-600" : "text-red-500"}`}>
+                            {improved ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                            {formatCurrency(Math.abs(changeCents))}
+                          </span>
+                        )}
+                      </div>
+                      <p className={`text-xl font-bold mb-2 ${lastCents < 0 ? "text-red-500" : "text-green-600"}`}>
+                        {formatCurrency(lastCents)}
+                      </p>
+                      {series.length > 1 && (
+                        <div className="h-10 -mx-1">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={series} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+                              <defs>
+                                <linearGradient id={`bank-grad-${acc.id}`} x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor={acc.color} stopOpacity={0.3} />
+                                  <stop offset="95%" stopColor={acc.color} stopOpacity={0} />
+                                </linearGradient>
+                              </defs>
+                              <Tooltip
+                                contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
+                                wrapperStyle={{ zIndex: 50 }}
+                                formatter={(v) => [formatCurrency(Math.round(Number(v) * 100)), acc.name]}
+                                labelFormatter={(l) => formatDate(String(l))}
+                              />
+                              <Area type="monotone" dataKey="value" stroke={acc.color} strokeWidth={1.5} fill={`url(#bank-grad-${acc.id})`} dot={false} />
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Credit card balances - one compact tile per card (balance + trend + mini-sparkline),
               rather than a shared line chart where multiple near-flat debt lines are hard to
               read and don't convey much at a glance. */}
@@ -538,7 +624,7 @@ export default function DashboardPage() {
                     <div
                       key={acc.id}
                       className="border rounded-xl p-4 cursor-pointer hover:border-[hsl(var(--primary))] transition-colors"
-                      onClick={() => setViewAccount({ id: acc.id, name: acc.name, accountType: "credit", color: acc.color, balanceCents: lastCents, series })}
+                      onClick={() => setViewAccount({ id: acc.id, name: acc.name, accountType: "credit", color: acc.color, balanceCents: lastCents, series, interestRateBps: acc.interestRateBps })}
                     >
                       <div className="flex items-center justify-between mb-1 gap-2">
                         <span className="text-sm font-medium flex items-center gap-1.5 min-w-0">

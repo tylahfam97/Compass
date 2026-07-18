@@ -8,7 +8,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import {
   getDb, applyCategorizationRules, recomputeCalculatedBalances,
-  listAccountsForProfile, resolveAccountId,
+  listAccountsForProfile, resolveAccountId, setAccountInterestRate,
 } from "@/lib/db";
 import type { AccountChoice } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -776,6 +776,10 @@ export default function ImportPage() {
   const [fixColumnsOpen, setFixColumnsOpen] = useState<Set<string>>(new Set());
   const [accountChoice, setAccountChoice] = useState<AccountChoice | null>(null);
   const [existingAccountsForType, setExistingAccountsForType] = useState<Account[]>([]);
+  // Optional APR entered/edited on the "which account" step for credit imports only - purely
+  // informational (same as a loan's rate), lets credit cards join Avalanche ranking on the
+  // Debt Dashboard without a separate settings screen.
+  const [creditInterestRateInput, setCreditInterestRateInput] = useState("");
   const [maxStepReached, setMaxStepReached] = useState(1);
   const [currentFilename, setCurrentFilename] = useState("");
   const [isPdfImport, setIsPdfImport] = useState(false);
@@ -829,6 +833,9 @@ export default function ImportPage() {
           );
           if (match) {
             setAccountChoice({ mode: "existing", accountId: match.id, name: match.name });
+            if (importKind === "credit") {
+              setCreditInterestRateInput(match.interest_rate_bps != null ? (match.interest_rate_bps / 100).toFixed(2) : "");
+            }
             return;
           }
         }
@@ -1136,6 +1143,7 @@ export default function ImportPage() {
     setFixColumnsOpen(new Set());
     setAccountChoice(null);
     setExistingAccountsForType([]);
+    setCreditInterestRateInput("");
     setMaxStepReached(1);
     setWizardDir("forward");
     setStep("wizard:account");
@@ -1164,6 +1172,7 @@ export default function ImportPage() {
     setSkipRows(initialSkip);
     setAccountChoice(null);
     setExistingAccountsForType([]);
+    setCreditInterestRateInput("");
     setMaxStepReached(1);
     const derived = deriveHeaders(data, initialSkip);
     if (!derived) {
@@ -1272,6 +1281,11 @@ export default function ImportPage() {
       // instead of sharing the one just created, splitting one card's transactions/balance
       // across several duplicate accounts.
       setAccountChoice((prev) => (prev?.mode === "existing" && prev.accountId === accountId ? prev : { mode: "existing", accountId, name: prev?.name ?? "My Account" }));
+      if (importKind === "credit" && creditInterestRateInput.trim()) {
+        // Only touches the rate when the user actually typed one - an empty field on a later
+        // import of the same card must never silently wipe out a rate set previously.
+        await setAccountInterestRate(accountId, Math.round(parseFloat(creditInterestRateInput.trim()) * 100));
+      }
       if (colMap.balanceCol < 0 && currentBalanceInput.trim()) {
         // The entered value is the real balance AFTER all transactions, as of today (when it's
         // submitted) - not before them - so Compass can calculate correctly in both directions.
@@ -1499,6 +1513,7 @@ export default function ImportPage() {
     setCurrentBalanceInput("");
     setAccountChoice(null);
     setExistingAccountsForType([]);
+    setCreditInterestRateInput("");
     setMaxStepReached(1);
     setCurrentFilename("");
     setIsPdfImport(false);
@@ -1732,7 +1747,12 @@ export default function ImportPage() {
                 value={accountChoice.accountId}
                 onChange={(e) => {
                   const acct = existingAccountsForType.find((a) => a.id === parseInt(e.target.value));
-                  if (acct) setAccountChoice({ mode: "existing", accountId: acct.id, name: acct.name });
+                  if (acct) {
+                    setAccountChoice({ mode: "existing", accountId: acct.id, name: acct.name });
+                    if (importKind === "credit") {
+                      setCreditInterestRateInput(acct.interest_rate_bps != null ? (acct.interest_rate_bps / 100).toFixed(2) : "");
+                    }
+                  }
                 }}
                 className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
                 {existingAccountsForType.map((a) => (
@@ -1755,6 +1775,24 @@ export default function ImportPage() {
                   placeholder={importKind === "credit" ? "e.g. Chase Sapphire" : importKind === "investment" ? "e.g. Fidelity Brokerage" : "e.g. Checking"}
                   className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
                 />
+              </div>
+            )}
+
+            {importKind === "credit" && (
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
+                  Interest Rate (APR) <span className="normal-case">(optional)</span>
+                </label>
+                <input
+                  type="number" step="0.01" min="0"
+                  value={creditInterestRateInput}
+                  onChange={(e) => setCreditInterestRateInput(e.target.value)}
+                  placeholder="e.g. 24.99"
+                  className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]"
+                />
+                <p className="text-[11px] text-[hsl(var(--muted-foreground))]">
+                  Purely informational - lets this card join Avalanche ranking on the Debt Dashboard. Never used to calculate interest.
+                </p>
               </div>
             )}
           </div>

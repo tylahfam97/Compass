@@ -52,6 +52,10 @@ export interface Insight {
   action?: InsightAction;
   dismissKey: string;
   richData?: InsightRichData;
+  /** Set when this insight is about one specific account (e.g. a single credit card's debt)
+   *  rather than the profile as a whole - lets account-detail views show only insights that
+   *  actually pertain to that account instead of every insight of a matching type. */
+  accountId?: number;
 }
 
 export interface InsightRichData {
@@ -81,7 +85,8 @@ export interface Account {
   balance_anchor_date?: string | null;
   hidden_from_dashboard?: boolean;
   excluded_from_insights?: boolean;
-  /** Loan accounts only - purely informational, never used in any calculation. */
+  /** Loan and credit accounts - purely informational (APR), never used in any calculation
+   *  besides ranking on the Debt Dashboard. `minimum_payment_cents` is loan-only for now. */
   interest_rate_bps?: number | null;
   minimum_payment_cents?: number | null;
 }

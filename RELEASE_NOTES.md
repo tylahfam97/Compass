@@ -20,3 +20,15 @@ The loan uploader was the only import in Compass still limited to PDF-only - it 
 
 ### New: PDF Support for Investment/Brokerage Imports
 Portfolio positions statements can now be imported straight from a PDF, same as bank, credit card, and loan statements - text-extraction heuristics reconstruct the holdings table, and the existing review step (with "Fix columns" if anything looks misaligned) still gets a chance to catch anything before it's saved. A CSV/XLSX export from your brokerage remains the more reliable option when available.
+
+### New: Credit Cards Join the Debt Payoff Dashboard
+What used to be the Loan Dashboard now ranks credit cards right alongside your loans - Avalanche, Snowball, and Cash-flow First all work the same way across both, with a small badge on each row showing whether it's a loan or a card.
+
+### New: Optional Interest Rate on Credit Card Import
+The "which account" step now asks for an optional APR when importing a credit card statement, same as loans already do - purely informational, but it's what lets a card join Avalanche ranking on the Debt Payoff Dashboard.
+
+### New: Click Your Bank Account for Details, Just Like a Credit Card
+Checking/bank accounts now get their own clickable tiles on the Dashboard (balance, trend, mini-sparkline) - click one to see its recent transactions and relevant insights, the same detail view credit cards already had.
+
+### Fixed: Credit Card Insights Were Identical Across Different Cards
+Clicking one credit card's tile could show the exact same "credit card debt" insights as any other card on the same profile, since they weren't tracked per-account. Insights are now generated per card, so each one only shows what's actually true for it.
