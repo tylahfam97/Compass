@@ -287,26 +287,47 @@ export default function TransactionsPage() {
     const csv = [header, ...lines].join("\n");
     const suggestedName = `compass-${allTime ? "all-time" : month}.csv`;
 
-    // Use the native File System Access API (available in WebView2 / Chromium).
-    // This opens the OS save-file dialog so the user can choose location and name.
-    try {
-      const handle = await (window as unknown as {
-        showSaveFilePicker: (opts: unknown) => Promise<{
-          createWritable: () => Promise<{ write: (data: string) => Promise<void>; close: () => Promise<void> }>;
-        }>;
-      }).showSaveFilePicker({
-        suggestedName,
-        types: [{ description: "CSV file", accept: { "text/csv": [".csv"] } }],
-      });
-      const writable = await handle.createWritable();
-      await writable.write(csv);
-      await writable.close();
-    } catch (err: unknown) {
-      // AbortError = user dismissed the dialog — that's fine, do nothing.
-      if ((err as { name?: string })?.name !== "AbortError") {
-        console.error("Export failed:", err);
+    // Use the native File System Access API where available (WebView2/Chromium on Windows) -
+    // opens the OS save-file dialog so the user can choose location and name. This API is
+    // Chromium-only and doesn't exist in WKWebView (Tauri's webview on macOS/Safari's engine),
+    // so that case falls back to a plain Blob download below instead of silently doing nothing.
+    const picker = (window as unknown as {
+      showSaveFilePicker?: (opts: unknown) => Promise<{
+        createWritable: () => Promise<{ write: (data: string) => Promise<void>; close: () => Promise<void> }>;
+      }>;
+    }).showSaveFilePicker;
+
+    if (picker) {
+      try {
+        const handle = await picker({
+          suggestedName,
+          types: [{ description: "CSV file", accept: { "text/csv": [".csv"] } }],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(csv);
+        await writable.close();
+      } catch (err: unknown) {
+        // AbortError = user dismissed the dialog — that's fine, do nothing.
+        if ((err as { name?: string })?.name !== "AbortError") {
+          console.error("Export failed:", err);
+        }
       }
+      return;
     }
+
+    // Fallback (macOS/WKWebView, or any browser without File System Access API support) -
+    // triggers a normal browser download instead of an interactive save dialog. The file
+    // lands in the OS's default downloads location rather than a location the user picks,
+    // but the export itself still works instead of silently failing.
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = suggestedName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const runAutoCategorize = async (mode: "uncategorized" | "all") => {

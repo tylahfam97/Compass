@@ -880,6 +880,38 @@
     pointer-events: none;
   }
 
+  .download-cards {
+    display: flex;
+    gap: var(--sp-6);
+    justify-content: center;
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+  .download-cards .download-card {
+    flex: 1 1 420px;
+    max-width: 480px;
+    margin-inline: 0;
+  }
+
+  .download-note {
+    font-size: 0.8125rem;
+    color: var(--text-muted);
+    text-align: left;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--r-md);
+    padding: var(--sp-3) var(--sp-4);
+    margin-bottom: var(--sp-6);
+    position: relative;
+  }
+  .download-note code {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    background: var(--border-subtle);
+    padding: 0.1rem 0.35rem;
+    border-radius: var(--r-sm);
+  }
+
   .download-header {
     display: flex;
     align-items: center;

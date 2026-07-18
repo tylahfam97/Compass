@@ -6,9 +6,9 @@
 
   <!-- ── Primary SEO ──────────────────────────────────────────────────────── -->
   <!-- Domain: privatecompass.app                                              -->
-  <title>Compass | Private Finance Tracker for Windows</title>
-  <meta name="description" content="Track your spending without giving anyone your bank login. Import bank statements, credit card statements, and investment portfolios from CSV. Free, open-source, AES-256 encrypted Windows app. No account required.">
-  <meta name="keywords" content="personal finance, budget tracker, Windows, local, private, no cloud, CSV import, free, open source, spending tracker, investment tracker, portfolio tracker, brokerage, Fidelity, Schwab, Thrivent, Wells Fargo, Mint alternative, YNAB alternative">
+  <title>Compass | Private Finance Tracker for Windows &amp; macOS</title>
+  <meta name="description" content="Track your spending without giving anyone your bank login. Import bank statements, credit card statements, and investment portfolios from CSV. Free, open-source, AES-256 encrypted desktop app for Windows and macOS (beta). No account required.">
+  <meta name="keywords" content="personal finance, budget tracker, Windows, macOS, local, private, no cloud, CSV import, free, open source, spending tracker, investment tracker, portfolio tracker, brokerage, Fidelity, Schwab, Thrivent, Wells Fargo, Mint alternative, YNAB alternative">
   <meta name="author" content="Compass">
   <meta name="robots" content="index, follow">
   <link rel="canonical" href="https://privatecompass.app/">
@@ -16,7 +16,7 @@
   <!-- ── Open Graph (Facebook, LinkedIn, Discord) ─────────────────────────── -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://privatecompass.app/">
-  <meta property="og:title" content="Compass | Private Finance Tracker for Windows">
+  <meta property="og:title" content="Compass | Private Finance Tracker for Windows &amp; macOS">
   <meta property="og:description" content="Export a CSV from your bank. Drop it in. See where your money went, privately and locally, with no account required.">
   <meta property="og:image" content="https://privatecompass.app/img/logo.png">
   <meta property="og:image:width" content="256">
@@ -26,7 +26,7 @@
 
   <!-- ── Twitter / X card ─────────────────────────────────────────────────── -->
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="Compass | Private Finance Tracker for Windows">
+  <meta name="twitter:title" content="Compass | Private Finance Tracker for Windows &amp; macOS">
   <meta name="twitter:description" content="Track your spending privately. CSV import from any bank. No account, no cloud, no subscription. Free and open source.">
   <meta name="twitter:image" content="https://privatecompass.app/img/logo.png">
 
@@ -86,6 +86,10 @@
        class="btn btn-primary">
       Download for Windows
     </a>
+    <a href="https://github.com/tylahfam97/Compass/releases/latest"
+       class="btn btn-primary">
+      Download for macOS
+    </a>
   </div>
 </header>
 
@@ -120,8 +124,8 @@
     <div class="badge-row" role="list" aria-label="App highlights">
       <span class="chip" role="listitem">Free &amp; Open Source</span>
       <span class="chip" role="listitem">No Account Required</span>
-      <span class="chip chip-blue" role="listitem">Windows 10 / 11</span>
-      <span class="chip chip-gold" role="listitem">v0.8.1</span>
+      <span class="chip chip-blue" role="listitem">Windows · macOS (beta)</span>
+      <span class="chip chip-gold" role="listitem">v0.8.5</span>
     </div>
 
     <h1 class="hero-title" id="hero-title">
@@ -142,6 +146,14 @@
                 stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
         Download for Windows
+      </a>
+      <a href="https://github.com/tylahfam97/Compass/releases/latest"
+         class="btn btn-primary btn-lg" rel="noopener noreferrer">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M2.5 13.5h11M8 2.5v8m-3-2.5 3 3 3-3"
+                stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Download for macOS
       </a>
       <a href="#how" class="btn btn-ghost btn-lg">
         See how it works
@@ -520,7 +532,7 @@
           Is the database encrypted?
         </div>
         <div class="qa-a">
-          Yes. <strong>SQLCipher AES-256</strong> encrypts the database at rest. The key is a 32-byte random value stored in <strong>Windows Credential Manager</strong> (DPAPI-backed), bound to your Windows user account. It is never visible in the app UI.
+          Yes. <strong>SQLCipher AES-256</strong> encrypts the database at rest. The key is a 32-byte random value stored in your OS's native secure credential store - <strong>Windows Credential Manager</strong> (DPAPI-backed) on Windows, or <strong>Keychain</strong> on macOS - bound to your OS user account. It is never visible in the app UI.
         </div>
       </div>
 
@@ -571,73 +583,139 @@
 <!-- ── Download ───────────────────────────────────────────────────────────────── -->
 <section class="section download-section" id="download" aria-labelledby="download-title">
   <div class="container">
-    <div class="download-card">
-      <div class="version-badge">v0.8.1</div>
-      <div class="download-header">
-        <img src="img/logo.png" alt="Compass application icon" width="56" height="56" class="download-logo">
-        <div>
-          <h2 id="download-title">Compass for Windows</h2>
-          <p class="download-sub">Free. Private. Yours.</p>
+    <div class="download-cards">
+      <div class="download-card">
+        <div class="version-badge">v0.8.5</div>
+        <div class="download-header">
+          <img src="img/logo.png" alt="Compass application icon" width="56" height="56" class="download-logo">
+          <div>
+            <h2 id="download-title">Compass for Windows</h2>
+            <p class="download-sub">Free. Private. Yours.</p>
+          </div>
         </div>
-      </div>
 
-      <div class="download-options">
-        <a href="https://privatecompass.app/downloads/Compass.exe"
-           class="btn btn-primary btn-lg download-btn">
-          <span class="btn-row">
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-              <path d="M3 14.5h12M9 3v9m-3.5-3 3.5 3.5 3.5-3.5"
-                    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <div class="download-options">
+          <a href="https://privatecompass.app/downloads/Compass.exe"
+             class="btn btn-primary btn-lg download-btn">
+            <span class="btn-row">
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                <path d="M3 14.5h12M9 3v9m-3.5-3 3.5 3.5 3.5-3.5"
+                      stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              Download .exe installer
+            </span>
+            <span class="btn-tag">Recommended</span>
+          </a>
+          <a href="https://privatecompass.app/downloads/Compass.msi"
+             class="btn btn-outline btn-lg download-btn">
+            <span class="btn-row">
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                <path d="M3 14.5h12M9 3v9m-3.5-3 3.5 3.5 3.5-3.5"
+                      stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              Download .msi
+            </span>
+            <span class="btn-tag btn-tag--dim">Enterprise / IT</span>
+          </a>
+        </div>
+
+        <div class="download-meta">
+          <div class="req-item">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <rect x="1" y="1" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.3"/>
+              <path d="M4 13h6M7 11v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
             </svg>
-            Download .exe installer
-          </span>
-          <span class="btn-tag">Recommended</span>
-        </a>
-        <a href="https://privatecompass.app/downloads/Compass.msi"
-           class="btn btn-outline btn-lg download-btn">
-          <span class="btn-row">
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-              <path d="M3 14.5h12M9 3v9m-3.5-3 3.5 3.5 3.5-3.5"
-                    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            Windows 10 / 11 (64-bit)
+          </div>
+          <div class="req-item">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <path d="M7 1.5a5.5 5.5 0 1 0 0 11A5.5 5.5 0 0 0 7 1.5Z" stroke="currentColor" stroke-width="1.3"/>
+              <path d="M4.5 7l1.5 1.5 3.5-3.5"
+                    stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
-            Download .msi
-          </span>
-          <span class="btn-tag btn-tag--dim">Enterprise / IT</span>
+            No prerequisites required
+          </div>
+          <div class="req-item">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+              <path d="M7 1C3.69 1 1 3.69 1 7c0 2.65 1.71 4.9 4.08 5.69.3.05.41-.13.41-.28v-1c-1.66.36-2.01-.8-2.01-.8-.27-.7-.67-.88-.67-.88-.55-.37.04-.37.04-.37.6.04.92.62.92.62.53.91 1.4.65 1.74.5.05-.38.21-.65.38-.8-1.33-.15-2.73-.67-2.73-2.96 0-.65.23-1.19.62-1.6-.06-.15-.27-.76.06-1.58 0 0 .5-.16 1.64.61A5.68 5.68 0 0 1 7 4.12c.5.01 1.01.07 1.48.2 1.14-.77 1.64-.61 1.64-.61.33.82.12 1.43.06 1.58.39.41.62.95.62 1.6 0 2.3-1.4 2.8-2.74 2.95.22.19.41.55.41 1.11v1.64c0 .16.11.34.41.28C11.29 11.9 13 9.65 13 7c0-3.31-2.69-6-6-6Z"/>
+            </svg>
+            Open source, MIT License
+          </div>
+        </div>
+
+        <a href="https://github.com/tylahfam97/Compass"
+           class="github-link" target="_blank" rel="noopener noreferrer"
+           aria-label="View Compass source code on GitHub">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M8 1C4.13 1 1 4.13 1 8c0 3.09 1.99 5.71 4.76 6.64.35.06.48-.15.48-.33v-1.17c-1.94.42-2.35-.94-2.35-.94-.32-.81-.77-1.02-.77-1.02-.63-.43.05-.42.05-.42.7.05 1.07.72 1.07.72.62 1.06 1.63.75 2.03.58.06-.45.24-.75.44-.92-1.55-.17-3.18-.77-3.18-3.44 0-.76.27-1.38.72-1.87-.07-.18-.31-.88.07-1.84 0 0 .58-.19 1.91.71A6.6 6.6 0 0 1 8 4.8c.59 0 1.18.08 1.73.23 1.33-.9 1.91-.71 1.91-.71.38.96.14 1.66.07 1.84.45.49.72 1.11.72 1.87 0 2.68-1.63 3.27-3.19 3.44.25.22.48.64.48 1.29v1.92c0 .18.13.39.48.33A7.003 7.003 0 0 0 15 8c0-3.87-3.13-7-7-7Z"/>
+          </svg>
+          View source on GitHub
         </a>
       </div>
 
-      <div class="download-meta">
-        <div class="req-item">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-            <rect x="1" y="1" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.3"/>
-            <path d="M4 13h6M7 11v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-          </svg>
-          Windows 10 / 11 (64-bit)
+      <div class="download-card">
+        <div class="version-badge">v0.8.5</div>
+        <div class="download-header">
+          <img src="img/logo.png" alt="Compass application icon" width="56" height="56" class="download-logo">
+          <div>
+            <h2>Compass for macOS</h2>
+            <p class="download-sub">Free. Private. Yours.</p>
+          </div>
         </div>
-        <div class="req-item">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-            <path d="M7 1.5a5.5 5.5 0 1 0 0 11A5.5 5.5 0 0 0 7 1.5Z" stroke="currentColor" stroke-width="1.3"/>
-            <path d="M4.5 7l1.5 1.5 3.5-3.5"
-                  stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          No prerequisites required
-        </div>
-        <div class="req-item">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
-            <path d="M7 1C3.69 1 1 3.69 1 7c0 2.65 1.71 4.9 4.08 5.69.3.05.41-.13.41-.28v-1c-1.66.36-2.01-.8-2.01-.8-.27-.7-.67-.88-.67-.88-.55-.37.04-.37.04-.37.6.04.92.62.92.62.53.91 1.4.65 1.74.5.05-.38.21-.65.38-.8-1.33-.15-2.73-.67-2.73-2.96 0-.65.23-1.19.62-1.6-.06-.15-.27-.76.06-1.58 0 0 .5-.16 1.64.61A5.68 5.68 0 0 1 7 4.12c.5.01 1.01.07 1.48.2 1.14-.77 1.64-.61 1.64-.61.33.82.12 1.43.06 1.58.39.41.62.95.62 1.6 0 2.3-1.4 2.8-2.74 2.95.22.19.41.55.41 1.11v1.64c0 .16.11.34.41.28C11.29 11.9 13 9.65 13 7c0-3.31-2.69-6-6-6Z"/>
-          </svg>
-          Open source, MIT License
-        </div>
-      </div>
 
-      <a href="https://github.com/tylahfam97/Compass"
-         class="github-link" target="_blank" rel="noopener noreferrer"
-         aria-label="View Compass source code on GitHub">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-          <path d="M8 1C4.13 1 1 4.13 1 8c0 3.09 1.99 5.71 4.76 6.64.35.06.48-.15.48-.33v-1.17c-1.94.42-2.35-.94-2.35-.94-.32-.81-.77-1.02-.77-1.02-.63-.43.05-.42.05-.42.7.05 1.07.72 1.07.72.62 1.06 1.63.75 2.03.58.06-.45.24-.75.44-.92-1.55-.17-3.18-.77-3.18-3.44 0-.76.27-1.38.72-1.87-.07-.18-.31-.88.07-1.84 0 0 .58-.19 1.91.71A6.6 6.6 0 0 1 8 4.8c.59 0 1.18.08 1.73.23 1.33-.9 1.91-.71 1.91-.71.38.96.14 1.66.07 1.84.45.49.72 1.11.72 1.87 0 2.68-1.63 3.27-3.19 3.44.25.22.48.64.48 1.29v1.92c0 .18.13.39.48.33A7.003 7.003 0 0 0 15 8c0-3.87-3.13-7-7-7Z"/>
-        </svg>
-        View source on GitHub
-      </a>
+        <div class="download-options">
+          <a href="https://github.com/tylahfam97/Compass/releases/latest"
+             class="btn btn-primary btn-lg download-btn" target="_blank" rel="noopener noreferrer">
+            <span class="btn-row">
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                <path d="M3 14.5h12M9 3v9m-3.5-3 3.5 3.5 3.5-3.5"
+                      stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              Download .dmg installer
+            </span>
+            <span class="btn-tag">Beta, unsigned</span>
+          </a>
+        </div>
+
+        <div class="download-meta">
+          <div class="req-item">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <rect x="1" y="1" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.3"/>
+              <path d="M4 13h6M7 11v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+            </svg>
+            macOS 10.15+ (Intel or Apple Silicon)
+          </div>
+          <div class="req-item">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <path d="M7 1.5a5.5 5.5 0 1 0 0 11A5.5 5.5 0 0 0 7 1.5Z" stroke="currentColor" stroke-width="1.3"/>
+              <path d="M4.5 7l1.5 1.5 3.5-3.5"
+                    stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            No prerequisites required
+          </div>
+          <div class="req-item">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+              <path d="M7 1C3.69 1 1 3.69 1 7c0 2.65 1.71 4.9 4.08 5.69.3.05.41-.13.41-.28v-1c-1.66.36-2.01-.8-2.01-.8-.27-.7-.67-.88-.67-.88-.55-.37.04-.37.04-.37.6.04.92.62.92.62.53.91 1.4.65 1.74.5.05-.38.21-.65.38-.8-1.33-.15-2.73-.67-2.73-2.96 0-.65.23-1.19.62-1.6-.06-.15-.27-.76.06-1.58 0 0 .5-.16 1.64.61A5.68 5.68 0 0 1 7 4.12c.5.01 1.01.07 1.48.2 1.14-.77 1.64-.61 1.64-.61.33.82.12 1.43.06 1.58.39.41.62.95.62 1.6 0 2.3-1.4 2.8-2.74 2.95.22.19.41.55.41 1.11v1.64c0 .16.11.34.41.28C11.29 11.9 13 9.65 13 7c0-3.31-2.69-6-6-6Z"/>
+            </svg>
+            Open source, MIT License
+          </div>
+        </div>
+
+        <p class="download-note">
+          Not code-signed or notarized yet - macOS will warn that the app "can't be opened" or "is damaged".
+          Right-click the app → <strong>Open</strong> (or run <code>xattr -cr Compass.app</code> in Terminal) to launch it anyway.
+          This goes away once Compass is signed with an Apple Developer ID.
+        </p>
+
+        <a href="https://github.com/tylahfam97/Compass"
+           class="github-link" target="_blank" rel="noopener noreferrer"
+           aria-label="View Compass source code on GitHub">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M8 1C4.13 1 1 4.13 1 8c0 3.09 1.99 5.71 4.76 6.64.35.06.48-.15.48-.33v-1.17c-1.94.42-2.35-.94-2.35-.94-.32-.81-.77-1.02-.77-1.02-.63-.43.05-.42.05-.42.7.05 1.07.72 1.07.72.62 1.06 1.63.75 2.03.58.06-.45.24-.75.44-.92-1.55-.17-3.18-.77-3.18-3.44 0-.76.27-1.38.72-1.87-.07-.18-.31-.88.07-1.84 0 0 .58-.19 1.91.71A6.6 6.6 0 0 1 8 4.8c.59 0 1.18.08 1.73.23 1.33-.9 1.91-.71 1.91-.71.38.96.14 1.66.07 1.84.45.49.72 1.11.72 1.87 0 2.68-1.63 3.27-3.19 3.44.25.22.48.64.48 1.29v1.92c0 .18.13.39.48.33A7.003 7.003 0 0 0 15 8c0-3.87-3.13-7-7-7Z"/>
+          </svg>
+          View source on GitHub
+        </a>
+      </div>
     </div>
   </div>
 </section>

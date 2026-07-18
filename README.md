@@ -6,6 +6,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?logo=windows&logoColor=white" alt="Windows 10/11" />
+  <img src="https://img.shields.io/badge/macOS-beta%20%7C%20unsigned-999999?logo=apple&logoColor=white" alt="macOS beta, unsigned" />
   <img src="https://img.shields.io/badge/built%20with-Tauri%20%7C%20React%20%7C%20Rust%20%7C%20SQLite-informational" alt="Tech stack" />
   <img src="https://img.shields.io/badge/data-local%20only-brightgreen" alt="Local only" />
   <img src="https://img.shields.io/badge/telemetry-none-brightgreen" alt="No telemetry" />
@@ -14,6 +15,16 @@
 </p>
 
 <p align="center"><i>Export a CSV from your bank. Drop it in. See where your money went.<br>No account. No cloud. No subscription. No judgment.</i></p>
+
+---
+
+## 🎉 $${\color{#2ea043}macOS \space is \space HERE!}$$ (Beta)
+
+**Huge one:** Compass now runs on **macOS** — Intel and Apple Silicon, one universal build! 🍎✨
+
+It's brand new and currently **unsigned** (a real Apple Developer ID is on the way), so macOS will throw up a Gatekeeper warning on first launch. Don't worry — it's a two-second fix: right-click the app → **Open** (or run `xattr -cr Compass.app` in Terminal), and you're in. Windows users: nothing changes for you, your builds stay fully signed as always.
+
+Grab it from the [Downloads section below](#installation) or the [website](https://privatecompass.app) — and if you hit anything weird on macOS, [open an issue](../../issues), this is a beta and your feedback shapes how fast it gets rock-solid (and signed!).
 
 ---
 
@@ -229,20 +240,20 @@ This section answers every question a new user should ask before importing finan
 
 ### Where is my data stored?
 
-Compass stores two files in your Windows user profile:
+Compass stores two files in your OS user profile - the exact folder depends on platform, but the layout is identical:
 
 | File | What it is |
 |---|---|
-| `%APPDATA%\com.compass.app\com.compass.app.db` | Encrypted SQLite database (all your transactions, budgets, goals, and categories) |
-| `%APPDATA%\com.compass.app\compass.key` | Backup copy of the database encryption key |
+| `%APPDATA%\com.compass.app\com.compass.app.db` (Windows) or `~/Library/Application Support/com.compass.app/com.compass.app.db` (macOS) | Encrypted SQLite database (all your transactions, budgets, goals, and categories) |
+| `%APPDATA%\com.compass.app\compass.key` (Windows) or `~/Library/Application Support/com.compass.app/compass.key` (macOS) | Backup copy of the database encryption key |
 
-Both files are accessible only to your Windows user account.
+Both files are accessible only to your OS user account.
 
 ### Is the database encrypted?
 
-Yes. The database is encrypted at rest using **SQLCipher (AES-256)**. The encryption key is a 32-byte random value generated on first launch and stored in **Windows Credential Manager** (DPAPI-backed), which ties it to your Windows user account. The key is never visible to you or to the app's UI — it is loaded by the Rust backend at startup and used only to open the database connection.
+Yes. The database is encrypted at rest using **SQLCipher (AES-256)**. The encryption key is a 32-byte random value generated on first launch and stored in your OS's native secure credential store - **Windows Credential Manager** (DPAPI-backed) on Windows, or **Keychain** on macOS - which ties it to your OS user account. The key is never visible to you or to the app's UI — it is loaded by the Rust backend at startup (via the cross-platform `keyring` crate, which picks the right backend automatically) and used only to open the database connection.
 
-A copy of the key is also written to `%APPDATA%\com.compass.app\compass.key` as a fallback in case Credential Manager loses the entry (e.g. after a Windows profile migration or credential reset). If you delete this file and the Credential Manager entry is also gone, the existing database cannot be reopened — treat it like any other encryption key backup.
+A copy of the key is also written to `compass.key` in the app's data folder as a fallback in case the OS credential store loses the entry (e.g. after a profile migration or credential reset). If you delete this file and the credential store entry is also gone, the existing database cannot be reopened — treat it like any other encryption key backup.
 
 ### What data leaves my device?
 
@@ -259,12 +270,12 @@ No. There is no telemetry SDK, no analytics library, no error reporting service.
 
 ### How do I back up my data?
 
-To make a complete portable backup, copy **both** files from `%APPDATA%\com.compass.app\`:
+To make a complete portable backup, copy **both** files from the app's data folder (`%APPDATA%\com.compass.app\` on Windows, `~/Library/Application Support/com.compass.app/` on macOS):
 
 - `com.compass.app.db` — the encrypted database
 - `compass.key` — the encryption key needed to open it
 
-Keep them together. Restoring only the `.db` file without the matching key file on a machine where Credential Manager no longer has the entry will result in an unreadable database. You can also export all transactions as CSV from the Transactions page (toggle **All time** → **↓ Export CSV**) for a plaintext backup that works anywhere.
+Keep them together. Restoring only the `.db` file without the matching key file on a machine where the OS credential store no longer has the entry will result in an unreadable database. You can also export all transactions as CSV from the Transactions page (toggle **All time** → **↓ Export CSV**) for a plaintext backup that works anywhere.
 
 ### What happens when I uninstall?
 
@@ -283,8 +294,8 @@ No. There is no server, no sync, no account, and no mechanism by which anyone ot
 ## $${\color{#C08A1C}Installation}$$
 
 ### Requirements
-- Windows 10 or Windows 11 (64-bit)
-- No additional software required — WebView2 is installed automatically if missing
+- Windows 10 or Windows 11 (64-bit), or macOS 10.15+ (Intel or Apple Silicon) — **macOS builds are beta and currently unsigned** (see note below)
+- No additional software required — WebView2 is installed automatically if missing on Windows
 
 ### Download
 Download the latest installer from the [Releases page](../../releases):
@@ -293,6 +304,9 @@ Download the latest installer from the [Releases page](../../releases):
 |---|---|---|
 | `Compass_x.x.x_x64-setup.exe` | NSIS EXE | Standard interactive installer with directory picker |
 | `Compass_x.x.x_x64_en-US.msi` | Windows Installer | Enterprise/IT deployment, Group Policy |
+| `Compass_x.x.x_universal.dmg` | macOS disk image (beta) | Intel or Apple Silicon Mac |
+
+> **macOS is unsigned for now** — Gatekeeper will say the app "can't be opened" or "is damaged". Right-click the app → **Open**, or run `xattr -cr Compass.app` in Terminal, to launch it anyway. This goes away once Compass is signed with an Apple Developer ID (in progress).
 
 ### Silent / Automated Installation
 ```
@@ -353,7 +367,7 @@ Being transparent about what Compass does not do helps you decide if it's the ri
 
 | Limitation | Notes |
 |---|---|
-| **Windows only** | No macOS or Linux version currently |
+| **macOS is beta/unsigned** | Windows builds are signed; macOS builds aren't code-signed or notarized yet — right-click → Open (or `xattr -cr`) on first launch. Linux isn't supported yet. |
 | **CSV import only** | No direct bank connections, no OFX/QIF/PDF support |
 | **No mobile app** | Desktop only |
 | **Single currency** | Multi-currency not supported |

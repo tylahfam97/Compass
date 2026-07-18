@@ -181,3 +181,95 @@ jobs:
           APPRISE_DISCORD_URL: ${{ secrets.AppriseDiscordUrl }}
           APPRISE_URL: ${{ secrets.APPRISE_URL }}
         run: powershell -ExecutionPolicy Bypass -File scripts\publish-release.ps1
+
+  # macOS build - fully independent of create-compass (only depends on it so the GitHub
+  # release already exists to upload into). `continue-on-error: true` at the job level means
+  # a broken/unsigned mac build NEVER marks the overall run red or affects the Windows
+  # release above, which always builds/publishes on its own regardless of this job's outcome.
+  build-macos:
+    needs: create-compass
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Rust targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Read version, patch endpoint, compute tag
+        shell: bash
+        run: |
+          V=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          echo "APP_VERSION=$V" >> "$GITHUB_ENV"
+          BRANCH="${{ github.ref_name }}"
+          if [ "$BRANCH" = "main" ]; then IS_PRERELEASE=false; else IS_PRERELEASE=true; fi
+          echo "IS_PRERELEASE=$IS_PRERELEASE" >> "$GITHUB_ENV"
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            SANITIZED=$(echo "$BRANCH" | sed -E 's/[^a-zA-Z0-9]+/-/g; s/^-+|-+$//g' | tr 'A-Z' 'a-z')
+            echo "TAG_NAME=v$V-$SANITIZED" >> "$GITHUB_ENV"
+          else
+            echo "TAG_NAME=v$V" >> "$GITHUB_ENV"
+          fi
+          node -e "
+            const fs=require('fs'), p='src-tauri/tauri.conf.json';
+            fs.writeFileSync(p, fs.readFileSync(p,'utf8').replace(/__REPO__/g, '${{ github.repository }}'));
+          "
+          echo "Building version $V for ${{ github.repository }}"
+
+      - name: Resolve Apple secrets (treat "N/A" placeholders as unset)
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # Until a real Apple Developer ID is plugged in, these secrets are placeholder "N/A"
+          # values - normalize them (and any blank/whitespace-only value) to being genuinely
+          # UNSET, not just an empty string. Tauri's bundler checks whether e.g.
+          # APPLE_CERTIFICATE is *present* in the environment at all - an empty string still
+          # counts as "present", so it still tries (and fails) to import an empty certificate
+          # into the keychain. Skipping the export line entirely leaves the var truly absent.
+          # Swapping in real secret values later needs no workflow changes - this step just
+          # passes them through unchanged once they're real.
+          for VAR in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            VAL="${!VAR}"
+            NORMALIZED=$(echo "$VAL" | tr '[:upper:]' '[:lower:]' | xargs)
+            if [ -n "$NORMALIZED" ] && [ "$NORMALIZED" != "n/a" ]; then
+              echo "$VAR=$VAL" >> "$GITHUB_ENV"
+            fi
+            # else: real value missing/"N/A" - intentionally do NOT export anything, leaving
+            # the var genuinely unset (not just empty) for the build step below.
+          done
+
+      - name: Build (unsigned unless a real Apple signing identity is configured)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$APPLE_SIGNING_IDENTITY" ]; then
+            echo "::warning::No Apple signing identity configured - building an UNSIGNED macOS bundle. Populate the APPLE_* secrets with real values once available; no workflow changes needed."
+          else
+            echo "Apple signing identity configured - building a signed/notarized macOS bundle."
+          fi
+          npm run tauri build -- --target universal-apple-darwin
+
+      - name: Upload macOS assets to the release
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          APPRISE_DISCORD_URL: ${{ secrets.AppriseDiscordUrl }}
+          APPRISE_URL: ${{ secrets.APPRISE_URL }}
+        run: pwsh -File scripts/publish-macos-assets.ps1

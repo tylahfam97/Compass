@@ -2,6 +2,23 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 0.8.5 — 🎉 macOS is HERE! (Beta) 🍎
+
+Huge one this release: **Compass now runs on macOS** — Intel and Apple Silicon, one universal build! Alongside that, a couple of account-balance bugfixes found while stress-testing bulk imports.
+
+### New: macOS Support (Beta, Unsigned)
+Compass ships a macOS build for the first time, ever! It isn't code-signed or notarized yet (a real Apple Developer ID is on the way), so macOS will throw up a Gatekeeper warning on first launch - don't panic, it's a two-second fix: right-click the app → **Open** (or run `xattr -cr Compass.app` in Terminal) and you're in. Windows builds are completely unaffected and remain fully signed as always.
+
+Downloads: [Windows](https://privatecompass.app/downloads/Compass.exe) · [macOS (.dmg, beta)](https://github.com/tylahfam97/Compass/releases/latest)
+
+If you hit anything weird on macOS, [open an issue](https://github.com/tylahfam97/Compass/issues) - this is a beta and your feedback shapes how fast it gets rock-solid (and signed!).
+
+### Fixed: Manual Multi-File Batch Imports Could Create Duplicate Accounts
+Importing several statement files for the same account one-by-one (via "Next File", not "Auto-Import All") could silently create a brand-new duplicate account for every file after the first if the file didn't match a recognized bank preset - splitting one account's balance across several rows. Compass now remembers which account the previous file in the same import session resolved to and defaults straight to it.
+
+### Fixed: Dashboard Account Tiles Could Show $0 Despite a Correct Balance
+A credit card or bank account tile's balance was derived from the sparkline series for the currently-selected month - if an account's most recent activity fell outside that month (e.g. right after importing a batch of historical statements), the tile showed $0 even though the account's real balance (visible in Manage Accounts) was correct. Tiles now always show the account's true latest balance regardless of which month is selected.
+
 ## Compass 0.8.1 — Loan Uploader Improvements
 
 A follow-up to last release's loan tracking, focused entirely on making statement uploads faster and less error-prone.
