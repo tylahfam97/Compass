@@ -43,6 +43,10 @@ interface CreditAccountMeta {
   hidden: boolean;
   /** Credit cards only (optional, entered on import) - null for bank accounts. */
   interestRateBps: number | null;
+  /** The account's true latest known balance, independent of the selected month - the tile's
+   *  headline number must never depend on whether the current month happens to have any
+   *  activity/statement for this account (see loadData for why). */
+  balanceCents: number | null;
 }
 
 interface CreditBalanceRow {
@@ -192,9 +196,19 @@ export default function DashboardPage() {
     const creditIds = new Set(balanceAcctRows.filter((a) => a.account_type === "credit").map((a) => a.id));
     const checkingTracked = trackedAccounts.filter((r) => checkingIds.has(r.account_id));
     setCurrentBalance(checkingTracked.length > 0 ? checkingTracked.reduce((s, r) => s + (r.balance_cents ?? 0), 0) : null);
+    // True latest balance per account, regardless of the selected month - `balanceRow` is a
+    // one-shot "most recent balance_cents ever" query per account (no date filtering), unlike
+    // `balancePointRows` below which gets filtered down to the selected month for the
+    // sparkline. Tiles must show THIS for their headline number, or an account whose most
+    // recent statement falls outside the selected month (e.g. right after a historical batch
+    // import) would wrongly show $0 instead of its real balance.
+    const latestBalanceById = new Map(balanceRow.map((r) => [r.account_id, r.balance_cents]));
     const creditAccountsMeta = balanceAcctRows
       .filter((a) => a.account_type === "credit")
-      .map((a, i) => ({ id: a.id, name: a.name, color: accountChartColor(i), hidden: !!a.hidden_from_dashboard, interestRateBps: a.interest_rate_bps }));
+      .map((a, i) => ({
+        id: a.id, name: a.name, color: accountChartColor(i), hidden: !!a.hidden_from_dashboard,
+        interestRateBps: a.interest_rate_bps, balanceCents: latestBalanceById.get(a.id) ?? null,
+      }));
     setCreditBalanceAccounts(creditAccountsMeta);
     // Checking accounts combine into one line (there's usually just one); credit cards stay
     // separate per-account so multiple cards never get silently summed into one number.
@@ -206,7 +220,10 @@ export default function DashboardPage() {
     // accounts, matching the headline figure above.
     const checkingAccountsMeta = balanceAcctRows
       .filter((a) => a.account_type === "checking" && !a.hidden_from_dashboard)
-      .map((a, i) => ({ id: a.id, name: a.name, color: accountChartColor(i), hidden: false, interestRateBps: null }));
+      .map((a, i) => ({
+        id: a.id, name: a.name, color: accountChartColor(i), hidden: false,
+        interestRateBps: null, balanceCents: latestBalanceById.get(a.id) ?? null,
+      }));
     setBankAccountsMeta(checkingAccountsMeta);
     const separatedChecking = separateAccountBalances(balancePointRows.filter((r) => checkingIds.has(r.account_id)));
     setBankBalanceRows(
@@ -525,7 +542,10 @@ export default function DashboardPage() {
                   const first = series.length > 0 ? series[0].value : 0;
                   const changeCents = Math.round((last - first) * 100);
                   const improved = changeCents > 0;
-                  const lastCents = Math.round(last * 100);
+                  // Headline number is the account's true latest balance, NOT derived from the
+                  // month-filtered sparkline series above - otherwise an account with no
+                  // activity in the currently-selected month would wrongly show $0.
+                  const lastCents = acc.balanceCents ?? Math.round(last * 100);
 
                   return (
                     <div
@@ -594,7 +614,11 @@ export default function DashboardPage() {
                   // Balances are stored negative (a liability) - a LESS negative balance means
                   // the card was paid down (improved), a MORE negative one means debt grew.
                   const improved = changeCents > 0;
-                  const lastCents = Math.round(last * 100);
+                  // Headline number is the account's true latest balance, NOT derived from the
+                  // month-filtered sparkline series above - otherwise a card with no statement
+                  // dated within the currently-selected month (e.g. right after importing a
+                  // batch of historical statements) would wrongly show $0.
+                  const lastCents = acc.balanceCents ?? Math.round(last * 100);
 
                   // Collapsed: a slim row, still in its normal grid position - clicking it
                   // expands the card back and re-includes it in net worth. This is the ONLY
