@@ -9,6 +9,8 @@ Compass now builds for macOS too - Intel and Apple Silicon, via a universal bina
 ### New: macOS Support (Beta, Unsigned)
 Compass ships a macOS build for the first time. It isn't code-signed or notarized yet (that's coming once our Apple Developer ID is active), so macOS will show a Gatekeeper warning on first launch - right-click the app → **Open** (or run `xattr -cr Compass.app` in Terminal) to get past it. Windows builds are completely unaffected and remain fully signed.
 
+Downloads: [Windows](https://privatecompass.app/downloads/Compass.exe) · [macOS (.dmg, beta)](https://github.com/tylahfam97/Compass/releases/latest)
+
 ### Fixed: Manual Multi-File Batch Imports Could Create Duplicate Accounts
 Importing several statement files for the same account one-by-one (via "Next File", not "Auto-Import All") could silently create a brand-new duplicate account for every file after the first if the file didn't match a recognized bank preset - splitting one account's balance across several rows. Compass now remembers which account the previous file in the same import session resolved to and defaults straight to it.
 

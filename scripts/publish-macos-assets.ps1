@@ -120,3 +120,34 @@ if ($appTar -and $appSig) {
 }
 
 Write-Host "macOS assets published for $tagName"
+
+# -- Apprise / Discord notification (stable releases only, same as publish-release.ps1) ------
+$appriseDiscordUrl = $env:APPRISE_DISCORD_URL
+if ($dmg -and $appriseDiscordUrl -and -not $isPrerelease) {
+    $releasePageUrl = "https://github.com/" + $repo + "/releases/tag/" + $tagName
+    $dmgUrl         = "https://github.com/" + $repo + "/releases/download/" + $tagName + "/" + $dmg.Name
+
+    $notifyBody = "Compass $tagName is now available for macOS too (beta, unsigned - see the release page for how to open it). `@here" +
+        "`n`nRelease page: " + $releasePageUrl +
+        "`nDMG: " + $dmgUrl
+
+    $notifyPayload = @{
+        urls  = $appriseDiscordUrl
+        title = "Compass $tagName Released (macOS)"
+        body  = $notifyBody
+        type  = "success"
+    }
+    $notifyJson = $notifyPayload | ConvertTo-Json -Compress
+    $tmpNotify  = [IO.Path]::GetTempFileName()
+    [IO.File]::WriteAllText($tmpNotify, $notifyJson, (New-Object System.Text.UTF8Encoding $false))
+
+    Write-Host "Sending Discord notification for macOS via Apprise..."
+    curl -s -X POST ($env:APPRISE_URL + "/notify") -H "Content-Type: application/json" -d ("@" + $tmpNotify)
+    Write-Host ""
+    Remove-Item $tmpNotify -Force
+    Write-Host "Apprise notification sent"
+} elseif (-not $appriseDiscordUrl) {
+    Write-Host "APPRISE_DISCORD_URL secret not set - skipping Discord notification"
+} elseif ($isPrerelease) {
+    Write-Host "Prerelease build - skipping Discord notification"
+}

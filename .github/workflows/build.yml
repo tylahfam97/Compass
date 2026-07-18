@@ -267,4 +267,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+          APPRISE_DISCORD_URL: ${{ secrets.AppriseDiscordUrl }}
+          APPRISE_URL: ${{ secrets.APPRISE_URL }}
         run: pwsh -File scripts/publish-macos-assets.ps1
