@@ -6,6 +6,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?logo=windows&logoColor=white" alt="Windows 10/11" />
+  <img src="https://img.shields.io/badge/macOS-beta%20%7C%20unsigned-999999?logo=apple&logoColor=white" alt="macOS beta, unsigned" />
   <img src="https://img.shields.io/badge/built%20with-Tauri%20%7C%20React%20%7C%20Rust%20%7C%20SQLite-informational" alt="Tech stack" />
   <img src="https://img.shields.io/badge/data-local%20only-brightgreen" alt="Local only" />
   <img src="https://img.shields.io/badge/telemetry-none-brightgreen" alt="No telemetry" />
@@ -283,8 +284,8 @@ No. There is no server, no sync, no account, and no mechanism by which anyone ot
 ## $${\color{#C08A1C}Installation}$$
 
 ### Requirements
-- Windows 10 or Windows 11 (64-bit)
-- No additional software required — WebView2 is installed automatically if missing
+- Windows 10 or Windows 11 (64-bit), or macOS 10.15+ (Intel or Apple Silicon) — **macOS builds are beta and currently unsigned** (see note below)
+- No additional software required — WebView2 is installed automatically if missing on Windows
 
 ### Download
 Download the latest installer from the [Releases page](../../releases):
@@ -293,6 +294,9 @@ Download the latest installer from the [Releases page](../../releases):
 |---|---|---|
 | `Compass_x.x.x_x64-setup.exe` | NSIS EXE | Standard interactive installer with directory picker |
 | `Compass_x.x.x_x64_en-US.msi` | Windows Installer | Enterprise/IT deployment, Group Policy |
+| `Compass_x.x.x_universal.dmg` | macOS disk image (beta) | Intel or Apple Silicon Mac |
+
+> **macOS is unsigned for now** — Gatekeeper will say the app "can't be opened" or "is damaged". Right-click the app → **Open**, or run `xattr -cr Compass.app` in Terminal, to launch it anyway. This goes away once Compass is signed with an Apple Developer ID (in progress).
 
 ### Silent / Automated Installation
 ```
@@ -353,7 +357,7 @@ Being transparent about what Compass does not do helps you decide if it's the ri
 
 | Limitation | Notes |
 |---|---|
-| **Windows only** | No macOS or Linux version currently |
+| **macOS is beta/unsigned** | Windows builds are signed; macOS builds aren't code-signed or notarized yet — right-click → Open (or `xattr -cr`) on first launch. Linux isn't supported yet. |
 | **CSV import only** | No direct bank connections, no OFX/QIF/PDF support |
 | **No mobile app** | Desktop only |
 | **Single currency** | Multi-currency not supported |

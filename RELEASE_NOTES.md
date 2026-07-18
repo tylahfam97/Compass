@@ -2,6 +2,19 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 0.8.5 — macOS Builds (Beta, Unsigned)
+
+Compass now builds for macOS too - Intel and Apple Silicon, via a universal binary - alongside a couple of account-balance bugfixes found while stress-testing bulk imports.
+
+### New: macOS Support (Beta, Unsigned)
+Compass ships a macOS build for the first time. It isn't code-signed or notarized yet (that's coming once our Apple Developer ID is active), so macOS will show a Gatekeeper warning on first launch - right-click the app → **Open** (or run `xattr -cr Compass.app` in Terminal) to get past it. Windows builds are completely unaffected and remain fully signed.
+
+### Fixed: Manual Multi-File Batch Imports Could Create Duplicate Accounts
+Importing several statement files for the same account one-by-one (via "Next File", not "Auto-Import All") could silently create a brand-new duplicate account for every file after the first if the file didn't match a recognized bank preset - splitting one account's balance across several rows. Compass now remembers which account the previous file in the same import session resolved to and defaults straight to it.
+
+### Fixed: Dashboard Account Tiles Could Show $0 Despite a Correct Balance
+A credit card or bank account tile's balance was derived from the sparkline series for the currently-selected month - if an account's most recent activity fell outside that month (e.g. right after importing a batch of historical statements), the tile showed $0 even though the account's real balance (visible in Manage Accounts) was correct. Tiles now always show the account's true latest balance regardless of which month is selected.
+
 ## Compass 0.8.1 — Loan Uploader Improvements
 
 A follow-up to last release's loan tracking, focused entirely on making statement uploads faster and less error-prone.
