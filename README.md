@@ -18,6 +18,16 @@
 
 ---
 
+## 🎉 $${\color{#2ea043}macOS \space is \space HERE!}$$ (Beta)
+
+**Huge one:** Compass now runs on **macOS** — Intel and Apple Silicon, one universal build! 🍎✨
+
+It's brand new and currently **unsigned** (a real Apple Developer ID is on the way), so macOS will throw up a Gatekeeper warning on first launch. Don't worry — it's a two-second fix: right-click the app → **Open** (or run `xattr -cr Compass.app` in Terminal), and you're in. Windows users: nothing changes for you, your builds stay fully signed as always.
+
+Grab it from the [Downloads section below](#installation) or the [website](https://privatecompass.app) — and if you hit anything weird on macOS, [open an issue](../../issues), this is a beta and your feedback shapes how fast it gets rock-solid (and signed!).
+
+---
+
 ## $${\color{#2ea043}Try \space Demo \space Mode \space —}$$ No Import Needed
 
 **The fastest way to see what Compass does:**
