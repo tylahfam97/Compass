@@ -799,6 +799,15 @@ export default function ImportPage() {
   const [totalBatchCount, setTotalBatchCount] = useState(0);
   const batchSavedColMapRef = useRef<ColMap | null>(null);
   const [showLoanUploader, setShowLoanUploader] = useState(false);
+  // Remembers which concrete account the previous file in THIS import session resolved to,
+  // keyed by account type - `finishParsingData`/`finishParsingInvestmentData` reset
+  // `accountChoice` to null for every new file (so a genuinely different file can be
+  // re-detected fresh), but a multi-file batch is overwhelmingly likely to be several
+  // statements for the SAME account. Without this, a file that doesn't match any bank preset
+  // (common for credit cards) falls back to "new account" on every file after the first,
+  // silently creating a duplicate account per file instead of reusing the one the user
+  // already picked/created and entered a balance for.
+  const lastResolvedAccountRef = useRef<{ accountType: string; accountId: number } | null>(null);
 
   // Auto-detect the dominant month whenever the parsed data or date column changes
   const detectedMonth = useMemo(
@@ -815,8 +824,10 @@ export default function ImportPage() {
   }, [detectedMonth]);
 
   // On entering the "which account" step, load this profile's existing accounts of the
-  // relevant type and suggest a match based on the detected bank preset/institution name -
-  // but never clobber a choice the user already made (e.g. navigating back to this step).
+  // relevant type and suggest a match - preferring the account this same import session
+  // already resolved to (if any) over a fresh bank-preset/institution-name guess, since a
+  // multi-file batch is almost always several statements for the SAME account - but never
+  // clobber a choice the user already made (e.g. navigating back to this step).
   useEffect(() => {
     if (step !== "wizard:account") return;
     const accountType = importKind === "credit" ? "credit" : importKind === "investment" ? "investment" : "checking";
@@ -825,6 +836,16 @@ export default function ImportPage() {
         const accounts = await listAccountsForProfile(profileId, accountType);
         setExistingAccountsForType(accounts);
         if (accountChoice) return;
+        if (lastResolvedAccountRef.current?.accountType === accountType) {
+          const prior = accounts.find((a) => a.id === lastResolvedAccountRef.current!.accountId);
+          if (prior) {
+            setAccountChoice({ mode: "existing", accountId: prior.id, name: prior.name });
+            if (importKind === "credit") {
+              setCreditInterestRateInput(prior.interest_rate_bps != null ? (prior.interest_rate_bps / 100).toFixed(2) : "");
+            }
+            return;
+          }
+        }
         const detectedName = selectedPresetId ? BANK_PRESETS[selectedPresetId]?.name ?? null : null;
         if (detectedName) {
           const needle = detectedName.toLowerCase();
@@ -981,6 +1002,7 @@ export default function ImportPage() {
       // otherwise a batch of files would each independently create ANOTHER "new" account
       // instead of sharing the one just created.
       setAccountChoice((prev) => (prev?.mode === "existing" && prev.accountId === accountId ? prev : { mode: "existing", accountId, name: prev?.name ?? "Investment Account" }));
+      lastResolvedAccountRef.current = { accountType: "investment", accountId };
       const sessionResult = await db.execute(
         "INSERT INTO import_sessions (filename, row_count, skipped_count, profile_id, kind) VALUES (?, 0, 0, ?, 'investment')",
         [currentFilename, targetProfileId]
@@ -1281,6 +1303,7 @@ export default function ImportPage() {
       // instead of sharing the one just created, splitting one card's transactions/balance
       // across several duplicate accounts.
       setAccountChoice((prev) => (prev?.mode === "existing" && prev.accountId === accountId ? prev : { mode: "existing", accountId, name: prev?.name ?? "My Account" }));
+      lastResolvedAccountRef.current = { accountType: importKind === "credit" ? "credit" : "checking", accountId };
       if (importKind === "credit" && creditInterestRateInput.trim()) {
         // Only touches the rate when the user actually typed one - an empty field on a later
         // import of the same card must never silently wipe out a rate set previously.
@@ -1426,6 +1449,7 @@ export default function ImportPage() {
       // Same fix as handleImport - lock onto the concrete account so the rest of this batch
       // (files processed automatically after this one) reuses it instead of creating duplicates.
       setAccountChoice((prev) => (prev?.mode === "existing" && prev.accountId === accountId ? prev : { mode: "existing", accountId, name: prev?.name ?? "My Account" }));
+      lastResolvedAccountRef.current = { accountType: importKind === "credit" ? "credit" : "checking", accountId };
       const rules = await db.select<CategorizationRule[]>(
         "SELECT * FROM categorization_rules WHERE profile_id=? OR profile_id IS NULL ORDER BY priority DESC",
         [profileId]
@@ -1527,6 +1551,7 @@ export default function ImportPage() {
     setBatchAutoMode(false);
     setTotalBatchCount(0);
     batchSavedColMapRef.current = null;
+    lastResolvedAccountRef.current = null;
   };
 
   return (
