@@ -933,9 +933,18 @@ export async function getOrCreateAccountForProfile(
 export async function listAccountsForProfile(profileId: number, accountType: string): Promise<Account[]> {
   const db = await getDb();
   return db.select<Account[]>(
-    "SELECT id, name, account_type, institution, created_at, balance_anchor_cents, balance_anchor_date FROM accounts WHERE profile_id=? AND account_type=? ORDER BY name",
+    "SELECT id, name, account_type, institution, created_at, balance_anchor_cents, balance_anchor_date, interest_rate_bps FROM accounts WHERE profile_id=? AND account_type=? ORDER BY name",
     [profileId, accountType]
   );
+}
+
+/** Sets (or clears, with `null`) an account's informational interest rate - used for credit
+ *  cards during import (optional APR entry) the same way loan statements already do. Never
+ *  used in any calculation, purely for display and Avalanche-method ranking on the Debt
+ *  Dashboard. */
+export async function setAccountInterestRate(accountId: number, interestRateBps: number | null): Promise<void> {
+  const db = await getDb();
+  await db.execute("UPDATE accounts SET interest_rate_bps=? WHERE id=?", [interestRateBps, accountId]);
 }
 
 /** The user's decision, made in the import wizard, about which account a statement belongs to. */
@@ -1165,6 +1174,21 @@ export async function getLoanAccountsForProfile(profileId: number): Promise<Loan
        (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
         ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents
      FROM accounts a WHERE a.profile_id=? AND a.account_type='loan' ORDER BY a.name`,
+    [profileId]
+  );
+  return rows.map((r) => ({ ...r, hidden_from_dashboard: !!r.hidden_from_dashboard }));
+}
+
+/** Same shape as `getLoanAccountsForProfile`, for credit card accounts - lets the Debt
+ *  Dashboard rank credit cards alongside loans (Avalanche/Snowball/Cash-flow methods work
+ *  identically for either, once a credit card has an optional interest rate on file). */
+export async function getCreditAccountsForProfile(profileId: number): Promise<LoanAccount[]> {
+  const db = await getDb();
+  const rows = await db.select<(Omit<LoanAccount, "hidden_from_dashboard"> & { hidden_from_dashboard: number })[]>(
+    `SELECT a.id, a.name, a.institution, a.interest_rate_bps, a.minimum_payment_cents, a.hidden_from_dashboard,
+       (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
+        ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents
+     FROM accounts a WHERE a.profile_id=? AND a.account_type='credit' ORDER BY a.name`,
     [profileId]
   );
   return rows.map((r) => ({ ...r, hidden_from_dashboard: !!r.hidden_from_dashboard }));

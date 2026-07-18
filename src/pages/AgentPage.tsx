@@ -5,7 +5,7 @@ import { motion, AnimatePresence, animate, useMotionValue } from "motion/react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
-import { getDb, getAccountsSummaryForProfile, setAccountExcludedFromInsights, getLoanAccountsForProfile, getLoanBalanceHistory, type AccountSummary, type LoanAccount } from "@/lib/db";
+import { getDb, getAccountsSummaryForProfile, setAccountExcludedFromInsights, getLoanAccountsForProfile, getCreditAccountsForProfile, getLoanBalanceHistory, type AccountSummary, type LoanAccount } from "@/lib/db";
 import { formatCurrency } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
 import {
@@ -502,21 +502,24 @@ function NetWorthCard({
   );
 }
 
-// ── Loan Dashboard ─────────────────────────────────────────────────────────────
+// ── Debt Dashboard (loans + credit cards) ──────────────────────────────────────
 const DEBT_TIPS: Record<"avalanche" | "snowball" | "cashflow", string> = {
-  avalanche: "The avalanche method targets your highest interest rate first, no matter the balance - mathematically it saves the most money over time, but the first \"win\" can take a while if that loan has a large balance.",
+  avalanche: "The avalanche method targets your highest interest rate first, no matter the balance - mathematically it saves the most money over time, but the first \"win\" can take a while if that account has a large balance.",
   snowball: "The snowball method targets your smallest balance first. Research on debt payoff behavior consistently finds people are more likely to stick with a payoff plan when they get a quick win early - even though it's not always the cheapest path on paper.",
-  cashflow: "Paying off the loan with the highest minimum payment first frees up the most monthly cash flow the soonest - useful if your goal is breathing room in your budget rather than minimizing total interest paid.",
+  cashflow: "Paying off the account with the highest minimum payment first frees up the most monthly cash flow the soonest - useful if your goal is breathing room in your budget rather than minimizing total interest paid.",
 };
 
 type LoanRankMethod = "avalanche" | "snowball" | "cashflow";
 
-interface RankedLoan extends LoanAccount {
-  trendCents: number | null;
+/** A loan or credit card, tagged so the Debt Dashboard can rank both together while still
+ *  showing which is which. */
+type DebtEntry = LoanAccount & { trendCents: number | null; debtKind: "loan" | "credit" };
+
+interface RankedLoan extends DebtEntry {
   rankable: boolean;
 }
 
-function rankLoans(loans: (LoanAccount & { trendCents: number | null })[], method: LoanRankMethod): RankedLoan[] {
+function rankLoans(loans: DebtEntry[], method: LoanRankMethod): RankedLoan[] {
   const withFlag = loans.map((l) => ({
     ...l,
     rankable: method === "avalanche" ? l.interest_rate_bps != null
@@ -533,12 +536,14 @@ function rankLoans(loans: (LoanAccount & { trendCents: number | null })[], metho
   return [...rankableLoans, ...unrankable];
 }
 
-function LoanDashboardCard({ loans }: { loans: (LoanAccount & { trendCents: number | null })[] }) {
+function LoanDashboardCard({ loans }: { loans: DebtEntry[] }) {
   const [method, setMethod] = useState<LoanRankMethod>("avalanche");
   const hasAnyRate = loans.some((l) => l.interest_rate_bps != null);
   const hasAnyPayment = loans.some((l) => l.minimum_payment_cents != null);
   const totalDebtCents = loans.reduce((s, l) => s + Math.abs(l.balance_cents ?? 0), 0);
   const ranked = rankLoans(loans, method);
+  const loanCount = loans.filter((l) => l.debtKind === "loan").length;
+  const creditCount = loans.filter((l) => l.debtKind === "credit").length;
 
   const methodLabel: Record<LoanRankMethod, string> = {
     avalanche: "Avalanche - saves the most money",
@@ -552,13 +557,16 @@ function LoanDashboardCard({ loans }: { loans: (LoanAccount & { trendCents: numb
         <div className="flex items-start justify-between mb-4 flex-wrap gap-2">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2">
-              Loan Dashboard
+              Debt Payoff Dashboard
             </p>
             <p className="text-3xl font-black tabular-nums text-red-500">
               {formatCurrency(-totalDebtCents)}
             </p>
             <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
-              {loans.length} loan{loans.length !== 1 ? "s" : ""} total - not counted toward liquidity or income/expenses
+              {loanCount > 0 && `${loanCount} loan${loanCount !== 1 ? "s" : ""}`}
+              {loanCount > 0 && creditCount > 0 && " + "}
+              {creditCount > 0 && `${creditCount} credit card${creditCount !== 1 ? "s" : ""}`}
+              {" - not counted toward income/expenses"}
             </p>
           </div>
         </div>
@@ -588,6 +596,9 @@ function LoanDashboardCard({ loans }: { loans: (LoanAccount & { trendCents: numb
                 {loan.rankable ? i + 1 : "—"}
               </span>
               <span className="flex-1 min-w-0 truncate text-sm font-medium">{loan.name}</span>
+              <span className="text-[9px] font-semibold uppercase tracking-wide shrink-0 px-1.5 py-0.5 rounded-full border text-[hsl(var(--muted-foreground))]">
+                {loan.debtKind === "credit" ? "Card" : "Loan"}
+              </span>
               <span className="text-sm font-semibold text-red-500 shrink-0">{formatCurrency(loan.balance_cents ?? 0)}</span>
               {method === "avalanche" && (
                 <span className="text-xs text-[hsl(var(--muted-foreground))] shrink-0 w-16 text-right">
@@ -768,7 +779,7 @@ export default function AgentPage() {
   const [creditScore, setCreditScore]           = useState<CreditCardHealthScore | null>(null);
   const [investmentScore, setInvestmentScore]   = useState<InvestmentHealthScore | null>(null);
   const [topRoi, setTopRoi]                     = useState<Partial<Record<SecurityType, TopRoiHolding[]>>>({});
-  const [loans, setLoans]                       = useState<(LoanAccount & { trendCents: number | null })[]>([]);
+  const [loans, setLoans]                       = useState<DebtEntry[]>([]);
 
   const [sectExpanded, setSectExpanded] = useState<{ trends: boolean; subs: boolean; topRoi: boolean }>(() => {
     try { const s = localStorage.getItem("compass_insight_sections"); return s ? JSON.parse(s) : { trends: false, subs: false, topRoi: false }; }
@@ -888,11 +899,17 @@ export default function AgentPage() {
       setCreditScore(ccScore);
       setInvestmentScore(invHealthScore);
 
-      const loanLists = await Promise.all(ids.map((id) => getLoanAccountsForProfile(id)));
-      const allLoans = loanLists.flat();
-      const loanTrends = await Promise.all(allLoans.map((l) => getLoanBalanceHistory(l.id)));
-      setLoans(allLoans.map((l, i) => {
-        const series = loanTrends[i];
+      const [loanLists, creditLists] = await Promise.all([
+        Promise.all(ids.map((id) => getLoanAccountsForProfile(id))),
+        Promise.all(ids.map((id) => getCreditAccountsForProfile(id))),
+      ]);
+      const allDebts: (LoanAccount & { debtKind: "loan" | "credit" })[] = [
+        ...loanLists.flat().map((l) => ({ ...l, debtKind: "loan" as const })),
+        ...creditLists.flat().map((c) => ({ ...c, debtKind: "credit" as const })),
+      ];
+      const debtTrends = await Promise.all(allDebts.map((l) => getLoanBalanceHistory(l.id)));
+      setLoans(allDebts.map((l, i) => {
+        const series = debtTrends[i];
         const trendCents = series.length > 1 ? Math.round((series[series.length - 1].value - series[0].value) * 100) : null;
         return { ...l, trendCents };
       }));
@@ -1143,7 +1160,7 @@ export default function AgentPage() {
           </motion.div>
         )}
 
-        {/* ── Loan Dashboard ── */}
+        {/* ── Debt Payoff Dashboard (loans + credit cards) ── */}
         {loans.length > 0 && (
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.09 }}>
             <LoanDashboardCard loans={loans} />

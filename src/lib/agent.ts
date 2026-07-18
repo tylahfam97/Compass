@@ -393,52 +393,62 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   }
 
   // ── INSIGHT: credit card debt (balance_cents is negative for credit accounts) ──
-  const [creditBalanceRow] = await db.select<{ balance_cents: number; date: string }[]>(
-    `SELECT t.balance_cents, t.date FROM transactions t
-     JOIN accounts a ON a.id=t.account_id
-     WHERE t.profile_id=? AND t.balance_cents IS NOT NULL AND a.account_type='credit' AND a.excluded_from_insights=0
-     ORDER BY t.date DESC, t.id DESC LIMIT 1`,
+  // Generated per-account (not aggregated/latest-across-all-cards) so a profile with several
+  // credit cards gets one accurate insight set per card instead of one ambiguous snapshot that
+  // happens to belong to whichever card was most recently imported - AccountDetailModal relies
+  // on `accountId` here to show each card only its own insights.
+  const creditAccounts = await db.select<{ id: number; name: string }[]>(
+    `SELECT id, name FROM accounts WHERE profile_id=? AND account_type='credit' AND excluded_from_insights=0`,
     [profileId]
   );
-  const [creditBalancePriorRow] = await db.select<{ balance_cents: number }[]>(
-    `SELECT t.balance_cents FROM transactions t
-     JOIN accounts a ON a.id=t.account_id
-     WHERE t.profile_id=? AND t.balance_cents IS NOT NULL AND a.account_type='credit' AND a.excluded_from_insights=0 AND t.date < ?
-     ORDER BY t.date DESC, t.id DESC LIMIT 1`,
-    [profileId, thisStart]
-  );
-  if (creditBalanceRow?.balance_cents != null) {
+  for (const acct of creditAccounts) {
+    const [creditBalanceRow] = await db.select<{ balance_cents: number; date: string }[]>(
+      `SELECT balance_cents, date FROM transactions
+       WHERE account_id=? AND balance_cents IS NOT NULL
+       ORDER BY date DESC, id DESC LIMIT 1`,
+      [acct.id]
+    );
+    if (creditBalanceRow?.balance_cents == null) continue;
+    const [creditBalancePriorRow] = await db.select<{ balance_cents: number }[]>(
+      `SELECT balance_cents FROM transactions
+       WHERE account_id=? AND balance_cents IS NOT NULL AND date < ?
+       ORDER BY date DESC, id DESC LIMIT 1`,
+      [acct.id, thisStart]
+    );
     const debt = creditBalanceRow.balance_cents; // negative = amount owed
     if (debt < -100000) {
       // Carrying more than $1,000 in credit card debt
       insights.push({
-        id: `credit_card_debt_high_${creditBalanceRow.date}`,
+        id: `credit_card_debt_high_${acct.id}_${creditBalanceRow.date}`,
         type: "credit_card_debt_high",
-        title: `Credit card debt: ${formatCents(Math.abs(debt))}`,
-        description: `You're carrying a balance of ${formatCents(Math.abs(debt))} on your credit card as of ${creditBalanceRow.date}. Interest charges add up quickly - paying down high-interest debt is usually a better return than most savings accounts.`,
+        title: `${acct.name}: ${formatCents(Math.abs(debt))} owed`,
+        description: `You're carrying a balance of ${formatCents(Math.abs(debt))} on ${acct.name} as of ${creditBalanceRow.date}. Interest charges add up quickly - paying down high-interest debt is usually a better return than most savings accounts.`,
         severity: "warning",
-        dismissKey: `credit_card_debt_high_${creditBalanceRow.date}`,
+        dismissKey: `credit_card_debt_high_${acct.id}_${creditBalanceRow.date}`,
+        accountId: acct.id,
       });
     }
     if (creditBalancePriorRow?.balance_cents != null) {
       const delta = debt - creditBalancePriorRow.balance_cents; // negative = debt grew
       if (delta < -5000) {
         insights.push({
-          id: `credit_card_debt_growing_${thisMonth}`,
+          id: `credit_card_debt_growing_${acct.id}_${thisMonth}`,
           type: "credit_card_debt_growing",
-          title: `Credit card debt grew by ${formatCents(Math.abs(delta))}`,
-          description: `Your credit card balance went from ${formatCents(Math.abs(creditBalancePriorRow.balance_cents))} to ${formatCents(Math.abs(debt))} owed. Keep an eye on this before it compounds with interest.`,
+          title: `${acct.name} debt grew by ${formatCents(Math.abs(delta))}`,
+          description: `${acct.name}'s balance went from ${formatCents(Math.abs(creditBalancePriorRow.balance_cents))} to ${formatCents(Math.abs(debt))} owed. Keep an eye on this before it compounds with interest.`,
           severity: "warning",
-          dismissKey: `credit_card_debt_growing_${thisMonth}`,
+          dismissKey: `credit_card_debt_growing_${acct.id}_${thisMonth}`,
+          accountId: acct.id,
         });
       } else if (delta > 5000) {
         insights.push({
-          id: `credit_card_debt_improving_${thisMonth}`,
+          id: `credit_card_debt_improving_${acct.id}_${thisMonth}`,
           type: "credit_card_debt_improving",
-          title: `Paid down ${formatCents(delta)} in credit card debt`,
-          description: `Nice progress - your credit card balance improved from ${formatCents(Math.abs(creditBalancePriorRow.balance_cents))} to ${formatCents(Math.abs(debt))} owed.`,
+          title: `Paid down ${formatCents(delta)} on ${acct.name}`,
+          description: `Nice progress - ${acct.name}'s balance improved from ${formatCents(Math.abs(creditBalancePriorRow.balance_cents))} to ${formatCents(Math.abs(debt))} owed.`,
           severity: "success",
-          dismissKey: `credit_card_debt_improving_${thisMonth}`,
+          dismissKey: `credit_card_debt_improving_${acct.id}_${thisMonth}`,
+          accountId: acct.id,
         });
       }
     }

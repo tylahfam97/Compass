@@ -8,14 +8,14 @@ import {
 import { useNavigate } from "react-router-dom";
 import {
   getDb, applyCategorizationRules, recomputeCalculatedBalances,
-  listAccountsForProfile, resolveAccountId,
+  listAccountsForProfile, resolveAccountId, setAccountInterestRate,
 } from "@/lib/db";
 import type { AccountChoice } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type { CategorizationRule, SecurityType, Account } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
 import { takePendingImportFiles } from "@/lib/pendingImport";
-import { parsePdfStatement } from "@/lib/pdfParse";
+import { parsePdfStatement, extractPdfRows } from "@/lib/pdfParse";
 import InfoTooltip from "@/components/InfoTooltip";
 import ManageAccountsPanel from "@/components/ManageAccountsPanel";
 import LoanUploaderModal from "@/components/LoanUploaderModal";
@@ -776,6 +776,10 @@ export default function ImportPage() {
   const [fixColumnsOpen, setFixColumnsOpen] = useState<Set<string>>(new Set());
   const [accountChoice, setAccountChoice] = useState<AccountChoice | null>(null);
   const [existingAccountsForType, setExistingAccountsForType] = useState<Account[]>([]);
+  // Optional APR entered/edited on the "which account" step for credit imports only - purely
+  // informational (same as a loan's rate), lets credit cards join Avalanche ranking on the
+  // Debt Dashboard without a separate settings screen.
+  const [creditInterestRateInput, setCreditInterestRateInput] = useState("");
   const [maxStepReached, setMaxStepReached] = useState(1);
   const [currentFilename, setCurrentFilename] = useState("");
   const [isPdfImport, setIsPdfImport] = useState(false);
@@ -795,6 +799,15 @@ export default function ImportPage() {
   const [totalBatchCount, setTotalBatchCount] = useState(0);
   const batchSavedColMapRef = useRef<ColMap | null>(null);
   const [showLoanUploader, setShowLoanUploader] = useState(false);
+  // Remembers which concrete account the previous file in THIS import session resolved to,
+  // keyed by account type - `finishParsingData`/`finishParsingInvestmentData` reset
+  // `accountChoice` to null for every new file (so a genuinely different file can be
+  // re-detected fresh), but a multi-file batch is overwhelmingly likely to be several
+  // statements for the SAME account. Without this, a file that doesn't match any bank preset
+  // (common for credit cards) falls back to "new account" on every file after the first,
+  // silently creating a duplicate account per file instead of reusing the one the user
+  // already picked/created and entered a balance for.
+  const lastResolvedAccountRef = useRef<{ accountType: string; accountId: number } | null>(null);
 
   // Auto-detect the dominant month whenever the parsed data or date column changes
   const detectedMonth = useMemo(
@@ -811,8 +824,10 @@ export default function ImportPage() {
   }, [detectedMonth]);
 
   // On entering the "which account" step, load this profile's existing accounts of the
-  // relevant type and suggest a match based on the detected bank preset/institution name -
-  // but never clobber a choice the user already made (e.g. navigating back to this step).
+  // relevant type and suggest a match - preferring the account this same import session
+  // already resolved to (if any) over a fresh bank-preset/institution-name guess, since a
+  // multi-file batch is almost always several statements for the SAME account - but never
+  // clobber a choice the user already made (e.g. navigating back to this step).
   useEffect(() => {
     if (step !== "wizard:account") return;
     const accountType = importKind === "credit" ? "credit" : importKind === "investment" ? "investment" : "checking";
@@ -821,6 +836,16 @@ export default function ImportPage() {
         const accounts = await listAccountsForProfile(profileId, accountType);
         setExistingAccountsForType(accounts);
         if (accountChoice) return;
+        if (lastResolvedAccountRef.current?.accountType === accountType) {
+          const prior = accounts.find((a) => a.id === lastResolvedAccountRef.current!.accountId);
+          if (prior) {
+            setAccountChoice({ mode: "existing", accountId: prior.id, name: prior.name });
+            if (importKind === "credit") {
+              setCreditInterestRateInput(prior.interest_rate_bps != null ? (prior.interest_rate_bps / 100).toFixed(2) : "");
+            }
+            return;
+          }
+        }
         const detectedName = selectedPresetId ? BANK_PRESETS[selectedPresetId]?.name ?? null : null;
         if (detectedName) {
           const needle = detectedName.toLowerCase();
@@ -829,6 +854,9 @@ export default function ImportPage() {
           );
           if (match) {
             setAccountChoice({ mode: "existing", accountId: match.id, name: match.name });
+            if (importKind === "credit") {
+              setCreditInterestRateInput(match.interest_rate_bps != null ? (match.interest_rate_bps / 100).toFixed(2) : "");
+            }
             return;
           }
         }
@@ -974,6 +1002,7 @@ export default function ImportPage() {
       // otherwise a batch of files would each independently create ANOTHER "new" account
       // instead of sharing the one just created.
       setAccountChoice((prev) => (prev?.mode === "existing" && prev.accountId === accountId ? prev : { mode: "existing", accountId, name: prev?.name ?? "Investment Account" }));
+      lastResolvedAccountRef.current = { accountType: "investment", accountId };
       const sessionResult = await db.execute(
         "INSERT INTO import_sessions (filename, row_count, skipped_count, profile_id, kind) VALUES (?, 0, 0, ?, 'investment')",
         [currentFilename, targetProfileId]
@@ -1030,8 +1059,17 @@ export default function ImportPage() {
     setIsPdfImport(isPdf);
     if (isPdf) {
       if (importKind === "investment") {
-        setError("PDF import isn't supported for investment portfolios yet - export a CSV or XLSX from your brokerage instead.");
-        setStep("upload");
+        extractPdfRows(file).then((data) => {
+          if (data.length < 2) {
+            setError("Couldn't find any recognizable holdings table in that PDF. It may be a scanned/image statement (no selectable text) - try a CSV/XLSX export from your brokerage instead.");
+            setStep("upload");
+            return;
+          }
+          finishParsingInvestmentData(data);
+        }).catch(() => {
+          setError("Could not read that PDF. Make sure it's a valid, text-based statement.");
+          setStep("upload");
+        });
         return;
       }
       parsePdfStatement(file).then(({ rows, looksLikeLoanStatement }) => {
@@ -1127,6 +1165,7 @@ export default function ImportPage() {
     setFixColumnsOpen(new Set());
     setAccountChoice(null);
     setExistingAccountsForType([]);
+    setCreditInterestRateInput("");
     setMaxStepReached(1);
     setWizardDir("forward");
     setStep("wizard:account");
@@ -1155,6 +1194,7 @@ export default function ImportPage() {
     setSkipRows(initialSkip);
     setAccountChoice(null);
     setExistingAccountsForType([]);
+    setCreditInterestRateInput("");
     setMaxStepReached(1);
     const derived = deriveHeaders(data, initialSkip);
     if (!derived) {
@@ -1263,6 +1303,12 @@ export default function ImportPage() {
       // instead of sharing the one just created, splitting one card's transactions/balance
       // across several duplicate accounts.
       setAccountChoice((prev) => (prev?.mode === "existing" && prev.accountId === accountId ? prev : { mode: "existing", accountId, name: prev?.name ?? "My Account" }));
+      lastResolvedAccountRef.current = { accountType: importKind === "credit" ? "credit" : "checking", accountId };
+      if (importKind === "credit" && creditInterestRateInput.trim()) {
+        // Only touches the rate when the user actually typed one - an empty field on a later
+        // import of the same card must never silently wipe out a rate set previously.
+        await setAccountInterestRate(accountId, Math.round(parseFloat(creditInterestRateInput.trim()) * 100));
+      }
       if (colMap.balanceCol < 0 && currentBalanceInput.trim()) {
         // The entered value is the real balance AFTER all transactions, as of today (when it's
         // submitted) - not before them - so Compass can calculate correctly in both directions.
@@ -1403,6 +1449,7 @@ export default function ImportPage() {
       // Same fix as handleImport - lock onto the concrete account so the rest of this batch
       // (files processed automatically after this one) reuses it instead of creating duplicates.
       setAccountChoice((prev) => (prev?.mode === "existing" && prev.accountId === accountId ? prev : { mode: "existing", accountId, name: prev?.name ?? "My Account" }));
+      lastResolvedAccountRef.current = { accountType: importKind === "credit" ? "credit" : "checking", accountId };
       const rules = await db.select<CategorizationRule[]>(
         "SELECT * FROM categorization_rules WHERE profile_id=? OR profile_id IS NULL ORDER BY priority DESC",
         [profileId]
@@ -1490,6 +1537,7 @@ export default function ImportPage() {
     setCurrentBalanceInput("");
     setAccountChoice(null);
     setExistingAccountsForType([]);
+    setCreditInterestRateInput("");
     setMaxStepReached(1);
     setCurrentFilename("");
     setIsPdfImport(false);
@@ -1503,6 +1551,7 @@ export default function ImportPage() {
     setBatchAutoMode(false);
     setTotalBatchCount(0);
     batchSavedColMapRef.current = null;
+    lastResolvedAccountRef.current = null;
   };
 
   return (
@@ -1572,14 +1621,14 @@ export default function ImportPage() {
             </p>
             <p className="text-sm text-[hsl(var(--muted-foreground))]">
               {importKind === "investment"
-                ? "Works with Wells Fargo Advisors portfolio positions exports"
+                ? "Works with Wells Fargo Advisors, Fidelity, and Thrivent exports (CSV, XLSX, or PDF)"
                 : "Works with exports from any bank or credit card"}
             </p>
           </div>
           <input
             id="csv-input"
             type="file"
-            accept={importKind === "investment" ? ".csv,.xlsx,.xls" : ".csv,.xlsx,.xls,.pdf"}
+            accept=".csv,.xlsx,.xls,.pdf"
             multiple
             className="hidden"
             onChange={handleFileInput}
@@ -1723,7 +1772,12 @@ export default function ImportPage() {
                 value={accountChoice.accountId}
                 onChange={(e) => {
                   const acct = existingAccountsForType.find((a) => a.id === parseInt(e.target.value));
-                  if (acct) setAccountChoice({ mode: "existing", accountId: acct.id, name: acct.name });
+                  if (acct) {
+                    setAccountChoice({ mode: "existing", accountId: acct.id, name: acct.name });
+                    if (importKind === "credit") {
+                      setCreditInterestRateInput(acct.interest_rate_bps != null ? (acct.interest_rate_bps / 100).toFixed(2) : "");
+                    }
+                  }
                 }}
                 className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
                 {existingAccountsForType.map((a) => (
@@ -1746,6 +1800,24 @@ export default function ImportPage() {
                   placeholder={importKind === "credit" ? "e.g. Chase Sapphire" : importKind === "investment" ? "e.g. Fidelity Brokerage" : "e.g. Checking"}
                   className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
                 />
+              </div>
+            )}
+
+            {importKind === "credit" && (
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
+                  Interest Rate (APR) <span className="normal-case">(optional)</span>
+                </label>
+                <input
+                  type="number" step="0.01" min="0"
+                  value={creditInterestRateInput}
+                  onChange={(e) => setCreditInterestRateInput(e.target.value)}
+                  placeholder="e.g. 24.99"
+                  className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]"
+                />
+                <p className="text-[11px] text-[hsl(var(--muted-foreground))]">
+                  Purely informational - lets this card join Avalanche ranking on the Debt Dashboard. Never used to calculate interest.
+                </p>
               </div>
             )}
           </div>
@@ -2202,6 +2274,15 @@ export default function ImportPage() {
       {step === "wizard:investment-preview" && invParsed && (
         <div key="wizard:investment-preview" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           {error && <p className="text-red-500 text-sm p-3 border border-red-300 rounded-lg">{error}</p>}
+
+          {isPdfImport && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1.5 p-3 border border-amber-300/50 rounded-lg bg-amber-500/5">
+              <Info size={13} className="shrink-0 mt-0.5" />
+              PDF portfolio statements are read with text-extraction heuristics, not a guaranteed column layout -
+              double-check the sections and columns below (use "Fix columns" if anything looks misaligned) before importing.
+              A CSV/XLSX export from your brokerage is more reliable when available.
+            </p>
+          )}
 
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "hsl(var(--primary)/0.1)" }}>
