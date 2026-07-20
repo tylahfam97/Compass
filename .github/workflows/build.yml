@@ -21,6 +21,10 @@ jobs:
       run:
         shell: cmd
 
+    outputs:
+      tag_name: ${{ steps.vars.outputs.tag_name }}
+      is_prerelease: ${{ steps.vars.outputs.is_prerelease }}
+
     steps:
       - name: Prune stale local refs (self-hosted runner)
         shell: powershell
@@ -46,6 +50,7 @@ jobs:
         run: npm install
 
       - name: Read version and patch endpoint
+        id: vars
         shell: powershell
         run: |
           # tauri.conf.json is the version source of truth — read it, don't overwrite it
@@ -58,6 +63,17 @@ jobs:
           $isPrerelease = if ($branch -eq "main") { "false" } else { "true" }
           "IS_PRERELEASE=$isPrerelease" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "Branch: $branch | Prerelease: $isPrerelease"
+          # Tag name — mirrors publish-release.ps1's logic. Exposed as a job output so the
+          # dispatch-host-release job (which runs after both platform jobs finish) can host
+          # the exact tag without recomputing/duplicating this logic.
+          $tagName = if ($isPrerelease -eq "true") {
+            $sanitized = ($branch -replace '[^a-zA-Z0-9]', '-') -replace '-{2,}', '-'
+            "v" + $v + "-" + $sanitized.Trim('-').ToLower()
+          } else {
+            "v" + $v
+          }
+          "tag_name=$tagName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "is_prerelease=$isPrerelease" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           # Patch the updater endpoint placeholder
           (Get-Content src-tauri\tauri.conf.json -Raw) -replace '__REPO__', $repo |
             Set-Content src-tauri\tauri.conf.json -NoNewline
@@ -273,3 +289,28 @@ jobs:
           APPRISE_DISCORD_URL: ${{ secrets.AppriseDiscordUrl }}
           APPRISE_URL: ${{ secrets.APPRISE_URL }}
         run: pwsh -File scripts/publish-macos-assets.ps1
+
+  # Hosts the release downloads (nginx server) - dispatched only once BOTH platform jobs have
+  # concluded, the same way the Windows job only publishes/dispatches after ITS OWN build and
+  # upload are done. `if: always()` means this still runs (and hosts the Windows .exe/.msi)
+  # even if build-macos fails; `needs: build-macos` (not just create-compass) is what makes it
+  # wait for the macOS upload attempt so host-release.yml can pick up the .dmg in the same run
+  # instead of racing it via a premature dispatch from the Windows job.
+  dispatch-host-release:
+    name: Trigger release download hosting
+    needs: [create-compass, build-macos]
+    if: always() && needs.create-compass.result == 'success' && needs.create-compass.outputs.is_prerelease == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch host-release.yml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ needs.create-compass.outputs.tag_name }}
+        run: |
+          echo "Dispatching host-release.yml for $TAG_NAME"
+          curl -sf -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/host-release.yml/dispatches" \
+            -d "{\"ref\":\"${{ github.ref_name }}\",\"inputs\":{\"tag_name\":\"$TAG_NAME\"}}"

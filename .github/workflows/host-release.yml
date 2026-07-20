@@ -2,15 +2,23 @@
 # Compass — Host Release Downloads
 #
 # Triggers when a stable release is published on GitHub. Runs on the nginx
-# self-hosted runner, downloads the .exe and .msi from the GitHub release,
-# places them in /var/www/compass/downloads/, and updates the stable symlinks:
+# self-hosted runner, downloads the .exe, .msi, and (if present) .dmg from the
+# GitHub release, places them in /var/www/compass/downloads/, and updates the
+# stable symlinks:
 #
 #   Compass.exe  ->  Compass_x.x.x_x64-setup.exe
 #   Compass.msi  ->  Compass_x.x.x_x64_en-US.msi
+#   Compass.dmg  ->  Compass_x.x.x_universal.dmg   (only if the macOS build succeeded)
 #
 # The website download buttons point directly to:
 #   https://privatecompass.app/downloads/Compass.exe
 #   https://privatecompass.app/downloads/Compass.msi
+#   https://privatecompass.app/downloads/Compass.dmg
+#
+# The .dmg is OPTIONAL — build.yml's macOS job (build-macos) runs with
+# `continue-on-error: true` and can fail/skip its upload independently of the
+# Windows build, so this workflow must never fail just because no .dmg exists
+# yet in the release; it hosts whatever platform assets are actually present.
 #
 # Pre-releases (dev/feature branch builds) are ignored — only stable
 # releases (IS_PRERELEASE=false in build.yml) trigger this workflow.
@@ -22,9 +30,11 @@
 # using GITHUB_TOKEN, so the `release: published` trigger below never actually
 # fires for our own automated releases - it only fires for releases published
 # by hand through the GitHub UI. `workflow_dispatch` IS explicitly exempt from
-# that restriction, so publish-release.ps1 also calls this workflow's dispatch
-# API directly (passing `tag_name`) right after a stable release is created -
-# that's the real trigger path for CI-published releases.
+# that restriction, so build.yml's `dispatch-host-release` job calls this
+# workflow's dispatch API directly (passing `tag_name`) once BOTH the Windows
+# (create-compass) and macOS (build-macos) jobs have finished - that's the real
+# trigger path for CI-published releases, and it guarantees the .dmg (when the
+# macOS build succeeds) is already uploaded to the release before this runs.
 #
 # ── NGINX CONFIG REQUIRED (add to your server's compass.conf) ───────────────
 # Add this location block inside your server {} block:
@@ -146,7 +156,25 @@ jobs:
           ln -sf "$DOWNLOADS_DIR/$EXE_NAME" "$DOWNLOADS_DIR/Compass.exe"
           ln -sf "$DOWNLOADS_DIR/$MSI_NAME" "$DOWNLOADS_DIR/Compass.msi"
 
+          # .dmg is OPTIONAL — the macOS job (build-macos) runs with continue-on-error and can
+          # fail/skip its upload independently of the Windows build, so a missing .dmg here is
+          # NOT an error; just skip hosting it and leave any previous Compass.dmg symlink as-is.
+          DMG_URL=$(echo "$RELEASE" | jq -r '.assets[] | select(.name | endswith(".dmg")) | .browser_download_url')
+          DMG_NAME=$(echo "$RELEASE" | jq -r '.assets[] | select(.name | endswith(".dmg")) | .name')
+
+          if [ -z "$DMG_URL" ] || [ "$DMG_URL" = "null" ]; then
+            echo "No .dmg asset found in release $TAG - macOS build likely failed or was skipped. Skipping (not fatal)."
+          else
+            echo "Downloading $DMG_NAME ..."
+            curl -L --progress-bar -o "$DOWNLOADS_DIR/$DMG_NAME" "$DMG_URL"
+            ln -sf "$DOWNLOADS_DIR/$DMG_NAME" "$DOWNLOADS_DIR/Compass.dmg"
+          fi
+
           echo ""
           echo "Done."
           echo "  $DOWNLOADS_DIR/Compass.exe  ->  $EXE_NAME"
           echo "  $DOWNLOADS_DIR/Compass.msi  ->  $MSI_NAME"
+          if [ -n "$DMG_NAME" ] && [ "$DMG_NAME" != "null" ]; then
+            echo "  $DOWNLOADS_DIR/Compass.dmg  ->  $DMG_NAME"
+          fi
+
