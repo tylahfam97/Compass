@@ -881,16 +881,20 @@
   }
 
   .download-cards {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--sp-6);
-    justify-content: center;
     align-items: stretch;
-    flex-wrap: wrap;
   }
   .download-cards .download-card {
-    flex: 1 1 420px;
-    max-width: 480px;
+    max-width: none;
+    min-width: 0;
     margin-inline: 0;
+  }
+
+  @media (max-width: 720px) {
+    .download-cards { grid-template-columns: 1fr; }
+    .download-cards .download-card { max-width: 480px; margin-inline: auto; }
   }
 
   .download-note {
