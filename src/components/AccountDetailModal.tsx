@@ -35,9 +35,14 @@ interface Props {
 // per-account insights engine.
 const CREDIT_RELEVANT_TYPES: InsightType[] = [
   "credit_card_debt_high", "credit_card_debt_growing", "credit_card_debt_improving",
+  "loan_payoff_projection", "debt_payoff_priority",
 ];
 const CHECKING_RELEVANT_TYPES: InsightType[] = [
   "overdraft_alert", "emergency_fund_runway", "income_irregular", "savings_rate_low",
+];
+const LOAN_RELEVANT_TYPES: InsightType[] = [
+  "loan_debt_high", "loan_debt_growing", "loan_debt_improving",
+  "loan_payoff_projection", "debt_payoff_priority",
 ];
 
 interface DerivedNote {
@@ -136,6 +141,8 @@ export default function AccountDetailModal({ account, insights, onApply, onClose
     ? insights.filter((i) => CREDIT_RELEVANT_TYPES.includes(i.type) && i.accountId === account.id).slice(0, 2)
     : account.accountType === "checking"
     ? insights.filter((i) => CHECKING_RELEVANT_TYPES.includes(i.type)).slice(0, 2)
+    : account.accountType === "loan"
+    ? insights.filter((i) => LOAN_RELEVANT_TYPES.includes(i.type) && i.accountId === account.id).slice(0, 2)
     : [];
   const notes = account.accountType === "loan" || account.accountType === "credit"
     ? derivedDebtNotes(account).slice(0, 2)
