@@ -4,6 +4,7 @@ import {
   AlertTriangle, CheckCircle, Target, Info, X,
   TrendingUp, TrendingDown, Percent, Zap,
   RefreshCw, ShoppingBag, Calendar, Shield, DollarSign, CreditCard,
+  Landmark, LineChart, PieChart,
 } from "lucide-react";
 
 // Maps insight type to a descriptive icon for row/scannable contexts.
@@ -45,8 +46,16 @@ const TYPE_ICONS: Record<string, React.ElementType> = {
   // ━━ Credit card debt ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   credit_card_debt_high:      CreditCard,
   credit_card_debt_growing:   CreditCard,
-  credit_card_debt_improving: CreditCard,
-};
+  credit_card_debt_improving: CreditCard,  // ━━ Loan debt / payoff planning ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  loan_debt_high:              Landmark,
+  loan_debt_growing:           Landmark,
+  loan_debt_improving:         Landmark,
+  loan_payoff_projection:      Calendar,
+  debt_payoff_priority:        Landmark,
+  // ━━ Investments ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  investment_performance:      LineChart,
+  dividend_income_projected:   DollarSign,
+  portfolio_concentration_risk: PieChart,};
 
 const CARD_STYLES: Record<string, string> = {
   warning: "border-l-[5px] border-l-amber-400 bg-amber-50 dark:bg-amber-950/20",

@@ -32,7 +32,15 @@ export type InsightType =
   | "credit_card_debt_growing"
   | "credit_card_debt_improving"
   | "net_worth_growing"
-  | "net_worth_declining";
+  | "net_worth_declining"
+  | "loan_debt_high"
+  | "loan_debt_growing"
+  | "loan_debt_improving"
+  | "loan_payoff_projection"
+  | "debt_payoff_priority"
+  | "investment_performance"
+  | "dividend_income_projected"
+  | "portfolio_concentration_risk";
 
 /** Category ID reserved for internal bank transfers — excluded from expense totals. */
 export const TRANSFER_CATEGORY_ID = 20;
