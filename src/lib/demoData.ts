@@ -7,7 +7,7 @@ const CAT = {
   UTILITIES: 11,
   RENT: 12,
   GROCERIES: 13,
-  RESTAURANTS: 14,
+  RESTAURANTS: 3, // "Restaurants" (id 14) was merged into "Food & Dining" (id 3) - db.ts v19
   GAS: 16,
   SUBSCRIPTIONS: 17,
   TRANSFERS: 20,

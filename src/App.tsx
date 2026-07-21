@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
 import logoUrl from "@/assets/logo.svg";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense, lazy } from "react";
 import {
   LayoutDashboard, ArrowLeftRight, Upload, TrendingUp, LineChart,
   Wallet, Target, BarChart2, Lightbulb, Globe, ChevronLeft, ChevronRight, MessageSquare, Sparkles,
@@ -8,20 +8,33 @@ import {
 import { openUrl } from "@tauri-apps/plugin-opener";
 import DashboardPage from "@/pages/DashboardPage";
 import TransactionsPage from "@/pages/TransactionsPage";
-import ImportPage from "@/pages/ImportPage";
 import TrendsPage from "@/pages/TrendsPage";
 import BudgetsPage from "@/pages/BudgetsPage";
 import GoalsPage from "@/pages/GoalsPage";
-import ReportsPage from "@/pages/ReportsPage";
 import AgentPage from "@/pages/AgentPage";
 import OverviewPage from "@/pages/OverviewPage";
-import InvestmentsPage from "@/pages/InvestmentsPage";
 import ProfileSwitcher from "@/components/ProfileSwitcher";
 import UpdateChecker from "@/components/UpdateChecker";
 import PinModal from "@/components/PinModal";
 import GoldParticleField from "@/components/GoldParticleField";
 import Spotlight from "@/components/Spotlight";
 import OnboardingChecklistWidget from "@/components/OnboardingChecklistWidget";
+import { CardListSkeleton } from "@/components/Skeleton";
+
+// Lazy-loaded: these 3 pages pull in the heaviest deps (xlsx, pdfjs-dist,
+// recharts, papaparse) — code-splitting them keeps the initial bundle/first
+// paint lean since most sessions don't visit all three every time.
+const ImportPage = lazy(() => import("@/pages/ImportPage"));
+const ReportsPage = lazy(() => import("@/pages/ReportsPage"));
+const InvestmentsPage = lazy(() => import("@/pages/InvestmentsPage"));
+
+function PageLoadingFallback() {
+  return (
+    <div className="py-6">
+      <CardListSkeleton count={3} />
+    </div>
+  );
+}
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useProfileStore } from "@/stores/profileStore";
 import { useOnboardingStore } from "@/stores/onboardingStore";
@@ -269,12 +282,12 @@ function App() {
               <Route path="/overview" element={<div className="py-6"><OverviewPage /></div>} />
               <Route path="/" element={<DashboardPage />} />
               <Route path="/transactions" element={<div className="py-6"><TransactionsPage /></div>} />
-              <Route path="/import" element={<div className="py-6"><ImportPage /></div>} />
+              <Route path="/import" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><ImportPage /></div></Suspense>} />
               <Route path="/trends" element={<div className="py-6"><TrendsPage /></div>} />
-              <Route path="/investments" element={<div className="py-6"><InvestmentsPage /></div>} />
+              <Route path="/investments" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><InvestmentsPage /></div></Suspense>} />
               <Route path="/budgets" element={<div className="py-6"><BudgetsPage /></div>} />
               <Route path="/goals" element={<div className="py-6"><GoalsPage /></div>} />
-              <Route path="/reports" element={<div className="py-6"><ReportsPage /></div>} />
+              <Route path="/reports" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><ReportsPage /></div></Suspense>} />
               <Route path="/agent" element={<div className="py-6"><AgentPage /></div>} />
             </Routes>
           </div>
