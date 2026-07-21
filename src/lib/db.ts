@@ -1464,6 +1464,12 @@ export async function reapplyCategorizationRules(
   mode: "uncategorized" | "all" = "uncategorized"
 ): Promise<number> {
   const db = await getDb();
+  // Only log categorization internals (transaction descriptions, match counts)
+  // in dev builds — never in production, to avoid leaking financial data to
+  // the console.
+  const debugLog = (...args: unknown[]) => {
+    if (import.meta.env.DEV) console.debug(...args);
+  };
 
   // Fetch rules ordered by priority so the loop mirrors import behaviour.
   // Also select profile_id so we can distinguish user rules from system rules.
@@ -1474,7 +1480,7 @@ export async function reapplyCategorizationRules(
      ORDER BY priority DESC`,
     [profileId]
   );
-  console.debug(`[autoCat] ${rules.length} rules loaded`);
+  debugLog(`[autoCat] ${rules.length} rules loaded`);
 
   // Split into user rules (created by this profile) and system rules (profile_id IS NULL).
   // User rules always override system-rule categorizations.
@@ -1487,7 +1493,7 @@ export async function reapplyCategorizationRules(
     `SELECT id, description, amount_cents, category_id FROM transactions WHERE profile_id=? ORDER BY id`,
     [profileId]
   );
-  console.debug(`[autoCat] ${transactions.length} transactions to evaluate (mode=${mode})`);
+  debugLog(`[autoCat] ${transactions.length} transactions to evaluate (mode=${mode})`);
 
   // ── Group by matched category (pure JS — no IPC inside the loop) ──────────
   const byCategory = new Map<number, number[]>(); // catId → [txnId, …]
@@ -1523,10 +1529,10 @@ export async function reapplyCategorizationRules(
   }
 
   if (matched === 0) {
-    console.debug("[autoCat] No matches — nothing to update");
+    debugLog("[autoCat] No matches — nothing to update");
     return 0;
   }
-  console.debug(`[autoCat] ${matched} matched across ${byCategory.size} categories, running updates…`);
+  debugLog(`[autoCat] ${matched} matched across ${byCategory.size} categories, running updates…`);
 
   // ── One UPDATE per distinct category, chunked to stay under SQLite's
   //    variable limit. Each chunk: 1 catId param + up to 500 id params.
