@@ -897,6 +897,19 @@ async function runMigrations(db: CompassDb): Promise<void> {
     }
     await db.execute("PRAGMA user_version = 18");
   }
+
+  // ── v19: Removed the "Restaurants" system category (id 14) — it was always a
+  //         child of "Food & Dining" (id 3) and offered no useful distinction from
+  //         its parent. Re-point every reference to id 3 before deleting the row,
+  //         same merge pattern as the v7 migration above. ───────────────────────
+  if (version < 19) {
+    await db.execute("UPDATE transactions SET category_id=3 WHERE category_id=14");
+    await db.execute("UPDATE categorization_rules SET category_id=3 WHERE category_id=14");
+    await db.execute("UPDATE budgets SET category_id=3 WHERE category_id=14");
+    await db.execute("UPDATE goals SET category_id=3 WHERE category_id=14");
+    await db.execute("DELETE FROM categories WHERE id=14");
+    await db.execute("PRAGMA user_version = 19");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────

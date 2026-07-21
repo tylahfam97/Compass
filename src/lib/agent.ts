@@ -487,8 +487,9 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     [profileId, thisStart, thisEnd]
   );
   const deliveryTotal = deliveryRow?.total ?? 0;
-  // Sum food-related categories: Food & Dining(3), Groceries(13), Restaurants(14)
-  const totalFoodSpend = [3, 13, 14].reduce(
+  // Sum food-related categories: Food & Dining(3), Groceries(13). ("Restaurants"
+  // (14) was merged into Food & Dining in db.ts's v19 migration.)
+  const totalFoodSpend = [3, 13].reduce(
     (s, id) => s + (thisMonthCatMap.get(id) ?? 0),
     0
   );
