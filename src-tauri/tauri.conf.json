@@ -1,7 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Compass",
-  "version": "0.8.7",
+  "version": "0.8.8",
+
   "identifier": "com.compass.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -40,6 +41,8 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "Tyler Fameli",
+    "copyright": "Copyright © 2026 Tyler Fameli",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

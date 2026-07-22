@@ -52,6 +52,8 @@ jobs:
       - name: Read version and patch endpoint
         id: vars
         shell: powershell
+        env:
+          WINDOWS_CERT_THUMBPRINT: ${{ vars.WINDOWS_CERT_THUMBPRINT }}
         run: |
           # tauri.conf.json is the version source of truth — read it, don't overwrite it
           $v    = (Get-Content src-tauri\tauri.conf.json -Raw | ConvertFrom-Json).version
@@ -82,6 +84,26 @@ jobs:
             -replace '(?m)^version\s*=\s*"[^"]*"', ('version = "' + $v + '"') |
             Set-Content src-tauri\Cargo.toml -NoNewline
           Write-Host "Building version $v for $repo"
+
+          # Windows Authenticode code signing (optional) — only wired up once a certificate
+          # has actually been imported into THIS self-hosted runner's certificate store
+          # (Cert:\CurrentUser\My or Cert:\LocalMachine\My). WINDOWS_CERT_THUMBPRINT is a
+          # plain repo VARIABLE (not a secret) since a thumbprint is a public fingerprint,
+          # not sensitive - no private key ever touches GitHub. If it's unset, tauri.conf.json
+          # is left completely untouched and the build proceeds unsigned exactly as before.
+          if ($env:WINDOWS_CERT_THUMBPRINT) {
+            Write-Host "WINDOWS_CERT_THUMBPRINT is set - enabling Windows code signing"
+            $cfg = Get-Content src-tauri\tauri.conf.json -Raw | ConvertFrom-Json
+            if (-not $cfg.bundle.windows) {
+              $cfg.bundle | Add-Member -NotePropertyName windows -NotePropertyValue ([PSCustomObject]@{}) -Force
+            }
+            $cfg.bundle.windows | Add-Member -NotePropertyName certificateThumbprint -NotePropertyValue $env:WINDOWS_CERT_THUMBPRINT -Force
+            $cfg.bundle.windows | Add-Member -NotePropertyName digestAlgorithm -NotePropertyValue "sha256" -Force
+            $cfg.bundle.windows | Add-Member -NotePropertyName timestampUrl -NotePropertyValue "http://timestamp.digicert.com" -Force
+            $cfg | ConvertTo-Json -Depth 32 | Set-Content src-tauri\tauri.conf.json -NoNewline
+          } else {
+            Write-Warning "WINDOWS_CERT_THUMBPRINT is NOT set - the .exe/.msi will be unsigned (still shows an Unknown Publisher warning)"
+          }
           
       - name: Build Tauri application
         env:
