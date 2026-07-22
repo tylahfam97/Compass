@@ -421,8 +421,8 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   // credit cards gets one accurate insight set per card instead of one ambiguous snapshot that
   // happens to belong to whichever card was most recently imported - AccountDetailModal relies
   // on `accountId` here to show each card only its own insights.
-  const creditAccounts = await db.select<{ id: number; name: string }[]>(
-    `SELECT id, name FROM accounts WHERE profile_id=? AND account_type='credit' AND excluded_from_insights=0`,
+  const creditAccounts = await db.select<{ id: number; name: string; interest_rate_bps: number | null; minimum_payment_cents: number | null }[]>(
+    `SELECT id, name, interest_rate_bps, minimum_payment_cents FROM accounts WHERE profile_id=? AND account_type='credit' AND excluded_from_insights=0`,
     [profileId]
   );
   for (const acct of creditAccounts) {
@@ -440,6 +440,12 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
       [acct.id, thisStart]
     );
     const debt = creditBalanceRow.balance_cents; // negative = amount owed
+    const creditRichData = {
+      accountType: "credit" as const,
+      accountBalanceCents: debt,
+      accountInterestRateBps: acct.interest_rate_bps,
+      accountMinimumPaymentCents: acct.minimum_payment_cents,
+    };
     if (debt < -100000) {
       // Carrying more than $1,000 in credit card debt
       insights.push({
@@ -450,6 +456,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         severity: "warning",
         dismissKey: `credit_card_debt_high_${acct.id}_${creditBalanceRow.date}`,
         accountId: acct.id,
+        richData: creditRichData,
       });
     }
     if (creditBalancePriorRow?.balance_cents != null) {
@@ -463,6 +470,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
           severity: "warning",
           dismissKey: `credit_card_debt_growing_${acct.id}_${thisMonth}`,
           accountId: acct.id,
+          richData: creditRichData,
         });
       } else if (delta > 5000) {
         insights.push({
@@ -473,6 +481,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
           severity: "success",
           dismissKey: `credit_card_debt_improving_${acct.id}_${thisMonth}`,
           accountId: acct.id,
+          richData: creditRichData,
         });
       }
     }
@@ -480,8 +489,8 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
 
   // ── INSIGHT: loan debt (mirrors the credit-card debt block above, but loans are
   //   naturally much larger - $5,000 threshold instead of credit's $1,000) ─────────
-  const loanAccountsForDebt = await db.select<{ id: number; name: string }[]>(
-    `SELECT id, name FROM accounts WHERE profile_id=? AND account_type='loan' AND excluded_from_insights=0`,
+  const loanAccountsForDebt = await db.select<{ id: number; name: string; interest_rate_bps: number | null; minimum_payment_cents: number | null }[]>(
+    `SELECT id, name, interest_rate_bps, minimum_payment_cents FROM accounts WHERE profile_id=? AND account_type='loan' AND excluded_from_insights=0`,
     [profileId]
   );
   for (const acct of loanAccountsForDebt) {
@@ -499,6 +508,12 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
       [acct.id, thisStart]
     );
     const loanDebt = loanBalanceRow.balance_cents; // negative = amount owed
+    const loanRichData = {
+      accountType: "loan" as const,
+      accountBalanceCents: loanDebt,
+      accountInterestRateBps: acct.interest_rate_bps,
+      accountMinimumPaymentCents: acct.minimum_payment_cents,
+    };
     if (loanDebt < -500000) {
       // Carrying more than $5,000 on this loan
       insights.push({
@@ -509,6 +524,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         severity: "info",
         dismissKey: `loan_debt_high_${acct.id}_${loanBalanceRow.date}`,
         accountId: acct.id,
+        richData: loanRichData,
       });
     }
     if (loanBalancePriorRow?.balance_cents != null) {
@@ -522,6 +538,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
           severity: "warning",
           dismissKey: `loan_debt_growing_${acct.id}_${thisMonth}`,
           accountId: acct.id,
+          richData: loanRichData,
         });
       } else if (loanDelta > 5000) {
         insights.push({
@@ -532,6 +549,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
           severity: "success",
           dismissKey: `loan_debt_improving_${acct.id}_${thisMonth}`,
           accountId: acct.id,
+          richData: loanRichData,
         });
       }
     }
@@ -545,7 +563,10 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     getLoanAccountsForProfile(profileId),
     getCreditAccountsForProfile(profileId),
   ]);
-  const debts = [...loanListForPayoff, ...creditListForPayoff].filter((d) => (d.balance_cents ?? 0) < 0);
+  const debts = [
+    ...loanListForPayoff.map((d) => ({ ...d, kind: "loan" as const })),
+    ...creditListForPayoff.map((d) => ({ ...d, kind: "credit" as const })),
+  ].filter((d) => (d.balance_cents ?? 0) < 0);
 
   for (const debt of debts) {
     if (debt.interest_rate_bps == null || debt.minimum_payment_cents == null) continue;
@@ -554,6 +575,12 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     const monthlyRate = debt.interest_rate_bps / 10000 / 12;
     const months = estimatePayoffMonths(balanceDollars, monthlyRate, paymentDollars);
     const aprLabel = `${(debt.interest_rate_bps / 100).toFixed(2)}%`;
+    const payoffRichData = {
+      accountType: debt.kind,
+      accountBalanceCents: debt.balance_cents,
+      accountInterestRateBps: debt.interest_rate_bps,
+      accountMinimumPaymentCents: debt.minimum_payment_cents,
+    };
     if (months == null) {
       insights.push({
         id: `loan_payoff_projection_${debt.id}`,
@@ -563,6 +590,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         severity: "warning",
         dismissKey: `loan_payoff_projection_${debt.id}`,
         accountId: debt.id,
+        richData: payoffRichData,
       });
     } else if (months > 1) {
       const years = months / 12;
@@ -575,6 +603,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         severity: "info",
         dismissKey: `loan_payoff_projection_${debt.id}`,
         accountId: debt.id,
+        richData: payoffRichData,
       });
     }
   }
@@ -590,6 +619,12 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
       severity: "info",
       dismissKey: `debt_payoff_priority_${thisMonth}`,
       accountId: topPriority.id,
+      richData: {
+        accountType: topPriority.kind,
+        accountBalanceCents: topPriority.balance_cents,
+        accountInterestRateBps: topPriority.interest_rate_bps,
+        accountMinimumPaymentCents: topPriority.minimum_payment_cents,
+      },
     });
   }
 

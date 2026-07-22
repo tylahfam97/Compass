@@ -19,6 +19,7 @@ import PinModal from "@/components/PinModal";
 import GoldParticleField from "@/components/GoldParticleField";
 import Spotlight from "@/components/Spotlight";
 import OnboardingChecklistWidget from "@/components/OnboardingChecklistWidget";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import { CardListSkeleton } from "@/components/Skeleton";
 
 // Lazy-loaded: these 3 pages pull in the heaviest deps (xlsx, pdfjs-dist,
@@ -278,18 +279,20 @@ function App() {
         {/* Main content */}
         <main className="flex-1 overflow-y-auto">
           <div className="max-w-[1200px] mx-auto w-full min-h-full">
-            <Routes>
-              <Route path="/overview" element={<div className="py-6"><OverviewPage /></div>} />
-              <Route path="/" element={<DashboardPage />} />
-              <Route path="/transactions" element={<div className="py-6"><TransactionsPage /></div>} />
-              <Route path="/import" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><ImportPage /></div></Suspense>} />
-              <Route path="/trends" element={<div className="py-6"><TrendsPage /></div>} />
-              <Route path="/investments" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><InvestmentsPage /></div></Suspense>} />
-              <Route path="/budgets" element={<div className="py-6"><BudgetsPage /></div>} />
-              <Route path="/goals" element={<div className="py-6"><GoalsPage /></div>} />
-              <Route path="/reports" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><ReportsPage /></div></Suspense>} />
-              <Route path="/agent" element={<div className="py-6"><AgentPage /></div>} />
-            </Routes>
+            <ErrorBoundary>
+              <Routes>
+                <Route path="/overview" element={<div className="py-6"><OverviewPage /></div>} />
+                <Route path="/" element={<DashboardPage />} />
+                <Route path="/transactions" element={<div className="py-6"><TransactionsPage /></div>} />
+                <Route path="/import" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><ImportPage /></div></Suspense>} />
+                <Route path="/trends" element={<div className="py-6"><TrendsPage /></div>} />
+                <Route path="/investments" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><InvestmentsPage /></div></Suspense>} />
+                <Route path="/budgets" element={<div className="py-6"><BudgetsPage /></div>} />
+                <Route path="/goals" element={<div className="py-6"><GoalsPage /></div>} />
+                <Route path="/reports" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><ReportsPage /></div></Suspense>} />
+                <Route path="/agent" element={<div className="py-6"><AgentPage /></div>} />
+              </Routes>
+            </ErrorBoundary>
           </div>
         </main>
       </div>

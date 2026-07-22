@@ -63,6 +63,7 @@ function buildQueryParts(opts: {
   filterType: "all" | "income" | "expense";
   filterAmountMin: string;         // dollar string, empty = no bound
   filterAmountMax: string;         // dollar string, empty = no bound
+  filterAccount: string;           // "" = all accounts, else stringified account id
 }): { where: string; params: unknown[] } {
   const conditions: string[] = [
     "t.profile_id=?",
@@ -89,6 +90,10 @@ function buildQueryParts(opts: {
   }
   if (opts.filterType === "income")  conditions.push("t.amount_cents > 0");
   if (opts.filterType === "expense") conditions.push("t.amount_cents < 0");
+  if (opts.filterAccount) {
+    conditions.push("t.account_id = ?");
+    params.push(parseInt(opts.filterAccount, 10));
+  }
 
   const minCents = opts.filterAmountMin.trim() ? Math.round(parseFloat(opts.filterAmountMin) * 100) : NaN;
   const maxCents = opts.filterAmountMax.trim() ? Math.round(parseFloat(opts.filterAmountMax) * 100) : NaN;
@@ -145,6 +150,8 @@ export default function TransactionsPage() {
   const [filterType, setFilterType]         = useState<"all" | "income" | "expense">("all");
   const [filterAmountMin, setFilterAmountMin] = useState("");
   const [filterAmountMax, setFilterAmountMax] = useState("");
+  const [filterAccount, setFilterAccount] = useState(""); // "" | "<accountId>"
+  const [accountOptions, setAccountOptions] = useState<{ id: number; name: string }[]>([]);
   // Advanced filters start expanded if one is already active (e.g. arriving via a
   // "View all" link from another page with a category pre-filled) so nothing feels hidden.
   const [showMoreFilters, setShowMoreFilters] = useState(
@@ -168,22 +175,33 @@ export default function TransactionsPage() {
 
   const hasActiveFilters =
     filterCategory !== "" || filterType !== "all" ||
-    filterAmountMin !== "" || filterAmountMax !== "";
+    filterAmountMin !== "" || filterAmountMax !== "" || filterAccount !== "";
   const activeFilterCount =
-    [filterCategory !== "", filterType !== "all", filterAmountMin !== "", filterAmountMax !== ""]
+    [filterCategory !== "", filterType !== "all", filterAmountMin !== "", filterAmountMax !== "", filterAccount !== ""]
       .filter(Boolean).length;
 
   const clearFilters = () => {
     setFilterCategory(""); setFilterType("all");
-    setFilterAmountMin(""); setFilterAmountMax("");
+    setFilterAmountMin(""); setFilterAmountMax(""); setFilterAccount("");
   };
+
+  useEffect(() => {
+    (async () => {
+      const db = await getDb();
+      const rows = await db.select<{ id: number; name: string }[]>(
+        "SELECT id, name FROM accounts WHERE profile_id=? AND account_type!='loan' ORDER BY name",
+        [profileId]
+      );
+      setAccountOptions(rows);
+    })().catch(console.error);
+  }, [profileId]);
 
   const loadRows = useCallback(async () => {
     setLoading(true);
     const db = await getDb();
     const { where, params } = buildQueryParts({
       profileId, allTime, month, search,
-      filterCategory, filterType, filterAmountMin, filterAmountMax,
+      filterCategory, filterType, filterAmountMin, filterAmountMax, filterAccount,
     });
     const orderBy = sortCol
       ? `${SORT_EXPR[sortCol]} ${sortDir.toUpperCase()}, t.id ${sortDir.toUpperCase()}`
@@ -199,7 +217,7 @@ export default function TransactionsPage() {
     );
     setRows(data);
     setLoading(false);
-  }, [month, allTime, search, profileId, filterCategory, filterType, filterAmountMin, filterAmountMax, sortCol, sortDir]);
+  }, [month, allTime, search, profileId, filterCategory, filterType, filterAmountMin, filterAmountMax, filterAccount, sortCol, sortDir]);
 
   useEffect(() => {
     loadRows().catch(console.error);
@@ -264,7 +282,7 @@ export default function TransactionsPage() {
     const db = await getDb();
     const { where, params } = buildQueryParts({
       profileId, allTime, month, search,
-      filterCategory, filterType, filterAmountMin, filterAmountMax,
+      filterCategory, filterType, filterAmountMin, filterAmountMax, filterAccount,
     });
     const data = await db.select<Transaction[]>(
       `SELECT t.*, c.name as category_name
@@ -538,6 +556,19 @@ export default function TransactionsPage() {
               <CategoryOptions categories={categories.filter((c) => c.id !== 15)} />
             </select>
             <InfoTooltip text={TRANSFER_DISCLAIMER_TEXT} />
+
+            {/* Account */}
+            <select
+              value={filterAccount}
+              onChange={(e) => setFilterAccount(e.target.value)}
+              className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))]
+                         text-[hsl(var(--foreground))] cursor-pointer"
+            >
+              <option value="">All accounts</option>
+              {accountOptions.map((a) => (
+                <option key={a.id} value={String(a.id)}>{a.name}</option>
+              ))}
+            </select>
 
             {/* Income / Expense / All toggle */}
             <div className="flex border rounded-lg overflow-hidden text-sm">

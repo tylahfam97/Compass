@@ -1,4 +1,5 @@
-﻿import type { Insight } from "@/lib/types";
+﻿import { useState } from "react";
+import type { Insight } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
 import {
   AlertTriangle, CheckCircle, Target, Info, X,
@@ -58,9 +59,16 @@ const TYPE_ICONS: Record<string, React.ElementType> = {
   portfolio_concentration_risk: PieChart,};
 
 const CARD_STYLES: Record<string, string> = {
-  warning: "border-l-[5px] border-l-amber-400 bg-amber-50 dark:bg-amber-950/20",
-  info:    "border-l-4 border-l-blue-400 bg-blue-50/60 dark:bg-blue-950/20",
-  success: "border-l-4 border-l-emerald-400 bg-emerald-50/60 dark:bg-emerald-950/20",
+  warning: "bg-gradient-to-br from-amber-50 to-amber-50/30 dark:from-amber-950/30 dark:to-amber-950/10",
+  info:    "bg-gradient-to-br from-blue-50/80 to-blue-50/20 dark:from-blue-950/25 dark:to-blue-950/10",
+  success: "bg-gradient-to-br from-emerald-50/80 to-emerald-50/20 dark:from-emerald-950/25 dark:to-emerald-950/10",
+};
+// Short, rounded accent tick (not a full-height bar) - a lighter-touch severity cue that
+// reads as a deliberate premium detail rather than a hard boxy stripe.
+const ACCENT_BAR_CLS: Record<string, string> = {
+  warning: "bg-amber-400",
+  info:    "bg-blue-400",
+  success: "bg-emerald-400",
 };
 const ICON_CLS: Record<string, string> = {
   warning: "text-amber-500",
@@ -97,6 +105,7 @@ interface InsightCardProps {
 
 export default function InsightCard({ insight, onApply, compact = false, variant = "card" }: InsightCardProps) {
   const dismissInsight = useProfileStore((s) => s.dismissInsight);
+  const [expanded, setExpanded] = useState(false);
   // Row variant: use the type-specific icon for instant scannability;
   // fall back to the severity default if no mapping exists.
   const typeIcon = TYPE_ICONS[insight.type];
@@ -139,21 +148,55 @@ export default function InsightCard({ insight, onApply, compact = false, variant
     );
   }
 
+  // Account-specific blurb (balance/APR/min payment), only present for insights generated
+  // per-account (credit/loan debt tracking, payoff projection/priority) - undefined for
+  // profile-wide insights, so the section below simply doesn't render for those.
+  const rd = insight.richData;
+  const hasAccountBlurb = rd?.accountBalanceCents !== undefined;
+
+  const formatBps = (bps: number) => `${(bps / 100).toFixed(2)}%`;
+  const formatDollars = (cents: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(cents / 100);
+
   return (
-    <div className={`h-full rounded-2xl px-4 py-3.5 flex items-start gap-3 shadow-sm hover:shadow-md transition-shadow duration-150 ${CARD_STYLES[insight.severity]}`}>
-      <Icon size={15} className={`shrink-0 mt-0.5 ${ICON_CLS[insight.severity]}`} />
+    <div
+      onClick={() => setExpanded((v) => !v)}
+      title={expanded ? "Click to collapse" : "Click for full details"}
+      className={`insight-card-hover relative h-full rounded-2xl pl-4 pr-3.5 py-3.5 flex items-start gap-3 shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden cursor-pointer ${CARD_STYLES[insight.severity]}`}
+    >
+      <span aria-hidden="true" className={`absolute left-0 top-3 bottom-3 w-[3px] rounded-full ${ACCENT_BAR_CLS[insight.severity]}`} />
+      <span className="relative shrink-0 mt-0.5">
+        <span aria-hidden="true" className="insight-icon-glow" />
+        <Icon size={15} className={`relative ${ICON_CLS[insight.severity]}`} />
+      </span>
       <div className="flex-1 min-w-0">
-        <p className={`text-sm font-semibold leading-snug ${TITLE_CLS[insight.severity]}`}>
+        <p className={`text-sm font-semibold leading-snug ${TITLE_CLS[insight.severity]} ${expanded ? "" : "line-clamp-2"}`}>
           {insight.title}
         </p>
         {!compact && (
-          <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5 leading-relaxed">
+          <p className={`text-xs text-[hsl(var(--muted-foreground))] mt-1 leading-relaxed ${expanded ? "" : "line-clamp-2"}`}>
             {insight.description}
           </p>
         )}
+        {expanded && hasAccountBlurb && (
+          <div className="mt-2 pt-2 border-t border-[hsl(var(--border))]/50 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[hsl(var(--muted-foreground))]">
+            <span className="font-semibold uppercase tracking-wide">
+              {rd!.accountType === "credit" ? "Credit Card" : "Loan"}
+            </span>
+            {rd!.accountBalanceCents != null && (
+              <span>Balance: <span className="font-medium text-[hsl(var(--foreground))]">{formatDollars(Math.abs(rd!.accountBalanceCents))}</span></span>
+            )}
+            {rd!.accountInterestRateBps != null && (
+              <span>APR: <span className="font-medium text-[hsl(var(--foreground))]">{formatBps(rd!.accountInterestRateBps)}</span></span>
+            )}
+            {rd!.accountMinimumPaymentCents != null && (
+              <span>Min payment: <span className="font-medium text-[hsl(var(--foreground))]">{formatDollars(rd!.accountMinimumPaymentCents)}/mo</span></span>
+            )}
+          </div>
+        )}
         {insight.actionLabel && onApply && (
           <button
-            onClick={() => onApply(insight)}
+            onClick={(e) => { e.stopPropagation(); onApply(insight); }}
             className={`mt-2 text-xs font-semibold px-3 py-1 rounded-full transition-colors ${ACTION_CLS[insight.severity]}`}
           >
             {insight.actionLabel} →
@@ -161,7 +204,7 @@ export default function InsightCard({ insight, onApply, compact = false, variant
         )}
       </div>
       <button
-        onClick={() => dismissInsight(insight.dismissKey)}
+        onClick={(e) => { e.stopPropagation(); dismissInsight(insight.dismissKey); }}
         aria-label="Dismiss"
         className={`${ICON_CLS[insight.severity]} opacity-50 hover:opacity-100 transition-opacity shrink-0 mt-0.5`}
       >
