@@ -498,7 +498,15 @@ dependencies = [
 
 [[package]]
 name = "compass"
+<<<<<<< HEAD
 version = "0.8.7"
+=======
+<<<<<<< HEAD
+version = "0.8.6"
+=======
+version = "0.8.7"
+>>>>>>> 9cc2e47 (docs: version bump)
+>>>>>>> 99b1517 (docs: version bump)
 dependencies = [
  "hex",
  "keyring",
