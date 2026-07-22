@@ -1,10 +1,11 @@
 {
   "name": "tauri-app",
   "private": true,
-  "version": "0.8.8",
+  "version": "0.8.9",
   "engines": {
     "node": ">=24"
   },
+  "version": "0.8.7",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
