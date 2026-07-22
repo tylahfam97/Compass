@@ -1,7 +1,7 @@
-import { getDb } from "./db";
+import { getDb, getLoanAccountsForProfile, getCreditAccountsForProfile } from "./db";
 import type { Insight, HealthScore, CreditCardHealthScore } from "./types";
-import { computeNetWorth } from "./netWorth";
-import { AVG_US_CREDIT_CARD_DEBT_CENTS, scoreGrade } from "./benchmarks";
+import { computeNetWorth, computeInvestmentReturn } from "./netWorth";
+import { AVG_US_CREDIT_CARD_DEBT_CENTS, AVG_US_MARKET_RETURN_PCT, scoreGrade } from "./benchmarks";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -26,7 +26,31 @@ function recentMonths(n: number): string[] {
   return months;
 }
 
+/** Standard amortization payoff estimate in months, given a positive balance and monthly
+ *  payment (both in dollars) and a monthly interest rate (decimal, e.g. 0.015 for 1.5%/mo).
+ *  Returns null if the payment doesn't even cover the interest charge (balance would never
+ *  shrink at that payment) or the inputs are invalid. */
+function estimatePayoffMonths(balance: number, monthlyRate: number, payment: number): number | null {
+  if (balance <= 0 || payment <= 0) return null;
+  if (monthlyRate <= 0) return balance / payment;
+  const interestPortion = balance * monthlyRate;
+  if (payment <= interestPortion) return null; // payment doesn't cover interest
+  const months = -Math.log(1 - interestPortion / payment) / Math.log(1 + monthlyRate);
+  return Number.isFinite(months) ? months : null;
+}
+
 // ─── Main analysis function ───────────────────────────────────────────────────
+
+/**
+ * Sort weight for the insight list: warnings → info → success, EXCEPT
+ * "budget_gap" ("No budget for X") always sorts last regardless of severity —
+ * it's a lower-priority suggestion, not something actionable/urgent like a
+ * spending alert, so it shouldn't compete for the top slots.
+ */
+function insightSortRank(insight: Insight): number {
+  if (insight.type === "budget_gap") return 3;
+  return { warning: 0, info: 1, success: 2 }[insight.severity];
+}
 
 async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   const db = await getDb();
@@ -397,8 +421,8 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   // credit cards gets one accurate insight set per card instead of one ambiguous snapshot that
   // happens to belong to whichever card was most recently imported - AccountDetailModal relies
   // on `accountId` here to show each card only its own insights.
-  const creditAccounts = await db.select<{ id: number; name: string }[]>(
-    `SELECT id, name FROM accounts WHERE profile_id=? AND account_type='credit' AND excluded_from_insights=0`,
+  const creditAccounts = await db.select<{ id: number; name: string; interest_rate_bps: number | null; minimum_payment_cents: number | null }[]>(
+    `SELECT id, name, interest_rate_bps, minimum_payment_cents FROM accounts WHERE profile_id=? AND account_type='credit' AND excluded_from_insights=0`,
     [profileId]
   );
   for (const acct of creditAccounts) {
@@ -416,6 +440,12 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
       [acct.id, thisStart]
     );
     const debt = creditBalanceRow.balance_cents; // negative = amount owed
+    const creditRichData = {
+      accountType: "credit" as const,
+      accountBalanceCents: debt,
+      accountInterestRateBps: acct.interest_rate_bps,
+      accountMinimumPaymentCents: acct.minimum_payment_cents,
+    };
     if (debt < -100000) {
       // Carrying more than $1,000 in credit card debt
       insights.push({
@@ -426,6 +456,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         severity: "warning",
         dismissKey: `credit_card_debt_high_${acct.id}_${creditBalanceRow.date}`,
         accountId: acct.id,
+        richData: creditRichData,
       });
     }
     if (creditBalancePriorRow?.balance_cents != null) {
@@ -439,6 +470,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
           severity: "warning",
           dismissKey: `credit_card_debt_growing_${acct.id}_${thisMonth}`,
           accountId: acct.id,
+          richData: creditRichData,
         });
       } else if (delta > 5000) {
         insights.push({
@@ -449,9 +481,151 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
           severity: "success",
           dismissKey: `credit_card_debt_improving_${acct.id}_${thisMonth}`,
           accountId: acct.id,
+          richData: creditRichData,
         });
       }
     }
+  }
+
+  // ── INSIGHT: loan debt (mirrors the credit-card debt block above, but loans are
+  //   naturally much larger - $5,000 threshold instead of credit's $1,000) ─────────
+  const loanAccountsForDebt = await db.select<{ id: number; name: string; interest_rate_bps: number | null; minimum_payment_cents: number | null }[]>(
+    `SELECT id, name, interest_rate_bps, minimum_payment_cents FROM accounts WHERE profile_id=? AND account_type='loan' AND excluded_from_insights=0`,
+    [profileId]
+  );
+  for (const acct of loanAccountsForDebt) {
+    const [loanBalanceRow] = await db.select<{ balance_cents: number; date: string }[]>(
+      `SELECT balance_cents, date FROM transactions
+       WHERE account_id=? AND balance_cents IS NOT NULL
+       ORDER BY date DESC, id DESC LIMIT 1`,
+      [acct.id]
+    );
+    if (loanBalanceRow?.balance_cents == null) continue;
+    const [loanBalancePriorRow] = await db.select<{ balance_cents: number }[]>(
+      `SELECT balance_cents FROM transactions
+       WHERE account_id=? AND balance_cents IS NOT NULL AND date < ?
+       ORDER BY date DESC, id DESC LIMIT 1`,
+      [acct.id, thisStart]
+    );
+    const loanDebt = loanBalanceRow.balance_cents; // negative = amount owed
+    const loanRichData = {
+      accountType: "loan" as const,
+      accountBalanceCents: loanDebt,
+      accountInterestRateBps: acct.interest_rate_bps,
+      accountMinimumPaymentCents: acct.minimum_payment_cents,
+    };
+    if (loanDebt < -500000) {
+      // Carrying more than $5,000 on this loan
+      insights.push({
+        id: `loan_debt_high_${acct.id}_${loanBalanceRow.date}`,
+        type: "loan_debt_high",
+        title: `${acct.name}: ${formatCents(Math.abs(loanDebt))} owed`,
+        description: `You're carrying a balance of ${formatCents(Math.abs(loanDebt))} on ${acct.name} as of ${loanBalanceRow.date}.`,
+        severity: "info",
+        dismissKey: `loan_debt_high_${acct.id}_${loanBalanceRow.date}`,
+        accountId: acct.id,
+        richData: loanRichData,
+      });
+    }
+    if (loanBalancePriorRow?.balance_cents != null) {
+      const loanDelta = loanDebt - loanBalancePriorRow.balance_cents; // negative = debt grew
+      if (loanDelta < -5000) {
+        insights.push({
+          id: `loan_debt_growing_${acct.id}_${thisMonth}`,
+          type: "loan_debt_growing",
+          title: `${acct.name} balance grew by ${formatCents(Math.abs(loanDelta))}`,
+          description: `${acct.name}'s balance went from ${formatCents(Math.abs(loanBalancePriorRow.balance_cents))} to ${formatCents(Math.abs(loanDebt))} owed this month.`,
+          severity: "warning",
+          dismissKey: `loan_debt_growing_${acct.id}_${thisMonth}`,
+          accountId: acct.id,
+          richData: loanRichData,
+        });
+      } else if (loanDelta > 5000) {
+        insights.push({
+          id: `loan_debt_improving_${acct.id}_${thisMonth}`,
+          type: "loan_debt_improving",
+          title: `Paid down ${formatCents(loanDelta)} on ${acct.name}`,
+          description: `Nice progress - ${acct.name}'s balance improved from ${formatCents(Math.abs(loanBalancePriorRow.balance_cents))} to ${formatCents(Math.abs(loanDebt))} owed.`,
+          severity: "success",
+          dismissKey: `loan_debt_improving_${acct.id}_${thisMonth}`,
+          accountId: acct.id,
+          richData: loanRichData,
+        });
+      }
+    }
+  }
+
+  // ── INSIGHT: loan_payoff_projection + debt_payoff_priority ────────────────
+  // Reuses the richer LoanAccount shape (interest_rate_bps, minimum_payment_cents) rather
+  // than re-querying balances - this is the same data already fetched for the Debt
+  // Dashboard, so both interest_rate_bps and minimum_payment_cents come "for free".
+  const [loanListForPayoff, creditListForPayoff] = await Promise.all([
+    getLoanAccountsForProfile(profileId),
+    getCreditAccountsForProfile(profileId),
+  ]);
+  const debts = [
+    ...loanListForPayoff.map((d) => ({ ...d, kind: "loan" as const })),
+    ...creditListForPayoff.map((d) => ({ ...d, kind: "credit" as const })),
+  ].filter((d) => (d.balance_cents ?? 0) < 0);
+
+  for (const debt of debts) {
+    if (debt.interest_rate_bps == null || debt.minimum_payment_cents == null) continue;
+    const balanceDollars = Math.abs(debt.balance_cents ?? 0) / 100;
+    const paymentDollars = debt.minimum_payment_cents / 100;
+    const monthlyRate = debt.interest_rate_bps / 10000 / 12;
+    const months = estimatePayoffMonths(balanceDollars, monthlyRate, paymentDollars);
+    const aprLabel = `${(debt.interest_rate_bps / 100).toFixed(2)}%`;
+    const payoffRichData = {
+      accountType: debt.kind,
+      accountBalanceCents: debt.balance_cents,
+      accountInterestRateBps: debt.interest_rate_bps,
+      accountMinimumPaymentCents: debt.minimum_payment_cents,
+    };
+    if (months == null) {
+      insights.push({
+        id: `loan_payoff_projection_${debt.id}`,
+        type: "loan_payoff_projection",
+        title: `${debt.name}: minimum payment won't pay this off`,
+        description: `At ${aprLabel} APR, your ${formatCents(debt.minimum_payment_cents)}/mo payment on ${debt.name} doesn't cover the interest on ${formatCents(Math.abs(debt.balance_cents ?? 0))} owed - the balance will grow if you only pay the minimum.`,
+        severity: "warning",
+        dismissKey: `loan_payoff_projection_${debt.id}`,
+        accountId: debt.id,
+        richData: payoffRichData,
+      });
+    } else if (months > 1) {
+      const years = months / 12;
+      const totalInterestCents = Math.round((paymentDollars * months - balanceDollars) * 100);
+      insights.push({
+        id: `loan_payoff_projection_${debt.id}`,
+        type: "loan_payoff_projection",
+        title: `${debt.name}: ~${years < 1 ? `${Math.round(months)} months` : `${years.toFixed(1)} years`} to pay off`,
+        description: `At your current ${formatCents(debt.minimum_payment_cents)}/mo payment and ${aprLabel} APR, ${debt.name} is projected to cost about ${formatCents(totalInterestCents)} in interest before it's paid off.`,
+        severity: "info",
+        dismissKey: `loan_payoff_projection_${debt.id}`,
+        accountId: debt.id,
+        richData: payoffRichData,
+      });
+    }
+  }
+
+  const ratedDebts = debts.filter((d) => d.interest_rate_bps != null);
+  if (ratedDebts.length >= 2) {
+    const topPriority = [...ratedDebts].sort((a, b) => (b.interest_rate_bps ?? 0) - (a.interest_rate_bps ?? 0))[0];
+    insights.push({
+      id: `debt_payoff_priority_${thisMonth}`,
+      type: "debt_payoff_priority",
+      title: `Focus extra payments on ${topPriority.name}`,
+      description: `${topPriority.name} carries the highest rate among your debts at ${(topPriority.interest_rate_bps! / 100).toFixed(2)}% APR, with ${formatCents(Math.abs(topPriority.balance_cents ?? 0))} owed. Paying this down first (the "avalanche" method) saves the most in interest over time.`,
+      severity: "info",
+      dismissKey: `debt_payoff_priority_${thisMonth}`,
+      accountId: topPriority.id,
+      richData: {
+        accountType: topPriority.kind,
+        accountBalanceCents: topPriority.balance_cents,
+        accountInterestRateBps: topPriority.interest_rate_bps,
+        accountMinimumPaymentCents: topPriority.minimum_payment_cents,
+      },
+    });
   }
 
   // ── INSIGHT: top_merchants ───────────────────────────────────────────────
@@ -487,8 +661,9 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     [profileId, thisStart, thisEnd]
   );
   const deliveryTotal = deliveryRow?.total ?? 0;
-  // Sum food-related categories: Food & Dining(3), Groceries(13), Restaurants(14)
-  const totalFoodSpend = [3, 13, 14].reduce(
+  // Sum food-related categories: Food & Dining(3), Groceries(13). ("Restaurants"
+  // (14) was merged into Food & Dining in db.ts's v19 migration.)
+  const totalFoodSpend = [3, 13].reduce(
     (s, id) => s + (thisMonthCatMap.get(id) ?? 0),
     0
   );
@@ -911,9 +1086,70 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     }
   }
 
-  // ── Sort: warnings → info → success ─────────────────────────────────────
-  const order = { warning: 0, info: 1, success: 2 };
-  return insights.sort((a, b) => order[a.severity] - order[b.severity]);
+  // ── INSIGHT: investment_performance ───────────────────────────────────────
+  const investmentReturn = await computeInvestmentReturn([profileId]);
+  if (investmentReturn.hasCostBasis) {
+    const returnPct = investmentReturn.annualizedReturnPct ?? investmentReturn.absoluteReturnPct ?? 0;
+    const kind = investmentReturn.annualizedReturnPct !== null ? "annualized" : "overall";
+    insights.push({
+      id: `investment_performance_${thisMonth}`,
+      type: "investment_performance",
+      title: `Portfolio ${returnPct >= 0 ? "up" : "down"} ${Math.abs(returnPct).toFixed(1)}% (${kind})`,
+      description: `Your holdings are ${returnPct >= 0 ? "up" : "down"} ${Math.abs(returnPct).toFixed(1)}% ${kind} vs cost basis, compared to the ~${AVG_US_MARKET_RETURN_PCT}%/yr long-run market average.`,
+      severity: returnPct >= AVG_US_MARKET_RETURN_PCT ? "success" : returnPct < 0 ? "warning" : "info",
+      dismissKey: `investment_performance_${thisMonth}`,
+    });
+  }
+
+  // ── INSIGHT: dividend_income_projected ─────────────────────────────────────
+  const [dividendRow] = await db.select<{ total: number | null }[]>(
+    `SELECT SUM(h.est_annual_income_cents) as total FROM holdings h
+     WHERE h.profile_id=? AND h.as_of_date = (SELECT MAX(as_of_date) FROM holdings h2 WHERE h2.profile_id=h.profile_id)`,
+    [profileId]
+  );
+  if ((dividendRow?.total ?? 0) > 0) {
+    const dividendTotal = dividendRow!.total!;
+    insights.push({
+      id: `dividend_income_projected_${thisMonth}`,
+      type: "dividend_income_projected",
+      title: `Projected ${formatCents(dividendTotal)}/yr in dividend income`,
+      description: `Based on your current holdings' dividend rates, you're on pace to earn about ${formatCents(dividendTotal)} in dividend/distribution income this year.`,
+      severity: "success",
+      dismissKey: `dividend_income_projected_${thisMonth}`,
+    });
+  }
+
+  // ── INSIGHT: portfolio_concentration_risk ──────────────────────────────────
+  const holdingRows = await db.select<{ symbol: string | null; description: string; market_value_cents: number | null }[]>(
+    `SELECT h.symbol, h.description, h.market_value_cents FROM holdings h
+     WHERE h.profile_id=? AND h.as_of_date = (SELECT MAX(as_of_date) FROM holdings h2 WHERE h2.profile_id=h.profile_id)`,
+    [profileId]
+  );
+  const holdingGroups = new Map<string, { label: string; value: number }>();
+  for (const h of holdingRows) {
+    const key = h.symbol ?? h.description;
+    const g = holdingGroups.get(key) ?? { label: h.symbol ?? h.description, value: 0 };
+    g.value += h.market_value_cents ?? 0;
+    holdingGroups.set(key, g);
+  }
+  if (holdingGroups.size >= 2) {
+    const totalValue = [...holdingGroups.values()].reduce((s, g) => s + g.value, 0);
+    const topHolding = [...holdingGroups.values()].sort((a, b) => b.value - a.value)[0];
+    const sharePct = totalValue > 0 ? (topHolding.value / totalValue) * 100 : 0;
+    if (sharePct >= 25) {
+      insights.push({
+        id: `portfolio_concentration_risk_${thisMonth}`,
+        type: "portfolio_concentration_risk",
+        title: `${topHolding.label} is ${Math.round(sharePct)}% of your portfolio`,
+        description: `${topHolding.label} makes up ${Math.round(sharePct)}% of your total holdings value (${formatCents(topHolding.value)} of ${formatCents(totalValue)}). Concentrating this much in one position adds risk - consider whether this still matches your intended allocation.`,
+        severity: sharePct >= 50 ? "warning" : "info",
+        dismissKey: `portfolio_concentration_risk_${thisMonth}`,
+      });
+    }
+  }
+
+  // ── Sort: warnings → info → success (budget_gap always last) ─────────────
+  return insights.sort((a, b) => insightSortRank(a) - insightSortRank(b));
 }
 
 /**
@@ -935,8 +1171,7 @@ export async function generateInsights(profileIds: number[]): Promise<Insight[]>
       }
     }
   }
-  const ord = { warning: 0, info: 1, success: 2 };
-  return merged.sort((a, b) => ord[a.severity] - ord[b.severity]);
+  return merged.sort((a, b) => insightSortRank(a) - insightSortRank(b));
 }
 
 // ─── Spending Profile summary ─────────────────────────────────────────────────

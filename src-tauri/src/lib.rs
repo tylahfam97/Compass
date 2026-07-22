@@ -71,11 +71,22 @@ fn validate_execute_sql(sql: &str) -> Result<(), String> {
         "drop table",       // DROP TABLE … (used by schema migrations)
         "pragma user_version =", // schema version write
     ];
-    if ALLOWED.iter().any(|p| s.starts_with(p)) {
-        Ok(())
-    } else {
-        Err(format!("db_execute: statement type not permitted"))
+    if !ALLOWED.iter().any(|p| s.starts_with(p)) {
+        return Err(format!("db_execute: statement type not permitted"));
     }
+    // Defense-in-depth: reject stacked statements. No statement executed by
+    // Compass ever legitimately contains a `;` (each db.execute call is a
+    // single statement), so this can never break real traffic.
+    if s.contains(';') {
+        return Err(format!("db_execute: multiple statements not permitted"));
+    }
+    // Defense-in-depth: reject inline SQL comments, EXCEPT inside CREATE TABLE
+    // — one migration documents a column with a trailing `-- stock | etf | …`
+    // comment, which is a legitimate, hardcoded, non-user-influenced string.
+    if !s.starts_with("create table") && s.contains("--") {
+        return Err(format!("db_execute: SQL comments not permitted"));
+    }
+    Ok(())
 }
 
 fn validate_select_sql(sql: &str) -> Result<(), String> {
@@ -86,11 +97,15 @@ fn validate_select_sql(sql: &str) -> Result<(), String> {
         "pragma table_info(", // column introspection used during migrations
         "pragma user_version", // schema version read
     ];
-    if ALLOWED.iter().any(|p| s.starts_with(p)) {
-        Ok(())
-    } else {
-        Err(format!("db_select: statement type not permitted"))
+    if !ALLOWED.iter().any(|p| s.starts_with(p)) {
+        return Err(format!("db_select: statement type not permitted"));
     }
+    // Defense-in-depth: no legitimate SELECT/WITH/PRAGMA string ever contains
+    // a `;` or a `--` comment marker — reject both unconditionally.
+    if s.contains(';') || s.contains("--") {
+        return Err(format!("db_select: multiple statements or comments not permitted"));
+    }
+    Ok(())
 }
 
 // ─── Commands ─────────────────────────────────────────────────────────────────

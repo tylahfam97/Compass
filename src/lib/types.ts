@@ -32,7 +32,15 @@ export type InsightType =
   | "credit_card_debt_growing"
   | "credit_card_debt_improving"
   | "net_worth_growing"
-  | "net_worth_declining";
+  | "net_worth_declining"
+  | "loan_debt_high"
+  | "loan_debt_growing"
+  | "loan_debt_improving"
+  | "loan_payoff_projection"
+  | "debt_payoff_priority"
+  | "investment_performance"
+  | "dividend_income_projected"
+  | "portfolio_concentration_risk";
 
 /** Category ID reserved for internal bank transfers — excluded from expense totals. */
 export const TRANSFER_CATEGORY_ID = 20;
@@ -73,6 +81,14 @@ export interface InsightRichData {
   avgMonthlyCents?: number;
   potentialLabel?: string;
   potentialValue?: number;
+  /** Snapshot of the specific account's own numbers at the time this insight was generated -
+   *  used to render a small account-specific blurb (balance/APR/min payment) when expanding a
+   *  per-account insight (credit/loan debt tracking, payoff projection, payoff priority),
+   *  rather than only re-showing the same title/description text already visible. */
+  accountType?: "credit" | "loan";
+  accountBalanceCents?: number | null;
+  accountInterestRateBps?: number | null;
+  accountMinimumPaymentCents?: number | null;
 }
 
 export interface Account {
