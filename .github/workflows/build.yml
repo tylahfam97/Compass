@@ -53,7 +53,9 @@ jobs:
         id: vars
         shell: powershell
         env:
-          WINDOWS_CERT_THUMBPRINT: ${{ vars.WINDOWS_CERT_THUMBPRINT }}
+          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
         run: |
           # tauri.conf.json is the version source of truth — read it, don't overwrite it
           $v    = (Get-Content src-tauri\tauri.conf.json -Raw | ConvertFrom-Json).version
@@ -85,30 +87,47 @@ jobs:
             Set-Content src-tauri\Cargo.toml -NoNewline
           Write-Host "Building version $v for $repo"
 
-          # Windows Authenticode code signing (optional) — only wired up once a certificate
-          # has actually been imported into THIS self-hosted runner's certificate store
-          # (Cert:\CurrentUser\My or Cert:\LocalMachine\My). WINDOWS_CERT_THUMBPRINT is a
-          # plain repo VARIABLE (not a secret) since a thumbprint is a public fingerprint,
-          # not sensitive - no private key ever touches GitHub. If it's unset, tauri.conf.json
-          # is left completely untouched and the build proceeds unsigned exactly as before.
-          if ($env:WINDOWS_CERT_THUMBPRINT) {
-            Write-Host "WINDOWS_CERT_THUMBPRINT is set - enabling Windows code signing"
+          # Windows code signing via Azure Trusted Signing (optional) — only wired up once
+          # an Azure Trusted Signing account + certificate profile exist and these 3 repo
+          # VARIABLES (not secrets - none of endpoint/account/profile names are sensitive)
+          # are set. The actual credentials (AZURE_CLIENT_ID/SECRET/TENANT_ID) are real
+          # secrets and are only exposed as env vars later, on the "Build Tauri application"
+          # step, since that's when tauri build actually invokes the sign command. If these
+          # 3 variables are unset, tauri.conf.json is left untouched and the build proceeds
+          # unsigned exactly as before.
+          if ($env:AZURE_SIGNING_ENDPOINT -and $env:AZURE_SIGNING_ACCOUNT -and $env:AZURE_SIGNING_PROFILE) {
+            Write-Host "Azure Trusted Signing variables are set - enabling Windows code signing"
             $cfg = Get-Content src-tauri\tauri.conf.json -Raw | ConvertFrom-Json
             if (-not $cfg.bundle.windows) {
               $cfg.bundle | Add-Member -NotePropertyName windows -NotePropertyValue ([PSCustomObject]@{}) -Force
             }
-            $cfg.bundle.windows | Add-Member -NotePropertyName certificateThumbprint -NotePropertyValue $env:WINDOWS_CERT_THUMBPRINT -Force
-            $cfg.bundle.windows | Add-Member -NotePropertyName digestAlgorithm -NotePropertyValue "sha256" -Force
-            $cfg.bundle.windows | Add-Member -NotePropertyName timestampUrl -NotePropertyValue "http://timestamp.digicert.com" -Force
+            $signCommand = "artifact-signing-cli -e $($env:AZURE_SIGNING_ENDPOINT) -a $($env:AZURE_SIGNING_ACCOUNT) -c $($env:AZURE_SIGNING_PROFILE) -d Compass %1"
+            $cfg.bundle.windows | Add-Member -NotePropertyName signCommand -NotePropertyValue $signCommand -Force
             $cfg | ConvertTo-Json -Depth 32 | Set-Content src-tauri\tauri.conf.json -NoNewline
           } else {
-            Write-Warning "WINDOWS_CERT_THUMBPRINT is NOT set - the .exe/.msi will be unsigned (still shows an Unknown Publisher warning)"
+            Write-Warning "Azure Trusted Signing variables are NOT fully set - the .exe/.msi will be unsigned (still shows an Unknown Publisher warning)"
           }
-          
+
+      - name: Ensure artifact-signing-cli is installed (Azure Trusted Signing)
+        if: ${{ vars.AZURE_SIGNING_ENDPOINT != '' && vars.AZURE_SIGNING_ACCOUNT != '' && vars.AZURE_SIGNING_PROFILE != '' }}
+        shell: powershell
+        run: |
+          # Installed once and cached on this persistent self-hosted runner - idempotent,
+          # so this is a no-op on every build after the first.
+          if (Get-Command artifact-signing-cli -ErrorAction SilentlyContinue) {
+            Write-Host "artifact-signing-cli already installed"
+          } else {
+            Write-Host "Installing artifact-signing-cli..."
+            cargo install artifact-signing-cli
+          }
+
       - name: Build Tauri application
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         shell: powershell
         run: |
           if ($env:TAURI_SIGNING_PRIVATE_KEY) {
