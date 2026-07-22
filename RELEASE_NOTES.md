@@ -2,50 +2,23 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
-## Compass 0.8.5 — 🎉 macOS is HERE! (Beta) 🍎
+## Compass 0.8.6 — Smarter Insights, a Calmer Window 🧠✨
 
-Huge one this release: **Compass now runs on macOS** — Intel and Apple Silicon, one universal build! Alongside that, a couple of account-balance bugfixes found while stress-testing bulk imports.
+A big one under the hood: Insights now understands loans, credit, and investments far more deeply, plus a round of hardening and a nasty Dashboard crash finally run to ground.
 
-### New: macOS Support (Beta, Unsigned)
-Compass ships a macOS build for the first time, ever! It isn't code-signed or notarized yet (a real Apple Developer ID is on the way), so macOS will throw up a Gatekeeper warning on first launch - don't panic, it's a two-second fix: right-click the app → **Open** (or run `xattr -cr Compass.app` in Terminal) and you're in. Windows builds are completely unaffected and remain fully signed as always.
+### New: Loan, Credit & Investment Insights
+Insights now covers ground it never touched before: loan balance tracking (high/growing/paid-down, mirroring what credit cards already had), a payoff-time-and-interest-cost projection for any loan or credit card with a rate and minimum payment on file, a "pay this one first" recommendation across all your debts, portfolio performance vs. the long-run market average, projected dividend income, and a concentration-risk flag if one holding dominates your portfolio. "No budget set" suggestions now always sort to the bottom of the list, since they're a nice-to-have, not something urgent.
 
-Downloads: [Windows](https://privatecompass.app/downloads/Compass.exe) · [macOS (.dmg, beta)](https://github.com/tylahfam97/Compass/releases/latest)
+### Fixed: Dashboard Could Go Blank After Clicking a Bank Account
+A rare rendering hiccup around the account-detail sparkline chart could, in some environments, take down the entire window - leaving only the background behind and requiring a full app restart. Compass now catches problems like this in place and offers a "Try again" instead of forcing a restart, and a known benign chart-resize browser quirk is suppressed outright so it can't trigger this in the first place.
 
-If you hit anything weird on macOS, [open an issue](https://github.com/tylahfam97/Compass/issues) - this is a beta and your feedback shapes how fast it gets rock-solid (and signed!).
+### New: Filter Transactions by Account
+The Transactions page's "More filters" panel can now filter down to a single account, alongside the existing category/type/amount filters.
 
-### Fixed: Manual Multi-File Batch Imports Could Create Duplicate Accounts
-Importing several statement files for the same account one-by-one (via "Next File", not "Auto-Import All") could silently create a brand-new duplicate account for every file after the first if the file didn't match a recognized bank preset - splitting one account's balance across several rows. Compass now remembers which account the previous file in the same import session resolved to and defaults straight to it.
+### Improved: Insights Carousel
+The insight carousel now opens centered instead of bunched to one side, cards have more room to breathe, and clicking a card's icon expands it in place to show the full text - with a soft orange-to-blue glow on hover so it's obvious it's clickable. The whole Insights page also got a lighter, less boxy visual pass.
 
-### Fixed: Dashboard Account Tiles Could Show $0 Despite a Correct Balance
-A credit card or bank account tile's balance was derived from the sparkline series for the currently-selected month - if an account's most recent activity fell outside that month (e.g. right after importing a batch of historical statements), the tile showed $0 even though the account's real balance (visible in Manage Accounts) was correct. Tiles now always show the account's true latest balance regardless of which month is selected.
-
-## Compass 0.8.1 — Loan Uploader Improvements
-
-A follow-up to last release's loan tracking, focused entirely on making statement uploads faster and less error-prone.
-
-### New: Pick an Existing Loan Instead of Retyping Its Name
-Adding a statement no longer requires typing a loan's name exactly right - the uploader now offers a New Loan / Existing Loan toggle, just like the transaction import wizard, so you can pick from a dropdown of your current loans instead of risking a typo that silently created a duplicate account.
-
-### New: Bulk Statement Upload
-Select or drop several statement files at once for the same loan and review just the first one - Compass reuses that account, lender, interest rate, and minimum payment for every other file (same idea as picking a bank/column mapping once in the transaction wizard), reads each file's own balance and date, and imports the whole batch together in one go.
-
-### New: Lender Autofill
-The Lender/Institution field now gets a first guess pulled straight from the statement (and, as a fallback, the filename) - still fully editable, just one less field to fill in by hand.
-
-### Fixed: Loan Statements Now Accept CSV/XLSX, Not Just PDF
-The loan uploader was the only import in Compass still limited to PDF-only - it now accepts CSV and XLSX exports too, matching every other import type.
-
-### New: PDF Support for Investment/Brokerage Imports
-Portfolio positions statements can now be imported straight from a PDF, same as bank, credit card, and loan statements - text-extraction heuristics reconstruct the holdings table, and the existing review step (with "Fix columns" if anything looks misaligned) still gets a chance to catch anything before it's saved. A CSV/XLSX export from your brokerage remains the more reliable option when available.
-
-### New: Credit Cards Join the Debt Payoff Dashboard
-What used to be the Loan Dashboard now ranks credit cards right alongside your loans - Avalanche, Snowball, and Cash-flow First all work the same way across both, with a small badge on each row showing whether it's a loan or a card.
-
-### New: Optional Interest Rate on Credit Card Import
-The "which account" step now asks for an optional APR when importing a credit card statement, same as loans already do - purely informational, but it's what lets a card join Avalanche ranking on the Debt Payoff Dashboard.
-
-### New: Click Your Bank Account for Details, Just Like a Credit Card
-Checking/bank accounts now get their own clickable tiles on the Dashboard (balance, trend, mini-sparkline) - click one to see its recent transactions and relevant insights, the same detail view credit cards already had.
-
-### Fixed: Credit Card Insights Were Identical Across Different Cards
-Clicking one credit card's tile could show the exact same "credit card debt" insights as any other card on the same profile, since they weren't tracked per-account. Insights are now generated per card, so each one only shows what's actually true for it.
+### Hardening & Performance
+- Import, Reports, and Investments pages now load on demand instead of bundling into the initial app load.
+- The database layer picked up extra defense-in-depth against malformed queries, and a stray categorization debug log no longer prints in production builds.
+- Removed the redundant "Restaurants" category (it was always a subcategory of Food & Dining) - existing data is automatically merged in, nothing is lost.

@@ -29,7 +29,12 @@ const TILT_SLOPE = 95;
 export default function InsightCarousel({ items, onApply }: Props) {
   // Committed position (settles on an integer index between/after gestures - a plain number
   // during the ease-to-target animation as it eases toward its destination).
-  const activeIndexMV = useMotionValue(0);
+  // Starts on the MIDDLE item rather than the first, so the very first render already shows
+  // a visually balanced spread of cards on both sides instead of everything bunched to one
+  // side with empty space opposite it (the previous default of 0 left nothing to the left
+  // of the active card when there were 3+ items).
+  const initialIndex = Math.floor((items.length - 1) / 2);
+  const activeIndexMV = useMotionValue(initialIndex);
   // Live pointer offset (px) for the drag currently in progress; 0 when not dragging.
   const dragXMV = useMotionValue(0);
   // Continuous fractional "which card is centered" position combining both of the above -
@@ -95,8 +100,8 @@ export default function InsightCarousel({ items, onApply }: Props) {
       role="group"
       aria-label="Insight carousel - drag to browse"
       tabIndex={0}
-      className="relative select-none outline-none"
-      style={{ height: 236, perspective: 1200, touchAction: "none" }}
+      className="relative select-none outline-none mx-auto"
+      style={{ height: 200, perspective: 1200, touchAction: "none" }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -141,8 +146,8 @@ function CarouselCard({
   return (
     <motion.div
       style={{
-        position: "absolute", top: 0, left: "50%", width: CARD_WIDTH,
-        x, scale, opacity, rotateY, zIndex, display, pointerEvents,
+        position: "absolute", top: "50%", left: "50%", width: CARD_WIDTH,
+        x, y: "-50%", scale, opacity, rotateY, zIndex, display, pointerEvents,
         marginLeft: -CARD_WIDTH / 2,
         transformStyle: "preserve-3d",
       }}

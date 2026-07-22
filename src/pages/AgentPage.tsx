@@ -247,51 +247,51 @@ interface InsightGroupProps {
 function InsightGroup({ label, severity, items, onApply, open, onToggle }: InsightGroupProps) {
   if (items.length === 0) return null;
 
-  type StyleMap = { wrap: string; header: string; iconCls: string; labelCls: string; badgeCls: string; };
+  // Softer, "premium fintech" treatment: a small tinted icon chip carries the severity
+  // color instead of a full-width solid banner - reads as a deliberate accent rather than
+  // a flat boxy module repeated three times down the page.
+  type StyleMap = { iconWrap: string; chevronCls: string; badgeCls: string; };
   const styles: Record<string, StyleMap> = {
     success: {
-      wrap:     "border-emerald-300 dark:border-emerald-700/60",
-      header:   "bg-emerald-600 dark:bg-emerald-700 hover:bg-emerald-600/90 dark:hover:bg-emerald-700/90",
-      iconCls:  "text-white",
-      labelCls: "text-white",
-      badgeCls: "bg-white/20 text-white",
+      iconWrap:   "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400",
+      chevronCls: "text-emerald-500/80",
+      badgeCls:   "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
     },
     info: {
-      wrap:     "border-[hsl(var(--border))]",
-      header:   "bg-[hsl(var(--muted))] hover:bg-[hsl(var(--muted))/70]",
-      iconCls:  "text-blue-500",
-      labelCls: "text-[hsl(var(--foreground))]",
-      badgeCls: "bg-blue-100/80 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300",
+      iconWrap:   "bg-blue-500/12 text-blue-600 dark:text-blue-400",
+      chevronCls: "text-blue-500/80",
+      badgeCls:   "bg-blue-500/12 text-blue-700 dark:text-blue-300",
     },
     warning: {
-      wrap:     "border-amber-200 dark:border-amber-800/50",
-      header:   "bg-amber-50 dark:bg-amber-950/25 hover:bg-amber-100/80 dark:hover:bg-amber-950/35",
-      iconCls:  "text-amber-500",
-      labelCls: "text-amber-900 dark:text-amber-200",
-      badgeCls: "bg-amber-200/80 dark:bg-amber-800/60 text-amber-800 dark:text-amber-100",
+      iconWrap:   "bg-amber-500/12 text-amber-600 dark:text-amber-400",
+      chevronCls: "text-amber-500/80",
+      badgeCls:   "bg-amber-500/12 text-amber-700 dark:text-amber-300",
     },
   };
   const s = styles[severity];
   const GroupIcon = severity === "success" ? CheckCircle : severity === "info" ? Info : Target;
 
   return (
-    <div className={`rounded-2xl border overflow-hidden ${s.wrap}`}>
+    <div className="rounded-2xl bg-[hsl(var(--background))] shadow-sm ring-1 ring-[hsl(var(--border))]/60 overflow-hidden">
       <button onClick={onToggle}
-        className={`w-full flex items-center justify-between px-5 py-4 transition-colors ${s.header}`}>
+        className="w-full flex items-center justify-between px-5 py-4 transition-colors
+                   hover:bg-[hsl(var(--muted))/40]">
         <div className="flex items-center gap-3">
-          <GroupIcon size={15} className={s.iconCls} />
-          <span className={`font-semibold text-sm ${s.labelCls}`}>{label}</span>
+          <span className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${s.iconWrap}`}>
+            <GroupIcon size={14} />
+          </span>
+          <span className="font-semibold text-sm tracking-tight text-[hsl(var(--foreground))]">{label}</span>
           <span className={`text-xs font-bold px-2 py-0.5 rounded-full tabular-nums ${s.badgeCls}`}>
             {items.length}
           </span>
         </div>
         <ChevronDown
           size={15}
-          className={`${s.iconCls} transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+          className={`${s.chevronCls} transition-transform duration-200 ${open ? "rotate-180" : ""}`}
         />
       </button>
       {open && (
-        <div className="bg-[hsl(var(--background))] p-4">
+        <div className="px-4 pb-4 pt-1 border-t border-[hsl(var(--border))]/50">
           <InsightCarousel items={items} onApply={onApply} />
         </div>
       )}
