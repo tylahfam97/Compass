@@ -186,3 +186,31 @@ body {
   color: transparent;
 }
 
+/* ── Insight card icon glow ───────────────────────────────────────────────────
+   Orange -> blue radial glow that blooms in behind an insight card's icon
+   whenever the card is hovered, plus a gentle pulse for as long as the hover
+   lasts - shares the same blue/gold accent pairing as .chart-clickable's
+   shimmer so it reads as consistent with the rest of the app's "premium" glow
+   language, but only appears on hover rather than running ambiently. Plain CSS
+   (not a Tailwind arbitrary value) so it can't be silently dropped by a JIT
+   parsing edge case. */
+@keyframes insight-icon-glow-pulse {
+  0%, 100% { opacity: 0.6;  transform: scale(0.92); }
+  50%      { opacity: 0.95; transform: scale(1.1); }
+}
+.insight-icon-glow {
+  position: absolute;
+  inset: -10px;
+  border-radius: 9999px;
+  opacity: 0;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(251, 146, 60, 0.7) 0%, rgba(59, 130, 246, 0.55) 60%, transparent 100%);
+  filter: blur(7px);
+  transition: opacity 0.2s ease;
+}
+.group\/insight:hover .insight-icon-glow,
+.insight-card-hover:hover .insight-icon-glow {
+  opacity: 1;
+  animation: insight-icon-glow-pulse 1.3s ease-in-out infinite;
+}
+

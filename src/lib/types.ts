@@ -81,6 +81,14 @@ export interface InsightRichData {
   avgMonthlyCents?: number;
   potentialLabel?: string;
   potentialValue?: number;
+  /** Snapshot of the specific account's own numbers at the time this insight was generated -
+   *  used to render a small account-specific blurb (balance/APR/min payment) when expanding a
+   *  per-account insight (credit/loan debt tracking, payoff projection, payoff priority),
+   *  rather than only re-showing the same title/description text already visible. */
+  accountType?: "credit" | "loan";
+  accountBalanceCents?: number | null;
+  accountInterestRateBps?: number | null;
+  accountMinimumPaymentCents?: number | null;
 }
 
 export interface Account {
