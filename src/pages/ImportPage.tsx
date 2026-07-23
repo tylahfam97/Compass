@@ -851,11 +851,30 @@ function parsePrincipalStatement(data: string[][]): ParsedInvestment | null {
 
   if (sectionsByTitle.size === 0) return null;
 
+  // Principal's "Contributions" section (earlier in the statement, outside the range scanned
+  // above) reports cumulative "Total contributions" - "Since joining" as its own column - the
+  // true, correct cost basis for the WHOLE account (money actually put in, employee + employer,
+  // since day one), unlike a per-quarter Additions figure which would wrongly count new payroll
+  // contributions as investment gains. Principal doesn't break this total down per fund, so it's
+  // allocated proportionally by each fund's current share of the total account value - this
+  // doesn't distort the ACCOUNT-level return (which is all `computeInvestmentReturn` actually
+  // uses, summing cost basis and market value back up across every holding) even though it
+  // necessarily shows the same blended ROI% on every individual fund on the Investments page.
+  const contributionsRow = data.find((row) => (row[0] ?? "").trim().toLowerCase() === "total contributions");
+  const sinceJoiningCell = contributionsRow?.[1];
+  const totalContributions = sinceJoiningCell && isMoneyCell(sinceJoiningCell) ? parseAmount(sinceJoiningCell) : null;
+  const totalMarketValueAllSections = [...sectionsByTitle.values()]
+    .flat()
+    .reduce((s, h) => s + h.marketValue, 0);
+
   const sections: InvestmentSection[] = [...sectionsByTitle.entries()].map(([title, holdings]) => {
     const rows: InvestmentRow[] = holdings.map((h) => ({
       securityType: "mutual_fund", symbol: null, description: h.description, shares: null,
-      price: null, marketValue: h.marketValue, costBasis: null, tradeDate: null,
-      dividendPerShare: null, estAnnualIncome: null,
+      price: null, marketValue: h.marketValue,
+      costBasis: totalContributions !== null && totalMarketValueAllSections > 0
+        ? totalContributions * (h.marketValue / totalMarketValueAllSections)
+        : null,
+      tradeDate: null, dividendPerShare: null, estAnnualIncome: null,
     }));
     return {
       title, securityType: "mutual_fund", headerRow: ["Description", "Market Value"],

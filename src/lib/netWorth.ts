@@ -122,35 +122,76 @@ export async function getNetWorthHistory(
 }
 
 /**
- * Estimates the portfolio's return using each profile's latest snapshot:
- * absolute return is (market value - cost basis) / cost basis; annualized
- * return additionally requires at least some holdings to carry a trade date
- * (used to estimate a cost-basis-weighted average holding period).
+ * Estimates the portfolio's return using each profile's latest snapshot: absolute return is
+ * (market value - cost basis) / cost basis; annualized return additionally requires at least
+ * some holdings to carry a trade date (used to estimate a cost-basis-weighted average holding
+ * period).
+ *
+ * Holdings are grouped first (matching how the Investments page groups lots, by security type
+ * + symbol/description) since some statement formats (e.g. a 401(k)) never report a real cost
+ * basis at all - only ever a period's ending balance. Those groups fall back to comparing
+ * their OWN earliest tracked snapshot against the latest one, so they still contribute once at
+ * least two snapshots exist, rather than being silently excluded from Investment Health
+ * forever no matter how much import history accumulates. A holding imported for the first time
+ * (no earlier snapshot yet) has no baseline to compare against and is skipped until its next
+ * statement is imported.
  */
 export async function computeInvestmentReturn(profileIds: number[]): Promise<InvestmentReturn> {
   if (profileIds.length === 0) return { absoluteReturnPct: null, annualizedReturnPct: null, hasCostBasis: false };
   const db = await getDb();
   const ph = profileIds.map(() => "?").join(",");
-  const rows = await db.select<{
+  const allRows = await db.select<{
+    security_type: SecurityType; symbol: string | null; description: string; as_of_date: string;
     cost_basis_cents: number | null; market_value_cents: number | null; trade_date: string | null;
   }[]>(
-    `SELECT h.cost_basis_cents, h.market_value_cents, h.trade_date FROM holdings h
-     WHERE h.profile_id IN (${ph})
-       AND h.as_of_date = (SELECT MAX(as_of_date) FROM holdings h2 WHERE h2.profile_id=h.profile_id)`,
+    `SELECT h.security_type, h.symbol, h.description, h.as_of_date, h.cost_basis_cents, h.market_value_cents, h.trade_date
+     FROM holdings h WHERE h.profile_id IN (${ph})`,
     [...profileIds]
   );
+  if (allRows.length === 0) return { absoluteReturnPct: null, annualizedReturnPct: null, hasCostBasis: false };
+
+  const byGroup = new Map<string, typeof allRows>();
+  for (const r of allRows) {
+    const key = `${r.security_type}|${r.symbol ?? r.description}`;
+    const arr = byGroup.get(key);
+    if (arr) arr.push(r); else byGroup.set(key, [r]);
+  }
 
   let totalCost = 0, totalMv = 0, weightedDays = 0;
   const today = Date.now();
-  for (const r of rows) {
-    if (r.cost_basis_cents === null || r.cost_basis_cents === 0) continue;
-    totalCost += r.cost_basis_cents;
-    totalMv += r.market_value_cents ?? 0;
-    if (r.trade_date) {
-      const days = (today - new Date(r.trade_date).getTime()) / 86_400_000;
-      if (days > 0) weightedDays += days * r.cost_basis_cents;
+
+  for (const rows of byGroup.values()) {
+    const latestDate = rows.reduce((max, r) => (r.as_of_date > max ? r.as_of_date : max), rows[0].as_of_date);
+    const latestRows = rows.filter((r) => r.as_of_date === latestDate);
+    const latestMv = latestRows.reduce((s, r) => s + (r.market_value_cents ?? 0), 0);
+    const latestCostRows = latestRows.filter((r) => r.cost_basis_cents !== null && r.cost_basis_cents !== 0);
+    const latestCost = latestCostRows.reduce((s, r) => s + (r.cost_basis_cents ?? 0), 0);
+
+    if (latestCost > 0) {
+      // Real cost basis available for this holding - use it directly, weighted by trade date.
+      totalCost += latestCost;
+      totalMv += latestMv;
+      for (const r of latestCostRows) {
+        if (!r.trade_date) continue;
+        const days = (today - new Date(r.trade_date).getTime()) / 86_400_000;
+        if (days > 0) weightedDays += days * (r.cost_basis_cents ?? 0);
+      }
+      continue;
     }
+
+    // No real cost basis for this holding - fall back to its own earliest tracked snapshot as
+    // a growth baseline. Requires at least 2 distinct snapshot dates.
+    const earliestDate = rows.reduce((min, r) => (r.as_of_date < min ? r.as_of_date : min), rows[0].as_of_date);
+    if (earliestDate === latestDate) continue;
+    const earliestMv = rows.filter((r) => r.as_of_date === earliestDate).reduce((s, r) => s + (r.market_value_cents ?? 0), 0);
+    if (earliestMv <= 0) continue;
+
+    totalCost += earliestMv;
+    totalMv += latestMv;
+    const days = (today - new Date(earliestDate).getTime()) / 86_400_000;
+    if (days > 0) weightedDays += days * earliestMv;
   }
+
   if (totalCost <= 0) return { absoluteReturnPct: null, annualizedReturnPct: null, hasCostBasis: false };
 
   const absoluteReturnPct = ((totalMv - totalCost) / totalCost) * 100;
