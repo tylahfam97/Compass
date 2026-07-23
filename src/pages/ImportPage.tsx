@@ -682,30 +682,240 @@ function parseThriventCSV(data: string[][]): ParsedInvestment | null {
   return sections.length > 0 ? { asOfDate: today, sections } : null;
 }
 
+// ─── Principal Financial Group 401(k)/retirement-plan quarterly statement (PDF) ─
+
+/**
+ * Principal's "Investments" table asset-class category names (risk buckets, not security
+ * types - every holding underneath them is a mutual fund investment option, unlike WFA's
+ * sections which are already named by security type). Used both to detect the format and to
+ * find each new grouping's boundary while walking the extracted rows.
+ */
+const RETIREMENT_ASSET_CLASS_TITLES = new Set([
+  "short-term fixed income", "fixed income", "balanced/asset allocation",
+  "large u.s. equity", "small/mid u.s. equity", "global/international equity", "other",
+]);
+
+const MONEY_CELL_RE = /^\(?-?\$?[\d,]+\.\d{2}\)?$/;
+function isMoneyCell(s: string): boolean {
+  return MONEY_CELL_RE.test((s ?? "").trim());
+}
+
+/**
+ * True for any row ending in 5 consecutive money cells - Principal's "Investments" table
+ * always lays out [Balance as of <start>, Additions, Deducted/Adjusted Fees, Gain/Loss,
+ * Balance as of <end>] as the last 5 logical columns, whether or not a description happens to
+ * fit on the same physical PDF line as those values. Short fund/total names fit on one line
+ * (`leadingText` is the whole label); long ones wrap onto the line before AND after their own
+ * values line, in which case this particular line has no leading text at all.
+ */
+function principalValuesRow(row: string[]): { leadingText: string; values: number[] } | null {
+  if (row.length < 5) return null;
+  const tail = row.slice(row.length - 5);
+  if (!tail.every(isMoneyCell)) return null;
+  return { leadingText: row.slice(0, row.length - 5).join(" ").trim(), values: tail.map((c) => parseAmount(c)) };
+}
+
+// Recurring page boilerplate (plan/contract/participant header block, sidebar disclaimers,
+// page footer) that appears interleaved with the real "Investments" table content every time
+// the table spans a page break - none of it is a holding, an asset-class heading, or a values
+// row, so it's simplest to just recognize and skip it outright rather than trying to bound the
+// table region page-by-page.
+const PRINCIPAL_BOILERPLATE_RES: RegExp[] = [
+  /401\(k\)\s*plan/i,
+  /^please review this statement/i,
+  /^contract number/i,
+  /^_$/,
+  /^[A-Za-z]+\s+\d{1,2},\s+\d{4}\s+[A-Za-z]+\s+\d{1,2},\s+\d{4}$/, // e.g. "January 1, 2026 March 31, 2026"
+  /^discrepancies within/i,
+  /^participant name/i,
+  /^days,\s*corrections/i,
+  /^current basis\.?$/i,
+  /^investments(\s*\(continued\))?$/i,
+  /principal\.com/i,
+  /^and notify us promptly/i,
+];
+function isPrincipalBoilerplate(row: string[]): boolean {
+  const joined = row.join(" ").trim();
+  if (!joined) return true;
+  return PRINCIPAL_BOILERPLATE_RES.some((re) => re.test(joined) || re.test((row[0] ?? "").trim()));
+}
+
+/** Cheap check used by `detectInvestmentFormat`: Principal's "Investments" table header row
+ *  ("Asset Class" / "Balance as of ..."), reconstructed from the statement's text layer. */
+function looksLikePrincipalStatement(data: string[][]): boolean {
+  return data.some(
+    (row) => (row[0] ?? "").trim().toLowerCase() === "asset class" && row.some((c) => /balance as of/i.test(c ?? ""))
+  );
+}
+
+/**
+ * Parses a Principal Financial Group 401(k)/retirement-plan "Quarterly statement" PDF's
+ * "Investments" table. Returns one `InvestmentSection` per asset-class grouping (e.g. "Large
+ * U.S. Equity"), mirroring how the statement itself groups holdings - all rows are classified
+ * as `mutual_fund` since a retirement-plan lineup is effectively always mutual funds (unlike
+ * WFA sections, Principal's asset-class titles describe risk bucket, not security type, so
+ * `classifySection`'s generic keyword matching doesn't apply here). There's no symbol, share
+ * count, price, or cost-basis data on this statement (only a period's beginning/ending balance
+ * per fund), so those fields are left null - the description combines the fund name with its
+ * advisor/fund-family name as printed (e.g. "Vanguard 500 Index Admiral Fd — Vanguard Group").
+ * Returns null if no recognizable "Asset Class" header row is found.
+ */
+function parsePrincipalStatement(data: string[][]): ParsedInvestment | null {
+  const headerIdx = data.findIndex(
+    (row) => (row[0] ?? "").trim().toLowerCase() === "asset class" && row.some((c) => /balance as of/i.test(c ?? ""))
+  );
+  if (headerIdx < 0) return null;
+
+  // The period-end date sits in the last cell of the header's 3rd physical line, e.g.
+  // ["Advisor/Investment","01/01/2026","Adjusted Fees","03/31/2026"].
+  let asOfDate = new Date().toISOString().split("T")[0];
+  const dateHeaderRow = data[headerIdx + 2];
+  if (dateHeaderRow) {
+    const iso = parseDate(dateHeaderRow[dateHeaderRow.length - 1] ?? "");
+    if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) asOfDate = iso;
+  }
+
+  let totalAssetsIdx = data.findIndex((row) => (row[0] ?? "").trim().toLowerCase() === "total assets");
+  if (totalAssetsIdx < 0) totalAssetsIdx = data.length;
+
+  const sectionsByTitle = new Map<string, { description: string; marketValue: number }[]>();
+  let currentAssetClass: string | null = null;
+  let pendingText: string[] = [];
+
+  for (let i = headerIdx + 3; i < totalAssetsIdx; i++) {
+    const row = data[i];
+    const c0 = (row[0] ?? "").trim();
+    const c0Lower = c0.toLowerCase();
+
+    // A repeated header block (the table continues onto a later page) - skip its 3 lines.
+    if (c0Lower === "asset class" && row.some((c) => /balance as of/i.test(c ?? ""))) {
+      i += 2;
+      pendingText = [];
+      continue;
+    }
+    if (isPrincipalBoilerplate(row)) continue;
+    if (RETIREMENT_ASSET_CLASS_TITLES.has(c0Lower) && row.length === 1) {
+      currentAssetClass = c0;
+      pendingText = [];
+      continue;
+    }
+
+    const valuesRow = principalValuesRow(row);
+    if (valuesRow) {
+      const { leadingText, values } = valuesRow;
+      const marketValue = values[4];
+      let advisor: string | null = null;
+      let label: string;
+      if (leadingText) {
+        label = leadingText;
+        if (pendingText.length >= 1 && !/^total\b/i.test(leadingText)) advisor = pendingText[pendingText.length - 1];
+      } else if (pendingText.length >= 2) {
+        advisor = pendingText[pendingText.length - 2];
+        label = pendingText[pendingText.length - 1];
+      } else if (pendingText.length === 1) {
+        label = pendingText[0];
+      } else {
+        label = "";
+      }
+
+      // A values-only line (no leading text) means the label didn't fit on one line and
+      // continues on the very next line - consume it, unless that next line is clearly the
+      // start of something else (defensive; shouldn't happen in a well-formed statement).
+      let fullLabel = label;
+      if (!leadingText) {
+        const next = data[i + 1];
+        const nextC0 = (next?.[0] ?? "").trim();
+        const nextIsContinuation =
+          i + 1 < totalAssetsIdx && next && next.length === 1 && nextC0 &&
+          !RETIREMENT_ASSET_CLASS_TITLES.has(nextC0.toLowerCase()) &&
+          !isPrincipalBoilerplate(next) && !principalValuesRow(next);
+        if (nextIsContinuation) {
+          fullLabel = `${label} ${nextC0}`.trim();
+          i++;
+        }
+      }
+
+      pendingText = [];
+      // "Total <asset class>" rows are per-section subtotals, not individual holdings - skip.
+      if (!/^total\b/i.test(fullLabel) && currentAssetClass && fullLabel) {
+        const description = advisor ? `${fullLabel} — ${advisor}` : fullLabel;
+        const arr = sectionsByTitle.get(currentAssetClass) ?? [];
+        arr.push({ description, marketValue });
+        sectionsByTitle.set(currentAssetClass, arr);
+      }
+      continue;
+    }
+
+    if (c0) pendingText.push(c0);
+  }
+
+  if (sectionsByTitle.size === 0) return null;
+
+  // Principal's "Contributions" section (earlier in the statement, outside the range scanned
+  // above) reports cumulative "Total contributions" - "Since joining" as its own column - the
+  // true, correct cost basis for the WHOLE account (money actually put in, employee + employer,
+  // since day one), unlike a per-quarter Additions figure which would wrongly count new payroll
+  // contributions as investment gains. Principal doesn't break this total down per fund, so it's
+  // allocated proportionally by each fund's current share of the total account value - this
+  // doesn't distort the ACCOUNT-level return (which is all `computeInvestmentReturn` actually
+  // uses, summing cost basis and market value back up across every holding) even though it
+  // necessarily shows the same blended ROI% on every individual fund on the Investments page.
+  const contributionsRow = data.find((row) => (row[0] ?? "").trim().toLowerCase() === "total contributions");
+  const sinceJoiningCell = contributionsRow?.[1];
+  const totalContributions = sinceJoiningCell && isMoneyCell(sinceJoiningCell) ? parseAmount(sinceJoiningCell) : null;
+  const totalMarketValueAllSections = [...sectionsByTitle.values()]
+    .flat()
+    .reduce((s, h) => s + h.marketValue, 0);
+
+  const sections: InvestmentSection[] = [...sectionsByTitle.entries()].map(([title, holdings]) => {
+    const rows: InvestmentRow[] = holdings.map((h) => ({
+      securityType: "mutual_fund", symbol: null, description: h.description, shares: null,
+      price: null, marketValue: h.marketValue,
+      costBasis: totalContributions !== null && totalMarketValueAllSections > 0
+        ? totalContributions * (h.marketValue / totalMarketValueAllSections)
+        : null,
+      tradeDate: null, dividendPerShare: null, estAnnualIncome: null,
+    }));
+    return {
+      title, securityType: "mutual_fund", headerRow: ["Description", "Market Value"],
+      rawRows: holdings.map((h) => [h.description, h.marketValue.toFixed(2)]),
+      colMap: { description: 0, marketValue: 1 }, rows,
+      totalMarketValue: rows.reduce((s, r) => s + (r.marketValue ?? 0), 0),
+    };
+  });
+
+  return { asOfDate, sections };
+}
+
 /**
  * Detects the format of an investment CSV/XLSX based on distinctive header names.
- * Returns "fidelity" | "thrivent" | "wells-fargo".
+ * Returns "fidelity" | "thrivent" | "principal" | "wells-fargo".
  */
-function detectInvestmentFormat(data: string[][]): "fidelity" | "thrivent" | "wells-fargo" {
+function detectInvestmentFormat(data: string[][]): "fidelity" | "thrivent" | "principal" | "wells-fargo" {
   // Look for a flat header row in the first 3 rows
   for (const row of data.slice(0, 3)) {
     const norm = row.map((h) => (h ?? "").toLowerCase().trim());
     if (norm.includes("security description") && norm.includes("security type")) return "fidelity";
     if (norm.includes("cost basis total") && norm.includes("account name")) return "thrivent";
   }
+  // Principal's "Investments" table only appears several pages into the statement (after a
+  // cover page and account snapshot), so - unlike the flat CSV formats above - it can't be
+  // detected from the first few rows alone; scan the whole extracted PDF text instead.
+  if (looksLikePrincipalStatement(data)) return "principal";
   return "wells-fargo";
 }
 
 /**
  * Dispatcher: detects the brokerage export format and routes to the appropriate
  * parser. Supports Wells Fargo Advisors (sectioned XLSX), Fidelity (flat CSV),
- * and Thrivent (flat CSV, multi-account).
+ * Thrivent (flat CSV, multi-account), and Principal (PDF quarterly statement).
  * Returns null if no supported format is detected.
  */
 function parseInvestmentWorkbook(data: string[][]): ParsedInvestment | null {
   const fmt = detectInvestmentFormat(data);
   if (fmt === "fidelity")  return parseFidelityCSV(data);
   if (fmt === "thrivent")  return parseThriventCSV(data);
+  if (fmt === "principal") return parsePrincipalStatement(data);
 
   // Wells Fargo Advisors: sectioned format
   const asOfDate = detectStatementDate(data) ?? new Date().toISOString().split("T")[0];
@@ -759,7 +969,7 @@ function parseInvestmentWorkbook(data: string[][]): ParsedInvestment | null {
 const IMPORT_KINDS: { id: ImportKind; label: string; hint: string; Icon: typeof Landmark }[] = [
   { id: "bank", label: "Bank Statement", hint: "Checking or savings CSV/XLSX export", Icon: Landmark },
   { id: "credit", label: "Credit Card Statement", hint: "Credit card CSV/XLSX export", Icon: CreditCard },
-  { id: "investment", label: "Investment / Brokerage", hint: "Portfolio positions export (stocks, ETFs)", Icon: TrendingUp },
+  { id: "investment", label: "Investment / Brokerage", hint: "Portfolio positions export or 401(k) statement (stocks, ETFs, funds)", Icon: TrendingUp },
 ];
 
 export default function ImportPage() {
@@ -1156,7 +1366,7 @@ export default function ImportPage() {
   const finishParsingInvestmentData = useCallback((data: string[][]) => {
     const result = parseInvestmentWorkbook(data);
     if (!result) {
-      setError("We couldn't detect a supported portfolio format. Supported formats: Wells Fargo Advisors (XLSX), Fidelity, and Thrivent (CSV).");
+      setError("We couldn't detect a supported portfolio format. Supported formats: Wells Fargo Advisors (XLSX), Fidelity, Thrivent (CSV), and Principal (PDF quarterly statement).");
       setStep("upload");
       return;
     }
