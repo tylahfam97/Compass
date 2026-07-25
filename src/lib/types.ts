@@ -264,3 +264,19 @@ export interface DebtPayoffPlan {
   monthsOfHistory: number;
   scenarios: DebtPayoffScenario[];
 }
+
+/** A recurring charge (subscription/bill) detected by day-of-month or "Nth weekday of month"
+ *  cadence - see `detectRecurringCharges` in agent.ts. `month_count` is the length of the
+ *  CURRENT consecutive-month streak ending at `last_seen`, not just a lifetime occurrence
+ *  count, so a charge that lapsed months ago won't still show as "recurring". */
+export interface RecurringCharge {
+  description: string;
+  amount_cents: number;
+  month_count: number;
+  first_seen: string;
+  last_seen: string;
+  category_name: string | null;
+  category_color: string | null;
+  /** Human-readable cadence, e.g. "21st of the month" or "3rd Thursday of the month". */
+  patternLabel: string;
+}

@@ -9,13 +9,13 @@ import { getDb, getAccountsSummaryForProfile, setAccountExcludedFromInsights, ge
 import { formatCurrency } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
 import {
-  generateInsights, getSpendingProfile, getSavingsHistory, computeHealthScore, computeCreditCardHealthScore,
+  generateInsights, getSpendingProfile, getSavingsHistory, computeHealthScore, computeCreditCardHealthScore, detectRecurringCharges,
 } from "@/lib/agent";
 import {
   computeNetWorth, getNetWorthHistory, computeInvestmentReturn, computeInvestmentHealthScore, getTopRoiHoldings,
   type NetWorthSnapshot, type InvestmentReturn, type TopRoiHolding,
 } from "@/lib/netWorth";
-import type { Insight, Profile, HealthScore, SecurityType, CreditCardHealthScore, InvestmentHealthScore } from "@/lib/types";
+import type { Insight, Profile, HealthScore, SecurityType, CreditCardHealthScore, InvestmentHealthScore, RecurringCharge } from "@/lib/types";
 import InsightCarousel from "@/components/InsightCarousel";
 import InfoTooltip from "@/components/InfoTooltip";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
@@ -84,13 +84,6 @@ function MiniScoreCard({
   );
 }
 
-interface SubItem {
-  description: string;
-  amount_cents: number;
-  month_count: number;
-  category_name: string;
-  category_color: string;
-}
 interface CatDelta {
   category_name: string;
   category_color: string;
@@ -786,7 +779,7 @@ export default function AgentPage() {
   const [profileHealthScore, setProfileHealthScore] = useState<HealthScore | null>(null);
   const [savingsHistory, setSavingsHistory]     = useState<{ month: string; rate: number; net: number }[]>([]);
   const [spendingProfile, setSpendingProfile]   = useState<Awaited<ReturnType<typeof getSpendingProfile>>>(null);
-  const [subscriptions, setSubscriptions]       = useState<SubItem[]>([]);
+  const [subscriptions, setSubscriptions]       = useState<RecurringCharge[]>([]);
   const [catDeltas, setCatDeltas]               = useState<CatDelta[]>([]);
   const [hasEnoughData, setHasEnoughData]       = useState(true);
   const [refreshedAt, setRefreshedAt]           = useState<Date | null>(null);
@@ -938,17 +931,7 @@ export default function AgentPage() {
       const [ls, le] = monthBounds(lMonth);
 
       const [subs, thisCats, lastCats] = await Promise.all([
-        db.select<SubItem[]>(
-          `SELECT t.description, t.amount_cents,
-                  COUNT(DISTINCT strftime('%Y-%m', t.date)) as month_count,
-                  c.name as category_name, c.color as category_color
-           FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-           WHERE t.profile_id IN (${ph}) AND t.amount_cents<0
-             AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
-           GROUP BY t.description, t.amount_cents HAVING month_count>=2
-           ORDER BY month_count DESC, ABS(t.amount_cents) DESC LIMIT 10`,
-          [...ids]
-        ),
+        detectRecurringCharges(ids),
         db.select<{ category_id: number; category_name: string; category_color: string; total: number }[]>(
           `SELECT t.category_id, c.name as category_name, c.color as category_color,
                   SUM(ABS(t.amount_cents)) as total
@@ -1426,7 +1409,7 @@ export default function AgentPage() {
             <table className="w-full text-sm">
               <tbody>
                 {subscriptions.map((s) => (
-                  <tr key={`${s.description}_${s.amount_cents}`}
+                  <tr key={`${s.description}_${s.amount_cents}_${s.last_seen}`}
                     className="border-b last:border-0 hover:bg-[hsl(var(--muted))]">
                     <td className="px-5 py-2.5 max-w-xs truncate">{s.description}</td>
                     <td className="px-5 py-2.5">
@@ -1435,7 +1418,9 @@ export default function AgentPage() {
                         {s.category_name ?? "Uncategorized"}
                       </span>
                     </td>
-                    <td className="px-5 py-2.5 text-[hsl(var(--muted-foreground))]">{s.month_count} months</td>
+                    <td className="px-5 py-2.5 text-[hsl(var(--muted-foreground))]">
+                      {s.patternLabel} · {s.month_count} months running
+                    </td>
                     <td className="px-5 py-2.5 text-right font-mono text-red-500">
                       {formatCurrency(Math.abs(s.amount_cents))}/mo
                     </td>

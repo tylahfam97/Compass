@@ -108,7 +108,7 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
             <div>
               <h3 className="text-xs font-semibold uppercase tracking-wide text-[hsl(var(--muted-foreground))] mb-2 flex items-center gap-1.5">
                 <Scissors size={13} /> What Can Be Cut
-                <InfoTooltip text="Average monthly spend over your recent history in categories that are typically discretionary - entertainment, shopping, subscriptions, personal care, gifts, gambling, and travel. Essentials like housing, groceries, and bills aren't included." />
+                <InfoTooltip text="Average monthly spend over your recent history in categories that are typically discretionary - entertainment, shopping, subscriptions, personal care, gifts, gambling, and travel. Only counts spending from checking/savings accounts (real cash on hand) - purchases already made on a credit card or loan aren't available to redirect, since that balance is already part of the debt you're paying off. Essentials like housing, groceries, and bills aren't included either." />
               </h3>
               {plan.discretionaryBreakdown.length === 0 ? (
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">

@@ -1,5 +1,5 @@
 import { getDb, getLoanAccountsForProfile, getCreditAccountsForProfile } from "./db";
-import type { Insight, HealthScore, CreditCardHealthScore, DebtPayoffPlan, DebtPayoffScenario, DebtPayoffCategoryBreakdown } from "./types";
+import type { Insight, HealthScore, CreditCardHealthScore, DebtPayoffPlan, DebtPayoffScenario, DebtPayoffCategoryBreakdown, RecurringCharge } from "./types";
 import { computeNetWorth, computeInvestmentReturn } from "./netWorth";
 import { AVG_US_CREDIT_CARD_DEBT_CENTS, AVG_US_MARKET_RETURN_PCT, scoreGrade } from "./benchmarks";
 
@@ -315,25 +315,14 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   }
 
   // ── INSIGHT: ghost_subscription ──────────────────────────────────────────
-  const subs = await db.select<{
-    description: string;
-    amount_cents: number;
-    month_count: number;
-  }[]>(
-    `SELECT description, amount_cents, COUNT(DISTINCT strftime('%Y-%m', date)) as month_count
-     FROM transactions WHERE profile_id=? AND amount_cents<0
-       AND (category_id IS NULL OR category_id NOT IN (20,29))
-     GROUP BY description, amount_cents HAVING month_count>=2
-     ORDER BY month_count DESC, ABS(amount_cents) DESC LIMIT 5`,
-    [profileId]
-  );
+  const subs = (await detectRecurringCharges([profileId])).slice(0, 5);
   for (const sub of subs) {
     const annualised = Math.abs(sub.amount_cents) * 12;
     insights.push({
       id: `ghost_sub_${sub.description.slice(0, 20)}`,
       type: "ghost_subscription",
       title: `Recurring charge: ${truncate(sub.description, 30)}`,
-      description: `${formatCents(Math.abs(sub.amount_cents))}/mo detected ${sub.month_count} times — ${formatCents(annualised)}/year.`,
+      description: `${formatCents(Math.abs(sub.amount_cents))}/mo on the ${sub.patternLabel}, ${sub.month_count} months running — ${formatCents(annualised)}/year.`,
       severity: "info",
       dismissKey: `ghost_sub_${sub.description.slice(0, 20)}`,
     });
@@ -1579,12 +1568,17 @@ export async function computeDebtPayoffPlan(profileIds: number[], debts: DebtPay
 
   // ── Discretionary spending: average over the last 3 full months (excluding the current
   //    partial month), so a mid-month snapshot doesn't understate a category's true average.
+  //    Restricted to checking/savings accounts only (account_type NOT IN ('credit','loan')) -
+  //    money already spent ON a credit card or loan isn't cash sitting around that can be
+  //    "redirected" to pay down debt; counting it would double-count the same dollars as both
+  //    a debt balance to pay off AND a source of extra payment toward that debt.
   const now = new Date();
   const threeAgo = (() => { const d = new Date(now); d.setMonth(d.getMonth() - 3); d.setDate(1); return d.toISOString().split("T")[0]; })();
   const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
 
   const [monthsRow] = await db.select<{ n: number }[]>(
-    `SELECT COUNT(DISTINCT strftime('%Y-%m', date)) as n FROM transactions WHERE profile_id IN (${ph}) AND date>=? AND date<?`,
+    `SELECT COUNT(DISTINCT strftime('%Y-%m', t.date)) as n FROM transactions t JOIN accounts a ON a.id=t.account_id
+     WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<? AND a.account_type NOT IN ('credit','loan')`,
     [...profileIds, threeAgo, monthStart]
   );
   const monthsOfHistory = Math.max(1, monthsRow?.n ?? 1);
@@ -1592,7 +1586,9 @@ export async function computeDebtPayoffPlan(profileIds: number[], debts: DebtPay
   const discRows = await db.select<{ category_id: number; name: string; color: string; total: number }[]>(
     `SELECT t.category_id, c.name, c.color, SUM(ABS(t.amount_cents)) as total
      FROM transactions t JOIN categories c ON t.category_id=c.id
+     JOIN accounts a ON a.id=t.account_id
      WHERE t.profile_id IN (${ph}) AND t.amount_cents<0 AND t.date>=? AND t.date<?
+       AND a.account_type NOT IN ('credit','loan')
        AND t.category_id IN (${DISCRETIONARY_CATEGORY_IDS.join(",")})
      GROUP BY t.category_id
      ORDER BY total DESC`,
@@ -1637,4 +1633,145 @@ export async function computeDebtPayoffPlan(profileIds: number[], debts: DebtPay
     monthsOfHistory,
     scenarios,
   };
+}
+
+// ─── Recurring charge detection ────────────────────────────────────────────────
+// Detects subscriptions/recurring bills by day-of-month OR "Nth weekday of month" cadence
+// (e.g. "3rd Thursday"), anchored to the most recent occurrence of each description and
+// walked backward through STRICTLY CONSECUTIVE calendar months - a charge whose amount drifts
+// slightly (utility bills, variable subscriptions) still gets caught, since matching no longer
+// requires an exact amount, and a charge that lapsed months ago won't still show as "recurring"
+// since the streak has to end at the most recent transaction.
+const RECURRING_DAY_TOLERANCE = 3; // +/- days still considered "the same day of month"
+
+function ordinal(n: number): string {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
+  switch (n % 10) {
+    case 1: return `${n}st`;
+    case 2: return `${n}nd`;
+    case 3: return `${n}rd`;
+    default: return `${n}th`;
+  }
+}
+const RECURRING_WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function dayOfMonthOf(dateStr: string): number { return Number(dateStr.slice(8, 10)); }
+function monthKeyOf(dateStr: string): string { return dateStr.slice(0, 7); }
+function nthWeekdayOf(dateStr: string): { weekday: number; nth: number } {
+  const d = new Date(`${dateStr}T00:00:00`);
+  return { weekday: d.getDay(), nth: Math.ceil(d.getDate() / 7) };
+}
+function shiftMonthKey(ym: string, delta: number): string {
+  const [y, m] = ym.split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+interface RecurringRow {
+  description: string;
+  amount_cents: number;
+  date: string;
+  category_name: string | null;
+  category_color: string | null;
+}
+
+/** Walks backward from the most recent transaction in `rows` (all sharing one description),
+ *  through strictly consecutive months, matching either the anchor's day-of-month (within
+ *  RECURRING_DAY_TOLERANCE days) or its exact "Nth weekday of month" - whichever produces the
+ *  longer streak wins (ties favor day-of-month, since it's the more common/intuitive billing
+ *  cadence). Returns null if the resulting streak is shorter than 2 months. */
+function findRecurringStreak(rows: RecurringRow[]): { txns: RecurringRow[]; mode: "day" | "weekday" } | null {
+  const byMonth = new Map<string, RecurringRow[]>();
+  for (const r of rows) {
+    const mk = monthKeyOf(r.date);
+    if (!byMonth.has(mk)) byMonth.set(mk, []);
+    byMonth.get(mk)!.push(r);
+  }
+  const months = [...byMonth.keys()].sort();
+  if (months.length === 0) return null;
+
+  const lastMonth = months[months.length - 1];
+  const lastMonthTxns = byMonth.get(lastMonth)!.slice().sort((a, b) => a.date.localeCompare(b.date));
+  const anchor = lastMonthTxns[lastMonthTxns.length - 1];
+  const anchorDay = dayOfMonthOf(anchor.date);
+  const anchorNW = nthWeekdayOf(anchor.date);
+
+  const buildStreak = (mode: "day" | "weekday"): RecurringRow[] => {
+    const streak: RecurringRow[] = [anchor];
+    let cursor = lastMonth;
+    for (let i = months.length - 2; i >= 0; i--) {
+      if (months[i] !== shiftMonthKey(cursor, -1)) break; // gap - streak stops here
+      const match = byMonth.get(months[i])!.find((c) => {
+        if (mode === "day") return Math.abs(dayOfMonthOf(c.date) - anchorDay) <= RECURRING_DAY_TOLERANCE;
+        const nw = nthWeekdayOf(c.date);
+        return nw.weekday === anchorNW.weekday && nw.nth === anchorNW.nth;
+      });
+      if (!match) break;
+      streak.unshift(match);
+      cursor = months[i];
+    }
+    return streak;
+  };
+
+  const dayStreak = buildStreak("day");
+  const weekdayStreak = buildStreak("weekday");
+  const [txns, mode] = weekdayStreak.length > dayStreak.length
+    ? [weekdayStreak, "weekday" as const]
+    : [dayStreak, "day" as const];
+  return txns.length >= 2 ? { txns, mode } : null;
+}
+
+function patternLabelFor(anchor: RecurringRow, mode: "day" | "weekday"): string {
+  if (mode === "day") return `${ordinal(dayOfMonthOf(anchor.date))} of the month`;
+  const { weekday, nth } = nthWeekdayOf(anchor.date);
+  return `${ordinal(nth)} ${RECURRING_WEEKDAY_NAMES[weekday]} of the month`;
+}
+
+/** Detects recurring charges (subscriptions, bills) across the given profiles - grouped by
+ *  exact description, then matched on a day-of-month or "Nth weekday of month" cadence with a
+ *  currently-active streak of 2+ consecutive months (see findRecurringStreak above). Returns
+ *  every match sorted by amount descending - the caller decides how much of the list to show
+ *  (the Agent and Reports pages both show the full list, uncapped). */
+export async function detectRecurringCharges(profileIds: number[], monthsBack = 12): Promise<RecurringCharge[]> {
+  const db = await getDb();
+  const ph = profileIds.map(() => "?").join(",");
+  const start = (() => { const d = new Date(); d.setMonth(d.getMonth() - monthsBack); d.setDate(1); return d.toISOString().split("T")[0]; })();
+
+  const rows = await db.select<RecurringRow[]>(
+    `SELECT t.description, t.amount_cents, t.date, c.name as category_name, c.color as category_color
+     FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
+     WHERE t.profile_id IN (${ph}) AND t.amount_cents<0 AND t.date>=?
+       AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
+     ORDER BY t.description, t.date`,
+    [...profileIds, start]
+  );
+
+  const groups = new Map<string, RecurringRow[]>();
+  for (const r of rows) {
+    const key = r.description.trim().toUpperCase();
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(r);
+  }
+
+  const results: RecurringCharge[] = [];
+  for (const groupRows of groups.values()) {
+    const streak = findRecurringStreak(groupRows);
+    if (!streak) continue;
+    const anchor = streak.txns[streak.txns.length - 1];
+    const first = streak.txns[0];
+    results.push({
+      description: anchor.description,
+      amount_cents: anchor.amount_cents,
+      month_count: streak.txns.length,
+      first_seen: first.date,
+      last_seen: anchor.date,
+      category_name: anchor.category_name,
+      category_color: anchor.category_color,
+      patternLabel: patternLabelFor(anchor, streak.mode),
+    });
+  }
+
+  results.sort((a, b) => Math.abs(b.amount_cents) - Math.abs(a.amount_cents));
+  return results;
 }
