@@ -34,7 +34,13 @@ export default function CategoryOptions({ categories }: CategoryOptionsProps) {
             <option
               key={c.id}
               value={c.id}
-              title={c.id === 20 ? "Transfers are excluded from income and expense totals" : undefined}
+              title={
+                c.id === 20
+                  ? "Transfers are excluded from income and expense totals"
+                  : c.id === 29
+                  ? "Excluded is a catch-all for anything else you don't want counted as income or spending (reimbursements, one-off adjustments, etc.) - also left out of income and expense totals"
+                  : undefined
+              }
             >
               {c.name}
             </option>

@@ -97,7 +97,7 @@ export default function TrendsPage() {
       `SELECT c.name, c.color, SUM(ABS(t.amount_cents)) as total
        FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
        WHERE t.date>=? AND t.date<? AND t.amount_cents<0 AND t.profile_id IN (${ph})
-         AND (t.category_id IS NULL OR t.category_id!=20)
+         AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
        GROUP BY t.category_id ORDER BY total DESC LIMIT 3`,
       [start, end, ...ids]
     );
@@ -128,8 +128,8 @@ export default function TrendsPage() {
       const [incExpRows, catRows, allTimeRow, cumRows, balanceRows, balanceAcctRows] = await Promise.all([
         db.select<{ month: string; income: number; expenses: number }[]>(
           `SELECT strftime('%Y-%m', t.date) as month,
-                  SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income,
-                  SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+                  SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income,
+                  SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN ABS(t.amount_cents) ELSE 0 END) as expenses
            FROM transactions t JOIN accounts a ON a.id=t.account_id
            WHERE t.date>=? AND t.profile_id IN (${ph})
            GROUP BY month ORDER BY month`,
@@ -140,22 +140,22 @@ export default function TrendsPage() {
                   SUM(ABS(t.amount_cents)) as total
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
            WHERE t.date>=? AND t.amount_cents<0 AND t.profile_id IN (${ph})
-             AND (t.category_id IS NULL OR t.category_id!=20)
+             AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
            GROUP BY month, t.category_id ORDER BY month`,
           [start, ...ids]
         ),
         db.select<{ income: number; expenses: number }[]>(
           `SELECT
-             SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income,
-             SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+             SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income,
+             SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) THEN ABS(t.amount_cents) ELSE 0 END) as expenses
            FROM transactions t JOIN accounts a ON a.id=t.account_id
            WHERE t.profile_id IN (${ph})`,
           [...ids]
         ),
         db.select<{ month: string; net: number }[]>(
           `SELECT strftime('%Y-%m', t.date) as month,
-             SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END)
-             - SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as net
+             SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END)
+             - SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) THEN ABS(t.amount_cents) ELSE 0 END) as net
            FROM transactions t JOIN accounts a ON a.id=t.account_id
            WHERE t.profile_id IN (${ph})
            GROUP BY month ORDER BY month`,

@@ -150,7 +150,7 @@ export default function ReportsPage() {
                   SUM(ABS(t.amount_cents)) as total_cents
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
            WHERE t.date>=? AND t.date<? AND t.amount_cents<0 AND t.profile_id=?
-             AND (t.category_id IS NULL OR t.category_id != 20)
+             AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
            GROUP BY t.category_id ORDER BY total_cents DESC`,
           [start, end, profileId]
         ),
@@ -159,14 +159,14 @@ export default function ReportsPage() {
                   SUM(ABS(t.amount_cents)) as total_cents
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
            WHERE t.date>=? AND t.date<? AND t.amount_cents<0 AND t.profile_id=?
-             AND (t.category_id IS NULL OR t.category_id != 20)
+             AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
            GROUP BY t.category_id ORDER BY total_cents DESC`,
           [prevStart, prevEnd, profileId]
         ),
         db.select<{ month: string; income_cents: number; expense_cents: number }[]>(
           `SELECT strftime('%Y-%m', t.date) as month,
-                  SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income_cents,
-                  SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as expense_cents
+                  SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income_cents,
+                  SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) THEN ABS(t.amount_cents) ELSE 0 END) as expense_cents
            FROM transactions t JOIN accounts a ON a.id=t.account_id
            WHERE t.date>=? AND t.date<? AND t.profile_id=? GROUP BY month ORDER BY month`,
           [chartStart, end, profileId]
@@ -175,7 +175,7 @@ export default function ReportsPage() {
           `SELECT t.*, c.name as category_name, c.color as category_color
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
            WHERE t.date>=? AND t.date<? AND t.amount_cents<0 AND t.profile_id=?
-             AND (t.category_id IS NULL OR t.category_id != 20)
+             AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
            ORDER BY t.amount_cents ASC LIMIT 10`,
           [start, end, profileId]
         ),
@@ -187,7 +187,7 @@ export default function ReportsPage() {
                   c.name as category_name, c.color as category_color
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
            WHERE t.amount_cents<0 AND t.profile_id=?
-             AND (t.category_id IS NULL OR t.category_id != 20)
+             AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
            GROUP BY t.description HAVING count>=2
            ORDER BY count DESC, total_cents DESC LIMIT 10`,
           [profileId]
@@ -199,7 +199,7 @@ export default function ReportsPage() {
                   c.name as category_name, c.color as category_color
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
            WHERE t.amount_cents<0 AND t.profile_id=?
-             AND (t.category_id IS NULL OR t.category_id != 20)
+             AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
            GROUP BY t.description, t.amount_cents
            HAVING month_count>=2
            ORDER BY month_count DESC, ABS(t.amount_cents) DESC`,

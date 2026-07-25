@@ -45,6 +45,16 @@ export type InsightType =
 /** Category ID reserved for internal bank transfers — excluded from expense totals. */
 export const TRANSFER_CATEGORY_ID = 20;
 
+/** Category ID for a general-purpose "leave this out of my totals" bucket - unlike
+ *  Transfers (same-institution internal moves only), this is for anything else the user
+ *  wants excluded from income/expense totals (reimbursements, one-off adjustments, etc.). */
+export const EXCLUDED_CATEGORY_ID = 29;
+
+/** Shared explainer for the Transfers/Excluded exclusion, reused by every Income/Expenses
+ *  tooltip across Dashboard, Overview, and Transactions so the wording stays consistent. */
+export const EXCLUSION_DISCLAIMER_TEXT =
+  "Transfers tracks money moved between your own accounts (e.g. checking \u2192 savings) - including credit-card payments, so they're never double-counted as both a checking withdrawal and a card credit. Excluded is a catch-all for anything else you don't want counted (reimbursements, one-off adjustments, etc.). Both are left out of every income and expense total in the app.";
+
 export interface InsightAction {
   type: "create_budget" | "create_goal";
   payload: Record<string, unknown>;

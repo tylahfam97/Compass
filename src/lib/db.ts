@@ -910,6 +910,45 @@ async function runMigrations(db: CompassDb): Promise<void> {
     await db.execute("DELETE FROM categories WHERE id=14");
     await db.execute("PRAGMA user_version = 19");
   }
+
+  // ── v20: New category (Excluded) - a second "leave this out of my totals" bucket
+  //         alongside Transfers (id 20). Transfers is reserved for same-institution
+  //         internal moves; Excluded is a general catch-all for anything else the user
+  //         wants left out of income/expense totals (reimbursements, one-off
+  //         adjustments, etc.) without mislabeling it as a "transfer". ──────────────
+  if (version < 20) {
+    await db.execute(`
+      INSERT OR IGNORE INTO categories (id, name, parent_id, color, icon, is_system) VALUES
+        (29, 'Excluded', NULL, '#94a3b8', 'circle-slash', 1)
+    `);
+
+    // Generic user-category merge (see MAINTAINER NOTE in the v7 migration above).
+    const mergeTargets: { newId: number; upperName: string; color: string; icon: string }[] = [
+      { newId: 29, upperName: "EXCLUDED", color: "#94a3b8", icon: "circle-slash" },
+    ];
+    for (const { newId, upperName, color, icon } of mergeTargets) {
+      const duplicates = await db.select<{ id: number }[]>(
+        "SELECT id FROM categories WHERE UPPER(name)=? AND is_system=0",
+        [upperName]
+      );
+      for (const dup of duplicates) {
+        if (dup.id === newId) {
+          await db.execute(
+            "UPDATE categories SET is_system=1, color=?, icon=? WHERE id=?",
+            [color, icon, dup.id]
+          );
+        } else {
+          await db.execute("UPDATE transactions SET category_id=? WHERE category_id=?", [newId, dup.id]);
+          await db.execute("UPDATE categorization_rules SET category_id=? WHERE category_id=?", [newId, dup.id]);
+          await db.execute("UPDATE budgets SET category_id=? WHERE category_id=?", [newId, dup.id]);
+          await db.execute("UPDATE goals SET category_id=? WHERE category_id=?", [newId, dup.id]);
+          await db.execute("DELETE FROM categories WHERE id=?", [dup.id]);
+        }
+      }
+    }
+
+    await db.execute("PRAGMA user_version = 20");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────
@@ -1165,8 +1204,9 @@ export async function mergeDuplicateAccounts(profileId: number): Promise<number>
 // are purely informational and are never used in any calculation.
 //
 // The snapshot row is filed under category_id=20 (Transfers) rather than NULL -
-// nearly every income/expense query across the app already excludes category 20 via
-// the ubiquitous `(t.category_id IS NULL OR t.category_id != 20)` filter, so this one
+// nearly every income/expense query across the app already excludes categories 20 and 29
+// (Transfers and Excluded) via the ubiquitous
+// `(t.category_id IS NULL OR t.category_id NOT IN (20,29))` filter, so this one
 // choice keeps loan snapshots out of spending/income totals everywhere, not just the
 // handful of queries that were explicitly updated to also exclude account_type='loan'.
 

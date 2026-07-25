@@ -926,7 +926,7 @@ export default function AgentPage() {
                   c.name as category_name, c.color as category_color
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
            WHERE t.profile_id IN (${ph}) AND t.amount_cents<0
-             AND (t.category_id IS NULL OR t.category_id != 20)
+             AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
            GROUP BY t.description, t.amount_cents HAVING month_count>=2
            ORDER BY month_count DESC, ABS(t.amount_cents) DESC LIMIT 10`,
           [...ids]
@@ -936,7 +936,7 @@ export default function AgentPage() {
                   SUM(ABS(t.amount_cents)) as total
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
            WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<? AND t.amount_cents<0
-             AND t.category_id!=15 AND (t.category_id IS NULL OR t.category_id != 20)
+             AND t.category_id!=15 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
            GROUP BY t.category_id ORDER BY total DESC LIMIT 8`,
           [...ids, ts, te]
         ),
@@ -944,7 +944,7 @@ export default function AgentPage() {
           `SELECT category_id, SUM(ABS(amount_cents)) as total
            FROM transactions
            WHERE profile_id IN (${ph}) AND date>=? AND date<? AND amount_cents<0
-             AND (category_id IS NULL OR category_id != 20)
+             AND (category_id IS NULL OR category_id NOT IN (20,29))
            GROUP BY category_id`,
           [...ids, ls, le]
         ),

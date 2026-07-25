@@ -13,11 +13,13 @@ import {
 import { seedDemoData } from "@/lib/demoData";
 import { formatCurrency, formatDate, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
 import type { Transaction, Insight } from "@/lib/types";
+import { EXCLUSION_DISCLAIMER_TEXT } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
 import { generateInsights } from "@/lib/agent";
 import InsightCard from "@/components/InsightCard";
 import LoanUploaderModal from "@/components/LoanUploaderModal";
+import InfoTooltip from "@/components/InfoTooltip";
 import AccountDetailModal, { type AccountDetailAccount } from "@/components/AccountDetailModal";
 import { Skeleton, CardListSkeleton } from "@/components/Skeleton";
 
@@ -122,18 +124,18 @@ export default function DashboardPage() {
     const [incRow, expRow, catRows, recentRows, monthCountRow, totalCountRow, balanceRow, balancePointRows, portfolioRow, balanceAcctRows, demoAcctRow] = await Promise.all([
       db.select<{ total: number }[]>(
         `SELECT COALESCE(SUM(t.amount_cents),0) as total FROM transactions t JOIN accounts a ON a.id=t.account_id
-         WHERE t.date>=? AND t.date<? AND t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') AND t.profile_id=?`,
+         WHERE t.date>=? AND t.date<? AND t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') AND t.profile_id=?`,
         [start, end, profileId]
       ),
       db.select<{ total: number }[]>(
-        "SELECT COALESCE(SUM(amount_cents),0) as total FROM transactions WHERE date>=? AND date<? AND amount_cents<0 AND (category_id IS NULL OR category_id!=20) AND profile_id=?",
+        "SELECT COALESCE(SUM(amount_cents),0) as total FROM transactions WHERE date>=? AND date<? AND amount_cents<0 AND (category_id IS NULL OR category_id NOT IN (20,29)) AND profile_id=?",
         [start, end, profileId]
       ),
       db.select<{ categoryId: number | null; name: string; color: string; total: number }[]>(
         `SELECT t.category_id as categoryId, c.name, c.color, SUM(t.amount_cents) as total
          FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
          WHERE t.date>=? AND t.date<? AND t.amount_cents<0 AND t.profile_id=?
-           AND (t.category_id IS NULL OR t.category_id != 20)
+           AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
          GROUP BY t.category_id ORDER BY total ASC LIMIT 7`,
         [start, end, profileId]
       ),
@@ -459,7 +461,10 @@ export default function DashboardPage() {
               { label: "Net", value: stats.net, cls: stats.net >= 0 ? "text-green-600" : "text-red-500" },
             ].map(({ label, value, cls }) => (
               <div key={label} className="border rounded-xl p-5">
-                <p className="text-sm text-[hsl(var(--muted-foreground))] mb-1">{label}</p>
+                <p className="text-sm text-[hsl(var(--muted-foreground))] mb-1 flex items-center gap-1">
+                  {label}
+                  {(label === "Income" || label === "Expenses") && <InfoTooltip text={EXCLUSION_DISCLAIMER_TEXT} />}
+                </p>
                 <p className={`text-2xl font-bold ${cls}`}>{formatCurrency(value)}</p>
               </div>
             ))}

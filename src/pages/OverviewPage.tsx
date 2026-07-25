@@ -11,7 +11,9 @@ import { useAutoMonth } from "@/hooks/useAutoMonth";
 import PinModal from "@/components/PinModal";
 import ManageAccountsPanel from "@/components/ManageAccountsPanel";
 import { Skeleton } from "@/components/Skeleton";
+import InfoTooltip from "@/components/InfoTooltip";
 import type { Profile } from "@/lib/types";
+import { EXCLUSION_DISCLAIMER_TEXT } from "@/lib/types";
 
 interface ProfileData {
   profileId: number;
@@ -143,7 +145,7 @@ export default function OverviewPage() {
             db.select<{ total: number }[]>(
               `SELECT COALESCE(SUM(t.amount_cents),0) as total FROM transactions t JOIN accounts a ON a.id=t.account_id
                WHERE t.profile_id=? AND t.date>=? AND t.date<? AND t.amount_cents>0
-                 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan')`,
+                 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan')`,
               [p.id, start, end]
             ),
             db.select<{ total: number }[]>(
@@ -316,11 +318,15 @@ export default function OverviewPage() {
           </div>
           <div className="flex gap-8 flex-wrap pt-3 border-t">
             <div>
-              <p className="text-xs text-[hsl(var(--muted-foreground))]">Income</p>
+              <p className="text-xs text-[hsl(var(--muted-foreground))] flex items-center gap-1">
+                Income <InfoTooltip text={EXCLUSION_DISCLAIMER_TEXT} />
+              </p>
               <p className="text-lg font-bold text-green-600">{formatCurrency(totalIncome)}</p>
             </div>
             <div>
-              <p className="text-xs text-[hsl(var(--muted-foreground))]">Expenses</p>
+              <p className="text-xs text-[hsl(var(--muted-foreground))] flex items-center gap-1">
+                Expenses <InfoTooltip text={EXCLUSION_DISCLAIMER_TEXT} />
+              </p>
               <p className="text-lg font-bold text-red-500">{formatCurrency(Math.abs(totalExpenses))}</p>
             </div>
             <div>

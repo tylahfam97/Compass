@@ -6,7 +6,7 @@ import { getDb, reapplyCategorizationRules } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
 import type { Transaction } from "@/lib/types";
-import { TRANSFER_CATEGORY_ID } from "@/lib/types";
+import { TRANSFER_CATEGORY_ID, EXCLUDED_CATEGORY_ID, EXCLUSION_DISCLAIMER_TEXT } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import CategoryOptions from "@/components/CategoryOptions";
 import { useProfileStore } from "@/stores/profileStore";
@@ -20,8 +20,6 @@ import { TableSkeleton } from "@/components/Skeleton";
 
 const MAX_ROWS = 500;
 const ALL_TIME_LIMIT = 10000;
-const TRANSFER_DISCLAIMER_TEXT =
-  "Transfers tracks money moved between your own accounts (e.g. checking \u2192 savings). It's excluded from income and expense totals everywhere in the app.";
 const TRANSFER_DISMISSED_KEY = "compass_transfer_disclaimer_dismissed";
 const TRANSFER_SHOWN_SESSION_KEY = "compass_transfer_disclaimer_shown_session";
 
@@ -232,7 +230,7 @@ export default function TransactionsPage() {
     if (showTransferNotice) return;
     if (localStorage.getItem(TRANSFER_DISMISSED_KEY) === "1") return;
     if (sessionStorage.getItem(TRANSFER_SHOWN_SESSION_KEY) === "1") return;
-    if (rows.some((r) => r.category_id === TRANSFER_CATEGORY_ID)) {
+    if (rows.some((r) => r.category_id === TRANSFER_CATEGORY_ID || r.category_id === EXCLUDED_CATEGORY_ID)) {
       setShowTransferNotice(true);
     }
   }, [rows, showTransferNotice]);
@@ -365,9 +363,13 @@ export default function TransactionsPage() {
 
   // Credit-card payments/credits (positive amount on a credit account) are debt reduction,
   // not real income - exclude them here too so this summary matches Dashboard/Trends/Insights.
-  const totalIncome = rows.filter((r) => r.amount_cents > 0 && r.account_type !== "credit")
+  // Transfers/Excluded (ids 20/29) are excluded from both sides for the same reason every
+  // other page's income/expense totals exclude them.
+  const isExcludedCategory = (categoryId: number | null) =>
+    categoryId === TRANSFER_CATEGORY_ID || categoryId === EXCLUDED_CATEGORY_ID;
+  const totalIncome = rows.filter((r) => r.amount_cents > 0 && r.account_type !== "credit" && !isExcludedCategory(r.category_id))
     .reduce((s, r) => s + r.amount_cents, 0);
-  const totalExpenses = rows.filter((r) => r.amount_cents < 0)
+  const totalExpenses = rows.filter((r) => r.amount_cents < 0 && !isExcludedCategory(r.category_id))
     .reduce((s, r) => s + r.amount_cents, 0);
   const netAmount = totalIncome + totalExpenses;
 
@@ -427,11 +429,13 @@ export default function TransactionsPage() {
           <button
             onClick={() => runAutoCategorize("uncategorized")}
             disabled={autoCatRunning}
-            title="Apply your rules to all transactions; system rules fill remaining uncategorized ones"
-            className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
-                       transition-colors disabled:opacity-50 flex items-center gap-1.5"
+            title="Re-checks every transaction against your current rules - including ones already categorized - so new or edited rules apply retroactively"
+            className="text-base px-5 py-2.5 rounded-xl text-white font-semibold shadow-md
+                       bg-gradient-to-r from-[hsl(var(--primary))] to-violet-500
+                       hover:shadow-lg hover:opacity-95 transition-all
+                       disabled:opacity-50 flex items-center gap-2"
           >
-            <Sparkles size={14} /> {autoCatRunning ? "Running…" : "Auto-Categorize"}
+            <Sparkles size={18} /> {autoCatRunning ? "Running…" : "Apply Rules to All Transactions"}
           </button>
           <button
             onClick={exportCsv}
@@ -466,7 +470,7 @@ export default function TransactionsPage() {
           style={{ border: "1px solid hsl(var(--primary)/0.35)", backgroundColor: "hsl(var(--primary)/0.06)" }}>
           <span className="text-base leading-none mt-0.5">↔️</span>
           <p className="flex-1 text-[hsl(var(--muted-foreground))]">
-            <strong className="text-[hsl(var(--foreground))]">Transfers</strong> is not spending or income - {TRANSFER_DISCLAIMER_TEXT}
+            <strong className="text-[hsl(var(--foreground))]">Transfers</strong> and <strong className="text-[hsl(var(--foreground))]">Excluded</strong> aren't spending or income - {EXCLUSION_DISCLAIMER_TEXT}
           </p>
           <div className="flex gap-2 shrink-0">
             <button onClick={dismissTransferNoticeForever}
@@ -555,7 +559,7 @@ export default function TransactionsPage() {
               <option value="uncategorized">Uncategorized</option>
               <CategoryOptions categories={categories.filter((c) => c.id !== 15)} />
             </select>
-            <InfoTooltip text={TRANSFER_DISCLAIMER_TEXT} />
+            <InfoTooltip text={EXCLUSION_DISCLAIMER_TEXT} />
 
             {/* Account */}
             <select
@@ -623,11 +627,15 @@ export default function TransactionsPage() {
       {!loading && rows.length > 0 && (
         <div className="grid grid-cols-3 gap-3 mb-4">
           <div className="border rounded-xl px-4 py-3 text-center">
-            <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-1">Income</p>
+            <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-1 flex items-center justify-center gap-1">
+              Income <InfoTooltip text={EXCLUSION_DISCLAIMER_TEXT} />
+            </p>
             <p className="text-lg font-bold text-green-600">{formatCurrency(totalIncome)}</p>
           </div>
           <div className="border rounded-xl px-4 py-3 text-center">
-            <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-1">Expenses</p>
+            <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-1 flex items-center justify-center gap-1">
+              Expenses <InfoTooltip text={EXCLUSION_DISCLAIMER_TEXT} />
+            </p>
             <p className="text-lg font-bold text-red-500">{formatCurrency(Math.abs(totalExpenses))}</p>
           </div>
           <div className="border rounded-xl px-4 py-3 text-center">
@@ -784,8 +792,8 @@ export default function TransactionsPage() {
                 {autoCatError
                   ? <span className="text-red-500">Error: {autoCatError}</span>
                   : autoCatResult!.updated === 0
-                    ? "No uncategorized transactions matched any rule."
-                    : <><strong>{autoCatResult!.updated}</strong> transaction{autoCatResult!.updated !== 1 ? "s" : ""} categorized.</>
+                    ? "No transactions matched any rule to recategorize."
+                    : <><strong>{autoCatResult!.updated}</strong> transaction{autoCatResult!.updated !== 1 ? "s" : ""} recategorized using your current rules.</>
                 }
               </span>
               <button
