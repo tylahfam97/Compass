@@ -21,6 +21,7 @@ import InfoTooltip from "@/components/InfoTooltip";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import SpotlightCard from "@/components/SpotlightCard";
 import PinModal from "@/components/PinModal";
+import DebtPayoffModal from "@/components/DebtPayoffModal";
 
 const ROI_SECTION_LABELS: Record<SecurityType, string> = {
   stock: "Stocks", etf: "ETFs", mutual_fund: "Mutual Funds", cash: "Cash", other: "Other",
@@ -44,11 +45,12 @@ function CountUp({ value, format }: { value: number; format: (v: number) => stri
 
 /** Small standalone benchmark-based score card (Credit Card Health / Investment Health). */
 function MiniScoreCard({
-  label, score, infoText,
+  label, score, infoText, onClick,
 }: {
   label: string;
   score: CreditCardHealthScore | InvestmentHealthScore | null;
   infoText: string;
+  onClick?: () => void;
 }) {
   if (!score || !score.hasData) {
     return (
@@ -59,7 +61,11 @@ function MiniScoreCard({
     );
   }
   return (
-    <div className="border rounded-2xl p-4" style={{ borderColor: score.color + "40" }}>
+    <div
+      onClick={onClick}
+      className={`border rounded-2xl p-4 ${onClick ? "cursor-pointer hover:shadow-md transition-shadow" : ""}`}
+      style={{ borderColor: score.color + "40" }}
+    >
       <div className="flex items-center justify-between mb-1">
         <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: score.color }}>{label}</p>
         <InfoTooltip text={infoText} />
@@ -71,6 +77,9 @@ function MiniScoreCard({
         <span className="text-xs font-semibold text-[hsl(var(--muted-foreground))]">{score.grade}</span>
       </div>
       <p className="text-[10px] text-[hsl(var(--muted-foreground))] mt-1.5 leading-snug">{score.detail}</p>
+      {onClick && (
+        <p className="text-[10px] font-medium mt-2" style={{ color: score.color }}>See your payoff plan →</p>
+      )}
     </div>
   );
 }
@@ -536,7 +545,7 @@ function rankLoans(loans: DebtEntry[], method: LoanRankMethod): RankedLoan[] {
   return [...rankableLoans, ...unrankable];
 }
 
-function LoanDashboardCard({ loans }: { loans: DebtEntry[] }) {
+function LoanDashboardCard({ loans, onSelectLoan }: { loans: DebtEntry[]; onSelectLoan: (loan: DebtEntry) => void }) {
   const [method, setMethod] = useState<LoanRankMethod>("avalanche");
   const hasAnyRate = loans.some((l) => l.interest_rate_bps != null);
   const hasAnyPayment = loans.some((l) => l.minimum_payment_cents != null);
@@ -591,7 +600,11 @@ function LoanDashboardCard({ loans }: { loans: DebtEntry[] }) {
 
         <div className="space-y-1.5 mb-4">
           {ranked.map((loan, i) => (
-            <div key={loan.id} className={`flex items-center gap-3 border rounded-lg px-3 py-2 ${!loan.rankable ? "opacity-50" : ""}`}>
+            <div
+              key={loan.id}
+              onClick={() => onSelectLoan(loan)}
+              className={`flex items-center gap-3 border rounded-lg px-3 py-2 cursor-pointer hover:bg-[hsl(var(--muted))] transition-colors ${!loan.rankable ? "opacity-50" : ""}`}
+            >
               <span className="text-xs font-bold w-5 text-center shrink-0 text-[hsl(var(--muted-foreground))]">
                 {loan.rankable ? i + 1 : "—"}
               </span>
@@ -620,6 +633,10 @@ function LoanDashboardCard({ loans }: { loans: DebtEntry[] }) {
             Add an interest rate to your loans (via "Add a Statement") to rank them by avalanche priority.
           </p>
         )}
+
+        <p className="text-[11px] text-[hsl(var(--muted-foreground))] mb-3">
+          Click any account above for a personalized payoff plan - most aggressive, balanced, or at your current pace.
+        </p>
 
         <div className="rounded-xl p-3 bg-[hsl(var(--muted))]/40 flex items-start gap-2">
           <Info size={13} className="shrink-0 mt-0.5 text-[hsl(var(--muted-foreground))]" />
@@ -780,6 +797,7 @@ export default function AgentPage() {
   const [investmentScore, setInvestmentScore]   = useState<InvestmentHealthScore | null>(null);
   const [topRoi, setTopRoi]                     = useState<Partial<Record<SecurityType, TopRoiHolding[]>>>({});
   const [loans, setLoans]                       = useState<DebtEntry[]>([]);
+  const [payoffModal, setPayoffModal] = useState<{ debts: DebtEntry[]; title: string; subtitle?: string } | null>(null);
 
   const [sectExpanded, setSectExpanded] = useState<{ trends: boolean; subs: boolean; topRoi: boolean }>(() => {
     try { const s = localStorage.getItem("compass_insight_sections"); return s ? JSON.parse(s) : { trends: false, subs: false, topRoi: false }; }
@@ -1083,6 +1101,18 @@ export default function AgentPage() {
           />
         )}
       </AnimatePresence>
+      <AnimatePresence>
+        {payoffModal && (
+          <DebtPayoffModal
+            key="debt-payoff-modal"
+            profileIds={scopeIds}
+            debts={payoffModal.debts}
+            title={payoffModal.title}
+            subtitle={payoffModal.subtitle}
+            onClose={() => setPayoffModal(null)}
+          />
+        )}
+      </AnimatePresence>
       {PageHeader}
 
       <div className="p-8 max-w-4xl space-y-6 mx-auto w-full">
@@ -1151,6 +1181,11 @@ export default function AgentPage() {
               label="Credit Card Health"
               score={creditScore}
               infoText="Scored against the average American's ~$6,000 credit card balance, with a small bonus or penalty depending on whether your balance shrank or grew this month."
+              onClick={loans.length > 0 ? () => setPayoffModal({
+                debts: loans,
+                title: "Your Debt Payoff Plan",
+                subtitle: `${loans.length} account${loans.length !== 1 ? "s" : ""} \u2022 ${formatCurrency(-loans.reduce((s, l) => s + Math.abs(l.balance_cents ?? 0), 0))} total debt`,
+              }) : undefined}
             />
             <MiniScoreCard
               label="Investment Health"
@@ -1163,7 +1198,14 @@ export default function AgentPage() {
         {/* ── Debt Payoff Dashboard (loans + credit cards) ── */}
         {loans.length > 0 && (
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.09 }}>
-            <LoanDashboardCard loans={loans} />
+            <LoanDashboardCard
+              loans={loans}
+              onSelectLoan={(loan) => setPayoffModal({
+                debts: [loan],
+                title: `${loan.name} Payoff Plan`,
+                subtitle: `${loan.debtKind === "credit" ? "Credit Card" : "Loan"} \u2022 ${formatCurrency(loan.balance_cents ?? 0)} balance`,
+              })}
+            />
           </motion.div>
         )}
 

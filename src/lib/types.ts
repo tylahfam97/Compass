@@ -227,3 +227,40 @@ export interface InvestmentHealthScore extends MiniHealthScore {
   returnPct: number | null;
   benchmarkPct: number;
 }
+
+/** One discretionary spending category feeding a debt-payoff plan's "what can be cut"
+ *  breakdown - average monthly spend over the observed history window. */
+export interface DebtPayoffCategoryBreakdown {
+  categoryId: number;
+  name: string;
+  color: string;
+  avgMonthlyCents: number;
+}
+
+/** One of the three payoff strategies shown side-by-side in the Debt Payoff modal. */
+export interface DebtPayoffScenario {
+  key: "minimum" | "balanced" | "aggressive";
+  label: string;
+  /** Extra monthly cents redirected toward debt on top of minimum payments. */
+  extraMonthlyCents: number;
+  /** Months until every debt in the plan reaches $0, or null if minimum payments don't
+   *  even cover interest at the current pace (would never pay off on its own). */
+  monthsToPayoff: number | null;
+  /** "Mon YYYY" formatted projected debt-free date, or null if monthsToPayoff is null. */
+  payoffDate: string | null;
+  totalInterestCents: number;
+  totalPaidCents: number;
+  /** Discretionary money left over each month under this scenario (not redirected to debt). */
+  cushionCents: number;
+}
+
+export interface DebtPayoffPlan {
+  totalDebtCents: number;
+  weightedAvgRateBps: number | null;
+  hasRateData: boolean;
+  totalMinPaymentCents: number;
+  discretionaryBreakdown: DebtPayoffCategoryBreakdown[];
+  discretionaryTotalCents: number;
+  monthsOfHistory: number;
+  scenarios: DebtPayoffScenario[];
+}

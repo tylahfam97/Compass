@@ -1,5 +1,5 @@
 import { getDb, getLoanAccountsForProfile, getCreditAccountsForProfile } from "./db";
-import type { Insight, HealthScore, CreditCardHealthScore } from "./types";
+import type { Insight, HealthScore, CreditCardHealthScore, DebtPayoffPlan, DebtPayoffScenario, DebtPayoffCategoryBreakdown } from "./types";
 import { computeNetWorth, computeInvestmentReturn } from "./netWorth";
 import { AVG_US_CREDIT_CARD_DEBT_CENTS, AVG_US_MARKET_RETURN_PCT, scoreGrade } from "./benchmarks";
 
@@ -1455,4 +1455,186 @@ export async function computeCreditCardHealthScore(profileIds: number[]): Promis
     : `${formatCents(debtAbs)} owed vs the ~${formatCents(benchmarkCents)} national average`;
 
   return { score, hasData: true, grade, label, color, detail, debtCents, benchmarkCents };
+}
+
+// ─── Debt Payoff Plan ──────────────────────────────────────────────────────────
+// Feeds the "Debt Payoff" modal (Agent tab) - given one or more debts (loans and/or
+// credit cards), simulates three payoff strategies side by side: keep paying minimums
+// only, redirect half of discretionary spending, or redirect all of it. Discretionary
+// spend is estimated from a fixed set of "cuttable" system categories - these are the
+// same kinds of categories flagged as non-essential elsewhere in the app (subscriptions,
+// entertainment, shopping, etc.) - averaged over the last 3 months of history.
+const DISCRETIONARY_CATEGORY_IDS = [6, 7, 8, 17, 21, 24, 28]; // Entertainment, Shopping,
+// Personal Care, Subscriptions, Gifts & Donations, Gambling, Travel
+
+interface DebtPayoffInput {
+  id: number;
+  balance_cents: number | null;
+  interest_rate_bps: number | null;
+  minimum_payment_cents: number | null;
+}
+
+/** A credit card with no minimum on file defaults to the standard "2% of balance or $25,
+ *  whichever is greater" formula most issuers use; a loan with no minimum on file just uses
+ *  the same floor as a conservative stand-in until the user records a real payment amount. */
+function effectiveMinPaymentCents(balanceCents: number, minimumPaymentCents: number | null): number {
+  if (minimumPaymentCents != null && minimumPaymentCents > 0) return minimumPaymentCents;
+  return Math.max(2500, Math.round(balanceCents * 0.02));
+}
+
+interface SimDebt { id: number; balance: number; monthlyRate: number; minPayment: number; }
+
+/** Month-by-month avalanche simulation (highest rate first, freed-up minimums roll into the
+ *  next-priority debt once a debt hits $0 - the standard debt "snowball rolling" behavior).
+ *  Returns null months if minimum payments (plus any extra) never fully pay off every debt
+ *  within 50 years - i.e. the payment doesn't outpace interest at that rate. */
+function simulateDebtPayoff(debts: SimDebt[], extraMonthlyCents: number): {
+  months: number | null;
+  totalInterestCents: number;
+  totalPaidCents: number;
+} {
+  const MAX_MONTHS = 600; // 50-year safety cap
+  const working = debts.map((d) => ({ ...d }));
+  const priorityOrder = [...working]
+    .sort((a, b) => b.monthlyRate - a.monthlyRate || a.balance - b.balance)
+    .map((d) => d.id);
+
+  let totalInterest = 0;
+  let totalPaid = 0;
+  let months = 0;
+
+  while (working.some((d) => d.balance > 0.5) && months < MAX_MONTHS) {
+    months++;
+    for (const d of working) {
+      if (d.balance <= 0) continue;
+      const interest = d.balance * d.monthlyRate;
+      d.balance += interest;
+      totalInterest += interest;
+    }
+    for (const d of working) {
+      if (d.balance <= 0) continue;
+      const pay = Math.min(d.minPayment, d.balance);
+      d.balance -= pay;
+      totalPaid += pay;
+    }
+    // Minimums freed up by debts that just hit $0 roll into this month's extra pool too.
+    const freedMinimums = working.filter((d) => d.balance <= 0).reduce((s, d) => s + d.minPayment, 0);
+    let pool = extraMonthlyCents + freedMinimums;
+    for (const id of priorityOrder) {
+      if (pool <= 0) break;
+      const d = working.find((x) => x.id === id)!;
+      if (d.balance <= 0) continue;
+      const pay = Math.min(pool, d.balance);
+      d.balance -= pay;
+      totalPaid += pay;
+      pool -= pay;
+    }
+  }
+
+  const solved = working.every((d) => d.balance <= 0);
+  return {
+    months: solved ? months : null,
+    totalInterestCents: Math.round(totalInterest),
+    totalPaidCents: Math.round(totalPaid),
+  };
+}
+
+function payoffDateFromMonths(months: number | null): string | null {
+  if (months == null) return null;
+  const d = new Date();
+  d.setMonth(d.getMonth() + months);
+  return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+}
+
+/** Builds the three-scenario debt payoff plan (minimum / balanced / aggressive) for a given
+ *  set of debts (loans and/or credit cards, one or many). Called both for the combined "all
+ *  debts" plan (Credit Card Health card) and a single-account plan (clicking one row on the
+ *  Debt Payoff Dashboard) - the caller decides scope by which debts it passes in. */
+export async function computeDebtPayoffPlan(profileIds: number[], debts: DebtPayoffInput[]): Promise<DebtPayoffPlan> {
+  const db = await getDb();
+  const ph = profileIds.map(() => "?").join(",");
+
+  const totalDebtCents = debts.reduce((s, d) => s + Math.abs(d.balance_cents ?? 0), 0);
+
+  const withRate = debts.filter((d) => d.interest_rate_bps != null && (d.balance_cents ?? 0) !== 0);
+  const ratedBalanceTotal = withRate.reduce((s, d) => s + Math.abs(d.balance_cents ?? 0), 0);
+  const weightedAvgRateBps = ratedBalanceTotal > 0
+    ? Math.round(withRate.reduce((s, d) => s + Math.abs(d.balance_cents ?? 0) * d.interest_rate_bps!, 0) / ratedBalanceTotal)
+    : null;
+  const hasRateData = withRate.length > 0;
+
+  const simDebts: SimDebt[] = debts
+    .filter((d) => (d.balance_cents ?? 0) !== 0)
+    .map((d) => {
+      const balance = Math.abs(d.balance_cents ?? 0);
+      const rateBps = d.interest_rate_bps ?? weightedAvgRateBps ?? 0;
+      return {
+        id: d.id,
+        balance,
+        monthlyRate: rateBps / 120000, // bps -> annual fraction (÷10000) -> monthly (÷12)
+        minPayment: effectiveMinPaymentCents(balance, d.minimum_payment_cents),
+      };
+    });
+  const totalMinPaymentCents = simDebts.reduce((s, d) => s + d.minPayment, 0);
+
+  // ── Discretionary spending: average over the last 3 full months (excluding the current
+  //    partial month), so a mid-month snapshot doesn't understate a category's true average.
+  const now = new Date();
+  const threeAgo = (() => { const d = new Date(now); d.setMonth(d.getMonth() - 3); d.setDate(1); return d.toISOString().split("T")[0]; })();
+  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+
+  const [monthsRow] = await db.select<{ n: number }[]>(
+    `SELECT COUNT(DISTINCT strftime('%Y-%m', date)) as n FROM transactions WHERE profile_id IN (${ph}) AND date>=? AND date<?`,
+    [...profileIds, threeAgo, monthStart]
+  );
+  const monthsOfHistory = Math.max(1, monthsRow?.n ?? 1);
+
+  const discRows = await db.select<{ category_id: number; name: string; color: string; total: number }[]>(
+    `SELECT t.category_id, c.name, c.color, SUM(ABS(t.amount_cents)) as total
+     FROM transactions t JOIN categories c ON t.category_id=c.id
+     WHERE t.profile_id IN (${ph}) AND t.amount_cents<0 AND t.date>=? AND t.date<?
+       AND t.category_id IN (${DISCRETIONARY_CATEGORY_IDS.join(",")})
+     GROUP BY t.category_id
+     ORDER BY total DESC`,
+    [...profileIds, threeAgo, monthStart]
+  );
+  const discretionaryBreakdown: DebtPayoffCategoryBreakdown[] = discRows.map((r) => ({
+    categoryId: r.category_id,
+    name: r.name,
+    color: r.color,
+    avgMonthlyCents: Math.round(r.total / monthsOfHistory),
+  }));
+  const discretionaryTotalCents = discretionaryBreakdown.reduce((s, c) => s + c.avgMonthlyCents, 0);
+
+  const scenarioDefs: { key: DebtPayoffScenario["key"]; label: string; pct: number }[] = [
+    { key: "minimum",    label: "Stay the Course",  pct: 0 },
+    { key: "balanced",   label: "Balanced Cushion", pct: 0.5 },
+    { key: "aggressive", label: "Most Aggressive",  pct: 1 },
+  ];
+
+  const scenarios: DebtPayoffScenario[] = scenarioDefs.map(({ key, label, pct }) => {
+    const extraMonthlyCents = Math.round(discretionaryTotalCents * pct);
+    const { months, totalInterestCents, totalPaidCents } = simulateDebtPayoff(simDebts, extraMonthlyCents);
+    return {
+      key,
+      label,
+      extraMonthlyCents,
+      monthsToPayoff: months,
+      payoffDate: payoffDateFromMonths(months),
+      totalInterestCents,
+      totalPaidCents,
+      cushionCents: discretionaryTotalCents - extraMonthlyCents,
+    };
+  });
+
+  return {
+    totalDebtCents,
+    weightedAvgRateBps,
+    hasRateData,
+    totalMinPaymentCents,
+    discretionaryBreakdown,
+    discretionaryTotalCents,
+    monthsOfHistory,
+    scenarios,
+  };
 }
