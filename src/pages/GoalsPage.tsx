@@ -160,7 +160,7 @@ export default function GoalsPage() {
           const [r] = await db.select<{ v: number }[]>(
             `SELECT COALESCE(SUM(CASE WHEN a.account_type='credit' AND t.amount_cents>0 THEN 0 ELSE t.amount_cents END),0) as v
              FROM transactions t JOIN accounts a ON a.id=t.account_id
-             WHERE t.date>=? AND t.date<? AND t.profile_id=? AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type!='loan'`,
+             WHERE t.date>=? AND t.date<? AND t.profile_id=? AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type!='loan'`,
             [start, end, profileId]
           );
           current = r?.v ?? 0;
@@ -171,7 +171,7 @@ export default function GoalsPage() {
             ? [start, end, profileId, g.category_id]
             : [start, end, profileId];
           const [r] = await db.select<{ v: number }[]>(
-            `SELECT COALESCE(SUM(ABS(amount_cents)),0) as v FROM transactions WHERE date>=? AND date<? AND profile_id=? AND amount_cents<0 AND (category_id IS NULL OR category_id!=20)${extra}`,
+            `SELECT COALESCE(SUM(ABS(amount_cents)),0) as v FROM transactions WHERE date>=? AND date<? AND profile_id=? AND amount_cents<0 AND (category_id IS NULL OR category_id NOT IN (20,29))${extra}`,
             params
           );
           current = r?.v ?? 0;
@@ -193,8 +193,8 @@ export default function GoalsPage() {
           const [r] = await db.select<{ v: number }[]>(
             `SELECT COALESCE(SUM(net),0) as v FROM (
                SELECT strftime('%Y-%m',t.date) as mo,
-                 SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END)
-                 - SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as net
+                 SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END)
+                 - SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) THEN ABS(t.amount_cents) ELSE 0 END) as net
                FROM transactions t JOIN accounts a ON a.id=t.account_id
                WHERE t.profile_id=? AND t.date>=?
                GROUP BY mo
@@ -248,8 +248,8 @@ export default function GoalsPage() {
             const [ms, me] = monthBounds(mo);
             const [r] = await db.select<{ income: number; expenses: number }[]>(
               `SELECT
-                 COALESCE(SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END),0) as income,
-                 COALESCE(SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END),0) as expenses
+                 COALESCE(SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END),0) as income,
+                 COALESCE(SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) THEN ABS(t.amount_cents) ELSE 0 END),0) as expenses
                FROM transactions t JOIN accounts a ON a.id=t.account_id
                WHERE t.profile_id=? AND t.date>=? AND t.date<?`,
               [profileId, ms, me]

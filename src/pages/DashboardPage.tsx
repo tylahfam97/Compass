@@ -13,11 +13,13 @@ import {
 import { seedDemoData } from "@/lib/demoData";
 import { formatCurrency, formatDate, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
 import type { Transaction, Insight } from "@/lib/types";
+import { EXCLUSION_DISCLAIMER_TEXT } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
 import { generateInsights } from "@/lib/agent";
 import InsightCard from "@/components/InsightCard";
 import LoanUploaderModal from "@/components/LoanUploaderModal";
+import InfoTooltip from "@/components/InfoTooltip";
 import AccountDetailModal, { type AccountDetailAccount } from "@/components/AccountDetailModal";
 import { Skeleton, CardListSkeleton } from "@/components/Skeleton";
 
@@ -43,6 +45,8 @@ interface CreditAccountMeta {
   hidden: boolean;
   /** Credit cards only (optional, entered on import) - null for bank accounts. */
   interestRateBps: number | null;
+  /** Credit cards only (optional, entered on import) - null for bank accounts. */
+  minimumPaymentCents: number | null;
   /** The account's true latest known balance, independent of the selected month - the tile's
    *  headline number must never depend on whether the current month happens to have any
    *  activity/statement for this account (see loadData for why). */
@@ -122,18 +126,18 @@ export default function DashboardPage() {
     const [incRow, expRow, catRows, recentRows, monthCountRow, totalCountRow, balanceRow, balancePointRows, portfolioRow, balanceAcctRows, demoAcctRow] = await Promise.all([
       db.select<{ total: number }[]>(
         `SELECT COALESCE(SUM(t.amount_cents),0) as total FROM transactions t JOIN accounts a ON a.id=t.account_id
-         WHERE t.date>=? AND t.date<? AND t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') AND t.profile_id=?`,
+         WHERE t.date>=? AND t.date<? AND t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') AND t.profile_id=?`,
         [start, end, profileId]
       ),
       db.select<{ total: number }[]>(
-        "SELECT COALESCE(SUM(amount_cents),0) as total FROM transactions WHERE date>=? AND date<? AND amount_cents<0 AND (category_id IS NULL OR category_id!=20) AND profile_id=?",
+        "SELECT COALESCE(SUM(amount_cents),0) as total FROM transactions WHERE date>=? AND date<? AND amount_cents<0 AND (category_id IS NULL OR category_id NOT IN (20,29)) AND profile_id=?",
         [start, end, profileId]
       ),
       db.select<{ categoryId: number | null; name: string; color: string; total: number }[]>(
         `SELECT t.category_id as categoryId, c.name, c.color, SUM(t.amount_cents) as total
          FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
          WHERE t.date>=? AND t.date<? AND t.amount_cents<0 AND t.profile_id=?
-           AND (t.category_id IS NULL OR t.category_id != 20)
+           AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
          GROUP BY t.category_id ORDER BY total ASC LIMIT 7`,
         [start, end, profileId]
       ),
@@ -168,8 +172,8 @@ export default function DashboardPage() {
          WHERE profile_id=? AND as_of_date=(SELECT MAX(as_of_date) FROM holdings WHERE profile_id=?)`,
         [profileId, profileId]
       ),
-      db.select<{ id: number; name: string; account_type: string; hidden_from_dashboard: number; interest_rate_bps: number | null }[]>(
-        "SELECT id, name, account_type, hidden_from_dashboard, interest_rate_bps FROM accounts WHERE profile_id=? AND account_type IN ('checking','credit') ORDER BY account_type, name",
+      db.select<{ id: number; name: string; account_type: string; hidden_from_dashboard: number; interest_rate_bps: number | null; minimum_payment_cents: number | null }[]>(
+        "SELECT id, name, account_type, hidden_from_dashboard, interest_rate_bps, minimum_payment_cents FROM accounts WHERE profile_id=? AND account_type IN ('checking','credit') ORDER BY account_type, name",
         [profileId]
       ),
       db.select<{ n: number }[]>(
@@ -207,7 +211,7 @@ export default function DashboardPage() {
       .filter((a) => a.account_type === "credit")
       .map((a, i) => ({
         id: a.id, name: a.name, color: accountChartColor(i), hidden: !!a.hidden_from_dashboard,
-        interestRateBps: a.interest_rate_bps, balanceCents: latestBalanceById.get(a.id) ?? null,
+        interestRateBps: a.interest_rate_bps, minimumPaymentCents: a.minimum_payment_cents, balanceCents: latestBalanceById.get(a.id) ?? null,
       }));
     setCreditBalanceAccounts(creditAccountsMeta);
     // Checking accounts combine into one line (there's usually just one); credit cards stay
@@ -222,7 +226,7 @@ export default function DashboardPage() {
       .filter((a) => a.account_type === "checking" && !a.hidden_from_dashboard)
       .map((a, i) => ({
         id: a.id, name: a.name, color: accountChartColor(i), hidden: false,
-        interestRateBps: null, balanceCents: latestBalanceById.get(a.id) ?? null,
+        interestRateBps: null, minimumPaymentCents: null, balanceCents: latestBalanceById.get(a.id) ?? null,
       }));
     setBankAccountsMeta(checkingAccountsMeta);
     const separatedChecking = separateAccountBalances(balancePointRows.filter((r) => checkingIds.has(r.account_id)));
@@ -459,7 +463,10 @@ export default function DashboardPage() {
               { label: "Net", value: stats.net, cls: stats.net >= 0 ? "text-green-600" : "text-red-500" },
             ].map(({ label, value, cls }) => (
               <div key={label} className="border rounded-xl p-5">
-                <p className="text-sm text-[hsl(var(--muted-foreground))] mb-1">{label}</p>
+                <p className="text-sm text-[hsl(var(--muted-foreground))] mb-1 flex items-center gap-1">
+                  {label}
+                  {(label === "Income" || label === "Expenses") && <InfoTooltip text={EXCLUSION_DISCLAIMER_TEXT} />}
+                </p>
                 <p className={`text-2xl font-bold ${cls}`}>{formatCurrency(value)}</p>
               </div>
             ))}
@@ -648,7 +655,7 @@ export default function DashboardPage() {
                     <div
                       key={acc.id}
                       className="border rounded-xl p-4 cursor-pointer hover:border-[hsl(var(--primary))] transition-colors"
-                      onClick={() => setViewAccount({ id: acc.id, name: acc.name, accountType: "credit", color: acc.color, balanceCents: lastCents, series, interestRateBps: acc.interestRateBps })}
+                      onClick={() => setViewAccount({ id: acc.id, name: acc.name, accountType: "credit", color: acc.color, balanceCents: lastCents, series, interestRateBps: acc.interestRateBps, minimumPaymentCents: acc.minimumPaymentCents })}
                     >
                       <div className="flex items-center justify-between mb-1 gap-2">
                         <span className="text-sm font-medium flex items-center gap-1.5 min-w-0">

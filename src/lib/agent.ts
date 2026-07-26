@@ -1,5 +1,5 @@
 import { getDb, getLoanAccountsForProfile, getCreditAccountsForProfile } from "./db";
-import type { Insight, HealthScore, CreditCardHealthScore } from "./types";
+import type { Insight, HealthScore, CreditCardHealthScore, DebtPayoffPlan, DebtPayoffScenario, DebtPayoffCategoryBreakdown, RecurringCharge } from "./types";
 import { computeNetWorth, computeInvestmentReturn } from "./netWorth";
 import { AVG_US_CREDIT_CARD_DEBT_CENTS, AVG_US_MARKET_RETURN_PCT, scoreGrade } from "./benchmarks";
 
@@ -87,8 +87,8 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     expenses: number;
   }[]>(
     `SELECT strftime('%Y-%m', t.date) as month,
-            SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income,
-            SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+            SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income,
+            SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN ABS(t.amount_cents) ELSE 0 END) as expenses
      FROM transactions t JOIN accounts a ON a.id=t.account_id
      WHERE t.profile_id=? AND a.excluded_from_insights=0 GROUP BY month ORDER BY month DESC LIMIT 12`,
     [profileId]
@@ -123,7 +123,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
        SELECT category_id, strftime('%Y-%m', date) as month, SUM(ABS(amount_cents)) as monthly_total
        FROM transactions
        WHERE profile_id=? AND amount_cents<0
-         AND (category_id IS NULL OR category_id != 20)
+         AND (category_id IS NULL OR category_id NOT IN (20,29))
          AND date >= ?
        GROUP BY category_id, month
      ) t
@@ -141,7 +141,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   }[]>(
     `SELECT category_id, SUM(ABS(amount_cents)) as total
      FROM transactions WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0
-       AND (category_id IS NULL OR category_id != 20)
+       AND (category_id IS NULL OR category_id NOT IN (20,29))
      GROUP BY category_id`,
     [profileId, thisStart, thisEnd]
   );
@@ -315,25 +315,14 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   }
 
   // ── INSIGHT: ghost_subscription ──────────────────────────────────────────
-  const subs = await db.select<{
-    description: string;
-    amount_cents: number;
-    month_count: number;
-  }[]>(
-    `SELECT description, amount_cents, COUNT(DISTINCT strftime('%Y-%m', date)) as month_count
-     FROM transactions WHERE profile_id=? AND amount_cents<0
-       AND (category_id IS NULL OR category_id != 20)
-     GROUP BY description, amount_cents HAVING month_count>=2
-     ORDER BY month_count DESC, ABS(amount_cents) DESC LIMIT 5`,
-    [profileId]
-  );
+  const subs = (await detectRecurringCharges([profileId])).slice(0, 5);
   for (const sub of subs) {
     const annualised = Math.abs(sub.amount_cents) * 12;
     insights.push({
       id: `ghost_sub_${sub.description.slice(0, 20)}`,
       type: "ghost_subscription",
       title: `Recurring charge: ${truncate(sub.description, 30)}`,
-      description: `${formatCents(Math.abs(sub.amount_cents))}/mo detected ${sub.month_count} times — ${formatCents(annualised)}/year.`,
+      description: `${formatCents(Math.abs(sub.amount_cents))}/mo on the ${sub.patternLabel}, ${sub.month_count} months running — ${formatCents(annualised)}/year.`,
       severity: "info",
       dismissKey: `ghost_sub_${sub.description.slice(0, 20)}`,
     });
@@ -353,7 +342,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     `SELECT description, COUNT(*) as count, SUM(ABS(amount_cents)) as total
      FROM transactions
      WHERE profile_id=? AND amount_cents<0 AND amount_cents>-1500 AND date>=?
-       AND (category_id IS NULL OR category_id != 20)
+       AND (category_id IS NULL OR category_id NOT IN (20,29))
      GROUP BY description HAVING count>=3
      ORDER BY count DESC LIMIT 3`,
     [profileId, sevenDaysAgo]
@@ -779,7 +768,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
               CAST(AVG(monthly) AS INTEGER) as avg_spend
        FROM (SELECT category_id, strftime('%Y-%m',date) as mo, SUM(ABS(amount_cents)) as monthly
              FROM transactions WHERE profile_id=? AND amount_cents<0 AND date>=?
-               AND (category_id IS NULL OR category_id != 20) AND category_id != 15
+               AND (category_id IS NULL OR category_id NOT IN (20,29)) AND category_id != 15
              GROUP BY category_id, mo) t
        JOIN categories c ON t.category_id=c.id
        GROUP BY t.category_id HAVING COUNT(*)>=2`,
@@ -789,7 +778,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
       `SELECT category_id, CAST(AVG(monthly) AS INTEGER) as avg_spend
        FROM (SELECT category_id, strftime('%Y-%m',date) as mo, SUM(ABS(amount_cents)) as monthly
              FROM transactions WHERE profile_id=? AND amount_cents<0 AND date>=? AND date<?
-               AND (category_id IS NULL OR category_id != 20)
+               AND (category_id IS NULL OR category_id NOT IN (20,29))
              GROUP BY category_id, mo) t
        GROUP BY category_id HAVING COUNT(*)>=2`,
       [profileId, older3Start, older3End]
@@ -845,7 +834,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
       const prevCats = await db.select<{ category_id: number; total: number }[]>(
         `SELECT category_id, SUM(ABS(amount_cents)) as total
          FROM transactions WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0
-           AND (category_id IS NULL OR category_id != 20)
+           AND (category_id IS NULL OR category_id NOT IN (20,29))
          GROUP BY category_id`,
         [profileId, prevStart, prevEnd]
       );
@@ -888,7 +877,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
          SUM(CASE WHEN (CAST(strftime('%w',date) AS INTEGER)+6)%7 <  5 THEN ABS(amount_cents) ELSE 0 END) as weekday
        FROM transactions
        WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0
-         AND (category_id IS NULL OR category_id != 20)`,
+         AND (category_id IS NULL OR category_id NOT IN (20,29))`,
       [profileId, thisStart, thisEnd]
     );
     const weekendTotal = weekendRow?.weekend ?? 0;
@@ -903,7 +892,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
            FROM transactions
            WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0
              AND (CAST(strftime('%w',date) AS INTEGER)+6)%7 >= 5
-             AND (category_id IS NULL OR category_id != 20)
+             AND (category_id IS NULL OR category_id NOT IN (20,29))
            GROUP BY description ORDER BY total DESC LIMIT 1`,
           [profileId, thisStart, thisEnd]
         );
@@ -929,7 +918,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
       const [currentSpendRow] = await db.select<{ total: number }[]>(
         `SELECT COALESCE(SUM(ABS(amount_cents)),0) as total
          FROM transactions WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0
-           AND (category_id IS NULL OR category_id != 20)`,
+           AND (category_id IS NULL OR category_id NOT IN (20,29))`,
         [profileId, thisStart, thisEnd]
       );
       const currentSpend = currentSpendRow?.total ?? 0;
@@ -1205,8 +1194,8 @@ export async function getSpendingProfile(profileIds: number[]): Promise<Spending
   const [summary] = await db.select<{ avg_income: number; avg_expenses: number }[]>(
     `SELECT AVG(income) as avg_income, AVG(expenses) as avg_expenses
      FROM (
-       SELECT SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income,
-              SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+       SELECT SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income,
+              SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN ABS(t.amount_cents) ELSE 0 END) as expenses
        FROM transactions t JOIN accounts a ON a.id=t.account_id
        WHERE t.profile_id IN (${ph}) AND t.date>=? AND a.excluded_from_insights=0
        GROUP BY strftime('%Y-%m', t.date)
@@ -1219,7 +1208,7 @@ export async function getSpendingProfile(profileIds: number[]): Promise<Spending
      FROM (
        SELECT category_id, SUM(ABS(amount_cents)) as monthly_spend
        FROM transactions WHERE profile_id IN (${ph}) AND amount_cents<0 AND date>=?
-         AND (category_id IS NULL OR category_id!=20)
+         AND (category_id IS NULL OR category_id NOT IN (20,29))
        GROUP BY category_id, strftime('%Y-%m', date)
      ) t JOIN categories c ON t.category_id=c.id
      WHERE c.id != 15
@@ -1257,8 +1246,8 @@ export async function getSavingsHistory(
   })();
   const rows = await db.select<{ month: string; income: number; expenses: number }[]>(
     `SELECT strftime('%Y-%m', t.date) as month,
-            SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income,
-            SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+            SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income,
+            SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN ABS(t.amount_cents) ELSE 0 END) as expenses
      FROM transactions t JOIN accounts a ON a.id=t.account_id
      WHERE t.profile_id IN (${ph}) AND t.date>=? AND a.excluded_from_insights=0
      GROUP BY month ORDER BY month`,
@@ -1302,8 +1291,8 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
   // already covered by the separate Credit Card Health score ──────────────
   const srRows = await db.select<{ income: number; expenses: number }[]>(
     `SELECT
-       SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income,
-       SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+       SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income,
+       SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN ABS(t.amount_cents) ELSE 0 END) as expenses
      FROM transactions t JOIN accounts a ON a.id=t.account_id
      WHERE t.profile_id IN (${ph}) AND t.date>=? AND a.excluded_from_insights=0
      GROUP BY strftime('%Y-%m', t.date) LIMIT 3`,
@@ -1350,7 +1339,7 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
     const [expRow] = await db.select<{ avg_exp: number }[]>(
       `SELECT AVG(me) as avg_exp FROM (
          SELECT SUM(ABS(amount_cents)) as me FROM transactions
-         WHERE profile_id IN (${ph}) AND amount_cents<0 AND (category_id IS NULL OR category_id!=20) AND date>=?
+         WHERE profile_id IN (${ph}) AND amount_cents<0 AND (category_id IS NULL OR category_id NOT IN (20,29)) AND date>=?
          GROUP BY strftime('%Y-%m', date))`,
       [...profileIds, threeAgo]
     );
@@ -1363,7 +1352,7 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
 
   // ── 4. Income Stability (10 pts) — 6-month variance ───────────────────
   const incRows = await db.select<{ income: number }[]>(
-    `SELECT SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income
+    `SELECT SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income
      FROM transactions t JOIN accounts a ON a.id=t.account_id
      WHERE t.profile_id IN (${ph}) AND t.date>=? AND a.excluded_from_insights=0
      GROUP BY strftime('%Y-%m', t.date)`,
@@ -1455,4 +1444,334 @@ export async function computeCreditCardHealthScore(profileIds: number[]): Promis
     : `${formatCents(debtAbs)} owed vs the ~${formatCents(benchmarkCents)} national average`;
 
   return { score, hasData: true, grade, label, color, detail, debtCents, benchmarkCents };
+}
+
+// ─── Debt Payoff Plan ──────────────────────────────────────────────────────────
+// Feeds the "Debt Payoff" modal (Agent tab) - given one or more debts (loans and/or
+// credit cards), simulates three payoff strategies side by side: keep paying minimums
+// only, redirect half of discretionary spending, or redirect all of it. Discretionary
+// spend is estimated from a fixed set of "cuttable" system categories - these are the
+// same kinds of categories flagged as non-essential elsewhere in the app (subscriptions,
+// entertainment, shopping, etc.) - averaged over the last 3 months of history.
+const DISCRETIONARY_CATEGORY_IDS = [6, 7, 8, 17, 21, 24, 28]; // Entertainment, Shopping,
+// Personal Care, Subscriptions, Gifts & Donations, Gambling, Travel
+
+interface DebtPayoffInput {
+  id: number;
+  balance_cents: number | null;
+  interest_rate_bps: number | null;
+  minimum_payment_cents: number | null;
+}
+
+/** A credit card with no minimum on file defaults to the standard "2% of balance or $25,
+ *  whichever is greater" formula most issuers use; a loan with no minimum on file just uses
+ *  the same floor as a conservative stand-in until the user records a real payment amount. */
+function effectiveMinPaymentCents(balanceCents: number, minimumPaymentCents: number | null): number {
+  if (minimumPaymentCents != null && minimumPaymentCents > 0) return minimumPaymentCents;
+  return Math.max(2500, Math.round(balanceCents * 0.02));
+}
+
+interface SimDebt { id: number; balance: number; monthlyRate: number; minPayment: number; }
+
+/** Month-by-month avalanche simulation (highest rate first, freed-up minimums roll into the
+ *  next-priority debt once a debt hits $0 - the standard debt "snowball rolling" behavior).
+ *  Returns null months if minimum payments (plus any extra) never fully pay off every debt
+ *  within 50 years - i.e. the payment doesn't outpace interest at that rate. */
+function simulateDebtPayoff(debts: SimDebt[], extraMonthlyCents: number): {
+  months: number | null;
+  totalInterestCents: number;
+  totalPaidCents: number;
+} {
+  const MAX_MONTHS = 600; // 50-year safety cap
+  const working = debts.map((d) => ({ ...d }));
+  const priorityOrder = [...working]
+    .sort((a, b) => b.monthlyRate - a.monthlyRate || a.balance - b.balance)
+    .map((d) => d.id);
+
+  let totalInterest = 0;
+  let totalPaid = 0;
+  let months = 0;
+
+  while (working.some((d) => d.balance > 0.5) && months < MAX_MONTHS) {
+    months++;
+    for (const d of working) {
+      if (d.balance <= 0) continue;
+      const interest = d.balance * d.monthlyRate;
+      d.balance += interest;
+      totalInterest += interest;
+    }
+    for (const d of working) {
+      if (d.balance <= 0) continue;
+      const pay = Math.min(d.minPayment, d.balance);
+      d.balance -= pay;
+      totalPaid += pay;
+    }
+    // Minimums freed up by debts that just hit $0 roll into this month's extra pool too.
+    const freedMinimums = working.filter((d) => d.balance <= 0).reduce((s, d) => s + d.minPayment, 0);
+    let pool = extraMonthlyCents + freedMinimums;
+    for (const id of priorityOrder) {
+      if (pool <= 0) break;
+      const d = working.find((x) => x.id === id)!;
+      if (d.balance <= 0) continue;
+      const pay = Math.min(pool, d.balance);
+      d.balance -= pay;
+      totalPaid += pay;
+      pool -= pay;
+    }
+  }
+
+  const solved = working.every((d) => d.balance <= 0);
+  return {
+    months: solved ? months : null,
+    totalInterestCents: Math.round(totalInterest),
+    totalPaidCents: Math.round(totalPaid),
+  };
+}
+
+function payoffDateFromMonths(months: number | null): string | null {
+  if (months == null) return null;
+  const d = new Date();
+  d.setMonth(d.getMonth() + months);
+  return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+}
+
+/** Builds the three-scenario debt payoff plan (minimum / balanced / aggressive) for a given
+ *  set of debts (loans and/or credit cards, one or many). Called both for the combined "all
+ *  debts" plan (Credit Card Health card) and a single-account plan (clicking one row on the
+ *  Debt Payoff Dashboard) - the caller decides scope by which debts it passes in. */
+export async function computeDebtPayoffPlan(profileIds: number[], debts: DebtPayoffInput[]): Promise<DebtPayoffPlan> {
+  const db = await getDb();
+  const ph = profileIds.map(() => "?").join(",");
+
+  const totalDebtCents = debts.reduce((s, d) => s + Math.abs(d.balance_cents ?? 0), 0);
+
+  const withRate = debts.filter((d) => d.interest_rate_bps != null && (d.balance_cents ?? 0) !== 0);
+  const ratedBalanceTotal = withRate.reduce((s, d) => s + Math.abs(d.balance_cents ?? 0), 0);
+  const weightedAvgRateBps = ratedBalanceTotal > 0
+    ? Math.round(withRate.reduce((s, d) => s + Math.abs(d.balance_cents ?? 0) * d.interest_rate_bps!, 0) / ratedBalanceTotal)
+    : null;
+  const hasRateData = withRate.length > 0;
+
+  const simDebts: SimDebt[] = debts
+    .filter((d) => (d.balance_cents ?? 0) !== 0)
+    .map((d) => {
+      const balance = Math.abs(d.balance_cents ?? 0);
+      const rateBps = d.interest_rate_bps ?? weightedAvgRateBps ?? 0;
+      return {
+        id: d.id,
+        balance,
+        monthlyRate: rateBps / 120000, // bps -> annual fraction (÷10000) -> monthly (÷12)
+        minPayment: effectiveMinPaymentCents(balance, d.minimum_payment_cents),
+      };
+    });
+  const totalMinPaymentCents = simDebts.reduce((s, d) => s + d.minPayment, 0);
+
+  // ── Discretionary spending: average over the last 3 full months (excluding the current
+  //    partial month), so a mid-month snapshot doesn't understate a category's true average.
+  //    Restricted to checking/savings accounts only (account_type NOT IN ('credit','loan')) -
+  //    money already spent ON a credit card or loan isn't cash sitting around that can be
+  //    "redirected" to pay down debt; counting it would double-count the same dollars as both
+  //    a debt balance to pay off AND a source of extra payment toward that debt.
+  const now = new Date();
+  const threeAgo = (() => { const d = new Date(now); d.setMonth(d.getMonth() - 3); d.setDate(1); return d.toISOString().split("T")[0]; })();
+  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+
+  const [monthsRow] = await db.select<{ n: number }[]>(
+    `SELECT COUNT(DISTINCT strftime('%Y-%m', t.date)) as n FROM transactions t JOIN accounts a ON a.id=t.account_id
+     WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<? AND a.account_type NOT IN ('credit','loan')`,
+    [...profileIds, threeAgo, monthStart]
+  );
+  const monthsOfHistory = Math.max(1, monthsRow?.n ?? 1);
+
+  const discRows = await db.select<{ category_id: number; name: string; color: string; total: number }[]>(
+    `SELECT t.category_id, c.name, c.color, SUM(ABS(t.amount_cents)) as total
+     FROM transactions t JOIN categories c ON t.category_id=c.id
+     JOIN accounts a ON a.id=t.account_id
+     WHERE t.profile_id IN (${ph}) AND t.amount_cents<0 AND t.date>=? AND t.date<?
+       AND a.account_type NOT IN ('credit','loan')
+       AND t.category_id IN (${DISCRETIONARY_CATEGORY_IDS.join(",")})
+     GROUP BY t.category_id
+     ORDER BY total DESC`,
+    [...profileIds, threeAgo, monthStart]
+  );
+  const discretionaryBreakdown: DebtPayoffCategoryBreakdown[] = discRows.map((r) => ({
+    categoryId: r.category_id,
+    name: r.name,
+    color: r.color,
+    avgMonthlyCents: Math.round(r.total / monthsOfHistory),
+  }));
+  const discretionaryTotalCents = discretionaryBreakdown.reduce((s, c) => s + c.avgMonthlyCents, 0);
+
+  const scenarioDefs: { key: DebtPayoffScenario["key"]; label: string; pct: number }[] = [
+    { key: "minimum",    label: "Stay the Course",  pct: 0 },
+    { key: "balanced",   label: "Balanced Cushion", pct: 0.5 },
+    { key: "aggressive", label: "Most Aggressive",  pct: 1 },
+  ];
+
+  const scenarios: DebtPayoffScenario[] = scenarioDefs.map(({ key, label, pct }) => {
+    const extraMonthlyCents = Math.round(discretionaryTotalCents * pct);
+    const { months, totalInterestCents, totalPaidCents } = simulateDebtPayoff(simDebts, extraMonthlyCents);
+    return {
+      key,
+      label,
+      extraMonthlyCents,
+      monthsToPayoff: months,
+      payoffDate: payoffDateFromMonths(months),
+      totalInterestCents,
+      totalPaidCents,
+      cushionCents: discretionaryTotalCents - extraMonthlyCents,
+    };
+  });
+
+  return {
+    totalDebtCents,
+    weightedAvgRateBps,
+    hasRateData,
+    totalMinPaymentCents,
+    discretionaryBreakdown,
+    discretionaryTotalCents,
+    monthsOfHistory,
+    scenarios,
+  };
+}
+
+// ─── Recurring charge detection ────────────────────────────────────────────────
+// Detects subscriptions/recurring bills by day-of-month OR "Nth weekday of month" cadence
+// (e.g. "3rd Thursday"), anchored to the most recent occurrence of each description and
+// walked backward through STRICTLY CONSECUTIVE calendar months - a charge whose amount drifts
+// slightly (utility bills, variable subscriptions) still gets caught, since matching no longer
+// requires an exact amount, and a charge that lapsed months ago won't still show as "recurring"
+// since the streak has to end at the most recent transaction.
+const RECURRING_DAY_TOLERANCE = 3; // +/- days still considered "the same day of month"
+
+function ordinal(n: number): string {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
+  switch (n % 10) {
+    case 1: return `${n}st`;
+    case 2: return `${n}nd`;
+    case 3: return `${n}rd`;
+    default: return `${n}th`;
+  }
+}
+const RECURRING_WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function dayOfMonthOf(dateStr: string): number { return Number(dateStr.slice(8, 10)); }
+function monthKeyOf(dateStr: string): string { return dateStr.slice(0, 7); }
+function nthWeekdayOf(dateStr: string): { weekday: number; nth: number } {
+  const d = new Date(`${dateStr}T00:00:00`);
+  return { weekday: d.getDay(), nth: Math.ceil(d.getDate() / 7) };
+}
+function shiftMonthKey(ym: string, delta: number): string {
+  const [y, m] = ym.split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+interface RecurringRow {
+  description: string;
+  amount_cents: number;
+  date: string;
+  category_name: string | null;
+  category_color: string | null;
+}
+
+/** Walks backward from the most recent transaction in `rows` (all sharing one description),
+ *  through strictly consecutive months, matching either the anchor's day-of-month (within
+ *  RECURRING_DAY_TOLERANCE days) or its exact "Nth weekday of month" - whichever produces the
+ *  longer streak wins (ties favor day-of-month, since it's the more common/intuitive billing
+ *  cadence). Returns null if the resulting streak is shorter than 2 months. */
+function findRecurringStreak(rows: RecurringRow[]): { txns: RecurringRow[]; mode: "day" | "weekday" } | null {
+  const byMonth = new Map<string, RecurringRow[]>();
+  for (const r of rows) {
+    const mk = monthKeyOf(r.date);
+    if (!byMonth.has(mk)) byMonth.set(mk, []);
+    byMonth.get(mk)!.push(r);
+  }
+  const months = [...byMonth.keys()].sort();
+  if (months.length === 0) return null;
+
+  const lastMonth = months[months.length - 1];
+  const lastMonthTxns = byMonth.get(lastMonth)!.slice().sort((a, b) => a.date.localeCompare(b.date));
+  const anchor = lastMonthTxns[lastMonthTxns.length - 1];
+  const anchorDay = dayOfMonthOf(anchor.date);
+  const anchorNW = nthWeekdayOf(anchor.date);
+
+  const buildStreak = (mode: "day" | "weekday"): RecurringRow[] => {
+    const streak: RecurringRow[] = [anchor];
+    let cursor = lastMonth;
+    for (let i = months.length - 2; i >= 0; i--) {
+      if (months[i] !== shiftMonthKey(cursor, -1)) break; // gap - streak stops here
+      const match = byMonth.get(months[i])!.find((c) => {
+        if (mode === "day") return Math.abs(dayOfMonthOf(c.date) - anchorDay) <= RECURRING_DAY_TOLERANCE;
+        const nw = nthWeekdayOf(c.date);
+        return nw.weekday === anchorNW.weekday && nw.nth === anchorNW.nth;
+      });
+      if (!match) break;
+      streak.unshift(match);
+      cursor = months[i];
+    }
+    return streak;
+  };
+
+  const dayStreak = buildStreak("day");
+  const weekdayStreak = buildStreak("weekday");
+  const [txns, mode] = weekdayStreak.length > dayStreak.length
+    ? [weekdayStreak, "weekday" as const]
+    : [dayStreak, "day" as const];
+  return txns.length >= 2 ? { txns, mode } : null;
+}
+
+function patternLabelFor(anchor: RecurringRow, mode: "day" | "weekday"): string {
+  if (mode === "day") return `${ordinal(dayOfMonthOf(anchor.date))} of the month`;
+  const { weekday, nth } = nthWeekdayOf(anchor.date);
+  return `${ordinal(nth)} ${RECURRING_WEEKDAY_NAMES[weekday]} of the month`;
+}
+
+/** Detects recurring charges (subscriptions, bills) across the given profiles - grouped by
+ *  exact description, then matched on a day-of-month or "Nth weekday of month" cadence with a
+ *  currently-active streak of 2+ consecutive months (see findRecurringStreak above). Returns
+ *  every match sorted by amount descending - the caller decides how much of the list to show
+ *  (the Agent and Reports pages both show the full list, uncapped). */
+export async function detectRecurringCharges(profileIds: number[], monthsBack = 12): Promise<RecurringCharge[]> {
+  const db = await getDb();
+  const ph = profileIds.map(() => "?").join(",");
+  const start = (() => { const d = new Date(); d.setMonth(d.getMonth() - monthsBack); d.setDate(1); return d.toISOString().split("T")[0]; })();
+
+  const rows = await db.select<RecurringRow[]>(
+    `SELECT t.description, t.amount_cents, t.date, c.name as category_name, c.color as category_color
+     FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
+     WHERE t.profile_id IN (${ph}) AND t.amount_cents<0 AND t.date>=?
+       AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
+     ORDER BY t.description, t.date`,
+    [...profileIds, start]
+  );
+
+  const groups = new Map<string, RecurringRow[]>();
+  for (const r of rows) {
+    const key = r.description.trim().toUpperCase();
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(r);
+  }
+
+  const results: RecurringCharge[] = [];
+  for (const groupRows of groups.values()) {
+    const streak = findRecurringStreak(groupRows);
+    if (!streak) continue;
+    const anchor = streak.txns[streak.txns.length - 1];
+    const first = streak.txns[0];
+    results.push({
+      description: anchor.description,
+      amount_cents: anchor.amount_cents,
+      month_count: streak.txns.length,
+      first_seen: first.date,
+      last_seen: anchor.date,
+      category_name: anchor.category_name,
+      category_color: anchor.category_color,
+      patternLabel: patternLabelFor(anchor, streak.mode),
+    });
+  }
+
+  results.sort((a, b) => Math.abs(b.amount_cents) - Math.abs(a.amount_cents));
+  return results;
 }

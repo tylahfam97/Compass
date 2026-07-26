@@ -45,6 +45,16 @@ export type InsightType =
 /** Category ID reserved for internal bank transfers — excluded from expense totals. */
 export const TRANSFER_CATEGORY_ID = 20;
 
+/** Category ID for a general-purpose "leave this out of my totals" bucket - unlike
+ *  Transfers (same-institution internal moves only), this is for anything else the user
+ *  wants excluded from income/expense totals (reimbursements, one-off adjustments, etc.). */
+export const EXCLUDED_CATEGORY_ID = 29;
+
+/** Shared explainer for the Transfers/Excluded exclusion, reused by every Income/Expenses
+ *  tooltip across Dashboard, Overview, and Transactions so the wording stays consistent. */
+export const EXCLUSION_DISCLAIMER_TEXT =
+  "Transfers tracks money moved between your own accounts (e.g. checking \u2192 savings) - including credit-card payments, so they're never double-counted as both a checking withdrawal and a card credit. Excluded is a catch-all for anything else you don't want counted (reimbursements, one-off adjustments, etc.). Both are left out of every income and expense total in the app.";
+
 export interface InsightAction {
   type: "create_budget" | "create_goal";
   payload: Record<string, unknown>;
@@ -101,8 +111,8 @@ export interface Account {
   balance_anchor_date?: string | null;
   hidden_from_dashboard?: boolean;
   excluded_from_insights?: boolean;
-  /** Loan and credit accounts - purely informational (APR), never used in any calculation
-   *  besides ranking on the Debt Dashboard. `minimum_payment_cents` is loan-only for now. */
+  /** Loan and credit accounts - purely informational (APR / minimum payment), never used in
+   *  any calculation besides ranking and the Debt Payoff plan's amortization estimate. */
   interest_rate_bps?: number | null;
   minimum_payment_cents?: number | null;
 }
@@ -216,4 +226,57 @@ export interface CreditCardHealthScore extends MiniHealthScore {
 export interface InvestmentHealthScore extends MiniHealthScore {
   returnPct: number | null;
   benchmarkPct: number;
+}
+
+/** One discretionary spending category feeding a debt-payoff plan's "what can be cut"
+ *  breakdown - average monthly spend over the observed history window. */
+export interface DebtPayoffCategoryBreakdown {
+  categoryId: number;
+  name: string;
+  color: string;
+  avgMonthlyCents: number;
+}
+
+/** One of the three payoff strategies shown side-by-side in the Debt Payoff modal. */
+export interface DebtPayoffScenario {
+  key: "minimum" | "balanced" | "aggressive";
+  label: string;
+  /** Extra monthly cents redirected toward debt on top of minimum payments. */
+  extraMonthlyCents: number;
+  /** Months until every debt in the plan reaches $0, or null if minimum payments don't
+   *  even cover interest at the current pace (would never pay off on its own). */
+  monthsToPayoff: number | null;
+  /** "Mon YYYY" formatted projected debt-free date, or null if monthsToPayoff is null. */
+  payoffDate: string | null;
+  totalInterestCents: number;
+  totalPaidCents: number;
+  /** Discretionary money left over each month under this scenario (not redirected to debt). */
+  cushionCents: number;
+}
+
+export interface DebtPayoffPlan {
+  totalDebtCents: number;
+  weightedAvgRateBps: number | null;
+  hasRateData: boolean;
+  totalMinPaymentCents: number;
+  discretionaryBreakdown: DebtPayoffCategoryBreakdown[];
+  discretionaryTotalCents: number;
+  monthsOfHistory: number;
+  scenarios: DebtPayoffScenario[];
+}
+
+/** A recurring charge (subscription/bill) detected by day-of-month or "Nth weekday of month"
+ *  cadence - see `detectRecurringCharges` in agent.ts. `month_count` is the length of the
+ *  CURRENT consecutive-month streak ending at `last_seen`, not just a lifetime occurrence
+ *  count, so a charge that lapsed months ago won't still show as "recurring". */
+export interface RecurringCharge {
+  description: string;
+  amount_cents: number;
+  month_count: number;
+  first_seen: string;
+  last_seen: string;
+  category_name: string | null;
+  category_color: string | null;
+  /** Human-readable cadence, e.g. "21st of the month" or "3rd Thursday of the month". */
+  patternLabel: string;
 }

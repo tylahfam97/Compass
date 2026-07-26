@@ -8,11 +8,12 @@ import {
 import { useNavigate } from "react-router-dom";
 import {
   getDb, applyCategorizationRules, recomputeCalculatedBalances,
-  listAccountsForProfile, resolveAccountId, setAccountInterestRate,
+  listAccountsForProfile, resolveAccountId, setAccountInterestRate, setAccountMinimumPayment,
 } from "@/lib/db";
 import type { AccountChoice } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type { CategorizationRule, SecurityType, Account } from "@/lib/types";
+import { TRANSFER_CATEGORY_ID, EXCLUDED_CATEGORY_ID } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
 import { takePendingImportFiles } from "@/lib/pendingImport";
 import { parsePdfStatement, extractPdfRows } from "@/lib/pdfParse";
@@ -228,6 +229,10 @@ interface ParsedData {
 interface Summary {
   imported: number;
   skipped: number;
+  /** How many imported rows were auto-categorized as Transfers/Excluded (e.g. a credit-card
+   *  payment) - shown on the "done" screen so it's clear those won't double-count against
+   *  income/expense totals. */
+  transferCount?: number;
 }
 
 interface ImportSession {
@@ -986,10 +991,11 @@ export default function ImportPage() {
   const [fixColumnsOpen, setFixColumnsOpen] = useState<Set<string>>(new Set());
   const [accountChoice, setAccountChoice] = useState<AccountChoice | null>(null);
   const [existingAccountsForType, setExistingAccountsForType] = useState<Account[]>([]);
-  // Optional APR entered/edited on the "which account" step for credit imports only - purely
-  // informational (same as a loan's rate), lets credit cards join Avalanche ranking on the
-  // Debt Dashboard without a separate settings screen.
+  // Optional APR/minimum payment entered/edited on the "which account" step for credit imports
+  // only - purely informational (same as a loan's rate/payment), lets credit cards join
+  // Avalanche/Cash-flow ranking on the Debt Dashboard without a separate settings screen.
   const [creditInterestRateInput, setCreditInterestRateInput] = useState("");
+  const [creditMinimumPaymentInput, setCreditMinimumPaymentInput] = useState("");
   const [maxStepReached, setMaxStepReached] = useState(1);
   const [currentFilename, setCurrentFilename] = useState("");
   const [isPdfImport, setIsPdfImport] = useState(false);
@@ -1052,6 +1058,7 @@ export default function ImportPage() {
             setAccountChoice({ mode: "existing", accountId: prior.id, name: prior.name });
             if (importKind === "credit") {
               setCreditInterestRateInput(prior.interest_rate_bps != null ? (prior.interest_rate_bps / 100).toFixed(2) : "");
+              setCreditMinimumPaymentInput(prior.minimum_payment_cents != null ? (prior.minimum_payment_cents / 100).toFixed(2) : "");
             }
             return;
           }
@@ -1066,6 +1073,7 @@ export default function ImportPage() {
             setAccountChoice({ mode: "existing", accountId: match.id, name: match.name });
             if (importKind === "credit") {
               setCreditInterestRateInput(match.interest_rate_bps != null ? (match.interest_rate_bps / 100).toFixed(2) : "");
+              setCreditMinimumPaymentInput(match.minimum_payment_cents != null ? (match.minimum_payment_cents / 100).toFixed(2) : "");
             }
             return;
           }
@@ -1376,6 +1384,7 @@ export default function ImportPage() {
     setAccountChoice(null);
     setExistingAccountsForType([]);
     setCreditInterestRateInput("");
+    setCreditMinimumPaymentInput("");
     setMaxStepReached(1);
     setWizardDir("forward");
     setStep("wizard:account");
@@ -1405,6 +1414,7 @@ export default function ImportPage() {
     setAccountChoice(null);
     setExistingAccountsForType([]);
     setCreditInterestRateInput("");
+    setCreditMinimumPaymentInput("");
     setMaxStepReached(1);
     const derived = deriveHeaders(data, initialSkip);
     if (!derived) {
@@ -1519,6 +1529,10 @@ export default function ImportPage() {
         // import of the same card must never silently wipe out a rate set previously.
         await setAccountInterestRate(accountId, Math.round(parseFloat(creditInterestRateInput.trim()) * 100));
       }
+      if (importKind === "credit" && creditMinimumPaymentInput.trim()) {
+        // Same "only touch when typed" guard as the interest rate above.
+        await setAccountMinimumPayment(accountId, Math.round(parseAmount(creditMinimumPaymentInput.trim()) * 100));
+      }
       if (colMap.balanceCol < 0 && currentBalanceInput.trim()) {
         // The entered value is the real balance AFTER all transactions, as of today (when it's
         // submitted) - not before them - so Compass can calculate correctly in both directions.
@@ -1546,6 +1560,7 @@ export default function ImportPage() {
 
       let imported = 0;
       let skipped = 0;
+      let transferCount = 0;
 
       for (const row of parsed.rows) {
         const requiredCols = [colMap.dateCol, colMap.descCol, colMap.amountCol];
@@ -1583,6 +1598,7 @@ export default function ImportPage() {
              balanceCents, profileId, sessionId]
           );
           imported++;
+          if (categoryId === TRANSFER_CATEGORY_ID || categoryId === EXCLUDED_CATEGORY_ID) transferCount++;
         } catch {
           skipped++;
         }
@@ -1619,7 +1635,7 @@ export default function ImportPage() {
         await recomputeCalculatedBalances(accountId);
       }
 
-      setSummary({ imported, skipped });
+      setSummary({ imported, skipped, transferCount });
       await loadHistory();
       setStep("done");
       setImportSubmitting(false);
@@ -1669,7 +1685,7 @@ export default function ImportPage() {
         [file.name, profileId]
       );
       const sessionId = sessionResult.lastInsertId as number;
-      let imported = 0; let skipped = 0;
+      let imported = 0; let skipped = 0; let transferCount = 0;
       for (const row of derived.rows) {
         const reqCols = [savedColMap.dateCol, savedColMap.descCol, savedColMap.amountCol];
         if (savedColMap.typeCol >= 0) reqCols.push(savedColMap.typeCol);
@@ -1698,6 +1714,7 @@ export default function ImportPage() {
             [accountId, date, amountCents, description, categoryId, hash, balanceCents, profileId, sessionId]
           );
           imported++;
+          if (categoryId === TRANSFER_CATEGORY_ID || categoryId === EXCLUDED_CATEGORY_ID) transferCount++;
         } catch { skipped++; }
       }
       if (imported === 0) {
@@ -1712,7 +1729,7 @@ export default function ImportPage() {
         await recomputeCalculatedBalances(accountId);
       }
       await loadHistory();
-      setSummary({ imported, skipped });
+      setSummary({ imported, skipped, transferCount });
       setStep("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -1748,6 +1765,7 @@ export default function ImportPage() {
     setAccountChoice(null);
     setExistingAccountsForType([]);
     setCreditInterestRateInput("");
+    setCreditMinimumPaymentInput("");
     setMaxStepReached(1);
     setCurrentFilename("");
     setIsPdfImport(false);
@@ -1986,6 +2004,7 @@ export default function ImportPage() {
                     setAccountChoice({ mode: "existing", accountId: acct.id, name: acct.name });
                     if (importKind === "credit") {
                       setCreditInterestRateInput(acct.interest_rate_bps != null ? (acct.interest_rate_bps / 100).toFixed(2) : "");
+                      setCreditMinimumPaymentInput(acct.minimum_payment_cents != null ? (acct.minimum_payment_cents / 100).toFixed(2) : "");
                     }
                   }
                 }}
@@ -2027,6 +2046,24 @@ export default function ImportPage() {
                 />
                 <p className="text-[11px] text-[hsl(var(--muted-foreground))]">
                   Purely informational - lets this card join Avalanche ranking on the Debt Dashboard. Never used to calculate interest.
+                </p>
+              </div>
+            )}
+
+            {importKind === "credit" && (
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
+                  Minimum Payment <span className="normal-case">(optional)</span>
+                </label>
+                <input
+                  type="number" step="0.01" min="0"
+                  value={creditMinimumPaymentInput}
+                  onChange={(e) => setCreditMinimumPaymentInput(e.target.value)}
+                  placeholder="e.g. 35.00"
+                  className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]"
+                />
+                <p className="text-[11px] text-[hsl(var(--muted-foreground))]">
+                  Purely informational - lets this card join Cash-flow-First ranking on the Debt Dashboard and improves the Debt Payoff plan's estimate.
                 </p>
               </div>
             )}
@@ -2253,7 +2290,7 @@ export default function ImportPage() {
                 </span>
               </div>
               <div className="divide-y">
-                {parsed.rows.filter((r) => r[colMap.amountCol]).slice(0, 4).map((row, i) => {
+                {parsed.rows.filter((r) => r[colMap.amountCol]).slice(0, 6).map((row, i) => {
                   const raw = row[colMap.amountCol] ?? "";
                   let amt = parseAmount(raw);
                   if (colMap.typeCol >= 0) {
@@ -2262,10 +2299,16 @@ export default function ImportPage() {
                     else if (tv === "credit") amt = Math.abs(amt);
                   }
                   if (colMap.invertAmounts) amt = -amt;
+                  const desc = colMap.descCol >= 0 ? (row[colMap.descCol] ?? "").trim() : "";
                   return (
-                    <div key={i} className="py-3 text-center">
-                      <p className="font-mono text-sm text-[hsl(var(--muted-foreground))]">{raw}</p>
-                      <p className={`font-mono text-base font-semibold mt-0.5 ${amt < 0 ? "text-red-500" : amt > 0 ? "text-green-600" : "text-amber-500"}`}>
+                    <div key={i} className="py-3 px-3 flex items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        {desc && (
+                          <p className="text-xs text-[hsl(var(--foreground))] truncate" title={desc}>{desc}</p>
+                        )}
+                        <p className="font-mono text-xs text-[hsl(var(--muted-foreground))] truncate">{raw}</p>
+                      </div>
+                      <p className={`font-mono text-base font-semibold shrink-0 ${amt < 0 ? "text-red-500" : amt > 0 ? "text-green-600" : "text-amber-500"}`}>
                         {formatCurrency(Math.round(amt * 100))}
                       </p>
                     </div>
@@ -2318,6 +2361,10 @@ export default function ImportPage() {
                     same way money-out vs. money-in works on a checking account. Check a purchase row and a payment row in the preview
                     above: if purchases are already negative and payments already positive, leave this off. If it's the other way
                     around, flip it.
+                  </p>
+                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                    Look at the description text now shown above each amount in the preview - a row whose description mentions
+                    "PAYMENT" or your bank/card issuer's name is money paid <em>toward</em> the card, not a purchase.
                   </p>
                   <div className="flex gap-3 text-sm">
                     <button
@@ -2818,6 +2865,15 @@ export default function ImportPage() {
                   </span>
                 )}
               </p>
+              {!!summary.transferCount && summary.transferCount > 0 && (
+                <p className="text-xs text-[hsl(var(--muted-foreground))] mb-6 max-w-md mx-auto border rounded-lg px-3 py-2"
+                  style={{ backgroundColor: "hsl(var(--primary)/0.05)" }}>
+                  <strong className="text-[hsl(var(--foreground))]">{summary.transferCount}</strong> of those{" "}
+                  {summary.transferCount === 1 ? "was" : "were"} recognized as a transfer/payment (e.g. a credit-card
+                  payment) and categorized as Transfers or Excluded - so it won't be double-counted as both a checking
+                  withdrawal and a card credit. Review it under Transactions if that doesn't look right.
+                </p>
+              )}
             </>
           )}
           <div className="flex gap-3 justify-center">

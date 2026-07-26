@@ -4,8 +4,9 @@ import {
 } from "recharts";
 import { Ghost } from "lucide-react";
 import { getDb } from "@/lib/db";
+import { detectRecurringCharges } from "@/lib/agent";
 import { formatCurrency, formatDate, combineAccountBalances } from "@/lib/utils";
-import type { Transaction } from "@/lib/types";
+import type { Transaction, RecurringCharge } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
 import { Skeleton } from "@/components/Skeleton";
@@ -33,16 +34,6 @@ interface RecurringItem {
   count: number;
   total_cents: number;
   avg_cents: number;
-  category_name: string;
-  category_color: string;
-}
-
-interface Subscription {
-  description: string;
-  amount_cents: number;
-  month_count: number;
-  first_seen: string;
-  last_seen: string;
   category_name: string;
   category_color: string;
 }
@@ -83,7 +74,7 @@ export default function ReportsPage() {
   const [monthTotals, setMonthTotals] = useState<MonthTotal[]>([]);
   const [topExpenses, setTopExpenses] = useState<Transaction[]>([]);
   const [recurring, setRecurring] = useState<RecurringItem[]>([]);
-  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [subscriptions, setSubscriptions] = useState<RecurringCharge[]>([]);
   const [balanceTrend, setBalanceTrend] = useState<BalanceTrendPoint[]>([]);
 
   // Compute effective [start, end) for all queries
@@ -150,7 +141,7 @@ export default function ReportsPage() {
                   SUM(ABS(t.amount_cents)) as total_cents
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
            WHERE t.date>=? AND t.date<? AND t.amount_cents<0 AND t.profile_id=?
-             AND (t.category_id IS NULL OR t.category_id != 20)
+             AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
            GROUP BY t.category_id ORDER BY total_cents DESC`,
           [start, end, profileId]
         ),
@@ -159,14 +150,14 @@ export default function ReportsPage() {
                   SUM(ABS(t.amount_cents)) as total_cents
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
            WHERE t.date>=? AND t.date<? AND t.amount_cents<0 AND t.profile_id=?
-             AND (t.category_id IS NULL OR t.category_id != 20)
+             AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
            GROUP BY t.category_id ORDER BY total_cents DESC`,
           [prevStart, prevEnd, profileId]
         ),
         db.select<{ month: string; income_cents: number; expense_cents: number }[]>(
           `SELECT strftime('%Y-%m', t.date) as month,
-                  SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id!=20) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income_cents,
-                  SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id!=20) THEN ABS(t.amount_cents) ELSE 0 END) as expense_cents
+                  SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income_cents,
+                  SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) THEN ABS(t.amount_cents) ELSE 0 END) as expense_cents
            FROM transactions t JOIN accounts a ON a.id=t.account_id
            WHERE t.date>=? AND t.date<? AND t.profile_id=? GROUP BY month ORDER BY month`,
           [chartStart, end, profileId]
@@ -175,7 +166,7 @@ export default function ReportsPage() {
           `SELECT t.*, c.name as category_name, c.color as category_color
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
            WHERE t.date>=? AND t.date<? AND t.amount_cents<0 AND t.profile_id=?
-             AND (t.category_id IS NULL OR t.category_id != 20)
+             AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
            ORDER BY t.amount_cents ASC LIMIT 10`,
           [start, end, profileId]
         ),
@@ -187,24 +178,12 @@ export default function ReportsPage() {
                   c.name as category_name, c.color as category_color
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
            WHERE t.amount_cents<0 AND t.profile_id=?
-             AND (t.category_id IS NULL OR t.category_id != 20)
+             AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
            GROUP BY t.description HAVING count>=2
            ORDER BY count DESC, total_cents DESC LIMIT 10`,
           [profileId]
         ),
-        db.select<Subscription[]>(
-          `SELECT t.description, t.amount_cents,
-                  COUNT(DISTINCT strftime('%Y-%m', t.date)) as month_count,
-                  MIN(t.date) as first_seen, MAX(t.date) as last_seen,
-                  c.name as category_name, c.color as category_color
-           FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-           WHERE t.amount_cents<0 AND t.profile_id=?
-             AND (t.category_id IS NULL OR t.category_id != 20)
-           GROUP BY t.description, t.amount_cents
-           HAVING month_count>=2
-           ORDER BY month_count DESC, ABS(t.amount_cents) DESC`,
-          [profileId]
-        ),
+        detectRecurringCharges([profileId]),
         db.select<{ date: string; account_id: number; balance_cents: number }[]>(
           `SELECT t.date, t.account_id, t.balance_cents FROM transactions t
            JOIN accounts a ON a.id=t.account_id
@@ -500,13 +479,13 @@ export default function ReportsPage() {
             <section>
               <h2 className="font-semibold mb-1 flex items-center gap-1.5"><Ghost size={16} className="text-[hsl(var(--muted-foreground))]" /> Ghost Subscriptions</h2>
               <p className="text-sm text-[hsl(var(--muted-foreground))] mb-3">
-                Transactions with the exact same amount appearing in multiple months — likely recurring subscriptions.
+                Charges on a consistent monthly cadence (same day of month, or same "Nth weekday", 2+ months running) — likely recurring subscriptions.
               </p>
               <div className="space-y-3">
                 {subscriptions.map((s) => {
                   const yearly = s.amount_cents * 12;
                   return (
-                    <div key={`${s.description}-${s.amount_cents}`}
+                    <div key={`${s.description}-${s.amount_cents}-${s.last_seen}`}
                       className="border rounded-xl p-4 flex items-center justify-between gap-4">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
@@ -517,7 +496,7 @@ export default function ReportsPage() {
                           </span>
                         </div>
                         <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                          Seen {s.month_count} months · First: {s.first_seen} · Last: {s.last_seen}
+                          {s.patternLabel} · {s.month_count} months running · First: {s.first_seen} · Last: {s.last_seen}
                         </p>
                       </div>
                       <div className="text-right shrink-0">
