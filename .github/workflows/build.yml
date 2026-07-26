@@ -56,6 +56,9 @@ jobs:
           AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
           AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
           AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         run: |
           # tauri.conf.json is the version source of truth — read it, don't overwrite it
           $v    = (Get-Content src-tauri\tauri.conf.json -Raw | ConvertFrom-Json).version
@@ -88,15 +91,19 @@ jobs:
           Write-Host "Building version $v for $repo"
 
           # Windows code signing via Azure Trusted Signing (optional) — only wired up once
-          # an Azure Trusted Signing account + certificate profile exist and these 3 repo
-          # VARIABLES (not secrets - none of endpoint/account/profile names are sensitive)
-          # are set. The actual credentials (AZURE_CLIENT_ID/SECRET/TENANT_ID) are real
-          # secrets and are only exposed as env vars later, on the "Build Tauri application"
-          # step, since that's when tauri build actually invokes the sign command. If these
-          # 3 variables are unset, tauri.conf.json is left untouched and the build proceeds
-          # unsigned exactly as before.
-          if ($env:AZURE_SIGNING_ENDPOINT -and $env:AZURE_SIGNING_ACCOUNT -and $env:AZURE_SIGNING_PROFILE) {
-            Write-Host "Azure Trusted Signing variables are set - enabling Windows code signing"
+          # an Azure Trusted Signing account + certificate profile exist AND the actual
+          # credential secrets (AZURE_CLIENT_ID/SECRET/TENANT_ID) are populated. Checking only
+          # the 3 non-sensitive repo variables used to let signCommand get configured even
+          # while the credential secrets were still incomplete (e.g. one not created yet
+          # because GitHub disallows empty secret values while Azure identity verification is
+          # pending) - tauri build would then try to run artifact-signing-cli, fail to
+          # authenticate, and fail the WHOLE build (this step has no continue-on-error). Now
+          # any missing piece - variables or secrets - falls back to an unsigned build exactly
+          # like before signing was wired in at all, and signing turns on automatically the
+          # moment all 6 values exist, no workflow changes needed.
+          if ($env:AZURE_SIGNING_ENDPOINT -and $env:AZURE_SIGNING_ACCOUNT -and $env:AZURE_SIGNING_PROFILE `
+              -and $env:AZURE_CLIENT_ID -and $env:AZURE_CLIENT_SECRET -and $env:AZURE_TENANT_ID) {
+            Write-Host "Azure Trusted Signing variables and credentials are all set - enabling Windows code signing"
             $cfg = Get-Content src-tauri\tauri.conf.json -Raw | ConvertFrom-Json
             if (-not $cfg.bundle.windows) {
               $cfg.bundle | Add-Member -NotePropertyName windows -NotePropertyValue ([PSCustomObject]@{}) -Force
@@ -105,13 +112,25 @@ jobs:
             $cfg.bundle.windows | Add-Member -NotePropertyName signCommand -NotePropertyValue $signCommand -Force
             $cfg | ConvertTo-Json -Depth 32 | Set-Content src-tauri\tauri.conf.json -NoNewline
           } else {
-            Write-Warning "Azure Trusted Signing variables are NOT fully set - the .exe/.msi will be unsigned (still shows an Unknown Publisher warning)"
+            Write-Warning "Azure Trusted Signing is not fully configured yet (variables and/or credential secrets missing) - the .exe/.msi will be unsigned (still shows an Unknown Publisher warning)"
           }
 
       - name: Ensure artifact-signing-cli is installed (Azure Trusted Signing)
         if: ${{ vars.AZURE_SIGNING_ENDPOINT != '' && vars.AZURE_SIGNING_ACCOUNT != '' && vars.AZURE_SIGNING_PROFILE != '' }}
         shell: powershell
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         run: |
+          # The `if:` above can only see the 3 non-sensitive repo variables (the `secrets`
+          # context isn't usable in a step-level `if:` expression) - the credential secrets
+          # are checked here instead, in the same env-var style as the rest of this file, so
+          # this step is still skipped as a no-op when signing isn't fully configured yet.
+          if (-not ($env:AZURE_CLIENT_ID -and $env:AZURE_CLIENT_SECRET -and $env:AZURE_TENANT_ID)) {
+            Write-Host "Azure credential secrets are not fully set yet - skipping artifact-signing-cli install"
+            exit 0
+          }
           # Installed once and cached on this persistent self-hosted runner - idempotent,
           # so this is a no-op on every build after the first.
           if (Get-Command artifact-signing-cli -ErrorAction SilentlyContinue) {
