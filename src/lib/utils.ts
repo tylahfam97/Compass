@@ -40,6 +40,18 @@ export function formatDate(iso: string): string {
   }).format(d);
 }
 
+/** Format a "YYYY-MM" month key to a readable label, e.g. "2026-07" → "Jul '26" - used on
+ *  every chart axis/tooltip/breakdown that's keyed by month, instead of showing the raw
+ *  "YYYY-MM" string verbatim. Returns the input unchanged if it isn't a valid YYYY-MM string. */
+export function formatMonthLabel(ym: string): string {
+  const match = /^(\d{4})-(\d{2})$/.exec(ym);
+  if (!match) return ym;
+  const [, year, month] = match;
+  const d = new Date(Number(year), Number(month) - 1, 1);
+  if (isNaN(d.getTime())) return ym;
+  return new Intl.DateTimeFormat("en-US", { month: "short" }).format(d) + " '" + year.slice(2);
+}
+
 /**
  * Merges per-account running-balance rows (e.g. checking + credit, ordered by date ASC, id ASC)
  * into a single combined daily series, forward-filling each account's last known balance so

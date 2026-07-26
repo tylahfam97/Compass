@@ -6,7 +6,7 @@ import {
 } from "recharts";
 import { motion, AnimatePresence } from "motion/react";
 import { getDb } from "@/lib/db";
-import { formatCurrency, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
+import { formatCurrency, formatMonthLabel, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
 import type { Profile } from "@/lib/types";
 import PinModal from "@/components/PinModal";
@@ -308,9 +308,9 @@ export default function TrendsPage() {
                 <h2 className="font-semibold mb-4">Cumulative Net (All Time)</h2>
                 <ResponsiveContainer width="100%" height={200}>
                   <LineChart data={cumulativeData} margin={{ left:8,right:8,top:4,bottom:4 }}>
-                    <XAxis dataKey="month" tick={{ fontSize:11 }} />
+                    <XAxis dataKey="month" tick={{ fontSize:11 }} tickFormatter={formatMonthLabel} />
                     <YAxis tickFormatter={v => `$${Math.round(v/100)}`} tick={{ fontSize:11 }} />
-                    <Tooltip contentStyle={tooltipStyle} formatter={v => formatCurrency(v as number)} />
+                    <Tooltip contentStyle={tooltipStyle} labelFormatter={(l) => formatMonthLabel(String(l))} formatter={v => formatCurrency(v as number)} />
                     <ReferenceLine y={0} stroke="hsl(var(--border))" strokeDasharray="3 3" />
                     <Line type="monotone" dataKey="running" name="Running Net" stroke="#6366f1" strokeWidth={2} dot={false} />
                   </LineChart>
@@ -324,9 +324,9 @@ export default function TrendsPage() {
                 <h2 className="font-semibold mb-4">Checking Balance (All Time)</h2>
                 <ResponsiveContainer width="100%" height={200}>
                   <LineChart data={checkingBalanceMonthly} margin={{ left:8,right:8,top:4,bottom:4 }}>
-                    <XAxis dataKey="month" tick={{ fontSize:11 }} />
+                    <XAxis dataKey="month" tick={{ fontSize:11 }} tickFormatter={formatMonthLabel} />
                     <YAxis tickFormatter={v => `$${Math.round(v/100)}`} tick={{ fontSize:11 }} />
-                    <Tooltip contentStyle={tooltipStyle} formatter={v => formatCurrency(v as number)} />
+                    <Tooltip contentStyle={tooltipStyle} labelFormatter={(l) => formatMonthLabel(String(l))} formatter={v => formatCurrency(v as number)} />
                     <ReferenceLine y={0} stroke="hsl(var(--border))" strokeDasharray="3 3" />
                     <Line type="monotone" dataKey="balance" name="Balance" stroke="#3b82f6" strokeWidth={2} dot={false} />
                   </LineChart>
@@ -349,10 +349,11 @@ export default function TrendsPage() {
                       if (label) toggleBalanceMonthExpand(label);
                     }}
                   >
-                    <XAxis dataKey="month" tick={{ fontSize:11 }} />
+                    <XAxis dataKey="month" tick={{ fontSize:11 }} tickFormatter={formatMonthLabel} />
                     <YAxis tickFormatter={v => `$${Math.round(v/100)}`} tick={{ fontSize:11 }} />
                     <Tooltip
                       contentStyle={tooltipStyle}
+                      labelFormatter={(l) => formatMonthLabel(String(l))}
                       formatter={(v, name) => [formatCurrency(v as number), creditBalanceAccounts.find(a => String(a.id) === name)?.name ?? name]}
                     />
                     <ReferenceLine y={0} stroke="hsl(var(--border))" strokeDasharray="3 3" />
@@ -384,7 +385,7 @@ export default function TrendsPage() {
                       transition={{ duration: 0.18 }}
                     >
                       <div className="mt-3 pt-3 border-t">
-                        <p className="text-xs font-semibold mb-2">{expandedBalanceMonth}</p>
+                        <p className="text-xs font-semibold mb-2">{formatMonthLabel(expandedBalanceMonth)}</p>
                         <div className="space-y-1">
                           {creditBalanceAccounts.map((acc) => {
                             const row = creditBalanceMonthly.find((r) => r.month === expandedBalanceMonth);
@@ -421,9 +422,9 @@ export default function TrendsPage() {
                     if (label) toggleMonthExpand(label);
                   }}
                 >
-                  <XAxis dataKey="month" tick={{ fontSize:11 }} />
+                  <XAxis dataKey="month" tick={{ fontSize:11 }} tickFormatter={formatMonthLabel} />
                   <YAxis tickFormatter={v => `$${Math.round(v/100)}`} tick={{ fontSize:11 }} />
-                  <Tooltip cursor={false} contentStyle={tooltipStyle} formatter={v => formatCurrency(v as number)} />
+                  <Tooltip cursor={false} contentStyle={tooltipStyle} labelFormatter={(l) => formatMonthLabel(String(l))} formatter={v => formatCurrency(v as number)} />
                   <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize:"11px",paddingTop:"8px" }} />
                   <Bar dataKey="income" name="Income" fill="#22c55e" radius={[4,4,0,0]} cursor="pointer" background={false} activeBar={{ fill: lightenHex("#22c55e") }} />
                   <Bar dataKey="expenses" name="Expenses" fill="#ef4444" radius={[4,4,0,0]} cursor="pointer" background={false} activeBar={{ fill: lightenHex("#ef4444") }} />
@@ -441,7 +442,7 @@ export default function TrendsPage() {
                   >
                     <div className="mt-1 pt-3 border-t">
                       <div className="flex items-center justify-between mb-2">
-                        <p className="text-xs font-semibold">Top categories - {expandedMonth}</p>
+                        <p className="text-xs font-semibold">Top categories - {formatMonthLabel(expandedMonth)}</p>
                         <Link to="/transactions" state={{ month: expandedMonth }} className="text-[11px] text-[hsl(var(--primary))] hover:underline">
                           View month ?
                         </Link>
@@ -476,9 +477,9 @@ export default function TrendsPage() {
                 <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-3">Click a category segment for its trend</p>
                 <ResponsiveContainer width="100%" height={280}>
                   <BarChart data={stacked} margin={{ left:8,right:8,top:4,bottom:4 }}>
-                    <XAxis dataKey="month" tick={{ fontSize:11 }} />
+                    <XAxis dataKey="month" tick={{ fontSize:11 }} tickFormatter={formatMonthLabel} />
                     <YAxis tickFormatter={v => `$${Math.round(v/100)}`} tick={{ fontSize:11 }} />
-                    <Tooltip cursor={false} contentStyle={tooltipStyle} formatter={v => formatCurrency(v as number)} />
+                    <Tooltip cursor={false} contentStyle={tooltipStyle} labelFormatter={(l) => formatMonthLabel(String(l))} formatter={v => formatCurrency(v as number)} />
                     <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize:"11px",paddingTop:"8px",lineHeight:"20px" }} />
                     {catNames.map(cat => (
                       <Bar
@@ -527,7 +528,7 @@ export default function TrendsPage() {
                             if (amt === 0) return null;
                             return (
                               <div key={row.month} className="flex items-center justify-between text-xs py-1">
-                                <span className="text-[hsl(var(--muted-foreground))]">{row.month}</span>
+                                <span className="text-[hsl(var(--muted-foreground))]">{formatMonthLabel(row.month)}</span>
                                 <span className="font-mono">{formatCurrency(amt)}</span>
                               </div>
                             );

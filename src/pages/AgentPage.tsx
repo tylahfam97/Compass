@@ -6,7 +6,7 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import { getDb, getAccountsSummaryForProfile, setAccountExcludedFromInsights, getLoanAccountsForProfile, getCreditAccountsForProfile, getLoanBalanceHistory, type AccountSummary, type LoanAccount } from "@/lib/db";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatMonthLabel } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
 import {
   generateInsights, getSpendingProfile, getSavingsHistory, computeHealthScore, computeCreditCardHealthScore, detectRecurringCharges,
@@ -432,9 +432,10 @@ function NetWorthCard({
                       <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                     </linearGradient>
                   </defs>
+                  <XAxis dataKey="month" hide />
                   <Tooltip
                     formatter={(v) => [formatCurrency(v as number), "Net Worth"]}
-                    labelFormatter={(l) => String(l)}
+                    labelFormatter={(l) => formatMonthLabel(String(l))}
                     contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
                   />
                   <Area type="monotone" dataKey="netWorthCents" stroke="#6366f1" strokeWidth={2} fill="url(#netWorthGrad)" dot={false} />
@@ -456,7 +457,7 @@ function NetWorthCard({
                 >
                   <div className="grid grid-cols-4 gap-3 text-center rounded-xl p-3 mb-4 bg-[hsl(var(--muted))]/40">
                     <div>
-                      <p className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase">{selected.month}</p>
+                      <p className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase">{formatMonthLabel(selected.month)}</p>
                       <p className="text-xs font-bold">{formatCurrency(selected.netWorthCents)}</p>
                     </div>
                     <div>
@@ -1280,12 +1281,13 @@ export default function AgentPage() {
                     <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="month" tick={{ fontSize: 9 }} tickFormatter={(v: string) => v.slice(5)}
+                <XAxis dataKey="month" tick={{ fontSize: 9 }} tickFormatter={formatMonthLabel}
                        axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 9 }} tickFormatter={(v: number) => `${v}%`} width={30}
                        axisLine={false} tickLine={false} />
                 <Tooltip
                   formatter={(v) => [`${v ?? 0}%`, "Rate"]}
+                  labelFormatter={(l) => formatMonthLabel(String(l))}
                   contentStyle={{
                     backgroundColor: "hsl(var(--background))",
                     border: "1px solid hsl(var(--border))",

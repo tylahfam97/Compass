@@ -5,7 +5,7 @@ import {
 import { Ghost } from "lucide-react";
 import { getDb } from "@/lib/db";
 import { detectRecurringCharges } from "@/lib/agent";
-import { formatCurrency, formatDate, combineAccountBalances } from "@/lib/utils";
+import { formatCurrency, formatDate, formatMonthLabel, combineAccountBalances } from "@/lib/utils";
 import type { Transaction, RecurringCharge } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
@@ -348,7 +348,7 @@ export default function ReportsPage() {
                   <tbody>
                     {monthTotals.map((r) => (
                       <tr key={r.month} className="border-t hover:bg-[hsl(var(--muted))]">
-                        <td className="px-4 py-2.5 font-medium">{r.month}</td>
+                        <td className="px-4 py-2.5 font-medium">{formatMonthLabel(r.month)}</td>
                         <td className="px-4 py-2.5 text-right font-mono text-green-600">
                           {formatCurrency(r.income_cents)}
                         </td>
@@ -380,7 +380,7 @@ export default function ReportsPage() {
                         <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                    <XAxis dataKey="month" tick={{ fontSize: 11 }} tickFormatter={formatMonthLabel} />
                     <YAxis
                       tickFormatter={(v) => `$${Math.round(v / 1000)}k`}
                       tick={{ fontSize: 11 }}
@@ -393,6 +393,7 @@ export default function ReportsPage() {
                         borderRadius: "8px",
                         fontSize: "12px",
                       }}
+                      labelFormatter={(l) => formatMonthLabel(String(l))}
                       formatter={(v) => [`$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "Balance"]}
                     />
                     <Area type="monotone" dataKey="balance" stroke="#3b82f6" strokeWidth={2} fill="url(#balTrendGrad)" dot={{ r: 3 }} />
