@@ -13,6 +13,22 @@ export function formatCurrency(cents: number, currency = "USD"): string {
   }).format(cents / 100);
 }
 
+/** Compact currency formatter for chart Y-axis ticks, e.g. 250000 (cents) → "$2.5k",
+ *  15000 → "$150". Abbreviates to "k" once the dollar value reaches four figures so large
+ *  balances don't crowd the axis, otherwise shows whole dollars - one shared formatter
+ *  instead of every chart inlining its own `$${Math.round(v/100)}` vs `$${Math.round(v/1000)}k`
+ *  variant. */
+export function formatAxisCurrency(cents: number): string {
+  const dollars = cents / 100;
+  const abs = Math.abs(dollars);
+  if (abs >= 1000) {
+    const thousands = dollars / 1000;
+    const rounded = Math.abs(thousands) < 10 ? Math.round(thousands * 10) / 10 : Math.round(thousands);
+    return `$${rounded}k`;
+  }
+  return `$${Math.round(dollars)}`;
+}
+
 /** Lightens a hex color toward white by `amount` (0-1), for chart hover states
  *  (e.g. a bar's own color, washed out, instead of a generic gray highlight). */
 export function lightenHex(hex: string, amount = 0.45): string {
@@ -38,6 +54,18 @@ export function formatDate(iso: string): string {
     month: "short",
     day: "numeric",
   }).format(d);
+}
+
+/** Format a "YYYY-MM" month key to a readable label, e.g. "2026-07" → "Jul '26" - used on
+ *  every chart axis/tooltip/breakdown that's keyed by month, instead of showing the raw
+ *  "YYYY-MM" string verbatim. Returns the input unchanged if it isn't a valid YYYY-MM string. */
+export function formatMonthLabel(ym: string): string {
+  const match = /^(\d{4})-(\d{2})$/.exec(ym);
+  if (!match) return ym;
+  const [, year, month] = match;
+  const d = new Date(Number(year), Number(month) - 1, 1);
+  if (isNaN(d.getTime())) return ym;
+  return new Intl.DateTimeFormat("en-US", { month: "short" }).format(d) + " '" + year.slice(2);
 }
 
 /**

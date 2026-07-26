@@ -11,7 +11,7 @@ import {
   getLoanAccountsForProfile, getLoanBalanceHistory, type LoanAccount,
 } from "@/lib/db";
 import { seedDemoData } from "@/lib/demoData";
-import { formatCurrency, formatDate, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
+import { formatCurrency, formatDate, formatAxisCurrency, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
 import type { Transaction, Insight } from "@/lib/types";
 import { EXCLUSION_DISCLAIMER_TEXT } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
@@ -458,9 +458,9 @@ export default function DashboardPage() {
           {/* Summary cards */}
           <div className="grid grid-cols-3 gap-4">
             {[
-              { label: "Income", value: stats.income, cls: "text-green-600" },
-              { label: "Expenses", value: Math.abs(stats.expenses), cls: "text-red-500" },
-              { label: "Net", value: stats.net, cls: stats.net >= 0 ? "text-green-600" : "text-red-500" },
+              { label: "Income", value: stats.income, cls: "text-[hsl(var(--success))]" },
+              { label: "Expenses", value: Math.abs(stats.expenses), cls: "text-[hsl(var(--error))]" },
+              { label: "Net", value: stats.net, cls: stats.net >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]" },
             ].map(({ label, value, cls }) => (
               <div key={label} className="border rounded-xl p-5">
                 <p className="text-sm text-[hsl(var(--muted-foreground))] mb-1 flex items-center gap-1">
@@ -494,7 +494,7 @@ export default function DashboardPage() {
                     </button>
                   )}
                 </div>
-                <p className={`text-2xl font-bold ${(currentBalance + (includeInvestments ? portfolioValueCents : 0)) >= 0 ? "text-green-600" : "text-red-500"}`}>
+                <p className={`text-2xl font-bold ${(currentBalance + (includeInvestments ? portfolioValueCents : 0)) >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
                   {formatCurrency(currentBalance + (includeInvestments ? portfolioValueCents : 0))}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
@@ -509,10 +509,11 @@ export default function DashboardPage() {
                     <AreaChart data={checkingBalancePoints} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
                       <defs>
                         <linearGradient id="balGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} />
-                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                          <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.2} />
+                          <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
                         </linearGradient>
                       </defs>
+                      <XAxis dataKey="date" hide />
                       <Tooltip
                         contentStyle={{
                           backgroundColor: "hsl(var(--background))",
@@ -522,9 +523,9 @@ export default function DashboardPage() {
                         }}
                         wrapperStyle={{ zIndex: 50 }}
                         formatter={(v) => [`$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "Balance"]}
-                        labelFormatter={(l) => l}
+                        labelFormatter={(l) => formatDate(String(l))}
                       />
-                      <Area type="monotone" dataKey="balance" stroke="#3b82f6" strokeWidth={2} fill="url(#balGrad)" dot={false} />
+                      <Area type="monotone" dataKey="balance" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#balGrad)" dot={false} />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -566,13 +567,13 @@ export default function DashboardPage() {
                           <span className="truncate">{acc.name}</span>
                         </span>
                         {series.length > 1 && Math.abs(changeCents) >= 100 && (
-                          <span className={`text-xs font-semibold flex items-center gap-0.5 shrink-0 ${improved ? "text-green-600" : "text-red-500"}`}>
+                          <span className={`text-xs font-semibold flex items-center gap-0.5 shrink-0 ${improved ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
                             {improved ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
                             {formatCurrency(Math.abs(changeCents))}
                           </span>
                         )}
                       </div>
-                      <p className={`text-xl font-bold mb-2 ${lastCents < 0 ? "text-red-500" : "text-green-600"}`}>
+                      <p className={`text-xl font-bold mb-2 ${lastCents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
                         {formatCurrency(lastCents)}
                       </p>
                       {series.length > 1 && (
@@ -585,6 +586,7 @@ export default function DashboardPage() {
                                   <stop offset="95%" stopColor={acc.color} stopOpacity={0} />
                                 </linearGradient>
                               </defs>
+                              <XAxis dataKey="date" hide />
                               <Tooltip
                                 contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
                                 wrapperStyle={{ zIndex: 50 }}
@@ -664,7 +666,7 @@ export default function DashboardPage() {
                         </span>
                         <span className="flex items-center gap-2 shrink-0">
                           {series.length > 1 && Math.abs(changeCents) >= 100 && (
-                            <span className={`text-xs font-semibold flex items-center gap-0.5 ${improved ? "text-green-600" : "text-red-500"}`}>
+                            <span className={`text-xs font-semibold flex items-center gap-0.5 ${improved ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
                               {improved ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
                               {formatCurrency(Math.abs(changeCents))}
                             </span>
@@ -678,7 +680,7 @@ export default function DashboardPage() {
                           </button>
                         </span>
                       </div>
-                      <p className={`text-xl font-bold mb-2 ${lastCents < 0 ? "text-red-500" : "text-green-600"}`}>
+                      <p className={`text-xl font-bold mb-2 ${lastCents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
                         {formatCurrency(lastCents)}
                       </p>
                       {series.length > 1 && (
@@ -691,6 +693,7 @@ export default function DashboardPage() {
                                   <stop offset="95%" stopColor={acc.color} stopOpacity={0} />
                                 </linearGradient>
                               </defs>
+                              <XAxis dataKey="date" hide />
                               <Tooltip
                                 contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
                                 wrapperStyle={{ zIndex: 50 }}
@@ -756,7 +759,7 @@ export default function DashboardPage() {
                           </span>
                           <span className="flex items-center gap-2 shrink-0">
                             {series.length > 1 && Math.abs(changeCents) >= 100 && (
-                              <span className={`text-xs font-semibold flex items-center gap-0.5 ${improved ? "text-green-600" : "text-red-500"}`}>
+                              <span className={`text-xs font-semibold flex items-center gap-0.5 ${improved ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
                                 {improved ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
                                 {formatCurrency(Math.abs(changeCents))}
                               </span>
@@ -770,7 +773,7 @@ export default function DashboardPage() {
                             </button>
                           </span>
                         </div>
-                        <p className={`text-xl font-bold mb-1 ${lastCents < 0 ? "text-red-500" : "text-green-600"}`}>
+                        <p className={`text-xl font-bold mb-1 ${lastCents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
                           {formatCurrency(lastCents)}
                         </p>
                         {(loan.interest_rate_bps != null || loan.minimum_payment_cents != null) && (
@@ -790,6 +793,7 @@ export default function DashboardPage() {
                                     <stop offset="95%" stopColor={color} stopOpacity={0} />
                                   </linearGradient>
                                 </defs>
+                                <XAxis dataKey="date" hide />
                                 <Tooltip
                                   contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
                                   wrapperStyle={{ zIndex: 50 }}
@@ -821,7 +825,7 @@ export default function DashboardPage() {
                 >
                   <XAxis
                     type="number"
-                    tickFormatter={(v) => `$${Math.round(v / 100)}`}
+                    tickFormatter={formatAxisCurrency}
                     tick={{ fontSize: 11 }}
                   />
                   <YAxis
@@ -929,7 +933,7 @@ export default function DashboardPage() {
                         </span>
                       </td>
                       <td
-                        className={`px-5 py-3 text-right font-mono ${t.amount_cents < 0 ? "text-red-500" : "text-green-600"}`}
+                        className={`px-5 py-3 text-right font-mono ${t.amount_cents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}
                       >
                         {formatCurrency(t.amount_cents)}
                       </td>

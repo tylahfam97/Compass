@@ -19,11 +19,22 @@ interface BudgetRow {
   category_color: string;
   amount_cents: number;
   period: string;
+  start_date: string;
   spent_cents: number;
   earned_cents: number;
   is_global: number;
+  rollover: number;
+  /** Unspent amount carried forward from prior months (0 unless `rollover` is enabled and
+   *  this is a monthly budget) - added to `amount_cents` to get the effective limit for the
+   *  currently-viewed month. See `computeRolloverCents`. */
+  rolloverCents: number;
   weeklyAmounts: number[];
 }
+
+/** Safety cap on how many months of history a rollover computation will walk back through -
+ *  rollover chains compound month over month, so this bounds the query cost for a budget
+ *  that's existed a very long time instead of walking back indefinitely. */
+const MAX_ROLLOVER_MONTHS = 36;
 
 function viewModeKey(profileId: number) {
   return `compass_budget_view_${profileId}`;
@@ -35,6 +46,12 @@ function monthBounds(ym: string): [string, string] {
     `${y}-${String(m).padStart(2, "0")}-01`,
     new Date(y, m, 1).toISOString().split("T")[0],
   ];
+}
+
+function nextYM(ym: string): string {
+  const [y, m] = ym.split("-").map(Number);
+  const d = new Date(y, m, 1); // m is 1-indexed here, so this already advances one month
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
 function currentWeekBounds(): [string, string] {
@@ -60,6 +77,39 @@ function daysElapsed(ym: string): number {
   return now.getDate();
 }
 
+/** Walks month-by-month from a rollover-enabled budget's creation month up to (but excluding)
+ *  the currently-viewed month, compounding each month's leftover (`amountCents - spent`,
+ *  floored at 0 - overspending never creates a "debt" that reduces future months, it just
+ *  resets that month's carry to 0) into the next month's available amount. Returns the total
+ *  carried into the currently-viewed month, added to `amountCents` for the effective limit.
+ *  Capped at `MAX_ROLLOVER_MONTHS` months of history to bound query cost. */
+async function computeRolloverCents(
+  db: Awaited<ReturnType<typeof getDb>>,
+  categoryId: number,
+  amountCents: number,
+  startDate: string,
+  currentMonthYM: string,
+  spendProfileIds: number[]
+): Promise<number> {
+  const ph = spendProfileIds.map(() => "?").join(",");
+  let cursor = startDate.slice(0, 7); // "YYYY-MM" of the budget's own creation month
+  let carry = 0;
+  let iterations = 0;
+  while (cursor < currentMonthYM && iterations < MAX_ROLLOVER_MONTHS) {
+    const [s, e] = monthBounds(cursor);
+    const [row] = await db.select<{ spent: number }[]>(
+      `SELECT COALESCE(SUM(ABS(amount_cents)),0) as spent FROM transactions
+       WHERE category_id=? AND date>=? AND date<? AND amount_cents<0 AND profile_id IN (${ph})`,
+      [categoryId, s, e, ...spendProfileIds]
+    );
+    const available = amountCents + carry - (row?.spent ?? 0);
+    carry = Math.max(0, available);
+    cursor = nextYM(cursor);
+    iterations++;
+  }
+  return carry;
+}
+
 interface ScopeToggleProps {
   isGlobal: boolean;
   onToggle: () => void;
@@ -80,7 +130,7 @@ function ScopeToggle({ isGlobal, onToggle, size = "md" }: ScopeToggleProps) {
         height: trackH,
         borderRadius: trackH / 2,
         padding: 3,
-        backgroundColor: isGlobal ? "#C08A1C" : "#3b82f6",
+        backgroundColor: isGlobal ? "var(--gold)" : "hsl(var(--primary))",
         transition: "background-color 0.3s",
         cursor: "pointer",
         display: "inline-flex",
@@ -126,10 +176,13 @@ export default function BudgetsPage() {
   const [formAmount, setFormAmount] = useState("");
   const [formPeriod, setFormPeriod] = useState<"monthly" | "weekly">("monthly");
   const [formIsGlobal, setFormIsGlobal] = useState(false);
+  const [formRollover, setFormRollover] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
 
   const [pinQueue, setPinQueue] = useState<Profile[]>([]);
   const [pinQueueIdx, setPinQueueIdx] = useState(0);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem(viewModeKey(profileId));
@@ -170,16 +223,16 @@ export default function BudgetsPage() {
     const [start, end] = monthBounds(month);
     const [weekStart, weekEnd] = currentWeekBounds();
 
-    let rawBudgets: Omit<BudgetRow, "weeklyAmounts">[];
+    let rawBudgets: Omit<BudgetRow, "weeklyAmounts" | "rolloverCents">[];
     let weeklyRows: { category_id: number; dow: number; total: number }[];
 
     if (viewMode === "global") {
       const ids = unlockedProfileIds.length > 0 ? unlockedProfileIds : [profileId];
       const ph = ids.map(() => "?").join(",");
-      rawBudgets = await db.select<Omit<BudgetRow, "weeklyAmounts">[]>(
+      rawBudgets = await db.select<Omit<BudgetRow, "weeklyAmounts" | "rolloverCents">[]>(
         `SELECT b.id, b.category_id, c.parent_id as category_parent_id,
                 c.name as category_name, c.color as category_color,
-                b.amount_cents, b.period, b.is_global,
+                b.amount_cents, b.period, b.start_date, b.is_global, b.rollover,
                 COALESCE(SUM(CASE WHEN t.amount_cents<0 THEN ABS(t.amount_cents) ELSE 0 END),0) as spent_cents,
                 COALESCE(SUM(CASE WHEN t.amount_cents>0 AND (acc.account_type IS NULL OR acc.account_type NOT IN ('credit','loan')) THEN t.amount_cents ELSE 0 END),0) as earned_cents
          FROM budgets b
@@ -199,10 +252,10 @@ export default function BudgetsPage() {
         [weekStart, weekEnd, ...ids]
       );
     } else {
-      rawBudgets = await db.select<Omit<BudgetRow, "weeklyAmounts">[]>(
+      rawBudgets = await db.select<Omit<BudgetRow, "weeklyAmounts" | "rolloverCents">[]>(
         `SELECT b.id, b.category_id, c.parent_id as category_parent_id,
                 c.name as category_name, c.color as category_color,
-                b.amount_cents, b.period, b.is_global,
+                b.amount_cents, b.period, b.start_date, b.is_global, b.rollover,
                 COALESCE(SUM(CASE WHEN t.amount_cents<0 THEN ABS(t.amount_cents) ELSE 0 END),0) as spent_cents,
                 COALESCE(SUM(CASE WHEN t.amount_cents>0 AND (acc.account_type IS NULL OR acc.account_type NOT IN ('credit','loan')) THEN t.amount_cents ELSE 0 END),0) as earned_cents
          FROM budgets b
@@ -228,8 +281,25 @@ export default function BudgetsPage() {
       if (!weeklyMap[row.category_id]) weeklyMap[row.category_id] = Array(7).fill(0);
       weeklyMap[row.category_id][row.dow] = row.total;
     }
+
+    const spendProfileIds = viewMode === "global"
+      ? (unlockedProfileIds.length > 0 ? unlockedProfileIds : [profileId])
+      : [profileId];
+    const currentMonthYM = month;
+    const rolloverCentsById = new Map<number, number>();
+    for (const b of rawBudgets) {
+      if (b.rollover && b.period === "monthly") {
+        const cents = await computeRolloverCents(db, b.category_id, b.amount_cents, b.start_date, currentMonthYM, spendProfileIds);
+        rolloverCentsById.set(b.id, cents);
+      }
+    }
+
     setBudgets(
-      rawBudgets.map((b) => ({ ...b, weeklyAmounts: weeklyMap[b.category_id] ?? Array(7).fill(0) }))
+      rawBudgets.map((b) => ({
+        ...b,
+        rolloverCents: rolloverCentsById.get(b.id) ?? 0,
+        weeklyAmounts: weeklyMap[b.category_id] ?? Array(7).fill(0),
+      }))
     );
     setLoading(false);
   }, [month, profileId, viewMode, unlockedProfileIds]);
@@ -280,19 +350,47 @@ export default function BudgetsPage() {
     if (isNaN(amount) || amount <= 0 || formCatId === 0) return;
     setSaving(true);
     const db = await getDb();
-    const [start] = monthBounds(month);
-    await db.execute(
-      "INSERT INTO budgets (category_id, amount_cents, period, start_date, profile_id, is_global) VALUES (?,?,?,?,?,?)",
-      [formCatId, Math.round(amount * 100), formPeriod, start, profileId, formIsGlobal ? 1 : 0]
-    );
+    if (editingId) {
+      await db.execute(
+        "UPDATE budgets SET category_id=?, amount_cents=?, period=?, rollover=? WHERE id=?",
+        [formCatId, Math.round(amount * 100), formPeriod, formPeriod === "monthly" && formRollover ? 1 : 0, editingId]
+      );
+      setEditingId(null);
+    } else {
+      const [start] = monthBounds(month);
+      await db.execute(
+        "INSERT INTO budgets (category_id, amount_cents, period, start_date, profile_id, is_global, rollover) VALUES (?,?,?,?,?,?,?)",
+        [formCatId, Math.round(amount * 100), formPeriod, start, profileId, formIsGlobal ? 1 : 0, formPeriod === "monthly" && formRollover ? 1 : 0]
+      );
+    }
     setFormAmount("");
+    setFormRollover(false);
     setSaving(false);
     await loadBudgets();
+  };
+
+  const startEdit = (b: BudgetRow) => {
+    setEditingId(b.id);
+    setFormCatId(b.category_id);
+    setFormAmount((b.amount_cents / 100).toString());
+    setFormPeriod(b.period === "weekly" ? "weekly" : "monthly");
+    setFormRollover(!!b.rollover);
+    formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setFormCatId(0);
+    setFormAmount("");
+    setFormPeriod("monthly");
+    setFormRollover(false);
   };
 
   const deleteBudget = async (id: number) => {
     const db = await getDb();
     await db.execute("DELETE FROM budgets WHERE id=?", [id]);
+    setConfirmDeleteId((cur) => (cur === id ? null : cur));
+    if (editingId === id) cancelEdit();
     await loadBudgets();
   };
 
@@ -312,6 +410,13 @@ export default function BudgetsPage() {
       // Flip the badge in place; budget remains visible in this profile's view.
       setBudgets((prev) => prev.map((row) => row.id === b.id ? { ...row, is_global: 1 } : row));
     }
+  };
+
+  const toggleBudgetRollover = async (b: BudgetRow) => {
+    const db = await getDb();
+    const next = b.rollover ? 0 : 1;
+    await db.execute("UPDATE budgets SET rollover=? WHERE id=?", [next, b.id]);
+    await loadBudgets();
   };
 
   const pinTarget =
@@ -351,7 +456,7 @@ export default function BudgetsPage() {
           <span
             className="text-sm font-semibold select-none"
             style={{
-              color: !isGlobalActive ? "#3b82f6" : "hsl(var(--muted-foreground))",
+              color: !isGlobalActive ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))",
               transition: "color 0.3s",
             }}
           >
@@ -364,7 +469,7 @@ export default function BudgetsPage() {
           <span
             className="text-sm font-semibold select-none"
             style={{
-              color: isGlobalActive ? "#C08A1C" : "hsl(var(--muted-foreground))",
+              color: isGlobalActive ? "var(--gold)" : "hsl(var(--muted-foreground))",
               transition: "color 0.3s",
             }}
           >
@@ -444,7 +549,7 @@ export default function BudgetsPage() {
               &#127760;
             </div>
             <div>
-              <p className="text-sm font-semibold" style={{ color: "#C08A1C" }}>Global view active</p>
+              <p className="text-sm font-semibold" style={{ color: "var(--gold)" }}>Global view active</p>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">
                 Showing budgets shared across all profiles
                 {profiles.length > 1 ? ` � aggregating ${profiles.length} profiles` : ""}
@@ -456,32 +561,34 @@ export default function BudgetsPage() {
         {/* Add Budget form */}
         <div ref={formRef} className="border rounded-2xl overflow-hidden">
           <div className="px-6 py-4 border-b flex items-center justify-between">
-            <h2 className="font-semibold text-base">New Budget</h2>
-            <div className="flex items-center gap-2.5">
-              <span
-                className="text-xs font-semibold select-none"
-                style={{
-                  color: !formIsGlobal ? "#3b82f6" : "hsl(var(--muted-foreground))",
-                  transition: "color 0.3s",
-                }}
-              >
-                Profile
-              </span>
-              <ScopeToggle
-                isGlobal={formIsGlobal}
-                onToggle={() => setFormIsGlobal((v) => !v)}
-                size="sm"
-              />
-              <span
-                className="text-xs font-semibold select-none"
-                style={{
-                  color: formIsGlobal ? "#C08A1C" : "hsl(var(--muted-foreground))",
-                  transition: "color 0.3s",
-                }}
-              >
-                Global
-              </span>
-            </div>
+            <h2 className="font-semibold text-base">{editingId ? "Edit Budget" : "New Budget"}</h2>
+            {!editingId && (
+              <div className="flex items-center gap-2.5">
+                <span
+                  className="text-xs font-semibold select-none"
+                  style={{
+                    color: !formIsGlobal ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))",
+                    transition: "color 0.3s",
+                  }}
+                >
+                  Profile
+                </span>
+                <ScopeToggle
+                  isGlobal={formIsGlobal}
+                  onToggle={() => setFormIsGlobal((v) => !v)}
+                  size="sm"
+                />
+                <span
+                  className="text-xs font-semibold select-none"
+                  style={{
+                    color: formIsGlobal ? "var(--gold)" : "hsl(var(--muted-foreground))",
+                    transition: "color 0.3s",
+                  }}
+                >
+                  Global
+                </span>
+              </div>
+            )}
           </div>
           <div className="px-6 py-5">
             <div className="flex gap-3 flex-wrap items-end">
@@ -518,12 +625,20 @@ export default function BudgetsPage() {
                   <option value="weekly">Weekly</option>
                 </select>
               </div>
+              {formPeriod === "monthly" && (
+                <label className="flex items-center gap-1.5 text-xs font-medium text-[hsl(var(--muted-foreground))] pb-2.5 cursor-pointer select-none"
+                  title="Unspent amounts carry forward and increase next month's limit">
+                  <input type="checkbox" checked={formRollover} onChange={(e) => setFormRollover(e.target.checked)}
+                    className="cursor-pointer" />
+                  ↻ Roll over unspent
+                </label>
+              )}
               <button
                 onClick={addBudget}
                 disabled={saving || !formAmount}
                 className="px-6 py-2 rounded-lg text-sm font-semibold disabled:opacity-40 transition-opacity hover:opacity-90"
                 style={{
-                  backgroundColor: formIsGlobal ? "#C08A1C" : "hsl(var(--primary))",
+                  backgroundColor: !editingId && formIsGlobal ? "var(--gold)" : "hsl(var(--primary))",
                   color: "hsl(var(--primary-foreground))",
                   paddingTop: "0.5rem",
                   paddingBottom: "0.5rem",
@@ -531,8 +646,17 @@ export default function BudgetsPage() {
                   alignSelf: "flex-end",
                 }}
               >
-                {saving ? "Saving..." : "Add"}
+                {saving ? "Saving..." : editingId ? "Save Changes" : "Add"}
               </button>
+              {editingId && (
+                <button
+                  onClick={cancelEdit}
+                  className="px-4 py-2 border rounded-lg text-sm font-medium hover:bg-[hsl(var(--muted))] transition-colors"
+                  style={{ alignSelf: "flex-end" }}
+                >
+                  Cancel
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -565,20 +689,21 @@ export default function BudgetsPage() {
           const isIncome = b.category_id === 1 || b.category_parent_id === 1;
           const displayCents = isIncome ? b.earned_cents : b.spent_cents;
           const displayLabel = isIncome ? "earned" : "spent";
-          const pct = b.amount_cents > 0
-            ? Math.min(100, Math.round((displayCents / b.amount_cents) * 100))
+          const effectiveLimit = b.amount_cents + (b.rolloverCents || 0);
+          const pct = effectiveLimit > 0
+            ? Math.min(100, Math.round((displayCents / effectiveLimit) * 100))
             : 0;
-          const over = !isIncome && displayCents > b.amount_cents;
-          const under = isIncome && displayCents < b.amount_cents;
+          const over = !isIncome && displayCents > effectiveLimit;
+          const under = isIncome && displayCents < effectiveLimit;
 
           const totalDays = daysInMonth(month);
           const elapsed = daysElapsed(month);
           const remaining = totalDays - elapsed;
-          const dailyLimit = b.amount_cents / totalDays;
-          const dailyRemaining = remaining > 0 ? (b.amount_cents - displayCents) / remaining : 0;
+          const dailyLimit = effectiveLimit / totalDays;
+          const dailyRemaining = remaining > 0 ? (effectiveLimit - displayCents) / remaining : 0;
           const projectedEnd = elapsed > 0 ? Math.round((displayCents / elapsed) * totalDays) : 0;
-          const projectedOver = !isIncome && projectedEnd > b.amount_cents;
-          const projectedOverBy = projectedEnd - b.amount_cents;
+          const projectedOver = !isIncome && projectedEnd > effectiveLimit;
+          const projectedOverBy = projectedEnd - effectiveLimit;
 
           const accentColor = over ? "hsl(var(--error))" : b.is_global ? "var(--gold)" : b.category_color;
 
@@ -610,47 +735,101 @@ export default function BudgetsPage() {
                     ) : (
                       <span
                         className="text-xs px-2 py-0.5 rounded-full font-semibold"
-                        style={{ backgroundColor: "rgba(59,130,246,0.12)", color: "#3b82f6" }}
+                        style={{ backgroundColor: "hsl(var(--primary)/0.12)", color: "hsl(var(--primary))" }}
                       >
                         Profile
                       </span>
                     )}
                     {projectedOver && remaining > 0 && (
-                      <span className="text-xs font-semibold text-red-500">
+                      <span className="text-xs font-semibold text-[hsl(var(--error))]">
                         +{formatCurrency(projectedOverBy)} projected over
+                      </span>
+                    )}
+                    {b.period === "monthly" && b.rollover === 1 && b.rolloverCents > 0 && (
+                      <span
+                        className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                        title="Unspent amount carried forward from prior months"
+                        style={{ backgroundColor: "hsl(var(--success)/0.12)", color: "hsl(var(--success))" }}
+                      >
+                        ↻ +{formatCurrency(b.rolloverCents)} rolled over
                       </span>
                     )}
                   </div>
 
-                  {/* Action buttons � always visible but subtle */}
+                  {/* Action buttons - always visible but subtle; focus-visible so keyboard
+                      users tabbing through can see and reach them, not just on hover */}
                   <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => startEdit(b)}
+                      title="Edit budget"
+                      className="text-xs px-2.5 py-1 rounded-lg border transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100"
+                      style={{
+                        color: "hsl(var(--muted-foreground))",
+                        borderColor: "hsl(var(--muted-foreground) / 0.3)",
+                        backgroundColor: "transparent",
+                      }}
+                    >
+                      Edit
+                    </button>
+                    {b.period === "monthly" && (
+                      <button
+                        onClick={() => toggleBudgetRollover(b)}
+                        title={b.rollover ? "Disable rollover" : "Roll over unspent amounts to next month"}
+                        className="text-xs px-2.5 py-1 rounded-lg border transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100"
+                        style={{
+                          color: b.rollover ? "hsl(var(--success))" : "hsl(var(--muted-foreground))",
+                          borderColor: b.rollover ? "hsl(var(--success) / 0.3)" : "hsl(var(--muted-foreground) / 0.3)",
+                          backgroundColor: "transparent",
+                        }}
+                      >
+                        {b.rollover ? "↻ Rollover on" : "↻ Rollover off"}
+                      </button>
+                    )}
                     <button
                       onClick={() => toggleBudgetScope(b)}
                       title={b.is_global ? "Make profile-specific" : "Make global"}
-                      className="text-xs px-2.5 py-1 rounded-lg border transition-all opacity-0 group-hover:opacity-100"
+                      className="text-xs px-2.5 py-1 rounded-lg border transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100"
                       style={{
-                        color: b.is_global ? "#3b82f6" : "#C08A1C",
-                        borderColor: b.is_global ? "rgba(59,130,246,0.3)" : "rgba(192,138,28,0.3)",
+                        color: b.is_global ? "hsl(var(--primary))" : "var(--gold)",
+                        borderColor: b.is_global ? "hsl(var(--primary) / 0.3)" : "rgba(192,138,28,0.3)",
                         backgroundColor: "transparent",
                       }}
                       onMouseOver={(e) => {
                         e.currentTarget.style.backgroundColor = b.is_global
-                          ? "rgba(59,130,246,0.08)"
+                          ? "hsl(var(--primary) / 0.08)"
                           : "rgba(192,138,28,0.08)";
                       }}
                       onMouseOut={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
                     >
                       {b.is_global ? "? Profile" : "? Global"}
                     </button>
-                    <button
-                      onClick={() => deleteBudget(b.id)}
-                      className="text-xs px-2.5 py-1 rounded-lg border transition-all opacity-0 group-hover:opacity-100"
-                      style={{ color: "hsl(var(--error))", borderColor: "hsl(var(--error) / 0.3)", backgroundColor: "transparent" }}
-                      onMouseOver={(e) => { e.currentTarget.style.backgroundColor = "hsl(var(--error) / 0.07)"; }}
-                      onMouseOut={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
-                    >
-                      Remove
-                    </button>
+                    {confirmDeleteId === b.id ? (
+                      <span className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => deleteBudget(b.id)}
+                          className="text-xs px-2.5 py-1 rounded-lg font-medium"
+                          style={{ color: "white", backgroundColor: "hsl(var(--error))" }}
+                        >
+                          Delete?
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="text-xs px-2.5 py-1 rounded-lg border hover:bg-[hsl(var(--muted))] transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteId(b.id)}
+                        className="text-xs px-2.5 py-1 rounded-lg border transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100"
+                        style={{ color: "hsl(var(--error))", borderColor: "hsl(var(--error) / 0.3)", backgroundColor: "transparent" }}
+                        onMouseOver={(e) => { e.currentTarget.style.backgroundColor = "hsl(var(--error) / 0.07)"; }}
+                        onMouseOut={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
+                      >
+                        Remove
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -677,14 +856,17 @@ export default function BudgetsPage() {
                     {formatCurrency(displayCents)}{" "}
                     <span className="font-normal">{displayLabel}</span>
                     {over && (
-                      <span className="ml-1.5 text-xs font-semibold text-red-500">over budget</span>
+                      <span className="ml-1.5 text-xs font-semibold text-[hsl(var(--error))]">over budget</span>
                     )}
                     {under && (
                       <span className="ml-1.5 text-xs font-semibold text-orange-500">below target</span>
                     )}
                   </span>
                   <span className="text-[hsl(var(--muted-foreground))] tabular-nums">
-                    {isIncome ? "Target" : "Limit"}: {formatCurrency(b.amount_cents)}
+                    {isIncome ? "Target" : "Limit"}: {formatCurrency(effectiveLimit)}
+                    {b.rolloverCents > 0 && (
+                      <span className="text-xs"> ({formatCurrency(b.amount_cents)} + {formatCurrency(b.rolloverCents)})</span>
+                    )}
                     <span className="ml-2 font-semibold" style={{ color: accentColor }}>{pct}%</span>
                   </span>
                 </div>

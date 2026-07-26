@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { AreaChart, Area, ResponsiveContainer, Tooltip } from "recharts";
+import { AreaChart, Area, XAxis, ResponsiveContainer, Tooltip } from "recharts";
 import { X, TrendingUp, TrendingDown, Info, CheckCircle, AlertTriangle } from "lucide-react";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import { getDb } from "@/lib/db";
@@ -175,11 +175,11 @@ export default function AccountDetailModal({ account, insights, onApply, onClose
         </div>
 
         <div className="flex items-center justify-between mb-3">
-          <p className={`text-2xl font-bold ${lastCents < 0 ? "text-red-500" : "text-green-600"}`}>
+          <p className={`text-2xl font-bold ${lastCents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
             {formatCurrency(lastCents)}
           </p>
           {series.length > 1 && Math.abs(changeCents) >= 100 && (
-            <span className={`text-sm font-semibold flex items-center gap-1 ${improved ? "text-green-600" : "text-red-500"}`}>
+            <span className={`text-sm font-semibold flex items-center gap-1 ${improved ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
               {improved ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
               {formatCurrency(Math.abs(changeCents))}
             </span>
@@ -204,6 +204,7 @@ export default function AccountDetailModal({ account, insights, onApply, onClose
                     <stop offset="95%" stopColor={account.color} stopOpacity={0} />
                   </linearGradient>
                 </defs>
+                <XAxis dataKey="date" hide />
                 <Tooltip
                   contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
                   wrapperStyle={{ zIndex: 50 }}
@@ -258,7 +259,7 @@ export default function AccountDetailModal({ account, insights, onApply, onClose
                       <p className="truncate">{t.description}</p>
                       <p className="text-[10px] text-[hsl(var(--muted-foreground))]">{formatDate(t.date)}</p>
                     </div>
-                    <span className={`shrink-0 font-medium ${t.amount_cents < 0 ? "text-red-500" : "text-green-600"}`}>
+                    <span className={`shrink-0 font-medium ${t.amount_cents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
                       {formatCurrency(t.amount_cents)}
                     </span>
                   </div>
@@ -278,7 +279,7 @@ export default function AccountDetailModal({ account, insights, onApply, onClose
                 {[...series].reverse().slice(0, 6).map((pt, i) => (
                   <div key={i} className="flex items-center justify-between gap-2 text-sm py-1 border-b last:border-0">
                     <span className="text-[hsl(var(--muted-foreground))]">{formatDate(pt.date)}</span>
-                    <span className="font-medium text-red-500">{formatCurrency(Math.round(pt.value * 100))}</span>
+                    <span className="font-medium text-[hsl(var(--error))]">{formatCurrency(Math.round(pt.value * 100))}</span>
                   </div>
                 ))}
               </div>

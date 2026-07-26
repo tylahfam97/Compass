@@ -140,13 +140,19 @@ Five reports that run automatically — no setup required:
 | **Most Recurring Payees** | Frequency, average cost, and total paid to each merchant |
 | **👻 Ghost Subscriptions** | Charges landing on the same day of month (or the same "Nth weekday", e.g. 3rd Thursday) 2+ months in a row — your recurring charges, sorted by cost with nothing cut off |
 
+"Spending by Category" also includes a donut chart (top categories plus an "Other" slice) alongside the month-over-month table, so you can see where your money went at a glance instead of only scanning numbers.
+
 Reports support **month navigation** or a **custom date range** with presets: This quarter, Last quarter, Year to date, Last 12 months.
 
 ### 💰 Budgets
 
-Set soft spending limits per category — monthly or weekly. Each budget shows a live progress bar, amount spent vs. limit, and an **On pace for $X** projection so you can see a potential overspend before the month ends. No enforcement, no penalties — just awareness.
+Set soft spending limits per category — monthly or weekly. Each budget shows a live progress bar, amount spent vs. limit, and an **On pace for $X** projection so you can see a potential overspend before the month ends. No enforcement, no penalties — just awareness. Budgets can be edited in place at any time (category, amount, period, rollover) via the **Edit** button on any budget card — no need to delete and recreate.
+
+**Rollover:** Monthly budgets can opt in to carrying unspent money into the next month, envelope-budgeting style — toggle it on when creating a budget, or flip it later with the **↻ Rollover** button on any existing budget card. Any leftover under your limit shows as a **+$X rolled over** badge and raises that month's effective limit; overspending never carries forward as a debt, it simply resets to zero the next month.
 
 **Global vs. Profile budgets:** A **Profile / Global toggle** at the top-right of the Budgets page lets you switch between views. Profile budgets track spending for the active profile only. Global budgets aggregate transactions across all profiles and are visible to every profile — useful for shared household expenses. Any budget can be flipped between the two scopes after creation with the **↑ Global / ↓ Profile** button on its card. When switching to Global view, Compass walks you through unlocking any PIN-protected profiles so their data is included in the totals.
+
+Budgets and Goals both require a two-step **Delete? / Cancel** confirmation before removing anything.
 
 > **Transfers** (same-institution internal moves) are excluded from all budget totals regardless of scope.
 
@@ -158,7 +164,9 @@ Set soft spending limits per category — monthly or weekly. Each budget shows a
 | **Spending Limit** | Category spending at or below your target |
 | **Income Target** | Income at or above your target |
 
-Each goal shows a progress bar, current vs. target amount, and an "On track ✓" or "Needs attention ⚠" status badge.
+Each goal shows a progress bar, current vs. target amount, and an "On track ✓" or "Needs attention ⚠" status badge. Goals can be edited in place at any time (name, type, category, target, timeframe) via the **Edit** button on any goal card — no need to delete and recreate.
+
+**🎉 Milestones:** Compass celebrates a handful of real milestones the first time they happen — your net worth going positive, a loan or credit card reaching a $0 balance, or a goal hitting its target — with a small gold confetti burst and a banner. Each one only celebrates once.
 
 ### 💡 Insights
 
@@ -185,7 +193,7 @@ Each spotlight card includes a forward-looking **“↗ potential” callout** c
 
 ### 🔍 Transactions
 
-Full searchable, filterable transaction list. Filter by month or view all-time history (no row cap). Re-categorize in one click, and view the running account balance alongside each transaction.
+Full searchable, filterable transaction list. Filter by month or view all-time history (no row cap). Re-categorize in one click, view the running account balance alongside each transaction, and delete a transaction directly from its row (hover to reveal a delete icon, with an inline confirm step) without opening the Edit modal first.
 
 **Sortable column headers** — Click Date, Description, Category, Amount, or Balance to sort. Click again to reverse. An arrow shows the active column and direction.
 
@@ -224,7 +232,7 @@ Import a brokerage "Portfolio Positions" export (Wells Fargo Advisors format —
 - Check whether another profile already tracks investments, or has a plausibly-named profile, before offering to create a dedicated **Investments** profile — so brokerage holdings never mix into everyday spending totals
 - Track holdings as dated snapshots, so re-importing a later statement builds a value-over-time history instead of overwriting it
 
-The Investments page shows KPI tiles (portfolio value, cost basis, unrealized gain/loss, estimated annual dividend income), holdings grouped by symbol with expandable tax-lot detail, and a portfolio value chart once two or more statements have been imported.
+The Investments page shows KPI tiles (portfolio value, cost basis, unrealized gain/loss, estimated annual dividend income), an allocation donut chart (Stocks/ETFs/Mutual Funds/Cash/Other) with a percentage legend, holdings grouped by symbol with expandable tax-lot detail, and a portfolio value chart once two or more statements have been imported.
 
 > Dividend and "Est. Annual Income" figures reflect the brokerage's projected estimates as of the statement date — not a history of dividends actually paid.
 
@@ -404,7 +412,7 @@ Compass is focused on one thing: making it easy to understand your personal fina
 Statement import · Import history + undo · Auto-categorization · Edit/add/delete transactions · CSV export · Spending trends · Budgets with on-pace projection · Goals · Reports with custom date ranges · Insights · Ghost subscriptions · Running balance · All-accounts overview · Smart categorization rules · In-app auto-updates · Demo mode · Batch import · Collapsible sidebar · Profile switcher on launch · Investment portfolio tracking with net worth toggle
 
 ### ✅ Phase 2 — AI Insights *(complete)*
-AI agent for natural-language questions about your data · Automatic insight generation (budget gaps, unusual spending, savings rate, overspend streaks, low balance alerts) · Categorization rules engine with priority ordering · Debt Payoff plan with Avalanche/Snowball/Cash-flow ranking and three payoff scenarios (Stay the Course, Balanced Cushion, Most Aggressive)
+AI agent for natural-language questions about your data · Automatic insight generation (budget gaps, unusual spending, savings rate, overspend streaks, low balance alerts) · Categorization rules engine with priority ordering · Debt Payoff plan with Avalanche/Snowball/Cash-flow ranking and three payoff scenarios (Stay the Course, Balanced Cushion, Most Aggressive) · Budget rollover · Investment allocation & category spending donut charts · Milestone celebrations
 
 ### 🔜 Phase 3 — Deeper Financial Clarity *(planned)*
 The goal: help you act on your data, not just see it.

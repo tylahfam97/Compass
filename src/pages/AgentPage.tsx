@@ -6,7 +6,7 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import { getDb, getAccountsSummaryForProfile, setAccountExcludedFromInsights, getLoanAccountsForProfile, getCreditAccountsForProfile, getLoanBalanceHistory, type AccountSummary, type LoanAccount } from "@/lib/db";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatMonthLabel } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
 import {
   generateInsights, getSpendingProfile, getSavingsHistory, computeHealthScore, computeCreditCardHealthScore, detectRecurringCharges,
@@ -22,6 +22,8 @@ import { useModalDismiss } from "@/hooks/useModalDismiss";
 import SpotlightCard from "@/components/SpotlightCard";
 import PinModal from "@/components/PinModal";
 import DebtPayoffModal from "@/components/DebtPayoffModal";
+import MilestoneCelebration from "@/components/MilestoneCelebration";
+import { detectNewMilestones } from "@/lib/milestones";
 
 const ROI_SECTION_LABELS: Record<SecurityType, string> = {
   stock: "Stocks", etf: "ETFs", mutual_fund: "Mutual Funds", cash: "Cash", other: "Other",
@@ -121,7 +123,7 @@ function ScopeToggle({ isGlobal, onToggle }: ScopeToggleProps) {
     <button role="switch" aria-checked={isGlobal} onClick={onToggle}
       style={{
         width: 52, height: 28, borderRadius: 14, padding: 3,
-        backgroundColor: isGlobal ? "#C08A1C" : "#3b82f6",
+        backgroundColor: isGlobal ? "var(--gold)" : "hsl(var(--primary))",
         transition: "background-color 0.3s", cursor: "pointer",
         display: "inline-flex", alignItems: "center",
         border: "none", flexShrink: 0, boxShadow: "inset 0 1px 3px rgba(0,0,0,0.18)",
@@ -387,12 +389,12 @@ function NetWorthCard({
             <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2">
               Net Worth
             </p>
-            <p className={`text-4xl font-black tabular-nums ${netWorth.netWorthCents >= 0 ? "text-[hsl(var(--foreground))]" : "text-red-500"}`}>
+            <p className={`text-4xl font-black tabular-nums ${netWorth.netWorthCents >= 0 ? "text-[hsl(var(--foreground))]" : "text-[hsl(var(--error))]"}`}>
               <CountUp value={netWorth.netWorthCents} format={(v) => formatCurrency(Math.round(v))} />
             </p>
           </div>
           {history.length >= 2 && !isFlat && (
-            <div className={`flex items-center gap-1 text-sm font-semibold ${isGrowing ? "text-green-600" : "text-red-500"}`}>
+            <div className={`flex items-center gap-1 text-sm font-semibold ${isGrowing ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
               {isGrowing ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
               {formatCurrency(Math.abs(changeCents))} ({Math.abs(Math.round(changePct))}%) this year
             </div>
@@ -410,7 +412,7 @@ function NetWorthCard({
           </div>
           <div>
             <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wide">Debt</p>
-            <p className={`text-sm font-bold ${(netWorth.debtCents + netWorth.loanDebtCents) < 0 ? "text-red-500" : ""}`}>{formatCurrency(netWorth.debtCents + netWorth.loanDebtCents)}</p>
+            <p className={`text-sm font-bold ${(netWorth.debtCents + netWorth.loanDebtCents) < 0 ? "text-[hsl(var(--error))]" : ""}`}>{formatCurrency(netWorth.debtCents + netWorth.loanDebtCents)}</p>
           </div>
         </div>
 
@@ -432,9 +434,10 @@ function NetWorthCard({
                       <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                     </linearGradient>
                   </defs>
+                  <XAxis dataKey="month" hide />
                   <Tooltip
                     formatter={(v) => [formatCurrency(v as number), "Net Worth"]}
-                    labelFormatter={(l) => String(l)}
+                    labelFormatter={(l) => formatMonthLabel(String(l))}
                     contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
                   />
                   <Area type="monotone" dataKey="netWorthCents" stroke="#6366f1" strokeWidth={2} fill="url(#netWorthGrad)" dot={false} />
@@ -456,7 +459,7 @@ function NetWorthCard({
                 >
                   <div className="grid grid-cols-4 gap-3 text-center rounded-xl p-3 mb-4 bg-[hsl(var(--muted))]/40">
                     <div>
-                      <p className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase">{selected.month}</p>
+                      <p className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase">{formatMonthLabel(selected.month)}</p>
                       <p className="text-xs font-bold">{formatCurrency(selected.netWorthCents)}</p>
                     </div>
                     <div>
@@ -469,7 +472,7 @@ function NetWorthCard({
                     </div>
                     <div>
                       <p className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase">Debt</p>
-                      <p className={`text-xs font-bold ${selected.debtCents < 0 ? "text-red-500" : ""}`}>{formatCurrency(selected.debtCents)}</p>
+                      <p className={`text-xs font-bold ${selected.debtCents < 0 ? "text-[hsl(var(--error))]" : ""}`}>{formatCurrency(selected.debtCents)}</p>
                     </div>
                   </div>
                 </motion.div>
@@ -481,7 +484,7 @@ function NetWorthCard({
         <div className="grid grid-cols-2 gap-4 pt-3 border-t">
           <div>
             <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wide mb-0.5">Savings Rate</p>
-            <p className={`text-lg font-bold ${savingsRatePct >= 20 ? "text-green-600" : savingsRatePct >= 10 ? "text-amber-500" : "text-red-500"}`}>
+            <p className={`text-lg font-bold ${savingsRatePct >= 20 ? "text-[hsl(var(--success))]" : savingsRatePct >= 10 ? "text-amber-500" : "text-[hsl(var(--error))]"}`}>
               {savingsRatePct}%
             </p>
           </div>
@@ -561,7 +564,7 @@ function LoanDashboardCard({ loans, onSelectLoan }: { loans: DebtEntry[]; onSele
             <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2">
               Debt Payoff Dashboard
             </p>
-            <p className="text-3xl font-black tabular-nums text-red-500">
+            <p className="text-3xl font-black tabular-nums text-[hsl(var(--error))]">
               {formatCurrency(-totalDebtCents)}
             </p>
             <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
@@ -605,7 +608,7 @@ function LoanDashboardCard({ loans, onSelectLoan }: { loans: DebtEntry[]; onSele
               <span className="text-[9px] font-semibold uppercase tracking-wide shrink-0 px-1.5 py-0.5 rounded-full border text-[hsl(var(--muted-foreground))]">
                 {loan.debtKind === "credit" ? "Card" : "Loan"}
               </span>
-              <span className="text-sm font-semibold text-red-500 shrink-0">{formatCurrency(loan.balance_cents ?? 0)}</span>
+              <span className="text-sm font-semibold text-[hsl(var(--error))] shrink-0">{formatCurrency(loan.balance_cents ?? 0)}</span>
               {method === "avalanche" && (
                 <span className="text-xs text-[hsl(var(--muted-foreground))] shrink-0 w-16 text-right">
                   {loan.interest_rate_bps != null ? `${(loan.interest_rate_bps / 100).toFixed(2)}%` : "no rate"}
@@ -692,8 +695,8 @@ function ScoreIntroModal({
             className="flex-1 py-3 text-xs font-semibold transition-colors"
             style={{
               backgroundColor: tab === "profile" ? "rgba(59,130,246,0.08)" : "transparent",
-              color: tab === "profile" ? "#3b82f6" : "hsl(var(--muted-foreground))",
-              borderBottom: tab === "profile" ? "2px solid #3b82f6" : "2px solid transparent",
+              color: tab === "profile" ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))",
+              borderBottom: tab === "profile" ? "2px solid hsl(var(--primary))" : "2px solid transparent",
             }}>
             👤 {profileName}
           </button>
@@ -791,6 +794,15 @@ export default function AgentPage() {
   const [topRoi, setTopRoi]                     = useState<Partial<Record<SecurityType, TopRoiHolding[]>>>({});
   const [loans, setLoans]                       = useState<DebtEntry[]>([]);
   const [payoffModal, setPayoffModal] = useState<{ debts: DebtEntry[]; title: string; subtitle?: string } | null>(null);
+  const [milestoneQueue, setMilestoneQueue] = useState<string[]>([]);
+  const [activeMilestone, setActiveMilestone] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (activeMilestone === null && milestoneQueue.length > 0) {
+      setActiveMilestone(milestoneQueue[0]);
+      setMilestoneQueue((q) => q.slice(1));
+    }
+  }, [activeMilestone, milestoneQueue]);
 
   const [sectExpanded, setSectExpanded] = useState<{ trends: boolean; subs: boolean; topRoi: boolean }>(() => {
     try { const s = localStorage.getItem("compass_insight_sections"); return s ? JSON.parse(s) : { trends: false, subs: false, topRoi: false }; }
@@ -919,11 +931,20 @@ export default function AgentPage() {
         ...creditLists.flat().map((c) => ({ ...c, debtKind: "credit" as const })),
       ];
       const debtTrends = await Promise.all(allDebts.map((l) => getLoanBalanceHistory(l.id)));
-      setLoans(allDebts.map((l, i) => {
+      const debtsWithTrend = allDebts.map((l, i) => {
         const series = debtTrends[i];
         const trendCents = series.length > 1 ? Math.round((series[series.length - 1].value - series[0].value) * 100) : null;
         return { ...l, trendCents };
-      }));
+      });
+      setLoans(debtsWithTrend);
+
+      const newMilestones = detectNewMilestones(profileId, {
+        netWorthCents: nw.netWorthCents,
+        debts: debtsWithTrend.map((d) => ({ id: d.id, name: d.name, balanceCents: d.balance_cents })),
+      });
+      if (newMilestones.length > 0) {
+        setMilestoneQueue((q) => [...q, ...newMilestones.map((m) => m.message)]);
+      }
 
       const thisMonth = currentYM();
       const lMonth = prevYM(thisMonth);
@@ -1072,6 +1093,7 @@ export default function AgentPage() {
 
   return (
     <>
+      <MilestoneCelebration message={activeMilestone} onDismiss={() => setActiveMilestone(null)} />
       {pinTarget && <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />}
       <AnimatePresence>
         {showScoreIntro && globalHealthScore && (
@@ -1207,7 +1229,7 @@ export default function AgentPage() {
                       {topRoi[type]!.map((h) => (
                         <div key={`${type}-${h.symbol ?? h.description}`} className="flex items-center justify-between gap-3 text-sm">
                           <span className="truncate flex-1">{h.symbol ?? h.description}</span>
-                          <span className={`font-mono font-semibold flex items-center gap-1 shrink-0 ${h.roiPct >= 0 ? "text-green-600" : "text-red-500"}`}>
+                          <span className={`font-mono font-semibold flex items-center gap-1 shrink-0 ${h.roiPct >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
                             {h.roiPct >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
                             {h.roiPct >= 0 ? "+" : ""}{h.roiPct.toFixed(1)}%
                           </span>
@@ -1229,19 +1251,19 @@ export default function AgentPage() {
                 {
                   label: "Avg Monthly Income",
                   value: formatCurrency(spendingProfile.avgMonthlyIncome),
-                  color: "text-green-600",
+                  color: "text-[hsl(var(--success))]",
                   sub: null,
                 },
                 {
                   label: "Avg Monthly Spend",
                   value: formatCurrency(spendingProfile.avgMonthlyExpenses),
-                  color: "text-red-500",
+                  color: "text-[hsl(var(--error))]",
                   sub: null,
                 },
                 {
                   label: "Avg Savings Rate",
                   value: `${avgSavingsRatePct}%`,
-                  color: avgSavingsRatePct >= 20 ? "text-green-600" : avgSavingsRatePct >= 10 ? "text-amber-500" : "text-red-500",
+                  color: avgSavingsRatePct >= 20 ? "text-[hsl(var(--success))]" : avgSavingsRatePct >= 10 ? "text-amber-500" : "text-[hsl(var(--error))]",
                   sub: avgSavingsRatePct >= 20 ? "Healthy" : avgSavingsRatePct >= 10 ? "Building" : "Below target",
                 },
                 {
@@ -1280,12 +1302,13 @@ export default function AgentPage() {
                     <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="month" tick={{ fontSize: 9 }} tickFormatter={(v: string) => v.slice(5)}
+                <XAxis dataKey="month" tick={{ fontSize: 9 }} tickFormatter={formatMonthLabel}
                        axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 9 }} tickFormatter={(v: number) => `${v}%`} width={30}
                        axisLine={false} tickLine={false} />
                 <Tooltip
                   formatter={(v) => [`${v ?? 0}%`, "Rate"]}
+                  labelFormatter={(l) => formatMonthLabel(String(l))}
                   contentStyle={{
                     backgroundColor: "hsl(var(--background))",
                     border: "1px solid hsl(var(--border))",
@@ -1391,7 +1414,7 @@ export default function AgentPage() {
                     </td>
                     <td className={`px-5 py-2.5 text-right font-semibold ${
                       r.last_month === 0 ? "text-[hsl(var(--muted-foreground))]"
-                      : r.delta_pct > 0  ? "text-red-500" : "text-green-600"}`}>
+                      : r.delta_pct > 0  ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
                       {r.last_month === 0 ? "New" : `${r.delta_pct > 0 ? "+" : ""}${r.delta_pct}%`}
                     </td>
                   </tr>
@@ -1421,7 +1444,7 @@ export default function AgentPage() {
                     <td className="px-5 py-2.5 text-[hsl(var(--muted-foreground))]">
                       {s.patternLabel} · {s.month_count} months running
                     </td>
-                    <td className="px-5 py-2.5 text-right font-mono text-red-500">
+                    <td className="px-5 py-2.5 text-right font-mono text-[hsl(var(--error))]">
                       {formatCurrency(Math.abs(s.amount_cents))}/mo
                     </td>
                   </tr>
