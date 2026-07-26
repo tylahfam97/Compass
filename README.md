@@ -146,7 +146,7 @@ Reports support **month navigation** or a **custom date range** with presets: Th
 
 ### 💰 Budgets
 
-Set soft spending limits per category — monthly or weekly. Each budget shows a live progress bar, amount spent vs. limit, and an **On pace for $X** projection so you can see a potential overspend before the month ends. No enforcement, no penalties — just awareness.
+Set soft spending limits per category — monthly or weekly. Each budget shows a live progress bar, amount spent vs. limit, and an **On pace for $X** projection so you can see a potential overspend before the month ends. No enforcement, no penalties — just awareness. Budgets can be edited in place at any time (category, amount, period, rollover) via the **Edit** button on any budget card — no need to delete and recreate.
 
 **Rollover:** Monthly budgets can opt in to carrying unspent money into the next month, envelope-budgeting style — toggle it on when creating a budget, or flip it later with the **↻ Rollover** button on any existing budget card. Any leftover under your limit shows as a **+$X rolled over** badge and raises that month's effective limit; overspending never carries forward as a debt, it simply resets to zero the next month.
 

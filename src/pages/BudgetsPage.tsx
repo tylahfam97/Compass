@@ -178,6 +178,7 @@ export default function BudgetsPage() {
   const [formIsGlobal, setFormIsGlobal] = useState(false);
   const [formRollover, setFormRollover] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
 
   const [pinQueue, setPinQueue] = useState<Profile[]>([]);
   const [pinQueueIdx, setPinQueueIdx] = useState(0);
@@ -349,21 +350,47 @@ export default function BudgetsPage() {
     if (isNaN(amount) || amount <= 0 || formCatId === 0) return;
     setSaving(true);
     const db = await getDb();
-    const [start] = monthBounds(month);
-    await db.execute(
-      "INSERT INTO budgets (category_id, amount_cents, period, start_date, profile_id, is_global, rollover) VALUES (?,?,?,?,?,?,?)",
-      [formCatId, Math.round(amount * 100), formPeriod, start, profileId, formIsGlobal ? 1 : 0, formPeriod === "monthly" && formRollover ? 1 : 0]
-    );
+    if (editingId) {
+      await db.execute(
+        "UPDATE budgets SET category_id=?, amount_cents=?, period=?, rollover=? WHERE id=?",
+        [formCatId, Math.round(amount * 100), formPeriod, formPeriod === "monthly" && formRollover ? 1 : 0, editingId]
+      );
+      setEditingId(null);
+    } else {
+      const [start] = monthBounds(month);
+      await db.execute(
+        "INSERT INTO budgets (category_id, amount_cents, period, start_date, profile_id, is_global, rollover) VALUES (?,?,?,?,?,?,?)",
+        [formCatId, Math.round(amount * 100), formPeriod, start, profileId, formIsGlobal ? 1 : 0, formPeriod === "monthly" && formRollover ? 1 : 0]
+      );
+    }
     setFormAmount("");
     setFormRollover(false);
     setSaving(false);
     await loadBudgets();
   };
 
+  const startEdit = (b: BudgetRow) => {
+    setEditingId(b.id);
+    setFormCatId(b.category_id);
+    setFormAmount((b.amount_cents / 100).toString());
+    setFormPeriod(b.period === "weekly" ? "weekly" : "monthly");
+    setFormRollover(!!b.rollover);
+    formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setFormCatId(0);
+    setFormAmount("");
+    setFormPeriod("monthly");
+    setFormRollover(false);
+  };
+
   const deleteBudget = async (id: number) => {
     const db = await getDb();
     await db.execute("DELETE FROM budgets WHERE id=?", [id]);
     setConfirmDeleteId((cur) => (cur === id ? null : cur));
+    if (editingId === id) cancelEdit();
     await loadBudgets();
   };
 
@@ -534,32 +561,34 @@ export default function BudgetsPage() {
         {/* Add Budget form */}
         <div ref={formRef} className="border rounded-2xl overflow-hidden">
           <div className="px-6 py-4 border-b flex items-center justify-between">
-            <h2 className="font-semibold text-base">New Budget</h2>
-            <div className="flex items-center gap-2.5">
-              <span
-                className="text-xs font-semibold select-none"
-                style={{
-                  color: !formIsGlobal ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))",
-                  transition: "color 0.3s",
-                }}
-              >
-                Profile
-              </span>
-              <ScopeToggle
-                isGlobal={formIsGlobal}
-                onToggle={() => setFormIsGlobal((v) => !v)}
-                size="sm"
-              />
-              <span
-                className="text-xs font-semibold select-none"
-                style={{
-                  color: formIsGlobal ? "var(--gold)" : "hsl(var(--muted-foreground))",
-                  transition: "color 0.3s",
-                }}
-              >
-                Global
-              </span>
-            </div>
+            <h2 className="font-semibold text-base">{editingId ? "Edit Budget" : "New Budget"}</h2>
+            {!editingId && (
+              <div className="flex items-center gap-2.5">
+                <span
+                  className="text-xs font-semibold select-none"
+                  style={{
+                    color: !formIsGlobal ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))",
+                    transition: "color 0.3s",
+                  }}
+                >
+                  Profile
+                </span>
+                <ScopeToggle
+                  isGlobal={formIsGlobal}
+                  onToggle={() => setFormIsGlobal((v) => !v)}
+                  size="sm"
+                />
+                <span
+                  className="text-xs font-semibold select-none"
+                  style={{
+                    color: formIsGlobal ? "var(--gold)" : "hsl(var(--muted-foreground))",
+                    transition: "color 0.3s",
+                  }}
+                >
+                  Global
+                </span>
+              </div>
+            )}
           </div>
           <div className="px-6 py-5">
             <div className="flex gap-3 flex-wrap items-end">
@@ -609,7 +638,7 @@ export default function BudgetsPage() {
                 disabled={saving || !formAmount}
                 className="px-6 py-2 rounded-lg text-sm font-semibold disabled:opacity-40 transition-opacity hover:opacity-90"
                 style={{
-                  backgroundColor: formIsGlobal ? "var(--gold)" : "hsl(var(--primary))",
+                  backgroundColor: !editingId && formIsGlobal ? "var(--gold)" : "hsl(var(--primary))",
                   color: "hsl(var(--primary-foreground))",
                   paddingTop: "0.5rem",
                   paddingBottom: "0.5rem",
@@ -617,8 +646,17 @@ export default function BudgetsPage() {
                   alignSelf: "flex-end",
                 }}
               >
-                {saving ? "Saving..." : "Add"}
+                {saving ? "Saving..." : editingId ? "Save Changes" : "Add"}
               </button>
+              {editingId && (
+                <button
+                  onClick={cancelEdit}
+                  className="px-4 py-2 border rounded-lg text-sm font-medium hover:bg-[hsl(var(--muted))] transition-colors"
+                  style={{ alignSelf: "flex-end" }}
+                >
+                  Cancel
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -721,6 +759,18 @@ export default function BudgetsPage() {
                   {/* Action buttons - always visible but subtle; focus-visible so keyboard
                       users tabbing through can see and reach them, not just on hover */}
                   <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => startEdit(b)}
+                      title="Edit budget"
+                      className="text-xs px-2.5 py-1 rounded-lg border transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100"
+                      style={{
+                        color: "hsl(var(--muted-foreground))",
+                        borderColor: "hsl(var(--muted-foreground) / 0.3)",
+                        backgroundColor: "transparent",
+                      }}
+                    >
+                      Edit
+                    </button>
                     {b.period === "monthly" && (
                       <button
                         onClick={() => toggleBudgetRollover(b)}

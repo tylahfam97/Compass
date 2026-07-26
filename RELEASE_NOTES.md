@@ -28,9 +28,10 @@ Compass now notices a handful of real milestones — your net worth going positi
 time, a loan or credit card balance hitting $0, or a savings goal reaching its target — and
 celebrates with a small gold confetti burst and a banner. Each milestone only celebrates once.
 
-### New: Goal Editing
-Goals can now be edited in place (name, type, category, target, timeframe) instead of only
-delete-and-recreate. Click "Edit" on any goal card to update it.
+### New: Budget & Goal Editing
+Budgets and Goals can now both be edited in place instead of only delete-and-recreate. Click
+"Edit" on any budget or goal card to update its category, amount/target, period/timeframe, and
+(for budgets) rollover setting.
 
 ### New: Direct Transaction Delete
 Transactions can now be deleted straight from the table row (hover to reveal a delete icon,
