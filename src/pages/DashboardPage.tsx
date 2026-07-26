@@ -513,6 +513,7 @@ export default function DashboardPage() {
                           <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
                         </linearGradient>
                       </defs>
+                      <XAxis dataKey="date" hide />
                       <Tooltip
                         contentStyle={{
                           backgroundColor: "hsl(var(--background))",
@@ -522,9 +523,9 @@ export default function DashboardPage() {
                         }}
                         wrapperStyle={{ zIndex: 50 }}
                         formatter={(v) => [`$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "Balance"]}
-                        labelFormatter={(l) => l}
+                        labelFormatter={(l) => formatDate(String(l))}
                       />
-                      <Area type="monotone" dataKey="balance" stroke="#3b82f6" strokeWidth={2} fill="url(#balGrad)" dot={false} />
+                      <Area type="monotone" dataKey="balance" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#balGrad)" dot={false} />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -585,6 +586,7 @@ export default function DashboardPage() {
                                   <stop offset="95%" stopColor={acc.color} stopOpacity={0} />
                                 </linearGradient>
                               </defs>
+                              <XAxis dataKey="date" hide />
                               <Tooltip
                                 contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
                                 wrapperStyle={{ zIndex: 50 }}
@@ -691,6 +693,7 @@ export default function DashboardPage() {
                                   <stop offset="95%" stopColor={acc.color} stopOpacity={0} />
                                 </linearGradient>
                               </defs>
+                              <XAxis dataKey="date" hide />
                               <Tooltip
                                 contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
                                 wrapperStyle={{ zIndex: 50 }}
@@ -790,6 +793,7 @@ export default function DashboardPage() {
                                     <stop offset="95%" stopColor={color} stopOpacity={0} />
                                   </linearGradient>
                                 </defs>
+                                <XAxis dataKey="date" hide />
                                 <Tooltip
                                   contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
                                   wrapperStyle={{ zIndex: 50 }}

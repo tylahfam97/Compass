@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { AreaChart, Area, ResponsiveContainer, Tooltip } from "recharts";
+import { AreaChart, Area, XAxis, ResponsiveContainer, Tooltip } from "recharts";
 import { X, TrendingUp, TrendingDown, Info, CheckCircle, AlertTriangle } from "lucide-react";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import { getDb } from "@/lib/db";
@@ -204,6 +204,7 @@ export default function AccountDetailModal({ account, insights, onApply, onClose
                     <stop offset="95%" stopColor={account.color} stopOpacity={0} />
                   </linearGradient>
                 </defs>
+                <XAxis dataKey="date" hide />
                 <Tooltip
                   contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
                   wrapperStyle={{ zIndex: 50 }}

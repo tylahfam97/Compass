@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { AreaChart, Area, LineChart, Line, ResponsiveContainer, Tooltip } from "recharts";
+import { AreaChart, Area, LineChart, Line, XAxis, ResponsiveContainer, Tooltip } from "recharts";
 import { Eye, EyeOff } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { getDb, setAccountHiddenFromDashboard } from "@/lib/db";
-import { formatCurrency, combineAccountBalances, separateAccountBalances, accountChartColor } from "@/lib/utils";
+import { formatCurrency, formatDate, combineAccountBalances, separateAccountBalances, accountChartColor } from "@/lib/utils";
 import { computeNetWorth, type NetWorthSnapshot } from "@/lib/netWorth";
 import { useProfileStore } from "@/stores/profileStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
@@ -397,10 +397,11 @@ export default function OverviewPage() {
                                     <stop offset="95%" stopColor={profile.avatar_color} stopOpacity={0} />
                                   </linearGradient>
                                 </defs>
+                                <XAxis dataKey="date" hide />
                                 <Tooltip contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
                                   wrapperStyle={{ zIndex: 50 }}
                                   formatter={(v) => [`$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "Checking"]}
-                                  labelFormatter={(l) => String(l)} />
+                                  labelFormatter={(l) => formatDate(String(l))} />
                                 <Area type="monotone" dataKey="balance" stroke={profile.avatar_color} strokeWidth={1.5} fill={`url(#grad-${profile.id})`} dot={false} />
                               </AreaChart>
                             </ResponsiveContainer>
@@ -410,10 +411,11 @@ export default function OverviewPage() {
                           <div className="h-8 mt-0.5">
                             <ResponsiveContainer width="100%" height="100%">
                               <LineChart data={d.creditSparkline} margin={{ top: 1, right: 2, bottom: 1, left: 2 }}>
+                                <XAxis dataKey="date" hide />
                                 <Tooltip contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
                                   wrapperStyle={{ zIndex: 50 }}
                                   formatter={(v, name) => [`$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`, name]}
-                                  labelFormatter={(l) => String(l)} />
+                                  labelFormatter={(l) => formatDate(String(l))} />
                                 {d.creditAccounts.map((acc, i) => (
                                   <Line key={acc.id} type="monotone" isAnimationActive={false} name={acc.name}
                                     dataKey={(pt: { byAccount: Record<number, number> }) => (pt.byAccount[acc.id] ?? 0) / 100}

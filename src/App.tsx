@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
+import { BrowserRouter, Routes, Route, NavLink, useLocation } from "react-router-dom";
 import logoUrl from "@/assets/logo.svg";
 import { useState, useEffect, Suspense, lazy } from "react";
 import {
@@ -34,6 +34,36 @@ function PageLoadingFallback() {
     <div className="py-6">
       <CardListSkeleton count={3} />
     </div>
+  );
+}
+
+/**
+ * Wraps the routed page content in an ErrorBoundary keyed to the current path, so a
+ * one-time render error on one page can't leave the WHOLE APP stuck showing the "Something
+ * went wrong" fallback on every subsequent page/navigation - previously the single shared
+ * ErrorBoundary instance never unmounted across route changes (it lives above <Routes>),
+ * so once tripped it kept rendering its fallback regardless of which page you navigated to
+ * next, until "Try again" was clicked. Keying by pathname forces React to remount a fresh,
+ * untripped boundary on every navigation, so a transient glitch on one page never "follows"
+ * you back to Dashboard (or anywhere else).
+ */
+function RoutedContent() {
+  const location = useLocation();
+  return (
+    <ErrorBoundary key={location.pathname}>
+      <Routes>
+        <Route path="/overview" element={<div className="py-6"><OverviewPage /></div>} />
+        <Route path="/" element={<DashboardPage />} />
+        <Route path="/transactions" element={<div className="py-6"><TransactionsPage /></div>} />
+        <Route path="/import" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><ImportPage /></div></Suspense>} />
+        <Route path="/trends" element={<div className="py-6"><TrendsPage /></div>} />
+        <Route path="/investments" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><InvestmentsPage /></div></Suspense>} />
+        <Route path="/budgets" element={<div className="py-6"><BudgetsPage /></div>} />
+        <Route path="/goals" element={<div className="py-6"><GoalsPage /></div>} />
+        <Route path="/reports" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><ReportsPage /></div></Suspense>} />
+        <Route path="/agent" element={<div className="py-6"><AgentPage /></div>} />
+      </Routes>
+    </ErrorBoundary>
   );
 }
 import { useCategoryStore } from "@/stores/categoryStore";
@@ -279,20 +309,7 @@ function App() {
         {/* Main content */}
         <main className="flex-1 overflow-y-auto">
           <div className="max-w-[1200px] mx-auto w-full min-h-full">
-            <ErrorBoundary>
-              <Routes>
-                <Route path="/overview" element={<div className="py-6"><OverviewPage /></div>} />
-                <Route path="/" element={<DashboardPage />} />
-                <Route path="/transactions" element={<div className="py-6"><TransactionsPage /></div>} />
-                <Route path="/import" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><ImportPage /></div></Suspense>} />
-                <Route path="/trends" element={<div className="py-6"><TrendsPage /></div>} />
-                <Route path="/investments" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><InvestmentsPage /></div></Suspense>} />
-                <Route path="/budgets" element={<div className="py-6"><BudgetsPage /></div>} />
-                <Route path="/goals" element={<div className="py-6"><GoalsPage /></div>} />
-                <Route path="/reports" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><ReportsPage /></div></Suspense>} />
-                <Route path="/agent" element={<div className="py-6"><AgentPage /></div>} />
-              </Routes>
-            </ErrorBoundary>
+            <RoutedContent />
           </div>
         </main>
       </div>
