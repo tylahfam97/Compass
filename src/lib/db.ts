@@ -949,6 +949,67 @@ async function runMigrations(db: CompassDb): Promise<void> {
 
     await db.execute("PRAGMA user_version = 20");
   }
+
+  // ── v21: Fix-up for v20 - "Excluded" (id 29) could silently fail to be created if the
+  //         user had already created ANY custom category after "Travel" (id 28) was added,
+  //         since SQLite AUTOINCREMENT would already have claimed id 29 for that user
+  //         category. `INSERT OR IGNORE` in v20 then silently no-op'd (id already taken),
+  //         and the by-name merge loop only catches a user category literally named
+  //         "Excluded" - it never fires for an unrelated category that just happens to sit
+  //         at id 29. Net effect: "Excluded" never actually got created, and this is NOT
+  //         self-healing just by re-running v20 (user_version already advanced past it).
+  //         This migration explicitly frees up id 29 first if something else is squatting
+  //         on it, then guarantees the canonical row exists. Idempotent / safe to re-run. ──
+  if (version < 21) {
+    const [existing29] = await db.select<{ id: number; name: string; is_system: number }[]>(
+      "SELECT id, name, is_system FROM categories WHERE id=29"
+    );
+    if (existing29 && !(existing29.is_system === 1 && existing29.name.toUpperCase() === "EXCLUDED")) {
+      if (existing29.is_system === 0 && existing29.name.toUpperCase() === "EXCLUDED") {
+        // User already had a category literally named "Excluded" sitting at id 29 -
+        // upgrade it in place (standard merge pattern), no relocation needed.
+        await db.execute(
+          "UPDATE categories SET is_system=1, color=?, icon=? WHERE id=29",
+          ["#94a3b8", "circle-slash"]
+        );
+      } else {
+        // An unrelated category occupies id 29 - relocate it to a fresh AUTOINCREMENT id
+        // so "Excluded" can take its rightful slot, remapping every FK reference along the
+        // way (same remap set as the generic merge pattern elsewhere in this file).
+        const inserted = await db.execute(
+          "INSERT INTO categories (name, parent_id, color, icon, is_system) SELECT name, parent_id, color, icon, is_system FROM categories WHERE id=29"
+        );
+        const newId = inserted.lastInsertId as number;
+        await db.execute("UPDATE transactions SET category_id=? WHERE category_id=29", [newId]);
+        await db.execute("UPDATE categorization_rules SET category_id=? WHERE category_id=29", [newId]);
+        await db.execute("UPDATE budgets SET category_id=? WHERE category_id=29", [newId]);
+        await db.execute("UPDATE goals SET category_id=? WHERE category_id=29", [newId]);
+        await db.execute("UPDATE categories SET parent_id=? WHERE parent_id=29", [newId]);
+        await db.execute("DELETE FROM categories WHERE id=29");
+      }
+    }
+
+    // id 29 is now guaranteed free (or already correct) - safe to insert unconditionally.
+    await db.execute(`
+      INSERT OR IGNORE INTO categories (id, name, parent_id, color, icon, is_system) VALUES
+        (29, 'Excluded', NULL, '#94a3b8', 'circle-slash', 1)
+    `);
+
+    // Re-run the by-name merge too, in case a DIFFERENTLY-id'd user category named
+    // "Excluded" also exists (rare, but keeps this migration fully self-contained).
+    const dupExcluded = await db.select<{ id: number }[]>(
+      "SELECT id FROM categories WHERE UPPER(name)='EXCLUDED' AND is_system=0"
+    );
+    for (const dup of dupExcluded) {
+      await db.execute("UPDATE transactions SET category_id=29 WHERE category_id=?", [dup.id]);
+      await db.execute("UPDATE categorization_rules SET category_id=29 WHERE category_id=?", [dup.id]);
+      await db.execute("UPDATE budgets SET category_id=29 WHERE category_id=?", [dup.id]);
+      await db.execute("UPDATE goals SET category_id=29 WHERE category_id=?", [dup.id]);
+      await db.execute("DELETE FROM categories WHERE id=?", [dup.id]);
+    }
+
+    await db.execute("PRAGMA user_version = 21");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────
@@ -985,7 +1046,7 @@ export async function getOrCreateAccountForProfile(
 export async function listAccountsForProfile(profileId: number, accountType: string): Promise<Account[]> {
   const db = await getDb();
   return db.select<Account[]>(
-    "SELECT id, name, account_type, institution, created_at, balance_anchor_cents, balance_anchor_date, interest_rate_bps FROM accounts WHERE profile_id=? AND account_type=? ORDER BY name",
+    "SELECT id, name, account_type, institution, created_at, balance_anchor_cents, balance_anchor_date, interest_rate_bps, minimum_payment_cents FROM accounts WHERE profile_id=? AND account_type=? ORDER BY name",
     [profileId, accountType]
   );
 }
@@ -997,6 +1058,15 @@ export async function listAccountsForProfile(profileId: number, accountType: str
 export async function setAccountInterestRate(accountId: number, interestRateBps: number | null): Promise<void> {
   const db = await getDb();
   await db.execute("UPDATE accounts SET interest_rate_bps=? WHERE id=?", [interestRateBps, accountId]);
+}
+
+/** Sets (or clears, with `null`) an account's informational minimum payment - used for credit
+ *  cards during import (optional entry) the same way loan statements already do. Never used in
+ *  any calculation except the Debt Dashboard's Cash-flow-First ranking and the Debt Payoff
+ *  plan's amortization estimate (as a stand-in when the user hasn't entered one). */
+export async function setAccountMinimumPayment(accountId: number, minimumPaymentCents: number | null): Promise<void> {
+  const db = await getDb();
+  await db.execute("UPDATE accounts SET minimum_payment_cents=? WHERE id=?", [minimumPaymentCents, accountId]);
 }
 
 /** The user's decision, made in the import wizard, about which account a statement belongs to. */

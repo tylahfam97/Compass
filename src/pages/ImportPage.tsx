@@ -8,7 +8,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import {
   getDb, applyCategorizationRules, recomputeCalculatedBalances,
-  listAccountsForProfile, resolveAccountId, setAccountInterestRate,
+  listAccountsForProfile, resolveAccountId, setAccountInterestRate, setAccountMinimumPayment,
 } from "@/lib/db";
 import type { AccountChoice } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -991,10 +991,11 @@ export default function ImportPage() {
   const [fixColumnsOpen, setFixColumnsOpen] = useState<Set<string>>(new Set());
   const [accountChoice, setAccountChoice] = useState<AccountChoice | null>(null);
   const [existingAccountsForType, setExistingAccountsForType] = useState<Account[]>([]);
-  // Optional APR entered/edited on the "which account" step for credit imports only - purely
-  // informational (same as a loan's rate), lets credit cards join Avalanche ranking on the
-  // Debt Dashboard without a separate settings screen.
+  // Optional APR/minimum payment entered/edited on the "which account" step for credit imports
+  // only - purely informational (same as a loan's rate/payment), lets credit cards join
+  // Avalanche/Cash-flow ranking on the Debt Dashboard without a separate settings screen.
   const [creditInterestRateInput, setCreditInterestRateInput] = useState("");
+  const [creditMinimumPaymentInput, setCreditMinimumPaymentInput] = useState("");
   const [maxStepReached, setMaxStepReached] = useState(1);
   const [currentFilename, setCurrentFilename] = useState("");
   const [isPdfImport, setIsPdfImport] = useState(false);
@@ -1057,6 +1058,7 @@ export default function ImportPage() {
             setAccountChoice({ mode: "existing", accountId: prior.id, name: prior.name });
             if (importKind === "credit") {
               setCreditInterestRateInput(prior.interest_rate_bps != null ? (prior.interest_rate_bps / 100).toFixed(2) : "");
+              setCreditMinimumPaymentInput(prior.minimum_payment_cents != null ? (prior.minimum_payment_cents / 100).toFixed(2) : "");
             }
             return;
           }
@@ -1071,6 +1073,7 @@ export default function ImportPage() {
             setAccountChoice({ mode: "existing", accountId: match.id, name: match.name });
             if (importKind === "credit") {
               setCreditInterestRateInput(match.interest_rate_bps != null ? (match.interest_rate_bps / 100).toFixed(2) : "");
+              setCreditMinimumPaymentInput(match.minimum_payment_cents != null ? (match.minimum_payment_cents / 100).toFixed(2) : "");
             }
             return;
           }
@@ -1381,6 +1384,7 @@ export default function ImportPage() {
     setAccountChoice(null);
     setExistingAccountsForType([]);
     setCreditInterestRateInput("");
+    setCreditMinimumPaymentInput("");
     setMaxStepReached(1);
     setWizardDir("forward");
     setStep("wizard:account");
@@ -1410,6 +1414,7 @@ export default function ImportPage() {
     setAccountChoice(null);
     setExistingAccountsForType([]);
     setCreditInterestRateInput("");
+    setCreditMinimumPaymentInput("");
     setMaxStepReached(1);
     const derived = deriveHeaders(data, initialSkip);
     if (!derived) {
@@ -1523,6 +1528,10 @@ export default function ImportPage() {
         // Only touches the rate when the user actually typed one - an empty field on a later
         // import of the same card must never silently wipe out a rate set previously.
         await setAccountInterestRate(accountId, Math.round(parseFloat(creditInterestRateInput.trim()) * 100));
+      }
+      if (importKind === "credit" && creditMinimumPaymentInput.trim()) {
+        // Same "only touch when typed" guard as the interest rate above.
+        await setAccountMinimumPayment(accountId, Math.round(parseAmount(creditMinimumPaymentInput.trim()) * 100));
       }
       if (colMap.balanceCol < 0 && currentBalanceInput.trim()) {
         // The entered value is the real balance AFTER all transactions, as of today (when it's
@@ -1756,6 +1765,7 @@ export default function ImportPage() {
     setAccountChoice(null);
     setExistingAccountsForType([]);
     setCreditInterestRateInput("");
+    setCreditMinimumPaymentInput("");
     setMaxStepReached(1);
     setCurrentFilename("");
     setIsPdfImport(false);
@@ -1994,6 +2004,7 @@ export default function ImportPage() {
                     setAccountChoice({ mode: "existing", accountId: acct.id, name: acct.name });
                     if (importKind === "credit") {
                       setCreditInterestRateInput(acct.interest_rate_bps != null ? (acct.interest_rate_bps / 100).toFixed(2) : "");
+                      setCreditMinimumPaymentInput(acct.minimum_payment_cents != null ? (acct.minimum_payment_cents / 100).toFixed(2) : "");
                     }
                   }
                 }}
@@ -2035,6 +2046,24 @@ export default function ImportPage() {
                 />
                 <p className="text-[11px] text-[hsl(var(--muted-foreground))]">
                   Purely informational - lets this card join Avalanche ranking on the Debt Dashboard. Never used to calculate interest.
+                </p>
+              </div>
+            )}
+
+            {importKind === "credit" && (
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
+                  Minimum Payment <span className="normal-case">(optional)</span>
+                </label>
+                <input
+                  type="number" step="0.01" min="0"
+                  value={creditMinimumPaymentInput}
+                  onChange={(e) => setCreditMinimumPaymentInput(e.target.value)}
+                  placeholder="e.g. 35.00"
+                  className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]"
+                />
+                <p className="text-[11px] text-[hsl(var(--muted-foreground))]">
+                  Purely informational - lets this card join Cash-flow-First ranking on the Debt Dashboard and improves the Debt Payoff plan's estimate.
                 </p>
               </div>
             )}

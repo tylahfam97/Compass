@@ -122,7 +122,7 @@ Returning users whose bank layout was previously saved skip straight to Preview.
 
 The **⚙ Rules** modal has a two-tier editor: a simple "contains" field for everyday use, and an expandable Advanced section with regex support and a cheat-sheet for power users. All your rules can be edited inline.
 
-**Transfers** are reserved for same-institution internal moves (checking ↔ savings). Zelle, Venmo, and Cash App are intentionally left uncategorized so you can create rules that match your actual usage. Credit card payment descriptions ("___ PAYMENT - THANK YOU", used by Amex, Chase, Discover, and others) are automatically filed under Transfers too, so paying off a card balance never inflates your income totals.
+**Transfers** are reserved for same-institution internal moves (checking ↔ savings). Zelle, Venmo, and Cash App are intentionally left uncategorized so you can create rules that match your actual usage. Credit card payment descriptions ("___ PAYMENT - THANK YOU", used by Amex, Chase, Discover, and others) are automatically filed under Transfers too, so paying off a card balance never inflates your income totals. **Excluded** is a second, general-purpose category for anything else you want left out of your totals (reimbursements, one-off adjustments) without mislabeling it as a transfer - the category picker groups both under their own "Excluded from Debits and Credits" section, above your own categories and the built-in system list.
 
 ### 📅 Dashboard & Trends
 
@@ -138,7 +138,7 @@ Five reports that run automatically — no setup required:
 | **Month over Month** | Income, expenses, and net across your selected date range |
 | **Top Expenses** | Ranked list of the biggest individual transactions |
 | **Most Recurring Payees** | Frequency, average cost, and total paid to each merchant |
-| **👻 Ghost Subscriptions** | Same description + same amount appearing in 2+ months — your forgotten recurring charges |
+| **👻 Ghost Subscriptions** | Charges landing on the same day of month (or the same "Nth weekday", e.g. 3rd Thursday) 2+ months in a row — your recurring charges, sorted by cost with nothing cut off |
 
 Reports support **month navigation** or a **custom date range** with presets: This quarter, Last quarter, Year to date, Last 12 months.
 
@@ -191,7 +191,7 @@ Full searchable, filterable transaction list. Filter by month or view all-time h
 
 **Net summary** — Three tiles above the table show **Income**, **Expenses**, and **Net** for the current filtered view.
 
-**Transfers excluded** — Selecting the Transfers category shows an inline notice that transfers don't count toward income or expense totals anywhere in the app.
+**Transfers excluded** — Selecting the Transfers or Excluded category shows an inline notice that neither counts toward income or expense totals anywhere in the app, and an info tooltip next to every Income/Expenses total spells out why (so a credit card payment is never confused with a double withdrawal).
 
 **Filter row 1 — date & search:**
 - Filter by month or toggle to **All time**
@@ -208,7 +208,7 @@ Full searchable, filterable transaction list. Filter by month or view all-time h
 - **Delete** transactions you don’t need
 - **＋ Add** manual transactions for cash, Venmo, or anything not in a bank export
 - **↓ Export** opens an OS save dialog — choose filename and location; exports exactly the current filtered view as CSV (respects active sort)
-- **✦ Auto-Categorize** applies your rules to all transactions, then system rules fill remaining uncategorized ones
+- **✦ Apply Rules to All Transactions** re-checks every transaction against your current rules, including ones already categorized, so a new or edited rule applies retroactively - then system rules fill any remaining uncategorized ones
 - **Drag a CSV or XLSX** onto the Transactions page to jump straight to the import wizard
 
 ### 💼 All Accounts Overview
@@ -404,7 +404,7 @@ Compass is focused on one thing: making it easy to understand your personal fina
 Statement import · Import history + undo · Auto-categorization · Edit/add/delete transactions · CSV export · Spending trends · Budgets with on-pace projection · Goals · Reports with custom date ranges · Insights · Ghost subscriptions · Running balance · All-accounts overview · Smart categorization rules · In-app auto-updates · Demo mode · Batch import · Collapsible sidebar · Profile switcher on launch · Investment portfolio tracking with net worth toggle
 
 ### ✅ Phase 2 — AI Insights *(complete)*
-AI agent for natural-language questions about your data · Automatic insight generation (budget gaps, unusual spending, savings rate, overspend streaks, low balance alerts) · Categorization rules engine with priority ordering
+AI agent for natural-language questions about your data · Automatic insight generation (budget gaps, unusual spending, savings rate, overspend streaks, low balance alerts) · Categorization rules engine with priority ordering · Debt Payoff plan with Avalanche/Snowball/Cash-flow ranking and three payoff scenarios (Stay the Course, Balanced Cushion, Most Aggressive)
 
 ### 🔜 Phase 3 — Deeper Financial Clarity *(planned)*
 The goal: help you act on your data, not just see it.
@@ -412,7 +412,6 @@ The goal: help you act on your data, not just see it.
 - **Bank-specific import presets** — one-click setup for Chase, Capital One, Wells Fargo, Bank of America, Navy Federal, Discover, Amex, Venmo, Cash App, PayPal, and more
 - **Emergency fund tracker** — calculate your personal target from actual expenses, track progress toward it
 - **Spending habit analysis** — natural-language answers to questions like *"Where did most of my money go last quarter?"*
-- **Debt impact modeling** — show how current debt affects long-term net worth, model payoff scenarios
 - **Smart nudges** — proactive alerts when patterns suggest risk (spending creep, missing savings months, unusually high recurring charges)
 - **Wider bank format coverage** — edge case handling, better error messages, and import reliability improvements
 

@@ -111,8 +111,8 @@ export interface Account {
   balance_anchor_date?: string | null;
   hidden_from_dashboard?: boolean;
   excluded_from_insights?: boolean;
-  /** Loan and credit accounts - purely informational (APR), never used in any calculation
-   *  besides ranking on the Debt Dashboard. `minimum_payment_cents` is loan-only for now. */
+  /** Loan and credit accounts - purely informational (APR / minimum payment), never used in
+   *  any calculation besides ranking and the Debt Payoff plan's amortization estimate. */
   interest_rate_bps?: number | null;
   minimum_payment_cents?: number | null;
 }
