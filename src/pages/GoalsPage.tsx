@@ -7,6 +7,8 @@ import { useProfileStore } from "@/stores/profileStore";
 import CategoryOptions from "@/components/CategoryOptions";
 import { CardListSkeleton } from "@/components/Skeleton";
 import WeeklyMiniBar from "@/components/WeeklyMiniBar";
+import MilestoneCelebration from "@/components/MilestoneCelebration";
+import { detectNewMilestones } from "@/lib/milestones";
 
 type GoalType =
   | "net_savings"
@@ -131,6 +133,16 @@ export default function GoalsPage() {
   const [formTarget, setFormTarget] = useState("");
   const [formMonths, setFormMonths] = useState("3");
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [milestoneQueue, setMilestoneQueue] = useState<string[]>([]);
+  const [activeMilestone, setActiveMilestone] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (activeMilestone === null && milestoneQueue.length > 0) {
+      setActiveMilestone(milestoneQueue[0]);
+      setMilestoneQueue((q) => q.slice(1));
+    }
+  }, [activeMilestone, milestoneQueue]);
 
   const navMonth = (dir: -1 | 1) => {
     const [y, m] = month.split("-").map(Number);
@@ -315,6 +327,13 @@ export default function GoalsPage() {
 
     setGoals(withWeekly);
     setLoading(false);
+
+    const newMilestones = detectNewMilestones(profileId, {
+      goals: withWeekly.map((g) => ({ id: g.id, name: g.name, pct: g.pct })),
+    });
+    if (newMilestones.length > 0) {
+      setMilestoneQueue((q) => [...q, ...newMilestones.map((m) => m.message)]);
+    }
   }, [month, profileId]);
 
   useEffect(() => { loadGoals().catch(console.error); }, [loadGoals]);
@@ -359,13 +378,40 @@ export default function GoalsPage() {
       ? Math.round(amount * 100)   // amount is the % (e.g. 20), *100 = 2000
       : Math.round(amount * 100);   // amount is dollars
     const targetMonths = STREAK_TYPES.has(formType) ? parseInt(formMonths) || 3 : null;
-    await db.execute(
-      "INSERT INTO goals (name, type, category_id, target_cents, target_months, profile_id) VALUES (?,?,?,?,?,?)",
-      [formName || "Goal", formType, catId, targetCents, targetMonths, profileId]
-    );
+    if (editingId) {
+      await db.execute(
+        "UPDATE goals SET name=?, type=?, category_id=?, target_cents=?, target_months=? WHERE id=?",
+        [formName || "Goal", formType, catId, targetCents, targetMonths, editingId]
+      );
+      setEditingId(null);
+    } else {
+      await db.execute(
+        "INSERT INTO goals (name, type, category_id, target_cents, target_months, profile_id) VALUES (?,?,?,?,?,?)",
+        [formName || "Goal", formType, catId, targetCents, targetMonths, profileId]
+      );
+    }
     setFormTarget("");
     setSaving(false);
     await loadGoals();
+  };
+
+  const startEdit = (g: GoalWithProgress) => {
+    setEditingId(g.id);
+    setFormType(g.type);
+    setFormName(g.name);
+    setFormCatId(g.category_id ?? 0);
+    setFormTarget((g.target_cents / 100).toString());
+    setFormMonths((g.target_months ?? 3).toString());
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setFormType("net_savings");
+    setFormName("Save each month");
+    setFormCatId(0);
+    setFormTarget("");
+    setFormMonths("3");
   };
 
   const removeGoal = async (id: number) => {
@@ -393,6 +439,7 @@ export default function GoalsPage() {
 
   return (
     <div className="p-8 max-w-3xl space-y-6 mx-auto w-full">
+      <MilestoneCelebration message={activeMilestone} onDismiss={() => setActiveMilestone(null)} />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Goals</h1>
@@ -412,7 +459,7 @@ export default function GoalsPage() {
 
       {/* Add goal form */}
       <div className="border rounded-xl p-5 space-y-4">
-        <h2 className="font-semibold">Add Goal</h2>
+        <h2 className="font-semibold">{editingId ? "Edit Goal" : "Add Goal"}</h2>
 
         {/* Type selector -- two rows */}
         {typeGroups.map((row, ri) => (
@@ -466,8 +513,14 @@ export default function GoalsPage() {
           <button onClick={addGoal} disabled={saving || !formTarget}
             className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
                        rounded-lg text-sm font-medium disabled:opacity-50 hover:opacity-90 transition-opacity">
-            {saving ? "Saving..." : "Add"}
+            {saving ? "Saving..." : editingId ? "Save Changes" : "Add"}
           </button>
+          {editingId && (
+            <button onClick={cancelEdit}
+              className="px-4 py-2 border rounded-lg text-sm font-medium hover:bg-[hsl(var(--muted))] transition-colors">
+              Cancel
+            </button>
+          )}
         </div>
       </div>
 
@@ -543,10 +596,16 @@ export default function GoalsPage() {
                     </button>
                   </span>
                 ) : (
-                  <button onClick={() => setConfirmDeleteId(g.id)}
-                    className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))] transition-colors">
-                    Remove
-                  </button>
+                  <span className="flex items-center gap-3">
+                    <button onClick={() => startEdit(g)}
+                      className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))] transition-colors">
+                      Edit
+                    </button>
+                    <button onClick={() => setConfirmDeleteId(g.id)}
+                      className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))] transition-colors">
+                      Remove
+                    </button>
+                  </span>
                 )}
               </div>
             </div>

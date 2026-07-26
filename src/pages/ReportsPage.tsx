@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
-  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
 } from "recharts";
 import { Ghost } from "lucide-react";
 import { getDb } from "@/lib/db";
@@ -220,6 +220,22 @@ export default function ReportsPage() {
   const prevMap = new Map(catPrev.map((r) => [r.category_name, r.total_cents]));
   const hasData = catThis.length > 0 || topExpenses.length > 0;
 
+  const catChartData = useMemo(() => {
+    const TOP_N = 7;
+    const top = catThis.slice(0, TOP_N).map((c) => ({
+      name: c.category_name ?? "Uncategorized",
+      value: c.total_cents,
+      color: c.category_color ?? "#9ca3af",
+    }));
+    const rest = catThis.slice(TOP_N);
+    if (rest.length > 0) {
+      const restTotal = rest.reduce((sum, c) => sum + c.total_cents, 0);
+      top.push({ name: "Other", value: restTotal, color: "#9ca3af" });
+    }
+    return top;
+  }, [catThis]);
+  const catChartTotal = catChartData.reduce((sum, c) => sum + c.value, 0);
+
   return (
     <div className="p-8 space-y-8 max-w-4xl mx-auto w-full">
       <div className="space-y-3">
@@ -290,44 +306,77 @@ export default function ReportsPage() {
           {/* ── CATEGORY BREAKDOWN ── */}
           <section>
             <h2 className="font-semibold mb-3">Spending by Category</h2>
-            <div className="border rounded-xl overflow-hidden">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-[hsl(var(--muted-foreground))]">
-                    <th className="px-4 py-2.5 font-medium">Category</th>
-                    <th className="px-4 py-2.5 font-medium text-right">{rangeMode === "custom" ? "Selected Period" : "This Month"}</th>
-                    <th className="px-4 py-2.5 font-medium text-right">{rangeMode === "custom" ? "" : "Last Month"}</th>
-                    <th className="px-4 py-2.5 font-medium text-right">{rangeMode === "custom" ? "" : "Change"}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {catThis.map((cat) => {
-                    const prev = prevMap.get(cat.category_name) ?? 0;
-                    const pct = changePct(cat.total_cents, prev);
-                    return (
-                      <tr key={cat.category_name} className="border-t hover:bg-[hsl(var(--muted))]">
-                        <td className="px-4 py-2.5">
-                          <span className="flex items-center gap-2">
-                            <span className="w-2.5 h-2.5 rounded-full shrink-0"
-                              style={{ backgroundColor: cat.category_color }} />
-                            {cat.category_name}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2.5 text-right font-mono">
-                          {formatCurrency(cat.total_cents)}
-                        </td>
-                        <td className="px-4 py-2.5 text-right font-mono text-[hsl(var(--muted-foreground))]">
-                          {prev > 0 ? formatCurrency(prev) : "—"}
-                        </td>
-                        <td className={`px-4 py-2.5 text-right font-medium
-                          ${pct > 10 ? "text-[hsl(var(--error))]" : pct < -10 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--muted-foreground))]"}`}>
-                          {prev > 0 ? `${pct > 0 ? "+" : ""}${pct}%` : "—"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-4">
+              {catChartData.length > 0 && (
+                <div className="border rounded-xl p-4 flex flex-col items-center justify-center">
+                  <ResponsiveContainer width="100%" height={180}>
+                    <PieChart>
+                      <Pie
+                        data={catChartData}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={45}
+                        outerRadius={75}
+                        paddingAngle={2}
+                        strokeWidth={0}
+                      >
+                        {catChartData.map((entry) => (
+                          <Cell key={entry.name} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }}
+                        formatter={(v, _n, item) => [
+                          `${formatCurrency(v as number)} (${catChartTotal > 0 ? Math.round(((v as number) / catChartTotal) * 100) : 0}%)`,
+                          item?.payload?.name ?? "",
+                        ]}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <p className="text-xs text-[hsl(var(--muted-foreground))] text-center -mt-2">
+                    {rangeMode === "custom" ? "Selected period" : "This month"}
+                  </p>
+                </div>
+              )}
+              <div className="border rounded-xl overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-[hsl(var(--muted-foreground))]">
+                      <th className="px-4 py-2.5 font-medium">Category</th>
+                      <th className="px-4 py-2.5 font-medium text-right">{rangeMode === "custom" ? "Selected Period" : "This Month"}</th>
+                      <th className="px-4 py-2.5 font-medium text-right">{rangeMode === "custom" ? "" : "Last Month"}</th>
+                      <th className="px-4 py-2.5 font-medium text-right">{rangeMode === "custom" ? "" : "Change"}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {catThis.map((cat) => {
+                      const prev = prevMap.get(cat.category_name) ?? 0;
+                      const pct = changePct(cat.total_cents, prev);
+                      return (
+                        <tr key={cat.category_name} className="border-t hover:bg-[hsl(var(--muted))]">
+                          <td className="px-4 py-2.5">
+                            <span className="flex items-center gap-2">
+                              <span className="w-2.5 h-2.5 rounded-full shrink-0"
+                                style={{ backgroundColor: cat.category_color }} />
+                              {cat.category_name}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-mono">
+                            {formatCurrency(cat.total_cents)}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-mono text-[hsl(var(--muted-foreground))]">
+                            {prev > 0 ? formatCurrency(prev) : "—"}
+                          </td>
+                          <td className={`px-4 py-2.5 text-right font-medium
+                            ${pct > 10 ? "text-[hsl(var(--error))]" : pct < -10 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--muted-foreground))]"}`}>
+                            {prev > 0 ? `${pct > 0 ? "+" : ""}${pct}%` : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </section>
 

@@ -22,6 +22,8 @@ import { useModalDismiss } from "@/hooks/useModalDismiss";
 import SpotlightCard from "@/components/SpotlightCard";
 import PinModal from "@/components/PinModal";
 import DebtPayoffModal from "@/components/DebtPayoffModal";
+import MilestoneCelebration from "@/components/MilestoneCelebration";
+import { detectNewMilestones } from "@/lib/milestones";
 
 const ROI_SECTION_LABELS: Record<SecurityType, string> = {
   stock: "Stocks", etf: "ETFs", mutual_fund: "Mutual Funds", cash: "Cash", other: "Other",
@@ -792,6 +794,15 @@ export default function AgentPage() {
   const [topRoi, setTopRoi]                     = useState<Partial<Record<SecurityType, TopRoiHolding[]>>>({});
   const [loans, setLoans]                       = useState<DebtEntry[]>([]);
   const [payoffModal, setPayoffModal] = useState<{ debts: DebtEntry[]; title: string; subtitle?: string } | null>(null);
+  const [milestoneQueue, setMilestoneQueue] = useState<string[]>([]);
+  const [activeMilestone, setActiveMilestone] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (activeMilestone === null && milestoneQueue.length > 0) {
+      setActiveMilestone(milestoneQueue[0]);
+      setMilestoneQueue((q) => q.slice(1));
+    }
+  }, [activeMilestone, milestoneQueue]);
 
   const [sectExpanded, setSectExpanded] = useState<{ trends: boolean; subs: boolean; topRoi: boolean }>(() => {
     try { const s = localStorage.getItem("compass_insight_sections"); return s ? JSON.parse(s) : { trends: false, subs: false, topRoi: false }; }
@@ -920,11 +931,20 @@ export default function AgentPage() {
         ...creditLists.flat().map((c) => ({ ...c, debtKind: "credit" as const })),
       ];
       const debtTrends = await Promise.all(allDebts.map((l) => getLoanBalanceHistory(l.id)));
-      setLoans(allDebts.map((l, i) => {
+      const debtsWithTrend = allDebts.map((l, i) => {
         const series = debtTrends[i];
         const trendCents = series.length > 1 ? Math.round((series[series.length - 1].value - series[0].value) * 100) : null;
         return { ...l, trendCents };
-      }));
+      });
+      setLoans(debtsWithTrend);
+
+      const newMilestones = detectNewMilestones(profileId, {
+        netWorthCents: nw.netWorthCents,
+        debts: debtsWithTrend.map((d) => ({ id: d.id, name: d.name, balanceCents: d.balance_cents })),
+      });
+      if (newMilestones.length > 0) {
+        setMilestoneQueue((q) => [...q, ...newMilestones.map((m) => m.message)]);
+      }
 
       const thisMonth = currentYM();
       const lMonth = prevYM(thisMonth);
@@ -1073,6 +1093,7 @@ export default function AgentPage() {
 
   return (
     <>
+      <MilestoneCelebration message={activeMilestone} onDismiss={() => setActiveMilestone(null)} />
       {pinTarget && <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />}
       <AnimatePresence>
         {showScoreIntro && globalHealthScore && (

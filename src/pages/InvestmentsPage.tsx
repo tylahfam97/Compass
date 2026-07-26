@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo, Fragment } from "react";
 import { Link } from "react-router-dom";
 import {
-  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
 } from "recharts";
 import { TrendingUp, TrendingDown, ChevronRight, ChevronDown, Info } from "lucide-react";
 import { getDb } from "@/lib/db";
-import { formatCurrency, formatDate, formatAxisCurrency } from "@/lib/utils";
+import { formatCurrency, formatDate, formatAxisCurrency, accountChartColor } from "@/lib/utils";
 import { holdingRoiPct } from "@/lib/netWorth";
 import { useProfileStore } from "@/stores/profileStore";
 import InfoTooltip from "@/components/InfoTooltip";
@@ -160,6 +160,17 @@ export default function InvestmentsPage() {
     return bySection;
   }, [holdings]);
 
+  const allocationData = useMemo(() => {
+    return SECTION_ORDER
+      .filter((t) => sectionTotals.has(t) && (sectionTotals.get(t) ?? 0) > 0)
+      .map((t, i) => ({
+        type: t,
+        name: SECTION_LABELS[t],
+        value: sectionTotals.get(t) ?? 0,
+        color: accountChartColor(i),
+      }));
+  }, [sectionTotals]);
+
   const toggleExpanded = (key: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -235,28 +246,64 @@ export default function InvestmentsPage() {
         </div>
       </div>
 
-      {/* Section breakdown */}
-      <div className="flex flex-wrap gap-2">
-        {SECTION_ORDER.filter((t) => sectionTotals.has(t)).map((t) => (
-          <span key={t} className="px-3 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5">
-            {SECTION_LABELS[t]}
-            <span className="text-[hsl(var(--muted-foreground))]">{formatCurrency(sectionTotals.get(t) ?? 0)}</span>
-          </span>
-        ))}
-      </div>
-
-      {/* Value over time */}
-      {chartData.length >= 2 && (
-        <div className="border rounded-xl p-5">
-          <h2 className="font-semibold mb-4">Portfolio Value Over Time</h2>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={chartData} margin={{ left: 8, right: 8, top: 4, bottom: 4 }}>
-              <XAxis dataKey="as_of_date" tick={{ fontSize: 11 }} />
-              <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize: 11 }} />
-              <Tooltip contentStyle={tooltipStyle} formatter={(v) => formatCurrency(v as number)} />
-              <Line type="monotone" dataKey="value" name="Portfolio Value" stroke="#6366f1" strokeWidth={2} dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
+      {/* Value over time + allocation */}
+      {(chartData.length >= 2 || allocationData.length > 0) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {chartData.length >= 2 && (
+            <div className="border rounded-xl p-5">
+              <h2 className="font-semibold mb-4">Portfolio Value Over Time</h2>
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={chartData} margin={{ left: 8, right: 8, top: 4, bottom: 4 }}>
+                  <XAxis dataKey="as_of_date" tick={{ fontSize: 11 }} />
+                  <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize: 11 }} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(v) => formatCurrency(v as number)} />
+                  <Line type="monotone" dataKey="value" name="Portfolio Value" stroke="#6366f1" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+          {allocationData.length > 0 && (
+            <div className="border rounded-xl p-5">
+              <h2 className="font-semibold mb-4">Allocation</h2>
+              <div className="flex items-center gap-4">
+                <ResponsiveContainer width="50%" height={200}>
+                  <PieChart>
+                    <Pie
+                      data={allocationData}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={50}
+                      outerRadius={80}
+                      paddingAngle={2}
+                      strokeWidth={0}
+                    >
+                      {allocationData.map((entry) => (
+                        <Cell key={entry.type} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={tooltipStyle}
+                      formatter={(v, _n, item) => [
+                        formatCurrency(v as number),
+                        item?.payload?.name ?? "",
+                      ]}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="flex-1 space-y-2 min-w-0">
+                  {allocationData.map((entry) => (
+                    <div key={entry.type} className="flex items-center gap-2 text-xs">
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
+                      <span className="truncate flex-1">{entry.name}</span>
+                      <span className="font-medium text-[hsl(var(--muted-foreground))] shrink-0">
+                        {kpis.marketValue > 0 ? Math.round((entry.value / kpis.marketValue) * 100) : 0}%
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowUpDown, ArrowUp, ArrowDown, Plus, Sparkles, Download, Tag, Settings, SlidersHorizontal, ChevronDown, ChevronUp, Upload, Pencil, StickyNote } from "lucide-react";
+import { ArrowUpDown, ArrowUp, ArrowDown, Plus, Sparkles, Download, Tag, Settings, SlidersHorizontal, ChevronDown, ChevronUp, Upload, Pencil, StickyNote, Trash2 } from "lucide-react";
 import { getDb, reapplyCategorizationRules } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
@@ -134,6 +134,7 @@ export default function TransactionsPage() {
   const [autoCatRunning, setAutoCatRunning] = useState(false);
   const [autoCatError, setAutoCatError] = useState<string | null>(null);
   const [editTxn, setEditTxn] = useState<Transaction | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [addingTxn, setAddingTxn] = useState(false);
   const [viewTxn, setViewTxn] = useState<Transaction | null>(null);
   const categories = useCategoryStore((s) => s.categories);
@@ -220,6 +221,13 @@ export default function TransactionsPage() {
   useEffect(() => {
     loadRows().catch(console.error);
   }, [loadRows]);
+
+  const deleteTransaction = async (id: number) => {
+    const db = await getDb();
+    await db.execute("DELETE FROM transactions WHERE id=?", [id]);
+    setConfirmDeleteId((cur) => (cur === id ? null : cur));
+    await loadRows();
+  };
 
   // First time a Transfers-categorized row appears (and it hasn't been dismissed
   // this session or permanently), surface a one-time explainer so it's clear why
@@ -690,7 +698,7 @@ export default function TransactionsPage() {
             <tbody>
               {rows.slice(0, allTime ? ALL_TIME_LIMIT : MAX_ROWS).map((t) => (
                 <tr key={t.id} onClick={() => setViewTxn(t)}
-                  className="border-b last:border-0 hover:bg-[hsl(var(--muted))] cursor-pointer">
+                  className="group border-b last:border-0 hover:bg-[hsl(var(--muted))] cursor-pointer">
                   <td className="px-4 py-3 text-[hsl(var(--muted-foreground))] whitespace-nowrap">
                     {formatDate(t.date)}
                   </td>
@@ -727,13 +735,43 @@ export default function TransactionsPage() {
                     {t.balance_cents != null ? formatCurrency(t.balance_cents) : "—"}
                   </td>
                   <td className="px-2 py-3 text-center">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setEditTxn(t); }}
-                      title={t.notes ? `Note: ${t.notes}` : "Edit transaction"}
-                      className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors"
-                    >
-                      {t.notes ? <StickyNote size={14} /> : <Pencil size={14} />}
-                    </button>
+                    <div className="flex items-center justify-center gap-2">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setEditTxn(t); }}
+                        title={t.notes ? `Note: ${t.notes}` : "Edit transaction"}
+                        className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors"
+                      >
+                        {t.notes ? <StickyNote size={14} /> : <Pencil size={14} />}
+                      </button>
+                      {confirmDeleteId === t.id ? (
+                        <span className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={() => deleteTransaction(t.id)}
+                            title="Confirm delete"
+                            className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                            style={{ color: "white", backgroundColor: "hsl(var(--error))" }}
+                          >
+                            Delete?
+                          </button>
+                          <button
+                            onClick={() => setConfirmDeleteId(null)}
+                            title="Cancel"
+                            className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
+                          >
+                            ✕
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(t.id); }}
+                          title="Delete transaction"
+                          className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))] transition-colors
+                                     opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -1010,6 +1010,17 @@ async function runMigrations(db: CompassDb): Promise<void> {
 
     await db.execute("PRAGMA user_version = 21");
   }
+
+  // ── v22: Budget rollover - opt-in per budget (monthly only). When enabled, unspent
+  //         amounts from prior months carry forward and increase the effective limit for
+  //         the currently-viewed month, envelope-budgeting style. ─────────────────────────
+  if (version < 22) {
+    assertSafeMigrationIdentifiers("budgets", "rollover");
+    if (!(await colExists(db, "budgets", "rollover"))) {
+      await db.execute("ALTER TABLE budgets ADD COLUMN rollover INTEGER NOT NULL DEFAULT 0");
+    }
+    await db.execute("PRAGMA user_version = 22");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────
