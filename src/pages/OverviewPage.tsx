@@ -50,7 +50,7 @@ function ScopeToggle({ isGlobal, onToggle }: ScopeToggleProps) {
     <button role="switch" aria-checked={isGlobal} onClick={onToggle}
       style={{
         width: 52, height: 28, borderRadius: 14, padding: 3,
-        backgroundColor: isGlobal ? "#C08A1C" : "#3b82f6",
+        backgroundColor: isGlobal ? "var(--gold)" : "hsl(var(--primary))",
         transition: "background-color 0.3s", cursor: "pointer",
         display: "inline-flex", alignItems: "center",
         border: "none", flexShrink: 0, boxShadow: "inset 0 1px 3px rgba(0,0,0,0.18)",
@@ -244,11 +244,11 @@ export default function OverviewPage() {
         </div>
         <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-3">
-            <span className="text-sm font-semibold select-none" style={{ color: !isGlobalActive ? "#3b82f6" : "hsl(var(--muted-foreground))", transition: "color 0.3s" }}>
+            <span className="text-sm font-semibold select-none" style={{ color: !isGlobalActive ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))", transition: "color 0.3s" }}>
               Profile
             </span>
             <ScopeToggle isGlobal={isGlobalActive} onToggle={() => isGlobalActive ? handleSwitchToProfile() : handleSwitchToGlobal()} />
-            <span className="text-sm font-semibold select-none" style={{ color: isGlobalActive ? "#C08A1C" : "hsl(var(--muted-foreground))", transition: "color 0.3s" }}>
+            <span className="text-sm font-semibold select-none" style={{ color: isGlobalActive ? "var(--gold)" : "hsl(var(--muted-foreground))", transition: "color 0.3s" }}>
               Global
             </span>
           </div>
@@ -305,13 +305,13 @@ export default function OverviewPage() {
             </div>
             <div>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">Debt</p>
-              <p className={`text-xl font-bold ${(netWorth.debtCents + netWorth.loanDebtCents) < 0 ? "text-red-500" : ""}`}>
+              <p className={`text-xl font-bold ${(netWorth.debtCents + netWorth.loanDebtCents) < 0 ? "text-[hsl(var(--error))]" : ""}`}>
                 {formatCurrency(netWorth.debtCents + netWorth.loanDebtCents)}
               </p>
             </div>
             <div>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">Net Worth</p>
-              <p className={`text-xl font-bold ${netWorth.netWorthCents >= 0 ? "text-green-600" : "text-red-500"}`}>
+              <p className={`text-xl font-bold ${netWorth.netWorthCents >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
                 {formatCurrency(netWorth.netWorthCents)}
               </p>
             </div>
@@ -321,17 +321,17 @@ export default function OverviewPage() {
               <p className="text-xs text-[hsl(var(--muted-foreground))] flex items-center gap-1">
                 Income <InfoTooltip text={EXCLUSION_DISCLAIMER_TEXT} />
               </p>
-              <p className="text-lg font-bold text-green-600">{formatCurrency(totalIncome)}</p>
+              <p className="text-lg font-bold text-[hsl(var(--success))]">{formatCurrency(totalIncome)}</p>
             </div>
             <div>
               <p className="text-xs text-[hsl(var(--muted-foreground))] flex items-center gap-1">
                 Expenses <InfoTooltip text={EXCLUSION_DISCLAIMER_TEXT} />
               </p>
-              <p className="text-lg font-bold text-red-500">{formatCurrency(Math.abs(totalExpenses))}</p>
+              <p className="text-lg font-bold text-[hsl(var(--error))]">{formatCurrency(Math.abs(totalExpenses))}</p>
             </div>
             <div>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">Net</p>
-              <p className={`text-lg font-bold ${totalNet >= 0 ? "text-green-600" : "text-red-500"}`}>
+              <p className={`text-lg font-bold ${totalNet >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
                 {formatCurrency(totalNet)}
               </p>
             </div>
@@ -351,11 +351,8 @@ export default function OverviewPage() {
             const net = (d?.income ?? 0) + (d?.expenses ?? 0);
             return (
               <button key={profile.id} onClick={() => handleSwitch(profile)}
-                className="border rounded-2xl p-5 text-left hover:shadow-md transition-all duration-150
+                className="border rounded-2xl p-5 text-left hover:shadow-md hover:border-[var(--gold)] transition-all duration-150
                            bg-[hsl(var(--background))] active:scale-[0.99] chart-clickable"
-                style={{ "--hover-border": "var(--gold)" } as React.CSSProperties}
-                onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--gold)")}
-                onMouseLeave={(e) => (e.currentTarget.style.borderColor = "")}
               >
                 {/* Profile avatar + name */}
                 <div className="flex items-center gap-2.5 mb-4">
@@ -382,7 +379,7 @@ export default function OverviewPage() {
                         <p className="text-xs text-[hsl(var(--muted-foreground))] mb-0.5">
                           {d.portfolioValue > 0 ? "Net Worth" : "Current Balance"}
                         </p>
-                        <p className={`text-2xl font-bold ${(d.balance + d.portfolioValue) >= 0 ? "text-green-600" : "text-red-500"}`}>
+                        <p className={`text-2xl font-bold ${(d.balance + d.portfolioValue) >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
                           {formatCurrency(d.balance + d.portfolioValue)}
                         </p>
                       </div>
@@ -464,15 +461,15 @@ export default function OverviewPage() {
                     <div className="grid grid-cols-3 gap-1 text-center border rounded-xl p-2 bg-[hsl(var(--muted))]/40">
                       <div>
                         <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase">In</p>
-                        <p className="text-xs font-semibold text-green-600">{formatCurrency(d.income)}</p>
+                        <p className="text-xs font-semibold text-[hsl(var(--success))]">{formatCurrency(d.income)}</p>
                       </div>
                       <div>
                         <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase">Out</p>
-                        <p className="text-xs font-semibold text-red-500">{formatCurrency(Math.abs(d.expenses))}</p>
+                        <p className="text-xs font-semibold text-[hsl(var(--error))]">{formatCurrency(Math.abs(d.expenses))}</p>
                       </div>
                       <div>
                         <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase">Net</p>
-                        <p className={`text-xs font-semibold ${net >= 0 ? "text-green-600" : "text-red-500"}`}>
+                        <p className={`text-xs font-semibold ${net >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
                           {formatCurrency(net)}
                         </p>
                       </div>

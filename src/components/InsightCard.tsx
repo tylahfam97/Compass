@@ -140,7 +140,7 @@ export default function InsightCard({ insight, onApply, compact = false, variant
           onClick={() => dismissInsight(insight.dismissKey)}
           aria-label="Dismiss"
           className="text-[hsl(var(--muted-foreground))] opacity-0 group-hover:opacity-40
-                     hover:!opacity-100 transition-opacity shrink-0 mt-0.5"
+                     hover:!opacity-100 focus:!opacity-100 focus-visible:!opacity-100 transition-opacity shrink-0 mt-0.5"
         >
           <X size={13} />
         </button>

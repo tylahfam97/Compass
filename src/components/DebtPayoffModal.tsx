@@ -84,7 +84,7 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
             <div className="grid grid-cols-3 gap-3">
               <div className="border rounded-xl p-3 text-center">
                 <p className="text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))] mb-1">Total Debt</p>
-                <p className="text-lg font-bold text-red-500">{formatCurrency(plan.totalDebtCents)}</p>
+                <p className="text-lg font-bold text-[hsl(var(--error))]">{formatCurrency(plan.totalDebtCents)}</p>
               </div>
               <div className="border rounded-xl p-3 text-center">
                 <p className="text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))] mb-1">Avg. Interest Rate</p>
@@ -175,7 +175,7 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
                           <span className="font-medium">{formatCurrency(s.totalInterestCents)}</span>
                         </div>
                         {s.key !== "minimum" && baseline && (timeSaved > 0 || interestSaved > 0) && (
-                          <div className="flex justify-between text-green-600">
+                          <div className="flex justify-between text-[hsl(var(--success))]">
                             <span>vs. Stay the Course</span>
                             <span className="font-medium text-right">
                               {timeSaved > 0 ? `${monthsLabel(timeSaved)} faster` : ""}

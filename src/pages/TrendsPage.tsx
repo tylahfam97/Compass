@@ -6,7 +6,7 @@ import {
 } from "recharts";
 import { motion, AnimatePresence } from "motion/react";
 import { getDb } from "@/lib/db";
-import { formatCurrency, formatMonthLabel, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
+import { formatCurrency, formatMonthLabel, formatAxisCurrency, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
 import type { Profile } from "@/lib/types";
 import PinModal from "@/components/PinModal";
@@ -26,7 +26,7 @@ const VIEW_KEY = "compass_trends_view";
 function ScopeToggle({ isGlobal, onToggle }: { isGlobal: boolean; onToggle: () => void }) {
   return (
     <button role="switch" aria-checked={isGlobal} onClick={onToggle}
-      style={{ width:52,height:28,borderRadius:14,padding:3,backgroundColor:isGlobal?"#C08A1C":"#3b82f6",transition:"background-color 0.3s",cursor:"pointer",display:"inline-flex",alignItems:"center",border:"none",flexShrink:0,boxShadow:"inset 0 1px 3px rgba(0,0,0,0.18)" }}>
+      style={{ width:52,height:28,borderRadius:14,padding:3,backgroundColor:isGlobal?"var(--gold)":"hsl(var(--primary))",transition:"background-color 0.3s",cursor:"pointer",display:"inline-flex",alignItems:"center",border:"none",flexShrink:0,boxShadow:"inset 0 1px 3px rgba(0,0,0,0.18)" }}>
       <div style={{ width:22,height:22,borderRadius:11,backgroundColor:"white",transition:"transform 0.25s cubic-bezier(0.4,0,0.2,1)",transform:isGlobal?"translateX(24px)":"translateX(0)",boxShadow:"0 1px 4px rgba(0,0,0,0.28)",flexShrink:0 }} />
     </button>
   );
@@ -255,9 +255,9 @@ export default function TrendsPage() {
           <div className="flex items-center gap-3 flex-wrap">
             {/* Scope toggle */}
             <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold select-none" style={{ color: viewMode !== "profile" ? "hsl(var(--muted-foreground))" : "#3b82f6", transition:"color 0.3s" }}>Profile</span>
+              <span className="text-sm font-semibold select-none" style={{ color: viewMode !== "profile" ? "hsl(var(--muted-foreground))" : "hsl(var(--primary))", transition:"color 0.3s" }}>Profile</span>
               <ScopeToggle isGlobal={viewMode === "global"} onToggle={() => viewMode === "global" ? handleSwitchToProfile() : handleSwitchToGlobal()} />
-              <span className="text-sm font-semibold select-none" style={{ color: viewMode === "global" ? "#C08A1C" : "hsl(var(--muted-foreground))", transition:"color 0.3s" }}>Global</span>
+              <span className="text-sm font-semibold select-none" style={{ color: viewMode === "global" ? "var(--gold)" : "hsl(var(--muted-foreground))", transition:"color 0.3s" }}>Global</span>
             </div>
             {/* Range buttons */}
             <div className="flex gap-2">
@@ -275,15 +275,15 @@ export default function TrendsPage() {
         <div className="grid grid-cols-3 gap-3">
           <div className="border rounded-xl px-4 py-4 text-center">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1">All-Time Income</p>
-            <p className="text-xl font-bold text-green-600">{formatCurrency(allTimeIncome)}</p>
+            <p className="text-xl font-bold text-[hsl(var(--success))]">{formatCurrency(allTimeIncome)}</p>
           </div>
           <div className="border rounded-xl px-4 py-4 text-center">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1">All-Time Expenses</p>
-            <p className="text-xl font-bold text-red-500">{formatCurrency(allTimeExpenses)}</p>
+            <p className="text-xl font-bold text-[hsl(var(--error))]">{formatCurrency(allTimeExpenses)}</p>
           </div>
           <div className="border rounded-xl px-4 py-4 text-center">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1">All-Time Net</p>
-            <p className={`text-xl font-bold ${allTimeNet >= 0 ? "text-green-600" : "text-red-500"}`}>{formatCurrency(allTimeNet)}</p>
+            <p className={`text-xl font-bold ${allTimeNet >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>{formatCurrency(allTimeNet)}</p>
           </div>
         </div>
 
@@ -309,7 +309,7 @@ export default function TrendsPage() {
                 <ResponsiveContainer width="100%" height={200}>
                   <LineChart data={cumulativeData} margin={{ left:8,right:8,top:4,bottom:4 }}>
                     <XAxis dataKey="month" tick={{ fontSize:11 }} tickFormatter={formatMonthLabel} />
-                    <YAxis tickFormatter={v => `$${Math.round(v/100)}`} tick={{ fontSize:11 }} />
+                    <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize:11 }} />
                     <Tooltip contentStyle={tooltipStyle} labelFormatter={(l) => formatMonthLabel(String(l))} formatter={v => formatCurrency(v as number)} />
                     <ReferenceLine y={0} stroke="hsl(var(--border))" strokeDasharray="3 3" />
                     <Line type="monotone" dataKey="running" name="Running Net" stroke="#6366f1" strokeWidth={2} dot={false} />
@@ -325,10 +325,10 @@ export default function TrendsPage() {
                 <ResponsiveContainer width="100%" height={200}>
                   <LineChart data={checkingBalanceMonthly} margin={{ left:8,right:8,top:4,bottom:4 }}>
                     <XAxis dataKey="month" tick={{ fontSize:11 }} tickFormatter={formatMonthLabel} />
-                    <YAxis tickFormatter={v => `$${Math.round(v/100)}`} tick={{ fontSize:11 }} />
+                    <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize:11 }} />
                     <Tooltip contentStyle={tooltipStyle} labelFormatter={(l) => formatMonthLabel(String(l))} formatter={v => formatCurrency(v as number)} />
                     <ReferenceLine y={0} stroke="hsl(var(--border))" strokeDasharray="3 3" />
-                    <Line type="monotone" dataKey="balance" name="Balance" stroke="#3b82f6" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="balance" name="Balance" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -350,7 +350,7 @@ export default function TrendsPage() {
                     }}
                   >
                     <XAxis dataKey="month" tick={{ fontSize:11 }} tickFormatter={formatMonthLabel} />
-                    <YAxis tickFormatter={v => `$${Math.round(v/100)}`} tick={{ fontSize:11 }} />
+                    <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize:11 }} />
                     <Tooltip
                       contentStyle={tooltipStyle}
                       labelFormatter={(l) => formatMonthLabel(String(l))}
@@ -397,7 +397,7 @@ export default function TrendsPage() {
                                   <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: acc.color }} />
                                   {acc.name}
                                 </span>
-                                <span className={cents < 0 ? "text-red-500 font-medium" : "font-medium"}>{formatCurrency(cents)}</span>
+                                <span className={cents < 0 ? "text-[hsl(var(--error))] font-medium" : "font-medium"}>{formatCurrency(cents)}</span>
                               </div>
                             );
                           })}
@@ -423,7 +423,7 @@ export default function TrendsPage() {
                   }}
                 >
                   <XAxis dataKey="month" tick={{ fontSize:11 }} tickFormatter={formatMonthLabel} />
-                  <YAxis tickFormatter={v => `$${Math.round(v/100)}`} tick={{ fontSize:11 }} />
+                  <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize:11 }} />
                   <Tooltip cursor={false} contentStyle={tooltipStyle} labelFormatter={(l) => formatMonthLabel(String(l))} formatter={v => formatCurrency(v as number)} />
                   <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize:"11px",paddingTop:"8px" }} />
                   <Bar dataKey="income" name="Income" fill="#22c55e" radius={[4,4,0,0]} cursor="pointer" background={false} activeBar={{ fill: lightenHex("#22c55e") }} />
@@ -478,7 +478,7 @@ export default function TrendsPage() {
                 <ResponsiveContainer width="100%" height={280}>
                   <BarChart data={stacked} margin={{ left:8,right:8,top:4,bottom:4 }}>
                     <XAxis dataKey="month" tick={{ fontSize:11 }} tickFormatter={formatMonthLabel} />
-                    <YAxis tickFormatter={v => `$${Math.round(v/100)}`} tick={{ fontSize:11 }} />
+                    <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize:11 }} />
                     <Tooltip cursor={false} contentStyle={tooltipStyle} labelFormatter={(l) => formatMonthLabel(String(l))} formatter={v => formatCurrency(v as number)} />
                     <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize:"11px",paddingTop:"8px",lineHeight:"20px" }} />
                     {catNames.map(cat => (

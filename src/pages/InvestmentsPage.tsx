@@ -5,7 +5,7 @@ import {
 } from "recharts";
 import { TrendingUp, TrendingDown, ChevronRight, ChevronDown, Info } from "lucide-react";
 import { getDb } from "@/lib/db";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, formatAxisCurrency } from "@/lib/utils";
 import { holdingRoiPct } from "@/lib/netWorth";
 import { useProfileStore } from "@/stores/profileStore";
 import InfoTooltip from "@/components/InfoTooltip";
@@ -221,7 +221,7 @@ export default function InvestmentsPage() {
         </div>
         <div className="border rounded-xl px-4 py-4 text-center">
           <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1">Unrealized Gain/Loss</p>
-          <p className={`text-xl font-bold flex items-center justify-center gap-1 ${kpis.unrealized === null ? "" : kpis.unrealized >= 0 ? "text-green-600" : "text-red-500"}`}>
+          <p className={`text-xl font-bold flex items-center justify-center gap-1 ${kpis.unrealized === null ? "" : kpis.unrealized >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
             {kpis.unrealized !== null && (kpis.unrealized >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />)}
             {kpis.unrealized !== null ? formatCurrency(kpis.unrealized) : "-"}
           </p>
@@ -252,7 +252,7 @@ export default function InvestmentsPage() {
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={chartData} margin={{ left: 8, right: 8, top: 4, bottom: 4 }}>
               <XAxis dataKey="as_of_date" tick={{ fontSize: 11 }} />
-              <YAxis tickFormatter={(v) => `$${Math.round(v / 100)}`} tick={{ fontSize: 11 }} />
+              <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize: 11 }} />
               <Tooltip contentStyle={tooltipStyle} formatter={(v) => formatCurrency(v as number)} />
               <Line type="monotone" dataKey="value" name="Portfolio Value" stroke="#6366f1" strokeWidth={2} dot={false} />
             </LineChart>
@@ -297,7 +297,7 @@ export default function InvestmentsPage() {
                         <td className="px-4 py-2 text-xs font-mono">{g.symbol ?? "-"}</td>
                         <td className="px-4 py-2 text-right text-xs font-mono">{g.totalShares !== null ? g.totalShares.toLocaleString() : "-"}</td>
                         <td className="px-4 py-2 text-right text-xs font-mono">{formatCurrency(g.totalMarketValueCents)}</td>
-                        <td className={`px-4 py-2 text-right text-xs font-mono ${roiPct === null ? "text-[hsl(var(--muted-foreground))]" : roiPct >= 0 ? "text-green-600" : "text-red-500"}`}>
+                        <td className={`px-4 py-2 text-right text-xs font-mono ${roiPct === null ? "text-[hsl(var(--muted-foreground))]" : roiPct >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
                           {roiPct !== null ? `${roiPct >= 0 ? "+" : ""}${roiPct.toFixed(1)}%` : "-"}
                         </td>
                         <td className="px-4 py-2 text-right text-xs font-mono text-[hsl(var(--muted-foreground))]">

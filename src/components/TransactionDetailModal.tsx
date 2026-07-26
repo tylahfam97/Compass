@@ -47,7 +47,7 @@ export default function TransactionDetailModal({ transaction: t, onClose }: Prop
         <div className="px-6 py-5 space-y-4">
           <div className="text-center py-2">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1">Amount</p>
-            <p className={`text-3xl font-bold tabular-nums ${t.amount_cents < 0 ? "text-red-500" : "text-green-600"}`}>
+            <p className={`text-3xl font-bold tabular-nums ${t.amount_cents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
               {formatCurrency(t.amount_cents)}
             </p>
           </div>

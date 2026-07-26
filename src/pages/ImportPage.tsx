@@ -2308,7 +2308,7 @@ export default function ImportPage() {
                         )}
                         <p className="font-mono text-xs text-[hsl(var(--muted-foreground))] truncate">{raw}</p>
                       </div>
-                      <p className={`font-mono text-base font-semibold shrink-0 ${amt < 0 ? "text-red-500" : amt > 0 ? "text-green-600" : "text-amber-500"}`}>
+                      <p className={`font-mono text-base font-semibold shrink-0 ${amt < 0 ? "text-[hsl(var(--error))]" : amt > 0 ? "text-[hsl(var(--success))]" : "text-amber-500"}`}>
                         {formatCurrency(Math.round(amt * 100))}
                       </p>
                     </div>
@@ -2742,7 +2742,7 @@ export default function ImportPage() {
                         {formatDate(parseDate(row[colMap.dateCol] ?? ""))}
                       </td>
                       <td className="px-4 py-2 max-w-xs truncate text-xs">{row[colMap.descCol]}</td>
-                      <td className={`px-4 py-2 text-right font-mono text-xs ${amt < 0 ? "text-red-500" : "text-green-600"}`}>
+                      <td className={`px-4 py-2 text-right font-mono text-xs ${amt < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
                         {formatCurrency(Math.round(amt * 100))}
                       </td>
                       {colMap.balanceCol >= 0 && (
@@ -2856,7 +2856,7 @@ export default function ImportPage() {
               <div className="flex justify-center mb-4 wizard-enter-done"><CheckCircle2 size={48} className="text-green-500" /></div>
               <p className="text-xl font-semibold mb-2">Import complete!</p>
               <p className="text-[hsl(var(--muted-foreground))] mb-6">
-                <span className="text-green-600 font-semibold">{summary.imported} transactions</span>{" "}
+                <span className="text-[hsl(var(--success))] font-semibold">{summary.imported} transactions</span>{" "}
                 imported
                 {summary.skipped > 0 && `, ${summary.skipped} duplicates skipped`}.
                 {!profileFound && (

@@ -334,7 +334,7 @@ export default function ProfileSwitcher() {
                           <p className="text-xs text-[hsl(var(--muted-foreground))]">
                             {pStats.txCount.toLocaleString()} txns
                             {" · "}
-                            <span className={pStats.monthlyNet >= 0 ? "text-green-600" : "text-red-500"}>
+                            <span className={pStats.monthlyNet >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}>
                               {pStats.monthlyNet >= 0 ? "+" : ""}
                               {(pStats.monthlyNet / 100).toLocaleString("en-US", {
                                 style: "currency", currency: "USD", maximumFractionDigits: 0,

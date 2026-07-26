@@ -120,6 +120,7 @@ export default function GoalsPage() {
   const [month, setMonth] = useAutoMonth();
   const [goals, setGoals] = useState<GoalWithProgress[]>([]);
   const [loading, setLoading] = useState(true);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const categories = useCategoryStore((s) => s.categories);
   const activeProfile = useProfileStore((s) => s.activeProfile);
   const profileId = activeProfile?.id ?? 1;
@@ -370,6 +371,7 @@ export default function GoalsPage() {
   const removeGoal = async (id: number) => {
     const db = await getDb();
     await db.execute("UPDATE goals SET active=0 WHERE id=?", [id]);
+    setConfirmDeleteId((cur) => (cur === id ? null : cur));
     await loadGoals();
   };
 
@@ -472,9 +474,18 @@ export default function GoalsPage() {
       {loading && <CardListSkeleton count={3} />}
 
       {!loading && goals.length === 0 && (
-        <p className="text-[hsl(var(--muted-foreground))] text-center py-10">
-          No goals yet. Add one above to start tracking your progress.
-        </p>
+        <div className="flex flex-col items-center gap-3 py-20 text-center">
+          <div
+            className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl mb-1"
+            style={{ backgroundColor: "hsl(var(--muted))" }}
+          >
+            &#127919;
+          </div>
+          <p className="font-semibold text-[hsl(var(--foreground))]">No goals yet</p>
+          <p className="text-sm text-[hsl(var(--muted-foreground))] max-w-xs">
+            Add one above to start tracking your progress toward a savings target, spending limit, or income goal.
+          </p>
+        </div>
       )}
 
       {!loading && goals.map((g) => {
@@ -515,14 +526,28 @@ export default function GoalsPage() {
               </div>
               <div className="flex items-center gap-3 shrink-0">
                 {!g.noBalanceData && !g.noBudgetData && (
-                  <span className={`text-xs font-medium ${g.on_track ? "text-green-600" : "text-orange-500"}`}>
+                  <span className={`text-xs font-medium ${g.on_track ? "text-[hsl(var(--success))]" : "text-orange-500"}`}>
                     {g.on_track ? "On track" : "Needs attention"}
                   </span>
                 )}
-                <button onClick={() => removeGoal(g.id)}
-                  className="text-xs text-[hsl(var(--muted-foreground))] hover:text-red-500 transition-colors">
-                  Remove
-                </button>
+                {confirmDeleteId === g.id ? (
+                  <span className="flex items-center gap-1.5">
+                    <button onClick={() => removeGoal(g.id)}
+                      className="text-xs px-2 py-0.5 rounded-md font-medium"
+                      style={{ color: "white", backgroundColor: "hsl(var(--error))" }}>
+                      Delete?
+                    </button>
+                    <button onClick={() => setConfirmDeleteId(null)}
+                      className="text-xs px-2 py-0.5 rounded-md border hover:bg-[hsl(var(--muted))] transition-colors">
+                      Cancel
+                    </button>
+                  </span>
+                ) : (
+                  <button onClick={() => setConfirmDeleteId(g.id)}
+                    className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))] transition-colors">
+                    Remove
+                  </button>
+                )}
               </div>
             </div>
 
@@ -545,7 +570,7 @@ export default function GoalsPage() {
                   <span className="text-2xl font-bold">{streakCount}</span>
                   <span className="text-sm text-[hsl(var(--muted-foreground))]">/ {targetMonths} months</span>
                   {streakCount >= targetMonths && (
-                    <span className="text-sm font-semibold text-green-600">Goal reached!</span>
+                    <span className="text-sm font-semibold text-[hsl(var(--success))]">Goal reached!</span>
                   )}
                 </div>
                 <div className="flex gap-1">
@@ -603,7 +628,7 @@ export default function GoalsPage() {
                   </p>
                   <p className={`text-sm font-semibold ${
                     isSpend
-                      ? dailyNeeded < 0 ? "text-red-500" : "text-emerald-600"
+                      ? dailyNeeded < 0 ? "text-[hsl(var(--error))]" : "text-emerald-600"
                       : dailyNeeded <= 0 ? "text-emerald-600" : "text-[hsl(var(--foreground))]"
                   }`}>
                     {isSpend

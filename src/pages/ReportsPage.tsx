@@ -5,7 +5,7 @@ import {
 import { Ghost } from "lucide-react";
 import { getDb } from "@/lib/db";
 import { detectRecurringCharges } from "@/lib/agent";
-import { formatCurrency, formatDate, formatMonthLabel, combineAccountBalances } from "@/lib/utils";
+import { formatCurrency, formatDate, formatMonthLabel, formatAxisCurrency, combineAccountBalances } from "@/lib/utils";
 import type { Transaction, RecurringCharge } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
@@ -320,7 +320,7 @@ export default function ReportsPage() {
                           {prev > 0 ? formatCurrency(prev) : "—"}
                         </td>
                         <td className={`px-4 py-2.5 text-right font-medium
-                          ${pct > 10 ? "text-red-500" : pct < -10 ? "text-green-600" : "text-[hsl(var(--muted-foreground))]"}`}>
+                          ${pct > 10 ? "text-[hsl(var(--error))]" : pct < -10 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--muted-foreground))]"}`}>
                           {prev > 0 ? `${pct > 0 ? "+" : ""}${pct}%` : "—"}
                         </td>
                       </tr>
@@ -349,14 +349,14 @@ export default function ReportsPage() {
                     {monthTotals.map((r) => (
                       <tr key={r.month} className="border-t hover:bg-[hsl(var(--muted))]">
                         <td className="px-4 py-2.5 font-medium">{formatMonthLabel(r.month)}</td>
-                        <td className="px-4 py-2.5 text-right font-mono text-green-600">
+                        <td className="px-4 py-2.5 text-right font-mono text-[hsl(var(--success))]">
                           {formatCurrency(r.income_cents)}
                         </td>
-                        <td className="px-4 py-2.5 text-right font-mono text-red-500">
+                        <td className="px-4 py-2.5 text-right font-mono text-[hsl(var(--error))]">
                           {formatCurrency(r.expense_cents)}
                         </td>
                         <td className={`px-4 py-2.5 text-right font-mono font-medium
-                          ${r.net_cents >= 0 ? "text-green-600" : "text-red-500"}`}>
+                          ${r.net_cents >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
                           {formatCurrency(r.net_cents)}
                         </td>
                       </tr>
@@ -376,13 +376,13 @@ export default function ReportsPage() {
                   <AreaChart data={balanceTrend} margin={{ top: 4, right: 16, bottom: 4, left: 16 }}>
                     <defs>
                       <linearGradient id="balTrendGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} />
-                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                        <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.2} />
+                        <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <XAxis dataKey="month" tick={{ fontSize: 11 }} tickFormatter={formatMonthLabel} />
                     <YAxis
-                      tickFormatter={(v) => `$${Math.round(v / 1000)}k`}
+                      tickFormatter={formatAxisCurrency}
                       tick={{ fontSize: 11 }}
                       width={50}
                     />
@@ -396,7 +396,7 @@ export default function ReportsPage() {
                       labelFormatter={(l) => formatMonthLabel(String(l))}
                       formatter={(v) => [`$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "Balance"]}
                     />
-                    <Area type="monotone" dataKey="balance" stroke="#3b82f6" strokeWidth={2} fill="url(#balTrendGrad)" dot={{ r: 3 }} />
+                    <Area type="monotone" dataKey="balance" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#balTrendGrad)" dot={{ r: 3 }} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
@@ -425,7 +425,7 @@ export default function ReportsPage() {
                             {t.category_name ?? "Uncategorized"}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-right font-mono text-red-500">
+                        <td className="px-4 py-3 text-right font-mono text-[hsl(var(--error))]">
                           {formatCurrency(Math.abs(t.amount_cents))}
                         </td>
                       </tr>
@@ -501,7 +501,7 @@ export default function ReportsPage() {
                         </p>
                       </div>
                       <div className="text-right shrink-0">
-                        <p className="font-semibold text-red-500">
+                        <p className="font-semibold text-[hsl(var(--error))]">
                           {formatCurrency(Math.abs(s.amount_cents))}/mo
                         </p>
                         <p className="text-xs text-[hsl(var(--muted-foreground))]">

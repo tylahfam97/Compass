@@ -80,7 +80,7 @@ function ScopeToggle({ isGlobal, onToggle, size = "md" }: ScopeToggleProps) {
         height: trackH,
         borderRadius: trackH / 2,
         padding: 3,
-        backgroundColor: isGlobal ? "#C08A1C" : "#3b82f6",
+        backgroundColor: isGlobal ? "var(--gold)" : "hsl(var(--primary))",
         transition: "background-color 0.3s",
         cursor: "pointer",
         display: "inline-flex",
@@ -130,6 +130,7 @@ export default function BudgetsPage() {
 
   const [pinQueue, setPinQueue] = useState<Profile[]>([]);
   const [pinQueueIdx, setPinQueueIdx] = useState(0);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem(viewModeKey(profileId));
@@ -293,6 +294,7 @@ export default function BudgetsPage() {
   const deleteBudget = async (id: number) => {
     const db = await getDb();
     await db.execute("DELETE FROM budgets WHERE id=?", [id]);
+    setConfirmDeleteId((cur) => (cur === id ? null : cur));
     await loadBudgets();
   };
 
@@ -351,7 +353,7 @@ export default function BudgetsPage() {
           <span
             className="text-sm font-semibold select-none"
             style={{
-              color: !isGlobalActive ? "#3b82f6" : "hsl(var(--muted-foreground))",
+              color: !isGlobalActive ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))",
               transition: "color 0.3s",
             }}
           >
@@ -461,7 +463,7 @@ export default function BudgetsPage() {
               <span
                 className="text-xs font-semibold select-none"
                 style={{
-                  color: !formIsGlobal ? "#3b82f6" : "hsl(var(--muted-foreground))",
+                  color: !formIsGlobal ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))",
                   transition: "color 0.3s",
                 }}
               >
@@ -610,47 +612,66 @@ export default function BudgetsPage() {
                     ) : (
                       <span
                         className="text-xs px-2 py-0.5 rounded-full font-semibold"
-                        style={{ backgroundColor: "rgba(59,130,246,0.12)", color: "#3b82f6" }}
+                        style={{ backgroundColor: "hsl(var(--primary)/0.12)", color: "hsl(var(--primary))" }}
                       >
                         Profile
                       </span>
                     )}
                     {projectedOver && remaining > 0 && (
-                      <span className="text-xs font-semibold text-red-500">
+                      <span className="text-xs font-semibold text-[hsl(var(--error))]">
                         +{formatCurrency(projectedOverBy)} projected over
                       </span>
                     )}
                   </div>
 
-                  {/* Action buttons � always visible but subtle */}
+                  {/* Action buttons - always visible but subtle; focus-visible so keyboard
+                      users tabbing through can see and reach them, not just on hover */}
                   <div className="flex items-center gap-2 shrink-0">
                     <button
                       onClick={() => toggleBudgetScope(b)}
                       title={b.is_global ? "Make profile-specific" : "Make global"}
-                      className="text-xs px-2.5 py-1 rounded-lg border transition-all opacity-0 group-hover:opacity-100"
+                      className="text-xs px-2.5 py-1 rounded-lg border transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100"
                       style={{
-                        color: b.is_global ? "#3b82f6" : "#C08A1C",
-                        borderColor: b.is_global ? "rgba(59,130,246,0.3)" : "rgba(192,138,28,0.3)",
+                        color: b.is_global ? "hsl(var(--primary))" : "var(--gold)",
+                        borderColor: b.is_global ? "hsl(var(--primary) / 0.3)" : "rgba(192,138,28,0.3)",
                         backgroundColor: "transparent",
                       }}
                       onMouseOver={(e) => {
                         e.currentTarget.style.backgroundColor = b.is_global
-                          ? "rgba(59,130,246,0.08)"
+                          ? "hsl(var(--primary) / 0.08)"
                           : "rgba(192,138,28,0.08)";
                       }}
                       onMouseOut={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
                     >
                       {b.is_global ? "? Profile" : "? Global"}
                     </button>
-                    <button
-                      onClick={() => deleteBudget(b.id)}
-                      className="text-xs px-2.5 py-1 rounded-lg border transition-all opacity-0 group-hover:opacity-100"
-                      style={{ color: "hsl(var(--error))", borderColor: "hsl(var(--error) / 0.3)", backgroundColor: "transparent" }}
-                      onMouseOver={(e) => { e.currentTarget.style.backgroundColor = "hsl(var(--error) / 0.07)"; }}
-                      onMouseOut={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
-                    >
-                      Remove
-                    </button>
+                    {confirmDeleteId === b.id ? (
+                      <span className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => deleteBudget(b.id)}
+                          className="text-xs px-2.5 py-1 rounded-lg font-medium"
+                          style={{ color: "white", backgroundColor: "hsl(var(--error))" }}
+                        >
+                          Delete?
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="text-xs px-2.5 py-1 rounded-lg border hover:bg-[hsl(var(--muted))] transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteId(b.id)}
+                        className="text-xs px-2.5 py-1 rounded-lg border transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100"
+                        style={{ color: "hsl(var(--error))", borderColor: "hsl(var(--error) / 0.3)", backgroundColor: "transparent" }}
+                        onMouseOver={(e) => { e.currentTarget.style.backgroundColor = "hsl(var(--error) / 0.07)"; }}
+                        onMouseOut={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
+                      >
+                        Remove
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -677,7 +698,7 @@ export default function BudgetsPage() {
                     {formatCurrency(displayCents)}{" "}
                     <span className="font-normal">{displayLabel}</span>
                     {over && (
-                      <span className="ml-1.5 text-xs font-semibold text-red-500">over budget</span>
+                      <span className="ml-1.5 text-xs font-semibold text-[hsl(var(--error))]">over budget</span>
                     )}
                     {under && (
                       <span className="ml-1.5 text-xs font-semibold text-orange-500">below target</span>

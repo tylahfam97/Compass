@@ -630,17 +630,17 @@ export default function TransactionsPage() {
             <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-1 flex items-center justify-center gap-1">
               Income <InfoTooltip text={EXCLUSION_DISCLAIMER_TEXT} />
             </p>
-            <p className="text-lg font-bold text-green-600">{formatCurrency(totalIncome)}</p>
+            <p className="text-lg font-bold text-[hsl(var(--success))]">{formatCurrency(totalIncome)}</p>
           </div>
           <div className="border rounded-xl px-4 py-3 text-center">
             <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-1 flex items-center justify-center gap-1">
               Expenses <InfoTooltip text={EXCLUSION_DISCLAIMER_TEXT} />
             </p>
-            <p className="text-lg font-bold text-red-500">{formatCurrency(Math.abs(totalExpenses))}</p>
+            <p className="text-lg font-bold text-[hsl(var(--error))]">{formatCurrency(Math.abs(totalExpenses))}</p>
           </div>
           <div className="border rounded-xl px-4 py-3 text-center">
             <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-1">Net</p>
-            <p className={`text-lg font-bold ${netAmount >= 0 ? "text-green-600" : "text-red-500"}`}>{formatCurrency(netAmount)}</p>
+            <p className={`text-lg font-bold ${netAmount >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>{formatCurrency(netAmount)}</p>
           </div>
         </div>
       )}
@@ -648,9 +648,18 @@ export default function TransactionsPage() {
       {loading && <TableSkeleton rows={8} cols={5} />}
 
       {!loading && rows.length === 0 && (
-        <p className="text-[hsl(var(--muted-foreground))] mt-8 text-center">
-          No transactions found. Try a different month or search term.
-        </p>
+        <div className="flex flex-col items-center gap-3 py-16 text-center">
+          <div
+            className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl mb-1"
+            style={{ backgroundColor: "hsl(var(--muted))" }}
+          >
+            &#128269;
+          </div>
+          <p className="font-semibold text-[hsl(var(--foreground))]">No transactions found</p>
+          <p className="text-sm text-[hsl(var(--muted-foreground))] max-w-xs">
+            Try a different month, clear your search or filters, or import a bank statement to get started.
+          </p>
+        </div>
       )}
 
       {!loading && rows.length > 0 && (
@@ -711,7 +720,7 @@ export default function TransactionsPage() {
                       </button>
                     )}
                   </td>
-                  <td className={`px-4 py-3 text-right font-mono ${t.amount_cents < 0 ? "text-red-500" : "text-green-600"}`}>
+                  <td className={`px-4 py-3 text-right font-mono ${t.amount_cents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
                     {formatCurrency(t.amount_cents)}
                   </td>
                   <td className="px-4 py-3 text-right font-mono text-[hsl(var(--muted-foreground))]">

@@ -13,6 +13,22 @@ export function formatCurrency(cents: number, currency = "USD"): string {
   }).format(cents / 100);
 }
 
+/** Compact currency formatter for chart Y-axis ticks, e.g. 250000 (cents) → "$2.5k",
+ *  15000 → "$150". Abbreviates to "k" once the dollar value reaches four figures so large
+ *  balances don't crowd the axis, otherwise shows whole dollars - one shared formatter
+ *  instead of every chart inlining its own `$${Math.round(v/100)}` vs `$${Math.round(v/1000)}k`
+ *  variant. */
+export function formatAxisCurrency(cents: number): string {
+  const dollars = cents / 100;
+  const abs = Math.abs(dollars);
+  if (abs >= 1000) {
+    const thousands = dollars / 1000;
+    const rounded = Math.abs(thousands) < 10 ? Math.round(thousands * 10) / 10 : Math.round(thousands);
+    return `$${rounded}k`;
+  }
+  return `$${Math.round(dollars)}`;
+}
+
 /** Lightens a hex color toward white by `amount` (0-1), for chart hover states
  *  (e.g. a bar's own color, washed out, instead of a generic gray highlight). */
 export function lightenHex(hex: string, amount = 0.45): string {
