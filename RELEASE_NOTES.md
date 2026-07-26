@@ -2,55 +2,71 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
-## Compass 0.8.8 — Debt Payoff Plans & Sharper Subscription Detection 💳
+## Compass 0.8.9 — Budget Rollover, Portfolio & Category Charts, Milestone Celebrations 🎉
 
-A big one for anyone carrying a credit card or loan balance: Compass can now build you a real
-payoff plan, and a batch of clarity fixes make credit card imports, transfers, and recurring
-charges much easier to trust at a glance.
+A polish-and-features release: budgets can now carry unspent money into next month, two new
+donut charts make portfolio and spending composition easier to read at a glance, and Compass
+now throws a little confetti when you hit a real financial milestone. Plus a raft of bug fixes,
+missing-feature gaps closed, and an app-wide accessibility/consistency pass.
 
-### New: Debt Payoff Plan
-Click "Credit Card Health" or any row on the Debt Payoff Dashboard (Agent tab) to see three
-side-by-side payoff strategies - Stay the Course (minimums only), Balanced Cushion (redirect
-~half your discretionary spending), and Most Aggressive (redirect all of it) - each with a
-projected debt-free date, total interest paid, and monthly cushion kept. Includes a "What Can
-Be Cut" breakdown of exactly which discretionary categories are feeding the plan.
+### New: Budget Rollover
+Monthly budgets can now opt in to rolling over unspent money into the next month, envelope-
+budgeting style. Enable it from the "Add Budget" form (or toggle it on an existing budget with
+the new "↻ Rollover" button), and any leftover under your limit carries forward as a visible
+"+$X rolled over" badge, automatically raising that month's effective limit. Overspending never
+creates a carried-forward debt — it simply resets that month's rollover to zero.
 
-### New: "Excluded" Category
-A second "leave this out of my totals" bucket alongside Transfers, for anything else you want
-left out of income/expense totals without mislabeling it as a transfer (reimbursements,
-one-off adjustments, etc.). The category picker now groups Excluded/Transfers, your own
-categories, and system categories into clearly separated, alphabetized sections.
+### New: Investment Allocation & Category Spending Donut Charts
+The Investments page now shows a portfolio allocation donut (Stocks/ETFs/Mutual Funds/Cash/
+Other) with a percentage legend, replacing the old plain-text breakdown. The Reports page's
+"Spending by Category" section gets the same treatment — a donut chart (top categories plus an
+"Other" slice) sits next to the existing month-over-month table, so you can see where your
+money went at a glance instead of only scanning numbers.
 
-### New: Optional Minimum Payment for Credit Cards
-Credit card imports can now optionally record a minimum payment, same as loans already could -
-improves the Debt Dashboard's Cash-flow-First ranking and the new Debt Payoff plan's estimate.
+### New: Milestone Celebrations 🎉
+Compass now notices a handful of real milestones — your net worth going positive for the first
+time, a loan or credit card balance hitting $0, or a savings goal reaching its target — and
+celebrates with a small gold confetti burst and a banner. Each milestone only celebrates once.
 
-### Improved: Clearer Credit Card Imports & Transfer Handling
-The import wizard's sign-flip step now shows each transaction's description next to its
-amount, instead of a bare number, so it's obvious which rows are purchases vs. card payments.
-A finished import now also reports how many transactions were recognized as transfers/payments
-and excluded from your totals - so a card payment is never double-counted as both a checking
-withdrawal and a card credit. Income/Expenses totals on Dashboard, Overview, and Transactions
-now carry an info tooltip spelling this out too.
+### New: Goal Editing
+Goals can now be edited in place (name, type, category, target, timeframe) instead of only
+delete-and-recreate. Click "Edit" on any goal card to update it.
 
-### Improved: Subscription Detection
-Recurring charge detection now matches by day-of-month or "Nth weekday of month" (e.g. "3rd
-Thursday") cadence instead of requiring an exact repeated amount, catching bills whose amount
-drifts slightly - and only flags a charge once it's landed 2+ consecutive months in a row. The
-Subscription Inventory and Ghost Subscriptions lists are now sorted by amount, highest first,
-with no cutoff - every recurring charge is shown.
+### New: Direct Transaction Delete
+Transactions can now be deleted straight from the table row (hover to reveal a delete icon,
+with an inline confirm step) instead of requiring you to open the Edit modal first.
 
-### Improved: "Apply Rules to All Transactions"
-"Auto-Categorize" has been renamed and restyled into a bigger, more prominent button that makes
-clear it re-applies your current rules to every transaction, including ones already categorized.
+### Improved: Delete Confirmations Everywhere
+Deleting a Budget or a Goal now requires a two-step "Delete? / Cancel" confirmation instead of
+removing it immediately on the first click — matching the safer pattern already used elsewhere.
 
-### Fixed: Debt Payoff Plan Counted Credit Card Spending as "Available Cash"
-The discretionary-spending estimate that powers the Debt Payoff plan was including money
-already spent on a credit card as if it were free cash that could be redirected toward debt.
-It now only counts checking/savings spending - money already on a card is part of the debt
-balance itself, not money sitting around to pay it down with.
+### Improved: Keyboard Accessibility
+Hover-only actions (budget scope/rollover toggles, delete buttons, insight dismiss buttons) are
+now also reachable via keyboard Tab/focus, not just mouse hover.
 
-### Fixed: "Excluded" Category Could Silently Fail to Appear
-If you'd already created any custom category after this release's "Excluded" category was
-introduced, a database quirk meant it could silently never get created at all. Existing
-databases are automatically repaired on next launch.
+### Improved: Consistent Colors & Month Labels
+Financial figures (gains/losses, income/expenses) now consistently use the app's success/error
+color tokens instead of a mix of hardcoded colors, and chart axes/tooltips across Trends,
+Reports, and the Agent tab now show friendly month labels ("Jul '26") instead of raw "2026-07"
+strings or bare numbers.
+
+### Improved: Reduced Redundancy on Overview
+Removed a per-profile mini In/Out/Net grid on the Overview page that exactly duplicated the
+page's own top summary banner.
+
+### Fixed: Dashboard/Account Modal Crash on Hover
+Hovering or clicking certain charts (an account's balance history, Dashboard's checking/credit/
+loan sparklines, Overview's profile-card sparklines, the Agent tab's Net Worth chart) could
+throw an error and leave the page stuck showing "Something went wrong" until manually retried.
+Root cause was a chart tooltip formatting a value that Recharts hadn't actually attached a date
+to — now fixed everywhere it occurred.
+
+### Fixed: Error Screens No Longer Follow You Between Pages
+Previously, a one-time rendering error on any page could leave every other page you navigated
+to afterward stuck on the same error screen until a manual retry. Each page now gets its own
+fresh error boundary.
+
+### Fixed: Net Worth Chart Click & Month Display
+Clicking a point on the Agent tab's Net Worth chart now correctly opens that month's Liquid/
+Investments/Debt/Net Worth breakdown (it previously did nothing), and the Savings Rate
+sparkline's tick labels now show real month names instead of raw digits.
