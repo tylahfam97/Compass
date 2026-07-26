@@ -348,7 +348,6 @@ export default function OverviewPage() {
         <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
           {visibleProfiles.map((profile) => {
             const d = data.get(profile.id);
-            const net = (d?.income ?? 0) + (d?.expenses ?? 0);
             return (
               <button key={profile.id} onClick={() => handleSwitch(profile)}
                 className="border rounded-2xl p-5 text-left hover:shadow-md hover:border-[var(--gold)] transition-all duration-150
@@ -459,23 +458,6 @@ export default function OverviewPage() {
                         ))}
                       </div>
                     )}
-
-                    <div className="grid grid-cols-3 gap-1 text-center border rounded-xl p-2 bg-[hsl(var(--muted))]/40">
-                      <div>
-                        <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase">In</p>
-                        <p className="text-xs font-semibold text-[hsl(var(--success))]">{formatCurrency(d.income)}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase">Out</p>
-                        <p className="text-xs font-semibold text-[hsl(var(--error))]">{formatCurrency(Math.abs(d.expenses))}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase">Net</p>
-                        <p className={`text-xs font-semibold ${net >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
-                          {formatCurrency(net)}
-                        </p>
-                      </div>
-                    </div>
                   </>
                 )}
               </button>
