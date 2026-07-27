@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { motion } from "motion/react";
 import { X, Scissors, Info, CheckCircle2, Circle, Sparkles, TrendingDown, SlidersHorizontal } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
@@ -48,7 +49,12 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
   const [plan, setPlan] = useState<DebtPayoffPlan | null>(null);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<Set<number> | null>(null);
   const [redirectPct, setRedirectPct] = useState(50);
-  const [hoveredCategoryId, setHoveredCategoryId] = useState<number | null>(null);
+  // Hover-preview tooltip for "What Can Be Cut" example items. Rendered via a document.body
+  // portal (positioned from the hovered row's viewport rect) rather than in-flow/absolute inside
+  // the modal - the modal is a scrollable (overflow-y-auto) box, and an in-flow absolute tooltip
+  // there was expanding the scrollable content bounds on mount, toggling scrollbars on/off and
+  // making the whole modal visibly shift on every hover in/out.
+  const [hoveredCategory, setHoveredCategory] = useState<{ id: number; rect: DOMRect } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -153,7 +159,12 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
   const interestSavedVsBaseline = plan && customResult ? plan.baseline.totalInterestCents - customResult.totalInterestCents : 0;
   const cushionCents = plan ? plan.discretionaryTotalCents - extraMonthlyCents : 0;
 
+  const hoveredCategoryData = hoveredCategory
+    ? plan?.discretionaryBreakdown.find((c) => c.categoryId === hoveredCategory.id)
+    : null;
+
   return (
+    <>
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
       onClick={onBackdropClick}
@@ -235,9 +246,11 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
                     return (
                       <div
                         key={c.categoryId}
-                        className="relative"
-                        onMouseEnter={() => setHoveredCategoryId(c.categoryId)}
-                        onMouseLeave={() => setHoveredCategoryId(null)}
+                        onMouseEnter={(e) => {
+                          if (c.exampleItems.length === 0) return;
+                          setHoveredCategory({ id: c.categoryId, rect: e.currentTarget.getBoundingClientRect() });
+                        }}
+                        onMouseLeave={() => setHoveredCategory((h) => (h?.id === c.categoryId ? null : h))}
                       >
                         <button
                           onClick={() => toggleCategory(c.categoryId)}
@@ -248,15 +261,6 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
                           <span className="flex-1 truncate text-left">{c.name}</span>
                           <span className="font-medium">{formatCurrency(c.avgMonthlyCents)}/mo</span>
                         </button>
-                        {hoveredCategoryId === c.categoryId && c.exampleItems.length > 0 && (
-                          <span
-                            role="tooltip"
-                            className="absolute z-30 left-6 top-full mt-0.5 text-left text-[11px] leading-snug font-normal normal-case px-3 py-2 rounded-lg shadow-lg pointer-events-none whitespace-nowrap"
-                            style={{ backgroundColor: "hsl(var(--foreground))", color: "hsl(var(--background))" }}
-                          >
-                            e.g. {c.exampleItems.join(", ")}
-                          </span>
-                        )}
                       </div>
                     );
                   })}
@@ -385,6 +389,22 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
         )}
       </motion.div>
     </motion.div>
+    {hoveredCategoryData && hoveredCategoryData.exampleItems.length > 0 && createPortal(
+      <span
+        role="tooltip"
+        className="fixed z-[60] text-left text-[11px] leading-snug font-normal normal-case px-3 py-2 rounded-lg shadow-lg pointer-events-none whitespace-nowrap"
+        style={{
+          backgroundColor: "hsl(var(--foreground))",
+          color: "hsl(var(--background))",
+          top: hoveredCategory!.rect.bottom + 4,
+          left: hoveredCategory!.rect.left + 24,
+        }}
+      >
+        e.g. {hoveredCategoryData.exampleItems.join(", ")}
+      </span>,
+      document.body
+    )}
+    </>
   );
 }
 
