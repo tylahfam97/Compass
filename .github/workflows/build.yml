@@ -50,6 +50,17 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # This runner is a PERSISTENT self-hosted Windows VM, not an ephemeral GitHub-hosted
+          # one - actions/checkout's default `clean: true` runs `git clean -ffdx` before every
+          # checkout, which deletes src-tauri/target/ and node_modules/ (both gitignored) on
+          # EVERY run. That wipes the SQLCipher/OpenSSL vendored-openssl C build (via nmake,
+          # which doesn't parallelize) and all Rust dependency compilation, forcing a full
+          # from-scratch rebuild every time regardless of runner CPU speed (this is what turned
+          # a normally-incremental build into a 10+ minute one on a slower server CPU).
+          # clean: false skips that wipe - tracked files are still correctly checked out/reset
+          # to the right commit either way, only ignored/untracked build caches now persist.
+          clean: false
 
       - name: Ensure Rust/cargo is on PATH
         # On a self-hosted runner installed as a Windows service, the service process (and the
