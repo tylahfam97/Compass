@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { AreaChart, Area, LineChart, Line, XAxis, ResponsiveContainer, Tooltip } from "recharts";
+import { LineChart, Line, XAxis, ResponsiveContainer, Tooltip } from "recharts";
 import { Eye, EyeOff, ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { getDb, setAccountHiddenFromDashboard } from "@/lib/db";
-import { formatCurrency, formatDate, combineAccountBalances, separateAccountBalances, accountChartColor } from "@/lib/utils";
+import { formatCurrency, formatDate, separateAccountBalances, accountChartColor } from "@/lib/utils";
 import { computeNetWorth, type NetWorthSnapshot } from "@/lib/netWorth";
 import { useProfileStore } from "@/stores/profileStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
@@ -17,11 +17,16 @@ import { EXCLUSION_DISCLAIMER_TEXT } from "@/lib/types";
 
 interface ProfileData {
   profileId: number;
-  balance: number | null;
+  /** Sum of bank (checking) account balances only - excludes credit card debt and investments,
+   *  so this card shows spendable/liquid cash rather than a blended net-worth figure (the
+   *  banner above already shows the correct full Liquid/Investments/Debt/Net Worth breakdown). */
+  liquidCents: number | null;
   income: number;
   expenses: number;
-  /** Combined checking balance trend - one line, matching Dashboard/Trends. */
-  checkingSparkline: { date: string; balance: number }[];
+  /** Each bank account kept as its own series (never blended) - one thin line per account,
+   *  same treatment as credit cards below. */
+  bankSparkline: { date: string; byAccount: Record<number, number> }[];
+  bankAccounts: { id: number; name: string }[];
   /** Each credit card kept as its own series (never blended) - drawn as one thin line per card. */
   creditSparkline: { date: string; byAccount: Record<number, number> }[];
   creditAccounts: { id: number; name: string }[];
@@ -175,14 +180,16 @@ export default function OverviewPage() {
             ),
           ]);
           const trackedAccounts = balRow.filter((r) => r.balance_cents !== null);
+          const bankAccounts = balRow.filter((r) => r.account_type === "checking").map((r) => ({ id: r.account_id, name: r.name }));
           const creditAccounts = balRow.filter((r) => r.account_type === "credit").map((r) => ({ id: r.account_id, name: r.name }));
+          const trackedBankAccounts = trackedAccounts.filter((r) => r.account_type === "checking");
           return [p.id, {
             profileId: p.id,
-            balance: trackedAccounts.length > 0 ? trackedAccounts.reduce((s, r) => s + (r.balance_cents ?? 0), 0) : null,
+            liquidCents: trackedBankAccounts.length > 0 ? trackedBankAccounts.reduce((s, r) => s + (r.balance_cents ?? 0), 0) : null,
             income: incRow[0]?.total ?? 0,
             expenses: expRow[0]?.total ?? 0,
-            checkingSparkline: combineAccountBalances(sparkRows.filter((r) => r.account_type === "checking"))
-              .map((r) => ({ date: r.date, balance: r.balance_cents / 100 })),
+            bankSparkline: separateAccountBalances(sparkRows.filter((r) => r.account_type === "checking")),
+            bankAccounts,
             creditSparkline: separateAccountBalances(sparkRows.filter((r) => r.account_type === "credit")),
             creditAccounts,
             hiddenAccounts: hiddenRow,
@@ -362,7 +369,7 @@ export default function OverviewPage() {
                   <div>
                     <p className="font-semibold leading-tight">{profile.name}</p>
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                      {d?.hasTransactions ? "Click to switch ?" : "No data imported yet"}
+                      {d?.hasTransactions ? "Click to switch \u2192" : "No data imported yet"}
                     </p>
                   </div>
                 </div>
@@ -373,37 +380,49 @@ export default function OverviewPage() {
                   </p>
                 ) : (
                   <>
-                    {d.balance !== null && (
+                    {d.liquidCents !== null && (
                       <div className="mb-3">
-                        <p className="text-xs text-[hsl(var(--muted-foreground))] mb-0.5">
-                          {d.portfolioValue > 0 ? "Net Worth" : "Current Balance"}
-                        </p>
-                        <p className={`text-2xl font-bold ${(d.balance + d.portfolioValue) >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
-                          {formatCurrency(d.balance + d.portfolioValue)}
+                        <p className="text-xs text-[hsl(var(--muted-foreground))] mb-0.5">Liquid</p>
+                        <p className={`text-2xl font-bold ${d.liquidCents >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
+                          {formatCurrency(d.liquidCents)}
                         </p>
                       </div>
                     )}
 
-                    {(d.checkingSparkline.length > 1 || (d.creditAccounts.length > 0 && d.creditSparkline.length > 1)) && (
+                    {((d.bankAccounts.length > 0 && d.bankSparkline.length > 1) || (d.creditAccounts.length > 0 && d.creditSparkline.length > 1)) && (
                       <div className="mb-3 -mx-1">
-                        {d.checkingSparkline.length > 1 && (
+                        {d.bankAccounts.length > 0 && d.bankSparkline.length > 1 && (
                           <div className="h-14">
                             <ResponsiveContainer width="100%" height="100%">
-                              <AreaChart data={d.checkingSparkline} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
-                                <defs>
-                                  <linearGradient id={`grad-${profile.id}`} x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor={profile.avatar_color} stopOpacity={0.3} />
-                                    <stop offset="95%" stopColor={profile.avatar_color} stopOpacity={0} />
-                                  </linearGradient>
-                                </defs>
+                              <LineChart data={d.bankSparkline} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
                                 <XAxis dataKey="date" hide />
                                 <Tooltip contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
                                   wrapperStyle={{ zIndex: 50 }}
-                                  formatter={(v) => [`$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "Checking"]}
+                                  formatter={(v, name) => [`$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`, name]}
                                   labelFormatter={(l) => formatDate(String(l))} />
-                                <Area type="monotone" dataKey="balance" stroke={profile.avatar_color} strokeWidth={1.5} fill={`url(#grad-${profile.id})`} dot={false} />
-                              </AreaChart>
+                                {d.bankAccounts.map((acc, i) => (
+                                  <Line key={acc.id} type="monotone" isAnimationActive={false} name={acc.name}
+                                    dataKey={(pt: { byAccount: Record<number, number> }) => (pt.byAccount[acc.id] ?? 0) / 100}
+                                    stroke={accountChartColor(i)} strokeWidth={1.5} dot={false} />
+                                ))}
+                              </LineChart>
                             </ResponsiveContainer>
+                          </div>
+                        )}
+                        {d.bankAccounts.length > 0 && (
+                          <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                            {d.bankAccounts.map((acc, i) => (
+                              <button
+                                key={acc.id}
+                                onClick={(e) => { e.stopPropagation(); hideAccount(acc.id, acc.name); }}
+                                title="Hide this account from the dashboard/overview"
+                                className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border hover:bg-[hsl(var(--muted))] transition-colors"
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: accountChartColor(i) }} />
+                                <span className="truncate max-w-[70px]">{acc.name}</span>
+                                <EyeOff size={9} />
+                              </button>
+                            ))}
                           </div>
                         )}
                         {d.creditAccounts.length > 0 && d.creditSparkline.length > 1 && (
