@@ -1,7 +1,9 @@
 import { getDb, getLoanAccountsForProfile, getCreditAccountsForProfile } from "./db";
-import type { Insight, HealthScore, CreditCardHealthScore, DebtPayoffPlan, DebtPayoffScenario, DebtPayoffCategoryBreakdown, RecurringCharge } from "./types";
+import type { Insight, HealthScore, CreditCardHealthScore, DebtPayoffPlan, DebtPayoffSimDebt, DebtPayoffCustomResult, DebtPayoffCategoryBreakdown, RecurringCharge } from "./types";
 import { computeNetWorth, computeInvestmentReturn } from "./netWorth";
 import { AVG_US_CREDIT_CARD_DEBT_CENTS, AVG_US_MARKET_RETURN_PCT, scoreGrade } from "./benchmarks";
+import { composeInsightText } from "./voice";
+import { getRemembered, remember } from "./voiceMemory";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -208,11 +210,25 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
       const avgExpenses = recentSummaries.reduce((s, r) => s + r.expenses, 0) / recentSummaries.length;
       const cutPct = avgExpenses > avgIncome * 0.8
         ? Math.round(((avgExpenses - avgIncome * 0.8) / avgExpenses) * 100) : 0;
+      const savingsRatePct = Math.round(avgRate * 100);
+      const savingsRateMemKey = `savings_rate_low_${profileId}`;
+      const savingsRateRemembered = getRemembered(profileId, savingsRateMemKey);
+      const savingsRateDescription = composeInsightText({
+        type: "savings_rate_low",
+        currentValue: savingsRatePct,
+        currentLabel: `${savingsRatePct}%`,
+        previousValue: savingsRateRemembered?.rawValue ?? null,
+        previousLabel: savingsRateRemembered?.label ?? null,
+        higherIsBetter: true,
+        variantSeed: `${profileId}:savings_rate_low:${thisMonth}`,
+        fallback: `Your recent savings rate is ${savingsRatePct}%. A savings goal could help you stay on track.`,
+      });
+      remember(profileId, savingsRateMemKey, savingsRatePct, `${savingsRatePct}%`, thisStart);
       insights.push({
         id: "savings_rate_low",
         type: "savings_rate_low",
         title: "Savings rate below 20%",
-        description: `Your recent savings rate is ${Math.round(avgRate * 100)}%. A savings goal could help you stay on track.`,
+        description: savingsRateDescription,
         severity: "warning",
         actionLabel: `Set ${formatCents(suggestedSavings)}/mo savings goal`,
         action: {
@@ -258,11 +274,25 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
       [profileId, profileId]
     );
     for (const row of budgetStreaks) {
+      const overspendMemKey = `overspend_streak_${profileId}_${row.category_id}`;
+      const overspendRemembered = getRemembered(profileId, overspendMemKey);
+      const overspendLabel = `${row.over_count} month${row.over_count !== 1 ? "s" : ""}`;
+      const overspendDescription = composeInsightText({
+        type: "overspend_streak",
+        currentValue: row.over_count,
+        currentLabel: overspendLabel,
+        previousValue: overspendRemembered?.rawValue ?? null,
+        previousLabel: overspendRemembered?.label ?? null,
+        higherIsBetter: false,
+        variantSeed: `${profileId}:overspend_streak:${row.category_id}:${thisMonth}`,
+        fallback: `You've exceeded this budget ${row.over_count} months in a row. Consider adjusting the limit.`,
+      });
+      remember(profileId, overspendMemKey, row.over_count, overspendLabel, thisStart);
       insights.push({
         id: `overspend_streak_${row.category_id}`,
         type: "overspend_streak",
         title: `Consistently over budget: ${row.category_name}`,
-        description: `You've exceeded this budget ${row.over_count} months in a row. Consider adjusting the limit.`,
+        description: overspendDescription,
         severity: "warning",
         dismissKey: `overspend_streak_${row.category_id}`,
         richData: {
@@ -295,11 +325,25 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
       [profileId, profileId]
     );
     for (const row of underBudgetBudgets) {
+      const streakMemKey = `positive_streak_${profileId}_${row.category_id}`;
+      const streakRemembered = getRemembered(profileId, streakMemKey);
+      const streakLabel = `${row.under_count} month${row.under_count !== 1 ? "s" : ""}`;
+      const streakDescription = composeInsightText({
+        type: "positive_streak",
+        currentValue: row.under_count,
+        currentLabel: streakLabel,
+        previousValue: streakRemembered?.rawValue ?? null,
+        previousLabel: streakRemembered?.label ?? null,
+        higherIsBetter: true,
+        variantSeed: `${profileId}:positive_streak:${row.category_id}:${thisMonth}`,
+        fallback: `Great discipline. Consider tightening the limit slightly to lock in more savings.`,
+      });
+      remember(profileId, streakMemKey, row.under_count, streakLabel, thisStart);
       insights.push({
         id: `positive_streak_${row.category_id}`,
         type: "positive_streak",
         title: `Under budget on ${row.category_name} — ${row.under_count} months running`,
-        description: `Great discipline. Consider tightening the limit slightly to lock in more savings.`,
+        description: streakDescription,
         severity: "success",
         dismissKey: `positive_streak_${row.category_id}`,
         richData: {
@@ -455,7 +499,16 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
           id: `credit_card_debt_growing_${acct.id}_${thisMonth}`,
           type: "credit_card_debt_growing",
           title: `${acct.name} debt grew by ${formatCents(Math.abs(delta))}`,
-          description: `${acct.name}'s balance went from ${formatCents(Math.abs(creditBalancePriorRow.balance_cents))} to ${formatCents(Math.abs(debt))} owed. Keep an eye on this before it compounds with interest.`,
+          description: composeInsightText({
+            type: "credit_card_debt_growing",
+            currentValue: Math.abs(debt),
+            currentLabel: formatCents(Math.abs(debt)),
+            previousValue: Math.abs(creditBalancePriorRow.balance_cents),
+            previousLabel: formatCents(Math.abs(creditBalancePriorRow.balance_cents)),
+            higherIsBetter: false,
+            variantSeed: `${profileId}:credit_card_debt_growing:${acct.id}:${thisMonth}`,
+            fallback: `${acct.name}'s balance went from ${formatCents(Math.abs(creditBalancePriorRow.balance_cents))} to ${formatCents(Math.abs(debt))} owed. Keep an eye on this before it compounds with interest.`,
+          }),
           severity: "warning",
           dismissKey: `credit_card_debt_growing_${acct.id}_${thisMonth}`,
           accountId: acct.id,
@@ -466,7 +519,16 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
           id: `credit_card_debt_improving_${acct.id}_${thisMonth}`,
           type: "credit_card_debt_improving",
           title: `Paid down ${formatCents(delta)} on ${acct.name}`,
-          description: `Nice progress - ${acct.name}'s balance improved from ${formatCents(Math.abs(creditBalancePriorRow.balance_cents))} to ${formatCents(Math.abs(debt))} owed.`,
+          description: composeInsightText({
+            type: "credit_card_debt_improving",
+            currentValue: Math.abs(debt),
+            currentLabel: formatCents(Math.abs(debt)),
+            previousValue: Math.abs(creditBalancePriorRow.balance_cents),
+            previousLabel: formatCents(Math.abs(creditBalancePriorRow.balance_cents)),
+            higherIsBetter: false,
+            variantSeed: `${profileId}:credit_card_debt_improving:${acct.id}:${thisMonth}`,
+            fallback: `Nice progress - ${acct.name}'s balance improved from ${formatCents(Math.abs(creditBalancePriorRow.balance_cents))} to ${formatCents(Math.abs(debt))} owed.`,
+          }),
           severity: "success",
           dismissKey: `credit_card_debt_improving_${acct.id}_${thisMonth}`,
           accountId: acct.id,
@@ -523,7 +585,16 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
           id: `loan_debt_growing_${acct.id}_${thisMonth}`,
           type: "loan_debt_growing",
           title: `${acct.name} balance grew by ${formatCents(Math.abs(loanDelta))}`,
-          description: `${acct.name}'s balance went from ${formatCents(Math.abs(loanBalancePriorRow.balance_cents))} to ${formatCents(Math.abs(loanDebt))} owed this month.`,
+          description: composeInsightText({
+            type: "loan_debt_growing",
+            currentValue: Math.abs(loanDebt),
+            currentLabel: formatCents(Math.abs(loanDebt)),
+            previousValue: Math.abs(loanBalancePriorRow.balance_cents),
+            previousLabel: formatCents(Math.abs(loanBalancePriorRow.balance_cents)),
+            higherIsBetter: false,
+            variantSeed: `${profileId}:loan_debt_growing:${acct.id}:${thisMonth}`,
+            fallback: `${acct.name}'s balance went from ${formatCents(Math.abs(loanBalancePriorRow.balance_cents))} to ${formatCents(Math.abs(loanDebt))} owed this month.`,
+          }),
           severity: "warning",
           dismissKey: `loan_debt_growing_${acct.id}_${thisMonth}`,
           accountId: acct.id,
@@ -534,7 +605,16 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
           id: `loan_debt_improving_${acct.id}_${thisMonth}`,
           type: "loan_debt_improving",
           title: `Paid down ${formatCents(loanDelta)} on ${acct.name}`,
-          description: `Nice progress - ${acct.name}'s balance improved from ${formatCents(Math.abs(loanBalancePriorRow.balance_cents))} to ${formatCents(Math.abs(loanDebt))} owed.`,
+          description: composeInsightText({
+            type: "loan_debt_improving",
+            currentValue: Math.abs(loanDebt),
+            currentLabel: formatCents(Math.abs(loanDebt)),
+            previousValue: Math.abs(loanBalancePriorRow.balance_cents),
+            previousLabel: formatCents(Math.abs(loanBalancePriorRow.balance_cents)),
+            higherIsBetter: false,
+            variantSeed: `${profileId}:loan_debt_improving:${acct.id}:${thisMonth}`,
+            fallback: `Nice progress - ${acct.name}'s balance improved from ${formatCents(Math.abs(loanBalancePriorRow.balance_cents))} to ${formatCents(Math.abs(loanDebt))} owed.`,
+          }),
           severity: "success",
           dismissKey: `loan_debt_improving_${acct.id}_${thisMonth}`,
           accountId: acct.id,
@@ -856,7 +936,16 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
           id: `most_improved_${thisMonth}`,
           type: "most_improved",
           title: `Most improved: ${bestCat.name} — down ${bestCat.pctDrop}% vs last month`,
-          description: `Last month: ${formatCents(bestCat.prevTotal)} · This month so far: ${formatCents(bestCat.thisTotal)}. Great progress — keep it up.`,
+          description: composeInsightText({
+            type: "most_improved",
+            currentValue: bestCat.thisTotal,
+            currentLabel: formatCents(bestCat.thisTotal),
+            previousValue: bestCat.prevTotal,
+            previousLabel: formatCents(bestCat.prevTotal),
+            higherIsBetter: false,
+            variantSeed: `${profileId}:most_improved:${thisMonth}`,
+            fallback: `Last month: ${formatCents(bestCat.prevTotal)} · This month so far: ${formatCents(bestCat.thisTotal)}. Great progress — keep it up.`,
+          }),
           severity: "success",
           dismissKey: `most_improved_${thisMonth}`,
           richData: {
@@ -1059,7 +1148,16 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         id: `net_worth_growing_${thisMonth}`,
         type: "net_worth_growing",
         title: `Net worth grew by ${formatCents(netWorthDelta)} this month`,
-        description: `Your net worth (liquid cash + investments − debt) went from ${formatCents(priorNetWorth.netWorthCents)} to ${formatCents(nowNetWorth.netWorthCents)}.`,
+        description: composeInsightText({
+          type: "net_worth_growing",
+          currentValue: nowNetWorth.netWorthCents,
+          currentLabel: formatCents(nowNetWorth.netWorthCents),
+          previousValue: priorNetWorth.netWorthCents,
+          previousLabel: formatCents(priorNetWorth.netWorthCents),
+          higherIsBetter: true,
+          variantSeed: `${profileId}:net_worth_growing:${thisMonth}`,
+          fallback: `Your net worth (liquid cash + investments − debt) went from ${formatCents(priorNetWorth.netWorthCents)} to ${formatCents(nowNetWorth.netWorthCents)}.`,
+        }),
         severity: "success",
         dismissKey: `net_worth_growing_${thisMonth}`,
       });
@@ -1068,7 +1166,16 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         id: `net_worth_declining_${thisMonth}`,
         type: "net_worth_declining",
         title: `Net worth dropped by ${formatCents(Math.abs(netWorthDelta))} this month`,
-        description: `Your net worth (liquid cash + investments − debt) went from ${formatCents(priorNetWorth.netWorthCents)} to ${formatCents(nowNetWorth.netWorthCents)}.`,
+        description: composeInsightText({
+          type: "net_worth_declining",
+          currentValue: nowNetWorth.netWorthCents,
+          currentLabel: formatCents(nowNetWorth.netWorthCents),
+          previousValue: priorNetWorth.netWorthCents,
+          previousLabel: formatCents(priorNetWorth.netWorthCents),
+          higherIsBetter: true,
+          variantSeed: `${profileId}:net_worth_declining:${thisMonth}`,
+          fallback: `Your net worth (liquid cash + investments − debt) went from ${formatCents(priorNetWorth.netWorthCents)} to ${formatCents(nowNetWorth.netWorthCents)}.`,
+        }),
         severity: "warning",
         dismissKey: `net_worth_declining_${thisMonth}`,
       });
@@ -1473,20 +1580,22 @@ function effectiveMinPaymentCents(balanceCents: number, minimumPaymentCents: num
 
 interface SimDebt { id: number; balance: number; monthlyRate: number; minPayment: number; }
 
-/** Month-by-month avalanche simulation (highest rate first, freed-up minimums roll into the
- *  next-priority debt once a debt hits $0 - the standard debt "snowball rolling" behavior).
- *  Returns null months if minimum payments (plus any extra) never fully pay off every debt
- *  within 50 years - i.e. the payment doesn't outpace interest at that rate. */
-function simulateDebtPayoff(debts: SimDebt[], extraMonthlyCents: number): {
+/** Month-by-month avalanche/snowball simulation - freed-up minimums roll into the next
+ *  priority debt once a debt hits $0 (the standard debt "snowball rolling" behavior), for
+ *  whichever `priorityOrder` (list of debt ids) the caller supplies. Returns null months if
+ *  minimum payments (plus any extra) never fully pay off every debt within 50 years - i.e. the
+ *  payment doesn't outpace interest at that rate. Also returns the month each individual debt
+ *  hit $0 (`payoffMonthByDebtId`), used for the payoff timeline visualization. */
+function simulateDebtPayoff(debts: SimDebt[], extraMonthlyCents: number, priorityOrder: number[]): {
   months: number | null;
   totalInterestCents: number;
   totalPaidCents: number;
+  payoffMonthByDebtId: Record<number, number | null>;
 } {
   const MAX_MONTHS = 600; // 50-year safety cap
   const working = debts.map((d) => ({ ...d }));
-  const priorityOrder = [...working]
-    .sort((a, b) => b.monthlyRate - a.monthlyRate || a.balance - b.balance)
-    .map((d) => d.id);
+  const payoffMonthByDebtId: Record<number, number | null> = {};
+  for (const d of working) payoffMonthByDebtId[d.id] = d.balance <= 0 ? 0 : null;
 
   let totalInterest = 0;
   let totalPaid = 0;
@@ -1518,6 +1627,9 @@ function simulateDebtPayoff(debts: SimDebt[], extraMonthlyCents: number): {
       totalPaid += pay;
       pool -= pay;
     }
+    for (const d of working) {
+      if (d.balance <= 0 && payoffMonthByDebtId[d.id] === null) payoffMonthByDebtId[d.id] = months;
+    }
   }
 
   const solved = working.every((d) => d.balance <= 0);
@@ -1525,6 +1637,7 @@ function simulateDebtPayoff(debts: SimDebt[], extraMonthlyCents: number): {
     months: solved ? months : null,
     totalInterestCents: Math.round(totalInterest),
     totalPaidCents: Math.round(totalPaid),
+    payoffMonthByDebtId,
   };
 }
 
@@ -1533,6 +1646,40 @@ function payoffDateFromMonths(months: number | null): string | null {
   const d = new Date();
   d.setMonth(d.getMonth() + months);
   return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+}
+
+/** Runs one payoff scenario for an arbitrary extra monthly payment amount (e.g. from the Debt
+ *  Payoff modal's live slider + category toggles) - pure and synchronous, so the UI can call
+ *  this on every interaction with no debounce/DB round-trip needed. `strategy` picks which debt
+ *  gets extra payments first: "avalanche" (highest interest rate - saves the most money) or
+ *  "snowball" (smallest balance - closes an account soonest, for the Debt Payoff modal's
+ *  "quick win" comparison). */
+export function simulateCustomDebtPayoff(
+  simDebts: DebtPayoffSimDebt[],
+  extraMonthlyCents: number,
+  strategy: "avalanche" | "snowball" = "avalanche"
+): DebtPayoffCustomResult {
+  const working: SimDebt[] = simDebts.map((d) => ({
+    id: d.id,
+    balance: d.balanceCents,
+    monthlyRate: d.monthlyRate,
+    minPayment: d.minPaymentCents,
+  }));
+  const priorityOrder = strategy === "snowball"
+    ? [...working].sort((a, b) => a.balance - b.balance || b.monthlyRate - a.monthlyRate).map((d) => d.id)
+    : [...working].sort((a, b) => b.monthlyRate - a.monthlyRate || a.balance - b.balance).map((d) => d.id);
+
+  const { months, totalInterestCents, totalPaidCents, payoffMonthByDebtId } =
+    simulateDebtPayoff(working, extraMonthlyCents, priorityOrder);
+
+  return {
+    extraMonthlyCents,
+    monthsToPayoff: months,
+    payoffDate: payoffDateFromMonths(months),
+    totalInterestCents,
+    totalPaidCents,
+    perDebtMonths: simDebts.map((d) => ({ id: d.id, monthsToPayoff: payoffMonthByDebtId[d.id] ?? null })),
+  };
 }
 
 /** Builds the three-scenario debt payoff plan (minimum / balanced / aggressive) for a given
@@ -1602,26 +1749,13 @@ export async function computeDebtPayoffPlan(profileIds: number[], debts: DebtPay
   }));
   const discretionaryTotalCents = discretionaryBreakdown.reduce((s, c) => s + c.avgMonthlyCents, 0);
 
-  const scenarioDefs: { key: DebtPayoffScenario["key"]; label: string; pct: number }[] = [
-    { key: "minimum",    label: "Stay the Course",  pct: 0 },
-    { key: "balanced",   label: "Balanced Cushion", pct: 0.5 },
-    { key: "aggressive", label: "Most Aggressive",  pct: 1 },
-  ];
-
-  const scenarios: DebtPayoffScenario[] = scenarioDefs.map(({ key, label, pct }) => {
-    const extraMonthlyCents = Math.round(discretionaryTotalCents * pct);
-    const { months, totalInterestCents, totalPaidCents } = simulateDebtPayoff(simDebts, extraMonthlyCents);
-    return {
-      key,
-      label,
-      extraMonthlyCents,
-      monthsToPayoff: months,
-      payoffDate: payoffDateFromMonths(months),
-      totalInterestCents,
-      totalPaidCents,
-      cushionCents: discretionaryTotalCents - extraMonthlyCents,
-    };
-  });
+  const simDebtsPublic: DebtPayoffSimDebt[] = simDebts.map((d) => ({
+    id: d.id,
+    balanceCents: d.balance,
+    monthlyRate: d.monthlyRate,
+    minPaymentCents: d.minPayment,
+  }));
+  const baseline = simulateCustomDebtPayoff(simDebtsPublic, 0, "avalanche");
 
   return {
     totalDebtCents,
@@ -1631,7 +1765,8 @@ export async function computeDebtPayoffPlan(profileIds: number[], debts: DebtPay
     discretionaryBreakdown,
     discretionaryTotalCents,
     monthsOfHistory,
-    scenarios,
+    simDebts: simDebtsPublic,
+    baseline,
   };
 }
 

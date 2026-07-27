@@ -517,8 +517,10 @@ const DEBT_TIPS: Record<"avalanche" | "snowball" | "cashflow", string> = {
 type LoanRankMethod = "avalanche" | "snowball" | "cashflow";
 
 /** A loan or credit card, tagged so the Debt Dashboard can rank both together while still
- *  showing which is which. */
-type DebtEntry = LoanAccount & { trendCents: number | null; debtKind: "loan" | "credit" };
+ *  showing which is which. `firstKnownBalanceCents` is the earliest balance on record (from the
+ *  same balance-history series `trendCents` is derived from) - lets the Debt Payoff modal show
+ *  "X% paid off since you started tracking this" without a separate DB round-trip. */
+type DebtEntry = LoanAccount & { trendCents: number | null; firstKnownBalanceCents: number | null; debtKind: "loan" | "credit" };
 
 interface RankedLoan extends DebtEntry {
   rankable: boolean;
@@ -934,13 +936,14 @@ export default function AgentPage() {
       const debtsWithTrend = allDebts.map((l, i) => {
         const series = debtTrends[i];
         const trendCents = series.length > 1 ? Math.round((series[series.length - 1].value - series[0].value) * 100) : null;
-        return { ...l, trendCents };
+        const firstKnownBalanceCents = series.length > 0 ? Math.round(series[0].value * 100) : null;
+        return { ...l, trendCents, firstKnownBalanceCents };
       });
       setLoans(debtsWithTrend);
 
       const newMilestones = detectNewMilestones(profileId, {
         netWorthCents: nw.netWorthCents,
-        debts: debtsWithTrend.map((d) => ({ id: d.id, name: d.name, balanceCents: d.balance_cents })),
+        debts: debtsWithTrend.map((d) => ({ id: d.id, name: d.name, balanceCents: d.balance_cents, firstKnownBalanceCents: d.firstKnownBalanceCents })),
       });
       if (newMilestones.length > 0) {
         setMilestoneQueue((q) => [...q, ...newMilestones.map((m) => m.message)]);

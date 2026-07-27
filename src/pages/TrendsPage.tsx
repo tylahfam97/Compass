@@ -5,8 +5,10 @@ import {
   ResponsiveContainer, Legend, LineChart, Line, ReferenceLine,
 } from "recharts";
 import { motion, AnimatePresence } from "motion/react";
+import { TrendingUp, TrendingDown } from "lucide-react";
 import { getDb } from "@/lib/db";
 import { formatCurrency, formatMonthLabel, formatAxisCurrency, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
+import { pickVariantIndex } from "@/lib/voice";
 import { useProfileStore } from "@/stores/profileStore";
 import type { Profile } from "@/lib/types";
 import PinModal from "@/components/PinModal";
@@ -76,6 +78,37 @@ export default function TrendsPage() {
     else { setPinQueueIdx(next); }
   };
   const pinTarget = pinQueue.length > 0 && pinQueueIdx < pinQueue.length ? pinQueue[pinQueueIdx] : null;
+
+  /** "Companion voice" callout: the biggest single-category $ swing between the two most
+   *  recent months in `stacked` - otherwise Trends is pure charts/numbers with no narrative
+   *  framing at all (small/noisy categories under $30 last month are ignored, and the swing
+   *  itself must be at least $30 to be worth mentioning). */
+  const categoryTrendNarrative = useMemo(() => {
+    if (stacked.length < 2 || catNames.length === 0) return null;
+    const last = stacked[stacked.length - 1];
+    const prev = stacked[stacked.length - 2];
+    let best: { cat: string; delta: number; prevTotal: number; curTotal: number } | null = null;
+    for (const cat of catNames) {
+      const curTotal = Number(last[cat] ?? 0);
+      const prevTotal = Number(prev[cat] ?? 0);
+      if (prevTotal < 3000) continue;
+      const delta = curTotal - prevTotal;
+      if (!best || Math.abs(delta) > Math.abs(best.delta)) best = { cat, delta, prevTotal, curTotal };
+    }
+    if (!best || Math.abs(best.delta) < 3000) return null;
+    const rising = best.delta > 0;
+    const seedKey = `${best.cat}:${last.month}`;
+    const variants = rising
+      ? [
+          `${best.cat} jumped to ${formatCurrency(best.curTotal)} this month, up from ${formatCurrency(best.prevTotal)} - worth a look if that wasn't planned.`,
+          `Biggest mover: ${best.cat}, up ${formatCurrency(best.delta)} from last month.`,
+        ]
+      : [
+          `${best.cat} dropped to ${formatCurrency(best.curTotal)} this month, down from ${formatCurrency(best.prevTotal)} - nice pullback.`,
+          `Biggest mover: ${best.cat}, down ${formatCurrency(Math.abs(best.delta))} from last month.`,
+        ];
+    return { text: variants[pickVariantIndex(seedKey, variants.length)], rising };
+  }, [stacked, catNames]);
 
   const ids = viewMode === "global" ? (unlockedProfileIds.length > 0 ? unlockedProfileIds : [profileId]) : [profileId];
   const ph = ids.map(() => "?").join(",");
@@ -302,6 +335,23 @@ export default function TrendsPage() {
 
         {!loading && hasData && (
           <>
+            {categoryTrendNarrative && (
+              <div
+                className={`flex items-start gap-2.5 rounded-xl px-4 py-3 text-sm ${
+                  categoryTrendNarrative.rising
+                    ? "bg-gradient-to-br from-amber-50 to-amber-50/30 dark:from-amber-950/30 dark:to-amber-950/10"
+                    : "bg-gradient-to-br from-emerald-50/80 to-emerald-50/20 dark:from-emerald-950/25 dark:to-emerald-950/10"
+                }`}
+              >
+                {categoryTrendNarrative.rising
+                  ? <TrendingUp size={15} className="shrink-0 mt-0.5 text-amber-500" />
+                  : <TrendingDown size={15} className="shrink-0 mt-0.5 text-emerald-600" />}
+                <p className={categoryTrendNarrative.rising ? "text-amber-900 dark:text-amber-100" : "text-emerald-900 dark:text-emerald-100"}>
+                  {categoryTrendNarrative.text}
+                </p>
+              </div>
+            )}
+
             {/* Cumulative net */}
             {cumulativeData.length >= 2 && (
               <div className="border rounded-xl p-5">

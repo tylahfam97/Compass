@@ -1,17 +1,22 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { motion } from "motion/react";
-import { X, Flame, Shield, Clock, Scissors, Info, type LucideIcon } from "lucide-react";
-import { computeDebtPayoffPlan } from "@/lib/agent";
-import type { DebtPayoffPlan, DebtPayoffScenario } from "@/lib/types";
+import { X, Scissors, Info, CheckCircle2, Circle, Sparkles, TrendingDown, SlidersHorizontal } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { computeDebtPayoffPlan, simulateCustomDebtPayoff } from "@/lib/agent";
+import type { DebtPayoffPlan } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import InfoTooltip from "./InfoTooltip";
 
 interface DebtInput {
   id: number;
+  name: string;
   balance_cents: number | null;
   interest_rate_bps: number | null;
   minimum_payment_cents: number | null;
+  /** Earliest balance on record for this account (from its balance-history series) - lets the
+   *  modal show "X% paid off since you started tracking this" with no extra DB round-trip. */
+  firstKnownBalanceCents?: number | null;
 }
 
 interface DebtPayoffModalProps {
@@ -31,29 +36,106 @@ function monthsLabel(months: number | null): string {
   return `${years} yr ${rem} mo`;
 }
 
-const SCENARIO_ICON: Record<DebtPayoffScenario["key"], LucideIcon> = {
-  minimum: Shield,
-  balanced: Clock,
-  aggressive: Flame,
-};
-const SCENARIO_DESC: Record<DebtPayoffScenario["key"], string> = {
-  minimum: "Keep your budget exactly as-is - pay only the minimums, nothing extra.",
-  balanced: "Redirect about half of your discretionary spending toward debt, keeping the other half as breathing room.",
-  aggressive: "Redirect all identified discretionary spending toward debt for the fastest, cheapest payoff.",
-};
+/** Minimum interest cost gap (in cents) below which we still consider a "quick win" (snowball
+ *  closing an account sooner) worth surfacing - either a flat $300 or 10% of the current
+ *  scenario's total interest, whichever is larger, so the threshold scales with bigger debts. */
+function isModestExtraCost(extraInterestCents: number, baseInterestCents: number): boolean {
+  return extraInterestCents <= Math.max(30_000, baseInterestCents * 0.1);
+}
 
 export default function DebtPayoffModal({ profileIds, debts, title, subtitle, onClose }: DebtPayoffModalProps) {
   const { onBackdropClick } = useModalDismiss(onClose);
   const [plan, setPlan] = useState<DebtPayoffPlan | null>(null);
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<Set<number> | null>(null);
+  const [redirectPct, setRedirectPct] = useState(50);
 
   useEffect(() => {
     let cancelled = false;
-    computeDebtPayoffPlan(profileIds, debts).then((p) => { if (!cancelled) setPlan(p); });
+    computeDebtPayoffPlan(profileIds, debts).then((p) => {
+      if (cancelled) return;
+      setPlan(p);
+      setSelectedCategoryIds(new Set(p.discretionaryBreakdown.map((c) => c.categoryId)));
+    });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const baseline = plan?.scenarios.find((s) => s.key === "minimum") ?? null;
+  const debtNamesById = useMemo(() => new Map(debts.map((d) => [d.id, d.name])), [debts]);
+
+  const selectedTotalCents = useMemo(() => {
+    if (!plan || !selectedCategoryIds) return 0;
+    return plan.discretionaryBreakdown
+      .filter((c) => selectedCategoryIds.has(c.categoryId))
+      .reduce((s, c) => s + c.avgMonthlyCents, 0);
+  }, [plan, selectedCategoryIds]);
+
+  const extraMonthlyCents = Math.round((selectedTotalCents * redirectPct) / 100);
+
+  const customResult = useMemo(
+    () => (plan ? simulateCustomDebtPayoff(plan.simDebts, extraMonthlyCents, "avalanche") : null),
+    [plan, extraMonthlyCents]
+  );
+  const snowballResult = useMemo(
+    () => (plan && plan.simDebts.length > 1 ? simulateCustomDebtPayoff(plan.simDebts, extraMonthlyCents, "snowball") : null),
+    [plan, extraMonthlyCents]
+  );
+
+  function toggleCategory(categoryId: number) {
+    setSelectedCategoryIds((prev) => {
+      const next = new Set(prev ?? []);
+      if (next.has(categoryId)) next.delete(categoryId); else next.add(categoryId);
+      return next;
+    });
+  }
+
+  // "Progress since you started tracking" - only shown for debts where we actually know an
+  // earlier balance and it's genuinely gone down (a debt that grew has nothing to celebrate).
+  const debtProgress = debts
+    .map((d) => {
+      if (d.firstKnownBalanceCents == null || d.firstKnownBalanceCents === 0 || d.balance_cents == null) return null;
+      const startAbs = Math.abs(d.firstKnownBalanceCents);
+      const currentAbs = Math.abs(d.balance_cents);
+      const pct = Math.round(((startAbs - currentAbs) / startAbs) * 100);
+      return pct > 0 ? { id: d.id, name: d.name, pct } : null;
+    })
+    .filter((x): x is { id: number; name: string; pct: number } => x !== null);
+
+  // Quick-win framing: does redirecting the same dollar amount, smallest-balance-first
+  // (snowball) instead of highest-rate-first (avalanche), close an account meaningfully sooner
+  // for only a modest extra interest cost?
+  const quickWin = useMemo(() => {
+    if (!customResult || !snowballResult) return null;
+    const avalancheFirst = Math.min(...customResult.perDebtMonths.map((p) => p.monthsToPayoff ?? Infinity));
+    const snowballFirstEntry = snowballResult.perDebtMonths.reduce<{ id: number; months: number } | null>((best, p) => {
+      if (p.monthsToPayoff == null) return best;
+      return !best || p.monthsToPayoff < best.months ? { id: p.id, months: p.monthsToPayoff } : best;
+    }, null);
+    if (!snowballFirstEntry || !Number.isFinite(avalancheFirst)) return null;
+    const monthsSooner = avalancheFirst - snowballFirstEntry.months;
+    const extraInterestCents = snowballResult.totalInterestCents - customResult.totalInterestCents;
+    if (monthsSooner <= 0 || extraInterestCents < 0) return null;
+    if (!isModestExtraCost(extraInterestCents, customResult.totalInterestCents)) return null;
+    const name = debtNamesById.get(snowballFirstEntry.id);
+    if (!name) return null;
+    return { name, monthsSooner, extraInterestCents };
+  }, [customResult, snowballResult, debtNamesById]);
+
+  const timelineData = useMemo(() => {
+    if (!customResult) return [];
+    return customResult.perDebtMonths
+      .filter((p) => p.monthsToPayoff != null)
+      .map((p) => ({ name: debtNamesById.get(p.id) ?? "Debt", months: p.monthsToPayoff as number }))
+      .sort((a, b) => a.months - b.months);
+  }, [customResult, debtNamesById]);
+  const unresolvedDebtNames = useMemo(() => {
+    if (!customResult) return [];
+    return customResult.perDebtMonths.filter((p) => p.monthsToPayoff == null).map((p) => debtNamesById.get(p.id) ?? "Debt");
+  }, [customResult, debtNamesById]);
+
+  const monthsSavedVsBaseline = plan && customResult && plan.baseline.monthsToPayoff != null && customResult.monthsToPayoff != null
+    ? plan.baseline.monthsToPayoff - customResult.monthsToPayoff : 0;
+  const interestSavedVsBaseline = plan && customResult ? plan.baseline.totalInterestCents - customResult.totalInterestCents : 0;
+  const cushionCents = plan ? plan.discretionaryTotalCents - extraMonthlyCents : 0;
 
   return (
     <motion.div
@@ -76,7 +158,7 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
           </button>
         </div>
 
-        {!plan ? (
+        {!plan || !customResult ? (
           <div className="py-16 text-center text-sm text-[hsl(var(--muted-foreground))]">Crunching the numbers…</div>
         ) : (
           <div className="space-y-5 mt-4">
@@ -104,92 +186,144 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
               </p>
             )}
 
-            {/* What can be cut */}
+            {/* Progress since you started tracking */}
+            {debtProgress.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {debtProgress.map((d) => (
+                  <span
+                    key={d.id}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success))]"
+                  >
+                    <TrendingDown size={12} />
+                    {d.pct}% paid off on {d.name} since you started tracking it
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* What can be cut - now interactive: toggle categories in/out of the redirect */}
             <div>
               <h3 className="text-xs font-semibold uppercase tracking-wide text-[hsl(var(--muted-foreground))] mb-2 flex items-center gap-1.5">
                 <Scissors size={13} /> What Can Be Cut
-                <InfoTooltip text="Average monthly spend over your recent history in categories that are typically discretionary - entertainment, shopping, subscriptions, personal care, gifts, gambling, and travel. Only counts spending from checking/savings accounts (real cash on hand) - purchases already made on a credit card or loan aren't available to redirect, since that balance is already part of the debt you're paying off. Essentials like housing, groceries, and bills aren't included either." />
+                <InfoTooltip text="Average monthly spend over your recent history in categories that are typically discretionary - entertainment, shopping, subscriptions, personal care, gifts, gambling, and travel. Only counts spending from checking/savings accounts (real cash on hand) - purchases already made on a credit card or loan aren't available to redirect, since that balance is already part of the debt you're paying off. Essentials like housing, groceries, and bills aren't included either. Tap a category to include or exclude it from what you redirect below." />
               </h3>
               {plan.discretionaryBreakdown.length === 0 ? (
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                  No discretionary spending detected yet in your recent history - the Balanced and Aggressive plans below will
-                  look the same as Stay the Course until there's more data, or you free up cash some other way.
+                  No discretionary spending detected yet in your recent history - the slider below won't have much to work
+                  with until there's more data, or you free up cash some other way.
                 </p>
               ) : (
                 <div className="space-y-1.5">
-                  {plan.discretionaryBreakdown.map((c) => (
-                    <div key={c.categoryId} className="flex items-center gap-2 text-sm">
-                      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
-                      <span className="flex-1 truncate">{c.name}</span>
-                      <span className="font-medium">{formatCurrency(c.avgMonthlyCents)}/mo</span>
-                    </div>
-                  ))}
+                  {plan.discretionaryBreakdown.map((c) => {
+                    const selected = selectedCategoryIds?.has(c.categoryId) ?? false;
+                    return (
+                      <button
+                        key={c.categoryId}
+                        onClick={() => toggleCategory(c.categoryId)}
+                        className={`w-full flex items-center gap-2 text-sm rounded-lg px-1.5 py-1 -mx-1.5 transition-colors ${selected ? "" : "opacity-45"} hover:bg-[hsl(var(--muted))]`}
+                      >
+                        {selected ? <CheckCircle2 size={14} className="text-[hsl(var(--primary))] shrink-0" /> : <Circle size={14} className="text-[hsl(var(--muted-foreground))] shrink-0" />}
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
+                        <span className="flex-1 truncate text-left">{c.name}</span>
+                        <span className="font-medium">{formatCurrency(c.avgMonthlyCents)}/mo</span>
+                      </button>
+                    );
+                  })}
                   <div className="flex items-center gap-2 text-sm pt-1.5 border-t font-semibold">
-                    <span className="flex-1">Total available to redirect</span>
-                    <span>{formatCurrency(plan.discretionaryTotalCents)}/mo</span>
+                    <span className="flex-1">Selected - available to redirect</span>
+                    <span>{formatCurrency(selectedTotalCents)}/mo</span>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Scenarios */}
-            <div>
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-[hsl(var(--muted-foreground))] mb-2 flex items-center gap-1.5">
-                <Clock size={13} /> Your Payoff Options
+            {/* Live redirect slider */}
+            <div className="border rounded-xl p-4 space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-[hsl(var(--muted-foreground))] flex items-center gap-1.5">
+                <SlidersHorizontal size={13} /> Redirect Toward Debt
               </h3>
-              <div className="grid sm:grid-cols-3 gap-3">
-                {plan.scenarios.map((s) => {
-                  const Icon = SCENARIO_ICON[s.key];
-                  const interestSaved = baseline && s.key !== "minimum" ? baseline.totalInterestCents - s.totalInterestCents : 0;
-                  const timeSaved = baseline && s.key !== "minimum" && baseline.monthsToPayoff != null && s.monthsToPayoff != null
-                    ? baseline.monthsToPayoff - s.monthsToPayoff : 0;
-                  return (
-                    <div
-                      key={s.key}
-                      className={`border rounded-xl p-4 flex flex-col gap-2 ${
-                        s.key === "aggressive" ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.04)]" : ""
-                      }`}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <Icon size={15} className={s.key === "aggressive" ? "text-[hsl(var(--primary))]" : "text-[hsl(var(--muted-foreground))]"} />
-                        <span className="text-sm font-semibold">{s.label}</span>
-                      </div>
-                      <p className="text-[11px] text-[hsl(var(--muted-foreground))] leading-snug">{SCENARIO_DESC[s.key]}</p>
-                      <div className="mt-1">
-                        <p className="text-2xl font-black tabular-nums">{monthsLabel(s.monthsToPayoff)}</p>
-                        <p className="text-[11px] text-[hsl(var(--muted-foreground))]">
-                          {s.payoffDate ? `Debt-free by ${s.payoffDate}` : "at current minimums"}
-                        </p>
-                      </div>
-                      <div className="text-xs space-y-1 pt-2 border-t mt-1">
-                        <div className="flex justify-between">
-                          <span className="text-[hsl(var(--muted-foreground))]">Extra/mo</span>
-                          <span className="font-medium">{formatCurrency(s.extraMonthlyCents)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-[hsl(var(--muted-foreground))]">Cushion kept/mo</span>
-                          <span className="font-medium">{formatCurrency(s.cushionCents)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-[hsl(var(--muted-foreground))]">Total interest</span>
-                          <span className="font-medium">{formatCurrency(s.totalInterestCents)}</span>
-                        </div>
-                        {s.key !== "minimum" && baseline && (timeSaved > 0 || interestSaved > 0) && (
-                          <div className="flex justify-between text-[hsl(var(--success))]">
-                            <span>vs. Stay the Course</span>
-                            <span className="font-medium text-right">
-                              {timeSaved > 0 ? `${monthsLabel(timeSaved)} faster` : ""}
-                              {timeSaved > 0 && interestSaved > 0 ? " · " : ""}
-                              {interestSaved > 0 ? `${formatCurrency(interestSaved)} saved` : ""}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+              <div className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={redirectPct}
+                  onChange={(e) => setRedirectPct(Number(e.target.value))}
+                  disabled={selectedTotalCents === 0}
+                  className="flex-1 accent-[hsl(var(--primary))] disabled:opacity-40"
+                />
+                <span className="text-sm font-bold tabular-nums w-12 text-right">{redirectPct}%</span>
               </div>
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                Redirecting <span className="font-semibold text-[hsl(var(--foreground))]">{formatCurrency(extraMonthlyCents)}/mo</span> on
+                top of minimum payments, keeping <span className="font-semibold text-[hsl(var(--foreground))]">{formatCurrency(cushionCents)}/mo</span> as
+                breathing room.
+              </p>
+
+              <div className="grid grid-cols-2 gap-3 pt-2 border-t">
+                <div>
+                  <p className="text-2xl font-black tabular-nums">{monthsLabel(customResult.monthsToPayoff)}</p>
+                  <p className="text-[11px] text-[hsl(var(--muted-foreground))]">
+                    {customResult.payoffDate ? `Debt-free by ${customResult.payoffDate}` : "at this pace"}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-black tabular-nums">{formatCurrency(customResult.totalInterestCents)}</p>
+                  <p className="text-[11px] text-[hsl(var(--muted-foreground))]">Total interest paid</p>
+                </div>
+              </div>
+
+              {(monthsSavedVsBaseline > 0 || interestSavedVsBaseline > 0) && (
+                <div className="flex justify-between text-xs text-[hsl(var(--success))] pt-2 border-t">
+                  <span>vs. Stay the Course ({monthsLabel(plan.baseline.monthsToPayoff)}, {formatCurrency(plan.baseline.totalInterestCents)} interest)</span>
+                  <span className="font-medium text-right">
+                    {monthsSavedVsBaseline > 0 ? `${monthsLabel(monthsSavedVsBaseline)} faster` : ""}
+                    {monthsSavedVsBaseline > 0 && interestSavedVsBaseline > 0 ? " · " : ""}
+                    {interestSavedVsBaseline > 0 ? `${formatCurrency(interestSavedVsBaseline)} saved` : ""}
+                  </span>
+                </div>
+              )}
             </div>
+
+            {/* Quick-win framing */}
+            {quickWin && (
+              <div className="flex items-start gap-2 text-xs rounded-xl px-3 py-2.5 bg-[hsl(var(--primary)/0.06)] border border-[hsl(var(--primary)/0.25)]">
+                <Sparkles size={14} className="shrink-0 mt-0.5 text-[hsl(var(--primary))]" />
+                <p>
+                  Paying off <span className="font-semibold">{quickWin.name}</span> first only costs{" "}
+                  {quickWin.extraInterestCents > 0 ? `${formatCurrency(quickWin.extraInterestCents)} more` : "about the same"} in interest,
+                  but closes an account <span className="font-semibold">{monthsLabel(quickWin.monthsSooner)} sooner</span> - worth it for
+                  the motivation if the math alone isn't the deciding factor.
+                </p>
+              </div>
+            )}
+
+            {/* Payoff timeline */}
+            {plan.simDebts.length > 1 && timelineData.length > 0 && (
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-[hsl(var(--muted-foreground))] mb-2">
+                  Payoff Timeline
+                </h3>
+                <ResponsiveContainer width="100%" height={Math.max(60, timelineData.length * 34)}>
+                  <BarChart data={timelineData} layout="vertical" margin={{ left: 8, right: 32, top: 4, bottom: 4 }}>
+                    <XAxis type="number" hide />
+                    <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <Tooltip formatter={(v) => [monthsLabel(typeof v === "number" ? v : null), "Payoff time"]} labelFormatter={() => ""} />
+                    <Bar dataKey="months" radius={[0, 4, 4, 0]}>
+                      {timelineData.map((d) => (
+                        <Cell key={d.name} fill="#6366f1" />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                {unresolvedDebtNames.length > 0 && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+                    {unresolvedDebtNames.join(", ")} won't pay off at this pace - increase the redirect above.
+                  </p>
+                )}
+              </div>
+            )}
 
             <p className="text-[11px] text-[hsl(var(--muted-foreground))] flex items-start gap-1.5">
               <Info size={11} className="shrink-0 mt-0.5" />
@@ -203,3 +337,4 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
     </motion.div>
   );
 }
+

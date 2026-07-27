@@ -7,6 +7,56 @@
 # sign-windows.ps1's own self-report) and prints a result that's impossible to miss: a console
 # annotation (shows as a banner in the Actions UI) AND a GitHub Step Summary entry (shows at
 # the top of the run page, not buried in raw logs). Purely informational - never fails the build.
+#
+# NOTE: emoji are built from explicit Unicode code points ([char]0x....) rather than embedded as
+# literal glyphs in this file. This step runs under `shell: powershell` (Windows PowerShell 5.1,
+# see build.yml), which parses .ps1 source using the system's default ANSI codepage unless the
+# file carries a UTF-8 BOM - literal emoji glyphs get silently corrupted into mojibake (e.g.
+# "âš ï¸") when re-saved without a BOM. Building the glyph at runtime from its code point sidesteps
+# source-encoding entirely and can't regress no matter how this file gets saved/edited later.
+$checkMark = [char]0x2705
+$warnMark  = [string]([char]0x26A0) + [string]([char]0xFE0F)
+
+# Parses compass-sign-status.txt (written line-by-line by sign-windows.ps1 as `signed|<path>` or
+# `unsigned|<path>|exit_<code>`) into a short grouped summary instead of dumping one line per file -
+# an NSIS bundle signs a dozen+ plugin DLLs individually, and listing all of them when they all
+# share the same root cause (e.g. "exit_1") is noisy and not actionable.
+function Format-SigningLog {
+    param([string]$Path)
+
+    if (-not (Test-Path $Path)) {
+        return "(signing was not attempted - not fully configured for this run)"
+    }
+    $lines = Get-Content $Path | Where-Object { $_ -match '\S' }
+    if (-not $lines) {
+        return "(signing was not attempted - not fully configured for this run)"
+    }
+
+    $entries = $lines | ForEach-Object {
+        $parts = $_ -split '\|'
+        [pscustomobject]@{
+            Status   = $parts[0]
+            ExitCode = if ($parts.Count -gt 2) { $parts[2] -replace '^exit_', '' } else { $null }
+            Name     = Split-Path $parts[1] -Leaf
+        }
+    }
+
+    $summaryLines = foreach ($group in ($entries | Group-Object Status, ExitCode)) {
+        $sample = $group.Group[0]
+        $label = if ($sample.Status -eq 'signed') { "$checkMark signed" } else { "$warnMark unsigned (exit code $($sample.ExitCode))" }
+        # Wrapped in @(...) - Windows PowerShell 5.1 collapses a single-item Where-Object result to
+        # a scalar (no .Count property), which would silently break the "+N supporting files" count
+        # whenever a group has exactly one non-installer file.
+        $primary = @($group.Group | Where-Object { $_.Name -match '\.(exe|msi)$' })
+        $rest    = @($group.Group | Where-Object { $_.Name -notmatch '\.(exe|msi)$' })
+        $names = @($primary | ForEach-Object { $_.Name })
+        if ($rest.Count -gt 0) {
+            $names += "+$($rest.Count) supporting file$(if ($rest.Count -ne 1) { 's' }) (WiX/NSIS plugin DLLs, same cause)"
+        }
+        "- $label`: $($names -join ', ')"
+    }
+    return ($summaryLines -join "`n")
+}
 
 $exe = Get-ChildItem src-tauri\target\release\bundle\nsis\*.exe -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $exe) {
@@ -15,15 +65,15 @@ if (-not $exe) {
 }
 
 $statusFile = Join-Path $env:RUNNER_TEMP "compass-sign-status.txt"
-$attempted  = if (Test-Path $statusFile) { Get-Content $statusFile -Raw } else { "(signing was not attempted - not fully configured for this run)" }
+$attempted  = Format-SigningLog -Path $statusFile
 
 $sig = Get-AuthenticodeSignature -FilePath $exe.FullName
 if ($sig.Status -eq "Valid") {
     Write-Host "::notice title=Windows build is SIGNED::$($exe.Name) is Authenticode-signed by: $($sig.SignerCertificate.Subject)"
-    "## ✅ Windows build is SIGNED`n`n**File:** $($exe.Name)`n**Signer:** $($sig.SignerCertificate.Subject)" |
+    "## $checkMark Windows build is SIGNED`n`n**File:** $($exe.Name)`n**Signer:** $($sig.SignerCertificate.Subject)" |
         Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
 } else {
     Write-Warning "UNSIGNED - $($exe.Name) - Get-AuthenticodeSignature status: $($sig.Status) ($($sig.StatusMessage))"
-    "## ⚠️ Windows build is UNSIGNED`n`n**File:** $($exe.Name)`n**Signature status:** $($sig.Status) - $($sig.StatusMessage)`n**Signing attempt log:** $attempted`n`nThe build itself succeeded - this is expected until Azure Trusted Signing is fully active in production, and does not need any action unless it's unexpected." |
+    "## $warnMark Windows build is UNSIGNED`n`n**File:** $($exe.Name)`n**Signature status:** $($sig.Status) - $($sig.StatusMessage)`n**Signing attempt log:**`n$attempted`n`nThe build itself succeeded - this is expected until Azure Trusted Signing is fully active in production, and does not need any action unless it's unexpected." |
         Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
 }
