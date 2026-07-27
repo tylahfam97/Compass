@@ -17,3 +17,9 @@ net $1,040. Every category total now nets debits against credits (excluding cred
 payment credits, which are debt reduction, not refunds, and continue to be tracked separately).
 This affects budget progress, category breakdowns, spending insights (unusual spikes, budget
 suggestions, category creep, most-improved), and reduce-spend goals.
+
+### New: Clickable Cards Now Signal Themselves
+Cards that open more detail on click - Credit Card/Investment Health, debt payoff accounts, and
+Dashboard's Bank/Credit Card/Loan tiles - now glow softly and shimmer to signal they're
+interactive, and show a "Click for more details" hint after a second of hovering.
+
