@@ -958,19 +958,20 @@ export default function AgentPage() {
         detectRecurringCharges(ids),
         db.select<{ category_id: number; category_name: string; category_color: string; total: number }[]>(
           `SELECT t.category_id, c.name as category_name, c.color as category_color,
-                  SUM(ABS(t.amount_cents)) as total
+                  MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)) as total
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-           WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<? AND t.amount_cents<0
+           JOIN accounts a ON a.id=t.account_id
+           WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<?
              AND t.category_id!=15 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
            GROUP BY t.category_id ORDER BY total DESC LIMIT 8`,
           [...ids, ts, te]
         ),
         db.select<{ category_id: number; total: number }[]>(
-          `SELECT category_id, SUM(ABS(amount_cents)) as total
-           FROM transactions
-           WHERE profile_id IN (${ph}) AND date>=? AND date<? AND amount_cents<0
-             AND (category_id IS NULL OR category_id NOT IN (20,29))
-           GROUP BY category_id`,
+          `SELECT t.category_id, MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)) as total
+           FROM transactions t JOIN accounts a ON a.id=t.account_id
+           WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<?
+             AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
+           GROUP BY t.category_id`,
           [...ids, ls, le]
         ),
       ]);
