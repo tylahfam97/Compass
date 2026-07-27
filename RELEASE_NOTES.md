@@ -23,3 +23,11 @@ Cards that open more detail on click - Credit Card/Investment Health, debt payof
 Dashboard's Bank/Credit Card/Loan tiles - now glow softly and shimmer to signal they're
 interactive, and show a "Click for more details" hint after a second of hovering.
 
+### Looking Ahead: We're at the Start of the Push Toward v1.0
+0.9.3 marks the point where Compass is feature-complete enough to start planning a full v1.0
+release rather than more incremental additions. Next up on the roadmap: an automated test suite
+covering the core balance/category math, in-app encrypted backup & restore, user-defined
+recurring transactions (schedule a bill ahead of time, not just detect it after the fact), bulk
+transaction operations, and a dedicated Settings page. See the README's Roadmap section for the
+full list.
+
