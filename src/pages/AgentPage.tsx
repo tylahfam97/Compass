@@ -18,6 +18,7 @@ import {
 import type { Insight, Profile, HealthScore, SecurityType, CreditCardHealthScore, InvestmentHealthScore, RecurringCharge } from "@/lib/types";
 import InsightCarousel from "@/components/InsightCarousel";
 import InfoTooltip from "@/components/InfoTooltip";
+import ClickHint from "@/components/ClickHint";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import SpotlightCard from "@/components/SpotlightCard";
 import PinModal from "@/components/PinModal";
@@ -82,6 +83,7 @@ function MiniScoreCard({
       {onClick && (
         <p className="text-[10px] font-medium mt-2" style={{ color: score.color }}>See your payoff plan →</p>
       )}
+      {onClick && <ClickHint />}
     </div>
   );
 }

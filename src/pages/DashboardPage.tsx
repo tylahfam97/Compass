@@ -20,6 +20,7 @@ import { generateInsights } from "@/lib/agent";
 import InsightCard from "@/components/InsightCard";
 import LoanUploaderModal from "@/components/LoanUploaderModal";
 import InfoTooltip from "@/components/InfoTooltip";
+import ClickHint from "@/components/ClickHint";
 import AccountDetailModal, { type AccountDetailAccount } from "@/components/AccountDetailModal";
 import { Skeleton, CardListSkeleton } from "@/components/Skeleton";
 
@@ -600,6 +601,7 @@ export default function DashboardPage() {
                           </ResponsiveContainer>
                         </div>
                       )}
+                      <ClickHint />
                     </div>
                   );
                 })}
@@ -707,6 +709,7 @@ export default function DashboardPage() {
                           </ResponsiveContainer>
                         </div>
                       )}
+                      <ClickHint />
                     </div>
                   );
                 })}
@@ -807,6 +810,7 @@ export default function DashboardPage() {
                             </ResponsiveContainer>
                           </div>
                         )}
+                        <ClickHint />
                       </div>
                     );
                   })}
