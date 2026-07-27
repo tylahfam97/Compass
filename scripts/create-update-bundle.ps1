@@ -1,0 +1,86 @@
+# Creates the NSIS update bundle (.nsis.zip) and signs it with the Tauri updater key - called
+# from .github/workflows/build.yml (create-compass job, "Create and sign update bundle" step,
+# continue-on-error: true).
+# Env vars required: COMPASS_SIGNING_KEY, COMPASS_SIGNING_PWD (mapped from the
+# TAURI_SIGNING_PRIVATE_KEY / TAURI_SIGNING_PRIVATE_KEY_PASSWORD secrets)
+
+if (-not $env:COMPASS_SIGNING_KEY) { Write-Warning "No signing key - skipping"; exit 0 }
+
+# Skip if Tauri already created the bundle during build
+$existing = Get-ChildItem src-tauri\target\release\bundle\nsis\*.nsis.zip -ErrorAction SilentlyContinue
+if ($existing) { Write-Host "Update bundle already exists, skipping manual creation"; exit 0 }
+
+$nsisExe = Get-ChildItem src-tauri\target\release\bundle\nsis\*.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $nsisExe) { Write-Warning "No NSIS exe found - skipping"; exit 0 }
+
+$zipPath = $nsisExe.FullName -replace '\.exe$', '.nsis.zip'
+
+# Write a raw STORE (method 0) ZIP manually — .NET Framework 4.x always
+# produces Deflate (method 8) even with NoCompression, which the Tauri
+# updater's zip crate (compiled without the deflate feature) can't read.
+$fileBytes = [IO.File]::ReadAllBytes($nsisExe.FullName)
+$nameBytes = [Text.Encoding]::UTF8.GetBytes($nsisExe.Name)
+$fileSize  = [uint32]$fileBytes.Length
+
+# CRC-32 (decimal literals avoid PowerShell 5.1 sign-extension of large hex values)
+$poly     = [long]3988292384   # 0xEDB88320
+$mask32   = [long]4294967295   # 0xFFFFFFFF
+$crcTable = 0..255 | ForEach-Object {
+    $c = [long]$_
+    for ($j = 0; $j -lt 8; $j++) {
+        if ($c -band 1) { $c = $poly -bxor ($c -shr 1) }
+        else             { $c = $c -shr 1 }
+    }
+    $c -band $mask32
+}
+[long]$crc = 4294967295
+foreach ($b in $fileBytes) { $crc = $crcTable[($crc -bxor $b) -band 255] -bxor ($crc -shr 8) }
+[uint32]$crc = ($crc -bxor $mask32) -band $mask32
+
+$ms = [IO.MemoryStream]::new()
+$bw = [IO.BinaryWriter]::new($ms)
+
+# Local file header — method 0x0000 = STORE
+$bw.Write([uint32]0x04034B50); $bw.Write([uint16]20); $bw.Write([uint16]0)
+$bw.Write([uint16]0)                        # compression method: STORE
+$bw.Write([uint16]0); $bw.Write([uint16]0)  # mod time/date
+$bw.Write([uint32]$crc)
+$bw.Write([uint32]$fileSize); $bw.Write([uint32]$fileSize)
+$bw.Write([uint16]$nameBytes.Length); $bw.Write([uint16]0)
+$bw.Write($nameBytes)
+$bw.Write($fileBytes)   # data immediately follows LFH; LFH starts at offset 0
+
+# Central directory entry — offset field = start of local file header = 0
+$cdOffset = [uint32]$ms.Position
+$bw.Write([uint32]0x02014B50); $bw.Write([uint16]0x0314); $bw.Write([uint16]20)
+$bw.Write([uint16]0); $bw.Write([uint16]0)  # method: STORE
+$bw.Write([uint16]0); $bw.Write([uint16]0)
+$bw.Write([uint32]$crc)
+$bw.Write([uint32]$fileSize); $bw.Write([uint32]$fileSize)
+$bw.Write([uint16]$nameBytes.Length); $bw.Write([uint16]0); $bw.Write([uint16]0)
+$bw.Write([uint16]0); $bw.Write([uint16]0); $bw.Write([uint32]0)
+$bw.Write([uint32]0); $bw.Write($nameBytes)   # LFH offset = 0 (first entry)
+$cdSize = [uint32]($ms.Position - $cdOffset)
+
+# End of central directory
+$bw.Write([uint32]0x06054B50); $bw.Write([uint16]0); $bw.Write([uint16]0)
+$bw.Write([uint16]1); $bw.Write([uint16]1)
+$bw.Write([uint32]$cdSize); $bw.Write([uint32]$cdOffset); $bw.Write([uint16]0)
+$bw.Flush()
+
+[IO.File]::WriteAllBytes($zipPath, $ms.ToArray())
+Write-Host "Created STORE zip: $([IO.Path]::GetFileName($zipPath)) ($([math]::Round((Get-Item $zipPath).Length/1KB))KB)"
+
+# Write key to temp file under neutral name — TAURI_SIGNING_PRIVATE_KEY must NOT be set
+# or the CLI treats it as --private-key and conflicts with --private-key-path
+$keyFile = [IO.Path]::GetTempFileName()
+[IO.File]::WriteAllText($keyFile, $env:COMPASS_SIGNING_KEY)
+
+npx tauri signer sign --private-key-path $keyFile --password $env:COMPASS_SIGNING_PWD $zipPath
+Remove-Item $keyFile -Force -ErrorAction SilentlyContinue
+
+if (Test-Path "$zipPath.sig") {
+    Write-Host "Signed - $([IO.Path]::GetFileName($zipPath)).sig created"
+} else {
+    Write-Warning "tauri signer sign did not produce a .sig file"
+}
