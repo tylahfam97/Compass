@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   create-compass:
-    runs-on: [self-hosted, windows]
+    runs-on: [self-hosted, windows, server]
 
     defaults:
       run:
