@@ -1081,6 +1081,25 @@ async function runMigrations(db: CompassDb): Promise<void> {
     }
     await db.execute("PRAGMA user_version = 24");
   }
+
+  // ── v25: Repair user-created categories orphaned by a bug in CategoryModal's INSERT -
+  //         it never set `profile_id`, which defaults to NULL, and NULL means "system/
+  //         shared" for this column (see v2 migration above). The category row itself was
+  //         never deleted, but `WHERE is_system=1 OR profile_id=?` (App.tsx /
+  //         ProfileSwitcher.tsx) excludes NULL-profile, non-system rows - so every custom
+  //         category silently disappeared from the UI on the next fresh load (e.g. after an
+  //         app update discards the in-memory Zustand store), even though it still existed
+  //         in the DB the whole time. CategoryModal.tsx now sets profile_id on insert; this
+  //         migration reattaches existing orphans to the default profile (id=1) so they
+  //         reappear. Best-effort: if a user has multiple profiles, an orphaned category
+  //         originally created under a non-default profile will resurface under the
+  //         default one instead - still strictly better than staying permanently invisible.
+  if (version < 25) {
+    await db.execute(
+      "UPDATE categories SET profile_id=1 WHERE is_system=0 AND profile_id IS NULL"
+    );
+    await db.execute("PRAGMA user_version = 25");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────
