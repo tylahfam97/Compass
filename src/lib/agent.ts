@@ -1741,11 +1741,35 @@ export async function computeDebtPayoffPlan(profileIds: number[], debts: DebtPay
      ORDER BY total DESC`,
     [...profileIds, threeAgo, monthStart]
   );
+
+  // Top example descriptions per category (most frequent first), so hovering "Shopping" shows
+  // e.g. "Amazon, Target" instead of just an abstract category label.
+  const exampleRows = await db.select<{ category_id: number; description: string; cnt: number }[]>(
+    `SELECT t.category_id, t.description, COUNT(*) as cnt
+     FROM transactions t JOIN accounts a ON a.id=t.account_id
+     WHERE t.profile_id IN (${ph}) AND t.amount_cents<0 AND t.date>=? AND t.date<?
+       AND a.account_type NOT IN ('credit','loan')
+       AND t.category_id IN (${DISCRETIONARY_CATEGORY_IDS.join(",")})
+       AND t.description<>''
+     GROUP BY t.category_id, t.description
+     ORDER BY t.category_id, cnt DESC`,
+    [...profileIds, threeAgo, monthStart]
+  );
+  const exampleItemsByCategory = new Map<number, string[]>();
+  for (const r of exampleRows) {
+    const existing = exampleItemsByCategory.get(r.category_id) ?? [];
+    if (existing.length < 3) {
+      existing.push(r.description);
+      exampleItemsByCategory.set(r.category_id, existing);
+    }
+  }
+
   const discretionaryBreakdown: DebtPayoffCategoryBreakdown[] = discRows.map((r) => ({
     categoryId: r.category_id,
     name: r.name,
     color: r.color,
     avgMonthlyCents: Math.round(r.total / monthsOfHistory),
+    exampleItems: exampleItemsByCategory.get(r.category_id) ?? [],
   }));
   const discretionaryTotalCents = discretionaryBreakdown.reduce((s, c) => s + c.avgMonthlyCents, 0);
 

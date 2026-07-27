@@ -235,6 +235,9 @@ export interface DebtPayoffCategoryBreakdown {
   name: string;
   color: string;
   avgMonthlyCents: number;
+  /** A few example transaction descriptions in this category (most frequent first), shown on
+   *  hover so "Shopping" or "Entertainment" isn't just an abstract label. May be empty. */
+  exampleItems: string[];
 }
 
 /** One resolved debt, normalized to cents/fractional-monthly-rate, ready for the

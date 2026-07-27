@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { motion } from "motion/react";
 import { X, Scissors, Info, CheckCircle2, Circle, Sparkles, TrendingDown, SlidersHorizontal } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
@@ -48,6 +49,12 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
   const [plan, setPlan] = useState<DebtPayoffPlan | null>(null);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<Set<number> | null>(null);
   const [redirectPct, setRedirectPct] = useState(50);
+  // Hover-preview tooltip for "What Can Be Cut" example items. Rendered via a document.body
+  // portal (positioned from the hovered row's viewport rect) rather than in-flow/absolute inside
+  // the modal - the modal is a scrollable (overflow-y-auto) box, and an in-flow absolute tooltip
+  // there was expanding the scrollable content bounds on mount, toggling scrollbars on/off and
+  // making the whole modal visibly shift on every hover in/out.
+  const [hoveredCategory, setHoveredCategory] = useState<{ id: number; rect: DOMRect } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,9 +82,24 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
     () => (plan ? simulateCustomDebtPayoff(plan.simDebts, extraMonthlyCents, "avalanche") : null),
     [plan, extraMonthlyCents]
   );
+
+  // The "quick win" callout (avalanche-vs-snowball comparison) is intentionally driven by a
+  // debounced redirect amount, not the live one - it only settles/updates a moment after the
+  // user stops dragging the slider, instead of flickering its message (and thus its height) on
+  // every tick while the thumb is still moving.
+  const [debouncedExtraMonthlyCents, setDebouncedExtraMonthlyCents] = useState(extraMonthlyCents);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedExtraMonthlyCents(extraMonthlyCents), 250);
+    return () => clearTimeout(t);
+  }, [extraMonthlyCents]);
+
+  const quickWinAvalanche = useMemo(
+    () => (plan && plan.simDebts.length > 1 ? simulateCustomDebtPayoff(plan.simDebts, debouncedExtraMonthlyCents, "avalanche") : null),
+    [plan, debouncedExtraMonthlyCents]
+  );
   const snowballResult = useMemo(
-    () => (plan && plan.simDebts.length > 1 ? simulateCustomDebtPayoff(plan.simDebts, extraMonthlyCents, "snowball") : null),
-    [plan, extraMonthlyCents]
+    () => (plan && plan.simDebts.length > 1 ? simulateCustomDebtPayoff(plan.simDebts, debouncedExtraMonthlyCents, "snowball") : null),
+    [plan, debouncedExtraMonthlyCents]
   );
 
   function toggleCategory(categoryId: number) {
@@ -104,21 +126,21 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
   // (snowball) instead of highest-rate-first (avalanche), close an account meaningfully sooner
   // for only a modest extra interest cost?
   const quickWin = useMemo(() => {
-    if (!customResult || !snowballResult) return null;
-    const avalancheFirst = Math.min(...customResult.perDebtMonths.map((p) => p.monthsToPayoff ?? Infinity));
+    if (!quickWinAvalanche || !snowballResult) return null;
+    const avalancheFirst = Math.min(...quickWinAvalanche.perDebtMonths.map((p) => p.monthsToPayoff ?? Infinity));
     const snowballFirstEntry = snowballResult.perDebtMonths.reduce<{ id: number; months: number } | null>((best, p) => {
       if (p.monthsToPayoff == null) return best;
       return !best || p.monthsToPayoff < best.months ? { id: p.id, months: p.monthsToPayoff } : best;
     }, null);
     if (!snowballFirstEntry || !Number.isFinite(avalancheFirst)) return null;
     const monthsSooner = avalancheFirst - snowballFirstEntry.months;
-    const extraInterestCents = snowballResult.totalInterestCents - customResult.totalInterestCents;
+    const extraInterestCents = snowballResult.totalInterestCents - quickWinAvalanche.totalInterestCents;
     if (monthsSooner <= 0 || extraInterestCents < 0) return null;
-    if (!isModestExtraCost(extraInterestCents, customResult.totalInterestCents)) return null;
+    if (!isModestExtraCost(extraInterestCents, quickWinAvalanche.totalInterestCents)) return null;
     const name = debtNamesById.get(snowballFirstEntry.id);
     if (!name) return null;
     return { name, monthsSooner, extraInterestCents };
-  }, [customResult, snowballResult, debtNamesById]);
+  }, [quickWinAvalanche, snowballResult, debtNamesById]);
 
   const timelineData = useMemo(() => {
     if (!customResult) return [];
@@ -137,7 +159,12 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
   const interestSavedVsBaseline = plan && customResult ? plan.baseline.totalInterestCents - customResult.totalInterestCents : 0;
   const cushionCents = plan ? plan.discretionaryTotalCents - extraMonthlyCents : 0;
 
+  const hoveredCategoryData = hoveredCategory
+    ? plan?.discretionaryBreakdown.find((c) => c.categoryId === hoveredCategory.id)
+    : null;
+
   return (
+    <>
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
       onClick={onBackdropClick}
@@ -217,16 +244,24 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
                   {plan.discretionaryBreakdown.map((c) => {
                     const selected = selectedCategoryIds?.has(c.categoryId) ?? false;
                     return (
-                      <button
+                      <div
                         key={c.categoryId}
-                        onClick={() => toggleCategory(c.categoryId)}
-                        className={`w-full flex items-center gap-2 text-sm rounded-lg px-1.5 py-1 -mx-1.5 transition-colors ${selected ? "" : "opacity-45"} hover:bg-[hsl(var(--muted))]`}
+                        onMouseEnter={(e) => {
+                          if (c.exampleItems.length === 0) return;
+                          setHoveredCategory({ id: c.categoryId, rect: e.currentTarget.getBoundingClientRect() });
+                        }}
+                        onMouseLeave={() => setHoveredCategory((h) => (h?.id === c.categoryId ? null : h))}
                       >
-                        {selected ? <CheckCircle2 size={14} className="text-[hsl(var(--primary))] shrink-0" /> : <Circle size={14} className="text-[hsl(var(--muted-foreground))] shrink-0" />}
-                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
-                        <span className="flex-1 truncate text-left">{c.name}</span>
-                        <span className="font-medium">{formatCurrency(c.avgMonthlyCents)}/mo</span>
-                      </button>
+                        <button
+                          onClick={() => toggleCategory(c.categoryId)}
+                          className={`w-full flex items-center gap-2 text-sm rounded-lg px-1.5 py-1 -mx-1.5 transition-colors ${selected ? "" : "opacity-45"} hover:bg-[hsl(var(--muted))]`}
+                        >
+                          {selected ? <CheckCircle2 size={14} className="text-[hsl(var(--primary))] shrink-0" /> : <Circle size={14} className="text-[hsl(var(--muted-foreground))] shrink-0" />}
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
+                          <span className="flex-1 truncate text-left">{c.name}</span>
+                          <span className="font-medium">{formatCurrency(c.avgMonthlyCents)}/mo</span>
+                        </button>
+                      </div>
                     );
                   })}
                   <div className="flex items-center gap-2 text-sm pt-1.5 border-t font-semibold">
@@ -274,54 +309,73 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
                 </div>
               </div>
 
-              {(monthsSavedVsBaseline > 0 || interestSavedVsBaseline > 0) && (
-                <div className="flex justify-between text-xs text-[hsl(var(--success))] pt-2 border-t">
-                  <span>vs. Stay the Course ({monthsLabel(plan.baseline.monthsToPayoff)}, {formatCurrency(plan.baseline.totalInterestCents)} interest)</span>
-                  <span className="font-medium text-right">
-                    {monthsSavedVsBaseline > 0 ? `${monthsLabel(monthsSavedVsBaseline)} faster` : ""}
-                    {monthsSavedVsBaseline > 0 && interestSavedVsBaseline > 0 ? " · " : ""}
-                    {interestSavedVsBaseline > 0 ? `${formatCurrency(interestSavedVsBaseline)} saved` : ""}
-                  </span>
-                </div>
-              )}
+              {/* Always rendered (space reserved even with nothing to show) so this row appearing/
+                  disappearing doesn't shift the modal's height while dragging the slider. */}
+              <div className={`flex justify-between text-xs text-[hsl(var(--success))] pt-2 border-t ${monthsSavedVsBaseline > 0 || interestSavedVsBaseline > 0 ? "" : "invisible"}`}>
+                <span>vs. Stay the Course ({monthsLabel(plan.baseline.monthsToPayoff)}, {formatCurrency(plan.baseline.totalInterestCents)} interest)</span>
+                <span className="font-medium text-right">
+                  {monthsSavedVsBaseline > 0 ? `${monthsLabel(monthsSavedVsBaseline)} faster` : ""}
+                  {monthsSavedVsBaseline > 0 && interestSavedVsBaseline > 0 ? " · " : ""}
+                  {interestSavedVsBaseline > 0 ? `${formatCurrency(interestSavedVsBaseline)} saved` : ""}
+                </span>
+              </div>
             </div>
 
-            {/* Quick-win framing */}
-            {quickWin && (
-              <div className="flex items-start gap-2 text-xs rounded-xl px-3 py-2.5 bg-[hsl(var(--primary)/0.06)] border border-[hsl(var(--primary)/0.25)]">
-                <Sparkles size={14} className="shrink-0 mt-0.5 text-[hsl(var(--primary))]" />
+            {/* Quick-win framing - always visible (never mounted/unmounted) with a fixed
+                min-height so this box never disappears or resizes while the slider moves; its
+                content is also debounced (see quickWinAvalanche/snowballResult above) so it
+                settles a moment after dragging stops instead of flickering mid-drag. */}
+            {plan.simDebts.length > 1 && (
+              <div className="flex items-center gap-2 text-xs rounded-xl px-3 py-2.5 min-h-[52px] bg-[hsl(var(--primary)/0.06)] border border-[hsl(var(--primary)/0.25)]">
+                <Sparkles size={14} className="shrink-0 text-[hsl(var(--primary))]" />
                 <p>
-                  Paying off <span className="font-semibold">{quickWin.name}</span> first only costs{" "}
-                  {quickWin.extraInterestCents > 0 ? `${formatCurrency(quickWin.extraInterestCents)} more` : "about the same"} in interest,
-                  but closes an account <span className="font-semibold">{monthsLabel(quickWin.monthsSooner)} sooner</span> - worth it for
-                  the motivation if the math alone isn't the deciding factor.
+                  {quickWin ? (
+                    <>
+                      Paying off <span className="font-semibold">{quickWin.name}</span> first only costs{" "}
+                      {quickWin.extraInterestCents > 0 ? `${formatCurrency(quickWin.extraInterestCents)} more` : "about the same"} in interest,
+                      but closes an account <span className="font-semibold">{monthsLabel(quickWin.monthsSooner)} sooner</span> - worth it for
+                      the motivation if the math alone isn't the deciding factor.
+                    </>
+                  ) : (
+                    "No snowball quick win at this redirect amount - avalanche and snowball finish about the same either way."
+                  )}
                 </p>
               </div>
             )}
 
-            {/* Payoff timeline */}
-            {plan.simDebts.length > 1 && timelineData.length > 0 && (
+            {/* Payoff timeline - chart height is keyed off the total debt count (constant),
+                not the number currently resolving, and the warning line below is always
+                mounted (space reserved), so paying off more/fewer debts as the slider moves
+                doesn't shift the modal's height. */}
+            {plan.simDebts.length > 1 && (
               <div>
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-[hsl(var(--muted-foreground))] mb-2">
                   Payoff Timeline
                 </h3>
-                <ResponsiveContainer width="100%" height={Math.max(60, timelineData.length * 34)}>
-                  <BarChart data={timelineData} layout="vertical" margin={{ left: 8, right: 32, top: 4, bottom: 4 }}>
-                    <XAxis type="number" hide />
-                    <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <Tooltip formatter={(v) => [monthsLabel(typeof v === "number" ? v : null), "Payoff time"]} labelFormatter={() => ""} />
-                    <Bar dataKey="months" radius={[0, 4, 4, 0]}>
-                      {timelineData.map((d) => (
-                        <Cell key={d.name} fill="#6366f1" />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-                {unresolvedDebtNames.length > 0 && (
-                  <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
-                    {unresolvedDebtNames.join(", ")} won't pay off at this pace - increase the redirect above.
-                  </p>
+                {timelineData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={Math.max(60, plan.simDebts.length * 34)}>
+                    <BarChart data={timelineData} layout="vertical" margin={{ left: 8, right: 32, top: 4, bottom: 4 }}>
+                      <XAxis type="number" hide />
+                      <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <Tooltip formatter={(v) => [monthsLabel(typeof v === "number" ? v : null), "Payoff time"]} labelFormatter={() => ""} />
+                      <Bar dataKey="months" radius={[0, 4, 4, 0]}>
+                        {timelineData.map((d) => (
+                          <Cell key={d.name} fill="#6366f1" />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div
+                    style={{ height: Math.max(60, plan.simDebts.length * 34) }}
+                    className="flex items-center justify-center text-center text-xs text-[hsl(var(--muted-foreground))] border rounded-lg px-4"
+                  >
+                    No debts pay off within the projection window at this pace - increase the redirect above.
+                  </div>
                 )}
+                <p className={`text-[11px] text-amber-600 dark:text-amber-400 mt-1 ${unresolvedDebtNames.length > 0 ? "" : "invisible"}`}>
+                  {unresolvedDebtNames.length > 0 ? `${unresolvedDebtNames.join(", ")} won't pay off at this pace - increase the redirect above.` : "placeholder"}
+                </p>
               </div>
             )}
 
@@ -335,6 +389,22 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
         )}
       </motion.div>
     </motion.div>
+    {hoveredCategoryData && hoveredCategoryData.exampleItems.length > 0 && createPortal(
+      <span
+        role="tooltip"
+        className="fixed z-[60] text-left text-[11px] leading-snug font-normal normal-case px-3 py-2 rounded-lg shadow-lg pointer-events-none whitespace-nowrap"
+        style={{
+          backgroundColor: "hsl(var(--foreground))",
+          color: "hsl(var(--background))",
+          top: hoveredCategory!.rect.bottom + 4,
+          left: hoveredCategory!.rect.left + 24,
+        }}
+      >
+        e.g. {hoveredCategoryData.exampleItems.join(", ")}
+      </span>,
+      document.body
+    )}
+    </>
   );
 }
 

@@ -2,6 +2,20 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 0.9.1 — Debt Payoff Polish 🔧
+
+A small follow-up to 0.9.0's interactive Debt Payoff Simulator.
+
+### Fixed: Debt Payoff Modal Resizing While Dragging the Slider
+Dragging the redirect slider could make the modal grow and shrink as callouts (like the payoff
+timeline and "quick win" tip) popped in and out based on the current value. The modal now holds
+its size steady while you drag.
+
+### New: Hover for Example Items in "What Can Be Cut"
+Hovering a spending category in the Debt Payoff plan's "What Can Be Cut" list now shows a few
+real examples from your own transactions (e.g. "Amazon, Target, Netflix"), so it's clearer what's
+actually driving that category.
+
 ## Compass 0.9.0 — Interactive Debt Payoff & a Smarter Companion Voice 🎯
 
 A feature-and-hardening release: the Debt Payoff Dashboard goes from three fixed scenarios to a
