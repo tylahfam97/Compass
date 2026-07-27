@@ -76,9 +76,24 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
     () => (plan ? simulateCustomDebtPayoff(plan.simDebts, extraMonthlyCents, "avalanche") : null),
     [plan, extraMonthlyCents]
   );
+
+  // The "quick win" callout (avalanche-vs-snowball comparison) is intentionally driven by a
+  // debounced redirect amount, not the live one - it only settles/updates a moment after the
+  // user stops dragging the slider, instead of flickering its message (and thus its height) on
+  // every tick while the thumb is still moving.
+  const [debouncedExtraMonthlyCents, setDebouncedExtraMonthlyCents] = useState(extraMonthlyCents);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedExtraMonthlyCents(extraMonthlyCents), 250);
+    return () => clearTimeout(t);
+  }, [extraMonthlyCents]);
+
+  const quickWinAvalanche = useMemo(
+    () => (plan && plan.simDebts.length > 1 ? simulateCustomDebtPayoff(plan.simDebts, debouncedExtraMonthlyCents, "avalanche") : null),
+    [plan, debouncedExtraMonthlyCents]
+  );
   const snowballResult = useMemo(
-    () => (plan && plan.simDebts.length > 1 ? simulateCustomDebtPayoff(plan.simDebts, extraMonthlyCents, "snowball") : null),
-    [plan, extraMonthlyCents]
+    () => (plan && plan.simDebts.length > 1 ? simulateCustomDebtPayoff(plan.simDebts, debouncedExtraMonthlyCents, "snowball") : null),
+    [plan, debouncedExtraMonthlyCents]
   );
 
   function toggleCategory(categoryId: number) {
@@ -105,21 +120,21 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
   // (snowball) instead of highest-rate-first (avalanche), close an account meaningfully sooner
   // for only a modest extra interest cost?
   const quickWin = useMemo(() => {
-    if (!customResult || !snowballResult) return null;
-    const avalancheFirst = Math.min(...customResult.perDebtMonths.map((p) => p.monthsToPayoff ?? Infinity));
+    if (!quickWinAvalanche || !snowballResult) return null;
+    const avalancheFirst = Math.min(...quickWinAvalanche.perDebtMonths.map((p) => p.monthsToPayoff ?? Infinity));
     const snowballFirstEntry = snowballResult.perDebtMonths.reduce<{ id: number; months: number } | null>((best, p) => {
       if (p.monthsToPayoff == null) return best;
       return !best || p.monthsToPayoff < best.months ? { id: p.id, months: p.monthsToPayoff } : best;
     }, null);
     if (!snowballFirstEntry || !Number.isFinite(avalancheFirst)) return null;
     const monthsSooner = avalancheFirst - snowballFirstEntry.months;
-    const extraInterestCents = snowballResult.totalInterestCents - customResult.totalInterestCents;
+    const extraInterestCents = snowballResult.totalInterestCents - quickWinAvalanche.totalInterestCents;
     if (monthsSooner <= 0 || extraInterestCents < 0) return null;
-    if (!isModestExtraCost(extraInterestCents, customResult.totalInterestCents)) return null;
+    if (!isModestExtraCost(extraInterestCents, quickWinAvalanche.totalInterestCents)) return null;
     const name = debtNamesById.get(snowballFirstEntry.id);
     if (!name) return null;
     return { name, monthsSooner, extraInterestCents };
-  }, [customResult, snowballResult, debtNamesById]);
+  }, [quickWinAvalanche, snowballResult, debtNamesById]);
 
   const timelineData = useMemo(() => {
     if (!customResult) return [];
@@ -302,12 +317,13 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
               </div>
             </div>
 
-            {/* Quick-win framing - kept mounted (just invisible) whenever a quick win is possible
-                in principle (multiple debts), so it appearing/disappearing as the slider moves
-                doesn't shift the modal's height. */}
+            {/* Quick-win framing - always visible (never mounted/unmounted) with a fixed
+                min-height so this box never disappears or resizes while the slider moves; its
+                content is also debounced (see quickWinAvalanche/snowballResult above) so it
+                settles a moment after dragging stops instead of flickering mid-drag. */}
             {plan.simDebts.length > 1 && (
-              <div className={`flex items-start gap-2 text-xs rounded-xl px-3 py-2.5 bg-[hsl(var(--primary)/0.06)] border border-[hsl(var(--primary)/0.25)] ${quickWin ? "" : "invisible"}`}>
-                <Sparkles size={14} className="shrink-0 mt-0.5 text-[hsl(var(--primary))]" />
+              <div className="flex items-center gap-2 text-xs rounded-xl px-3 py-2.5 min-h-[52px] bg-[hsl(var(--primary)/0.06)] border border-[hsl(var(--primary)/0.25)]">
+                <Sparkles size={14} className="shrink-0 text-[hsl(var(--primary))]" />
                 <p>
                   {quickWin ? (
                     <>
@@ -316,7 +332,9 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
                       but closes an account <span className="font-semibold">{monthsLabel(quickWin.monthsSooner)} sooner</span> - worth it for
                       the motivation if the math alone isn't the deciding factor.
                     </>
-                  ) : "placeholder"}
+                  ) : (
+                    "No snowball quick win at this redirect amount - avalanche and snowball finish about the same either way."
+                  )}
                 </p>
               </div>
             )}
