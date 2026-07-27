@@ -560,7 +560,7 @@ export default function DashboardPage() {
                   return (
                     <div
                       key={acc.id}
-                      className="border rounded-xl p-4 cursor-pointer hover:border-[hsl(var(--primary))] transition-colors"
+                      className="border rounded-xl p-4 cursor-pointer hover:border-[hsl(var(--primary))] transition-colors chart-clickable"
                       onClick={() => setViewAccount({ id: acc.id, name: acc.name, accountType: "checking", color: acc.color, balanceCents: lastCents, series })}
                     >
                       <div className="flex items-center justify-between mb-1 gap-2">
@@ -658,7 +658,7 @@ export default function DashboardPage() {
                   return (
                     <div
                       key={acc.id}
-                      className="border rounded-xl p-4 cursor-pointer hover:border-[hsl(var(--primary))] transition-colors"
+                      className="border rounded-xl p-4 cursor-pointer hover:border-[hsl(var(--primary))] transition-colors chart-clickable"
                       onClick={() => setViewAccount({ id: acc.id, name: acc.name, accountType: "credit", color: acc.color, balanceCents: lastCents, series, interestRateBps: acc.interestRateBps, minimumPaymentCents: acc.minimumPaymentCents })}
                     >
                       <div className="flex items-center justify-between mb-1 gap-2">
@@ -748,7 +748,7 @@ export default function DashboardPage() {
                     return (
                       <div
                         key={loan.id}
-                        className="border rounded-xl p-4 cursor-pointer hover:border-[hsl(var(--primary))] transition-colors"
+                        className="border rounded-xl p-4 cursor-pointer hover:border-[hsl(var(--primary))] transition-colors chart-clickable"
                         onClick={() => setViewAccount({
                           id: loan.id, name: loan.name, accountType: "loan", color, balanceCents: lastCents, series,
                           interestRateBps: loan.interest_rate_bps, minimumPaymentCents: loan.minimum_payment_cents,

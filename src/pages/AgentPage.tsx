@@ -65,7 +65,7 @@ function MiniScoreCard({
   return (
     <div
       onClick={onClick}
-      className={`border rounded-2xl p-4 ${onClick ? "cursor-pointer hover:shadow-md transition-shadow" : ""}`}
+      className={`border rounded-2xl p-4 ${onClick ? "cursor-pointer hover:shadow-md transition-shadow chart-clickable" : ""}`}
       style={{ borderColor: score.color + "40" }}
     >
       <div className="flex items-center justify-between mb-1">
@@ -601,7 +601,7 @@ function LoanDashboardCard({ loans, onSelectLoan }: { loans: DebtEntry[]; onSele
             <div
               key={loan.id}
               onClick={() => onSelectLoan(loan)}
-              className={`flex items-center gap-3 border rounded-lg px-3 py-2 cursor-pointer hover:bg-[hsl(var(--muted))] transition-colors ${!loan.rankable ? "opacity-50" : ""}`}
+              className={`flex items-center gap-3 border rounded-lg px-3 py-2 cursor-pointer hover:bg-[hsl(var(--muted))] transition-colors chart-clickable ${!loan.rankable ? "opacity-50" : ""}`}
             >
               <span className="text-xs font-bold w-5 text-center shrink-0 text-[hsl(var(--muted-foreground))]">
                 {loan.rankable ? i + 1 : "—"}
