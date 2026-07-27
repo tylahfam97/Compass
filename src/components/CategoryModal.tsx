@@ -18,7 +18,7 @@ interface Props {
   profileId?: number;
 }
 
-export default function CategoryModal({ category, onClose }: Props) {
+export default function CategoryModal({ category, onClose, profileId }: Props) {
   const { categories, addCategory, updateCategory, removeCategory } = useCategoryStore();
   const { onBackdropClick } = useModalDismiss(onClose);
   const [name, setName] = useState(category?.name ?? "");
@@ -44,9 +44,15 @@ export default function CategoryModal({ category, onClose }: Props) {
         );
         updateCategory({ ...category!, name: name.trim(), color, parent_id: parentId || null });
       } else {
+        // profile_id MUST be set here - NULL means "system/shared" in this column's schema
+        // (see src/lib/db.ts v6 migration comment), so a user-created category left with a
+        // NULL profile_id is invisible to the `WHERE is_system=1 OR profile_id=?` queries
+        // that load categories on every app start (App.tsx / ProfileSwitcher.tsx) - it still
+        // exists in the DB, it just silently stops appearing anywhere after the in-memory
+        // Zustand store is discarded (e.g. on the next launch after an update).
         const res = await db.execute(
-          "INSERT INTO categories (name, color, icon, parent_id, is_system) VALUES (?,?,?,?,0)",
-          [name.trim(), color, "tag", parentId || null]
+          "INSERT INTO categories (name, color, icon, parent_id, is_system, profile_id) VALUES (?,?,?,?,0,?)",
+          [name.trim(), color, "tag", parentId || null, profileId ?? null]
         );
         addCategory({
           id: res.lastInsertId as number,

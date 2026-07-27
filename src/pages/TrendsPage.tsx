@@ -197,12 +197,12 @@ export default function TrendsPage() {
         db.select<{ date: string; account_id: number; balance_cents: number }[]>(
           `SELECT t.date, t.account_id, t.balance_cents FROM transactions t
            JOIN accounts a ON a.id=t.account_id
-           WHERE t.profile_id IN (${ph}) AND t.balance_cents IS NOT NULL AND a.account_type IN ('checking','credit')
+           WHERE t.profile_id IN (${ph}) AND t.balance_cents IS NOT NULL AND a.account_type IN ('checking','credit') AND a.hidden_from_dashboard=0
            ORDER BY t.date ASC, t.id ASC`,
           [...ids]
         ),
         db.select<{ id: number; name: string; account_type: string }[]>(
-          `SELECT id, name, account_type FROM accounts WHERE profile_id IN (${ph}) AND account_type IN ('checking','credit') ORDER BY account_type, name`,
+          `SELECT id, name, account_type FROM accounts WHERE profile_id IN (${ph}) AND account_type IN ('checking','credit') AND hidden_from_dashboard=0 ORDER BY account_type, name`,
           [...ids]
         ),
       ]);
@@ -494,11 +494,11 @@ export default function TrendsPage() {
                       <div className="flex items-center justify-between mb-2">
                         <p className="text-xs font-semibold">Top categories - {formatMonthLabel(expandedMonth)}</p>
                         <Link to="/transactions" state={{ month: expandedMonth }} className="text-[11px] text-[hsl(var(--primary))] hover:underline">
-                          View month ?
+                          View month →
                         </Link>
                       </div>
                       {expandedMonthCats === null ? (
-                        <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">Loading�</p>
+                        <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">Loading…</p>
                       ) : expandedMonthCats.length === 0 ? (
                         <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">No expenses that month.</p>
                       ) : (

@@ -2,53 +2,42 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
-## Compass 0.9.1 — Debt Payoff Polish 🔧
+## Compass 0.9.2 — Balance & Net Worth Accuracy Fixes 🎯
 
-A small follow-up to 0.9.0's interactive Debt Payoff Simulator.
+A correctness-focused release: several places that summed account balances or detected duplicate
+imports were quietly wrong for anyone with more than one account of a type - this cleans all of
+that up.
 
-### Fixed: Debt Payoff Modal Resizing While Dragging the Slider
-Dragging the redirect slider could make the modal grow and shrink as callouts (like the payoff
-timeline and "quick win" tip) popped in and out based on the current value. The modal now holds
-its size steady while you drag.
+### Fixed: Running Balances Could Get Silently Overwritten
+Manually adding, editing, or deleting a transaction (or undoing an import) could discard a bank
+statement's real imported running-balance history in favor of a $0-based recalculation, wiping
+out perfectly good balances across an entire account. Balances now anchor to the latest known
+real balance instead of assuming a $0 starting point.
 
-### New: Hover for Example Items in "What Can Be Cut"
-Hovering a spending category in the Debt Payoff plan's "What Can Be Cut" list now shows a few
-real examples from your own transactions (e.g. "Amazon, Target, Netflix"), so it's clearer what's
-actually driving that category.
+### Fixed: "Already Imported" Errors After Deleting an Account
+Duplicate-import detection was scoped globally instead of per-account, so re-importing a
+statement into a new or different account after deleting the original could incorrectly report
+"already imported." Detection is now scoped to the account, and merging duplicate accounts
+handles overlapping history safely.
 
-## Compass 0.9.0 — Interactive Debt Payoff & a Smarter Companion Voice 🎯
+### Fixed: Net Worth & Balance Charts
+The Trends and Reports balance charts didn't respect accounts hidden from the dashboard, and
+combined net worth in multi-profile ("Global") view could undercount investments for any profile
+whose latest snapshot was older than another's.
 
-A feature-and-hardening release: the Debt Payoff Dashboard goes from three fixed scenarios to a
-live, interactive simulator, insights get varied phrasing instead of repeating the same static
-sentence every time, and a real database-encryption reliability issue on Windows gets fixed and
-hardened against ever silently recurring.
+### Fixed: The "Buffer" Goal Only Counted One Bank Account
+The Balance Floor ("buffer") goal now sums every checking account's latest balance instead of
+whichever account happened to update most recently.
 
-### New: Interactive Debt Payoff Simulator
-The Debt Payoff plan no longer shows three fixed scenarios (Stay the Course / Balanced Cushion /
-Most Aggressive). Toggle exactly which discretionary categories (Entertainment, Shopping,
-Subscriptions, and more) you want to redirect toward debt, then drag a single slider — your
-payoff date, total interest, and monthly cushion recompute instantly. A new payoff timeline
-chart shows each account reaching $0 in sequence, and a "quick win" callout compares the
-avalanche (cheapest) vs. snowball (fastest visible progress) approach for your specific debts.
+### New: Overview Profile Cards Show Liquid Cash, Not a Blended Net Worth
+Each profile card on the Overview page now shows "Liquid" (bank accounts only) with a sparkline
+per individual bank account, instead of a blended checking+credit+investment figure that could
+misrepresent net worth.
 
-### New: Debt Payoff Progress Badges & Milestones
-Any loan or credit card with enough balance history now shows "X% paid off since you started
-tracking this" directly in its payoff plan. Milestone celebrations extend beyond "fully paid
-off" to 25%/50%/75% partial progress on the way there.
+### New: Debt Paydown Goal
+Track paying down a specific credit card or loan - or all of them combined - to at or below a
+target amount, with $0 as a full-payoff target.
 
-### New: A Little More Personality in Insights
-Insight text now varies its phrasing and references your prior period ("up from $1,200 last
-month") instead of showing the exact same sentence every time the same insight fires. Budgets
-and Trends now also get short narrative callouts — e.g. "$40 under budget with 6 days left" —
-instead of only charts and raw numbers.
-
-### Fixed: Database Encryption Key Reliability on Windows
-The database encryption key wasn't persisting to Windows Credential Manager / macOS Keychain —
-it silently relied on a backup file every single launch instead, invisibly but safely. This is
-now fixed so the key persists through the OS's native secure store as originally intended.
-
-### Hardened: Encryption Key Loading Never Silently Replaces Your Data
-As a defense-in-depth measure alongside the fix above, the app now refuses to generate a new
-encryption key whenever an existing database is present on disk. If a valid key genuinely can't
-be found, it fails with a clear error and leaves your database completely untouched, rather than
-ever silently creating an empty replacement.
+### New: Manually Adding a Transaction Now Requires an Account
+Previously, manually-added transactions silently posted to an arbitrary account. Adding one now
+requires picking which account it belongs to.

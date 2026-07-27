@@ -1021,6 +1021,85 @@ async function runMigrations(db: CompassDb): Promise<void> {
     }
     await db.execute("PRAGMA user_version = 22");
   }
+
+  // ── v23: Debt Paydown goals - track progress toward paying down a specific credit
+  //         card or loan balance to at or below a target amount (optionally $0 for a
+  //         full payoff). Needs a reference to which account the goal applies to. ────────
+  if (version < 23) {
+    assertSafeMigrationIdentifiers("goals", "account_id");
+    if (!(await colExists(db, "goals", "account_id"))) {
+      await db.execute("ALTER TABLE goals ADD COLUMN account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL");
+    }
+    await db.execute("PRAGMA user_version = 23");
+  }
+
+  // ── v24: Scope `import_hash` uniqueness to (account_id, import_hash) instead of a bare
+  //         global UNIQUE on import_hash alone. A hash is deterministic from a row's own
+  //         content (date/description/amount/etc, or account+statement-date for loans) - a
+  //         GLOBAL unique constraint meant that once a statement's rows were imported into
+  //         one account, no OTHER account (even a brand-new one created after the original
+  //         was permanently deleted, or a different account entirely) could ever import that
+  //         same content again, INSERT would just fail as "already imported" forever. Since
+  //         SQLite can't ALTER a column-level UNIQUE away, the table is recreated (same
+  //         rename -> create -> copy -> drop pattern as the v9 goals migration above). Every
+  //         existing row already satisfies the new, looser composite constraint (a global
+  //         unique value is trivially unique per-account too), so the copy can't fail.
+  if (version < 24) {
+    const [tbl] = await db.select<{ sql: string }[]>(
+      "SELECT sql FROM sqlite_master WHERE type='table' AND name='transactions'"
+    );
+    const alreadyMigrated = (tbl?.sql ?? "").includes("account_id, import_hash");
+    if (!alreadyMigrated) {
+      await db.execute("ALTER TABLE transactions RENAME TO transactions_v23");
+      await db.execute(`
+        CREATE TABLE transactions (
+          id                INTEGER PRIMARY KEY AUTOINCREMENT,
+          account_id        INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          date              TEXT    NOT NULL,
+          amount_cents      INTEGER NOT NULL,
+          description       TEXT    NOT NULL DEFAULT '',
+          category_id       INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+          notes             TEXT,
+          import_hash       TEXT    NOT NULL,
+          created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
+          profile_id        INTEGER DEFAULT 1,
+          balance_cents     INTEGER,
+          import_session_id INTEGER REFERENCES import_sessions(id) ON DELETE SET NULL,
+          UNIQUE(account_id, import_hash)
+        )
+      `);
+      await db.execute(`
+        INSERT INTO transactions
+          (id, account_id, date, amount_cents, description, category_id, notes, import_hash,
+           created_at, profile_id, balance_cents, import_session_id)
+        SELECT id, account_id, date, amount_cents, description, category_id, notes, import_hash,
+               created_at, profile_id, balance_cents, import_session_id
+        FROM transactions_v23
+      `);
+      await db.execute("DROP TABLE transactions_v23");
+      await db.execute("CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date)");
+    }
+    await db.execute("PRAGMA user_version = 24");
+  }
+
+  // ── v25: Repair user-created categories orphaned by a bug in CategoryModal's INSERT -
+  //         it never set `profile_id`, which defaults to NULL, and NULL means "system/
+  //         shared" for this column (see v2 migration above). The category row itself was
+  //         never deleted, but `WHERE is_system=1 OR profile_id=?` (App.tsx /
+  //         ProfileSwitcher.tsx) excludes NULL-profile, non-system rows - so every custom
+  //         category silently disappeared from the UI on the next fresh load (e.g. after an
+  //         app update discards the in-memory Zustand store), even though it still existed
+  //         in the DB the whole time. CategoryModal.tsx now sets profile_id on insert; this
+  //         migration reattaches existing orphans to the default profile (id=1) so they
+  //         reappear. Best-effort: if a user has multiple profiles, an orphaned category
+  //         originally created under a non-default profile will resurface under the
+  //         default one instead - still strictly better than staying permanently invisible.
+  if (version < 25) {
+    await db.execute(
+      "UPDATE categories SET profile_id=1 WHERE is_system=0 AND profile_id IS NULL"
+    );
+    await db.execute("PRAGMA user_version = 25");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────
@@ -1266,6 +1345,16 @@ export async function mergeDuplicateAccounts(profileId: number): Promise<number>
   for (const group of groups) {
     const [primary, ...dupes] = group.accounts;
     for (const dupe of dupes) {
+      // A transaction with the exact same import_hash already exists on `primary` (the same
+      // statement row, imported into both duplicate accounts at some point) - discard the
+      // duplicate-account's copy instead of moving it, since moving it would violate the
+      // (account_id, import_hash) uniqueness constraint on the now-merged account.
+      await db.execute(
+        `DELETE FROM transactions WHERE account_id=? AND import_hash IN (
+           SELECT import_hash FROM transactions WHERE account_id=?
+         )`,
+        [dupe.id, primary.id]
+      );
       await db.execute("UPDATE transactions SET account_id=? WHERE account_id=?", [primary.id, dupe.id]);
       await db.execute("UPDATE holdings SET account_id=? WHERE account_id=?", [primary.id, dupe.id]);
       await db.execute("DELETE FROM accounts WHERE id=?", [dupe.id]);
@@ -1419,7 +1508,7 @@ export async function upsertLoanStatement(params: {
   await db.execute(
     `INSERT INTO transactions (account_id, date, amount_cents, description, category_id, import_hash, balance_cents, profile_id, import_session_id)
      VALUES (?, ?, ?, ?, 20, ?, ?, ?, ?)
-     ON CONFLICT(import_hash) DO UPDATE SET amount_cents=excluded.amount_cents, balance_cents=excluded.balance_cents, import_session_id=excluded.import_session_id`,
+     ON CONFLICT(account_id, import_hash) DO UPDATE SET amount_cents=excluded.amount_cents, balance_cents=excluded.balance_cents, import_session_id=excluded.import_session_id`,
     [accountId, params.statementDate, deltaCents, "Statement balance update", hash, balanceCents, params.profileId, sessionId]
   );
 
@@ -1430,6 +1519,20 @@ export async function upsertLoanStatement(params: {
  *  always allowed since a loan account's only "transactions" are its own balance snapshots. */
 export async function deleteLoanAccount(accountId: number): Promise<void> {
   const db = await getDb();
+  const sessions = await db.select<{ id: number }[]>(
+    "SELECT DISTINCT import_session_id as id FROM transactions WHERE account_id=? AND import_session_id IS NOT NULL",
+    [accountId]
+  );
+  await db.execute("DELETE FROM transactions WHERE account_id=?", [accountId]);
+  for (const { id } of sessions) {
+    const [remaining] = await db.select<{ n: number }[]>(
+      "SELECT COUNT(*) as n FROM transactions WHERE import_session_id=?",
+      [id]
+    );
+    if ((remaining?.n ?? 0) === 0) {
+      await db.execute("DELETE FROM import_sessions WHERE id=?", [id]);
+    }
+  }
   await db.execute("DELETE FROM accounts WHERE id=? AND account_type='loan'", [accountId]);
 }
 
@@ -1438,9 +1541,12 @@ export async function deleteLoanAccount(accountId: number): Promise<void> {
  * balance anchor - the real balance AFTER all transactions up to `balance_anchor_date`
  * (typically "today", the date the value was entered). Transactions on or before that date
  * are calculated backward from the anchor; any transactions after it (e.g. from a later
- * import) are calculated forward from it. With no anchor set, falls back to a "pure"
- * relative running total starting from $0. Used for imports whose source file has no
- * native running-balance column.
+ * import) are calculated forward from it. With no manual anchor set, the LATEST transaction
+ * that already carries a real `balance_cents` (e.g. from a bank statement's own running-
+ * balance column) is used as an implicit anchor instead of assuming a $0 starting balance -
+ * see the "implicit anchor" comment below for why this matters. Used for imports whose source
+ * file has no native running-balance column, and any time a transaction is manually
+ * added/edited/deleted or an import batch is undone.
  */
 export async function recomputeCalculatedBalances(accountId: number): Promise<void> {
   const db = await getDb();
@@ -1454,8 +1560,8 @@ export async function recomputeCalculatedBalances(accountId: number): Promise<vo
  * same in-flight promise it's already inside of, which never resolves).
  */
 async function recomputeCalculatedBalancesWithDb(db: CompassDb, accountId: number): Promise<void> {
-  const rows = await db.select<{ id: number; date: string; amount_cents: number }[]>(
-    "SELECT id, date, amount_cents FROM transactions WHERE account_id=? ORDER BY date ASC, id ASC",
+  const rows = await db.select<{ id: number; date: string; amount_cents: number; balance_cents: number | null }[]>(
+    "SELECT id, date, amount_cents, balance_cents FROM transactions WHERE account_id=? ORDER BY date ASC, id ASC",
     [accountId]
   );
 
@@ -1475,10 +1581,31 @@ async function recomputeCalculatedBalancesWithDb(db: CompassDb, accountId: numbe
     [accountId]
   );
 
-  const anchorCents = acct?.balance_anchor_cents;
-  const anchorDate = acct?.balance_anchor_date;
+  let anchorCents = acct?.balance_anchor_cents ?? null;
+  let anchorDate = acct?.balance_anchor_date ?? null;
+
   if (anchorCents == null || !anchorDate) {
-    // No anchor - pure relative running total forward from $0.
+    // Implicit anchor: this function runs on EVERY manual add/edit/delete of a transaction
+    // and every "undo import" - not just imports without a native balance column. Without
+    // this, an account imported WITH a real per-row balance column from the bank (accurate
+    // data) would have that entire history silently discarded and replaced with a "pure"
+    // running total from $0 the moment the user manually touched a single transaction -
+    // producing a wildly wrong balance for every row, not just the edited one. Anchoring to
+    // the latest transaction that still carries a real `balance_cents` preserves the bank's
+    // own numbers instead.
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (rows[i].balance_cents != null) {
+        anchorCents = rows[i].balance_cents;
+        anchorDate = rows[i].date;
+        break;
+      }
+    }
+  }
+
+  if (anchorCents == null || !anchorDate) {
+    // Truly no balance data anywhere on this account (brand new, no anchor, no native balance
+    // column ever imported) - nothing to anchor to, so fall back to a pure relative running
+    // total from $0.
     let running = 0;
     for (const row of rows) {
       running += row.amount_cents;
@@ -1487,8 +1614,8 @@ async function recomputeCalculatedBalancesWithDb(db: CompassDb, accountId: numbe
     return;
   }
 
-  const upToAnchor = rows.filter((r) => r.date <= anchorDate);
-  const afterAnchor = rows.filter((r) => r.date > anchorDate);
+  const upToAnchor = rows.filter((r) => r.date <= anchorDate!);
+  const afterAnchor = rows.filter((r) => r.date > anchorDate!);
 
   // Backward pass: the anchor is the balance right after the last transaction on/before
   // the anchor date, so walk from latest to earliest, subtracting each one's amount.

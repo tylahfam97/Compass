@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { getDb } from "@/lib/db";
 import { formatCurrency } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
@@ -17,19 +18,23 @@ type GoalType =
   | "savings_target"
   | "balance_floor"
   | "budget_streak"
-  | "savings_rate_habit";
+  | "savings_rate_habit"
+  | "debt_paydown";
 
 interface GoalRow {
   id: number;
   name: string;
   type: GoalType;
   category_id: number | null;
+  account_id: number | null;
   target_cents: number;
   target_months: number | null;
   active: number;
   created_at: string;
   category_name?: string;
   category_color?: string;
+  account_name?: string;
+  account_kind?: string;
 }
 
 interface GoalWithProgress extends GoalRow {
@@ -50,6 +55,7 @@ const LABELS: Record<GoalType, string> = {
   balance_floor:      "Balance Floor",
   budget_streak:      "Under-Budget Streak",
   savings_rate_habit: "Savings Rate Habit",
+  debt_paydown:       "Debt Paydown",
 };
 
 const DESCS: Record<GoalType, string> = {
@@ -60,6 +66,7 @@ const DESCS: Record<GoalType, string> = {
   balance_floor:      "Keep your account balance above this amount. Requires a balance column to be imported.",
   budget_streak:      "Stay under budget on a specific category for N consecutive months.",
   savings_rate_habit: "Maintain at least X% savings rate for N consecutive months.",
+  debt_paydown:       "Pay down a specific credit card/loan (or all of them combined) to at or below this amount - use $0 to target a full payoff.",
 };
 
 const STREAK_TYPES = new Set<GoalType>(["budget_streak", "savings_rate_habit"]);
@@ -74,6 +81,7 @@ const GOAL_TYPE_STYLE: Record<GoalType, string> = {
   savings_rate_habit: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
   reduce_spend:       "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
   budget_streak:      "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
+  debt_paydown:       "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
   increase_income:    "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
 };
 
@@ -130,12 +138,14 @@ export default function GoalsPage() {
   const [formType, setFormType] = useState<GoalType>("net_savings");
   const [formName, setFormName] = useState("Save each month");
   const [formCatId, setFormCatId] = useState(0);
+  const [formAccountId, setFormAccountId] = useState(0); // 0 = "All credit cards & loans" for debt_paydown
   const [formTarget, setFormTarget] = useState("");
   const [formMonths, setFormMonths] = useState("3");
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [milestoneQueue, setMilestoneQueue] = useState<string[]>([]);
   const [activeMilestone, setActiveMilestone] = useState<string | null>(null);
+  const [debtAccounts, setDebtAccounts] = useState<{ id: number; name: string; account_type: string }[]>([]);
 
   useEffect(() => {
     if (activeMilestone === null && milestoneQueue.length > 0) {
@@ -143,6 +153,19 @@ export default function GoalsPage() {
       setMilestoneQueue((q) => q.slice(1));
     }
   }, [activeMilestone, milestoneQueue]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const db = await getDb();
+      const rows = await db.select<{ id: number; name: string; account_type: string }[]>(
+        "SELECT id, name, account_type FROM accounts WHERE profile_id=? AND account_type IN ('credit','loan') AND hidden_from_dashboard=0 ORDER BY account_type, name",
+        [profileId]
+      );
+      if (!cancelled) setDebtAccounts(rows);
+    })().catch(console.error);
+    return () => { cancelled = true; };
+  }, [profileId]);
 
   const navMonth = (dir: -1 | 1) => {
     const [y, m] = month.split("-").map(Number);
@@ -156,8 +179,11 @@ export default function GoalsPage() {
     const [start, end] = monthBounds(month);
 
     const rows = await db.select<GoalRow[]>(
-      `SELECT g.*, c.name as category_name, c.color as category_color
-       FROM goals g LEFT JOIN categories c ON g.category_id=c.id
+      `SELECT g.*, c.name as category_name, c.color as category_color,
+              acc.name as account_name, acc.account_type as account_kind
+       FROM goals g
+       LEFT JOIN categories c ON g.category_id=c.id
+       LEFT JOIN accounts acc ON g.account_id=acc.id
        WHERE g.active=1 AND g.profile_id=? ORDER BY g.created_at`,
       [profileId]
     );
@@ -168,6 +194,7 @@ export default function GoalsPage() {
         let streak = 0;
         let noBalanceData = false;
         let noBudgetData = false;
+        let debtPaydownPct: number | null = null;
 
         if (g.type === "net_savings") {
           const [r] = await db.select<{ v: number }[]>(
@@ -217,15 +244,78 @@ export default function GoalsPage() {
           current = r?.v ?? 0;
 
         } else if (g.type === "balance_floor") {
-          const [r] = await db.select<{ v: number | null }[]>(
-            `SELECT t.balance_cents as v FROM transactions t
-             JOIN accounts a ON a.id=t.account_id
-             WHERE t.profile_id=? AND t.balance_cents IS NOT NULL AND a.account_type='checking'
-             ORDER BY t.date DESC, t.id DESC LIMIT 1`,
+          // "Buffer" goal: sum the LATEST known balance of every checking account (not just
+          // whichever account happens to have the most recent transaction row) - a user with
+          // multiple bank statements/accounts should have all of them count toward the buffer.
+          const checkingBalRows = await db.select<{ account_id: number; balance_cents: number | null }[]>(
+            `SELECT a.id as account_id,
+               (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
+                ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents
+             FROM accounts a WHERE a.profile_id=? AND a.account_type='checking' AND a.hidden_from_dashboard=0`,
             [profileId]
           );
-          if (r?.v == null) { noBalanceData = true; current = 0; }
-          else current = r.v;
+          const trackedChecking = checkingBalRows.filter((r) => r.balance_cents !== null);
+          if (trackedChecking.length === 0) { noBalanceData = true; current = 0; }
+          else current = trackedChecking.reduce((s, r) => s + (r.balance_cents ?? 0), 0);
+
+        } else if (g.type === "debt_paydown") {
+          // A specific credit card/loan (g.account_id set), or every credit card + loan
+          // combined (g.account_id null) - either way, sum each account's LATEST balance.
+          const acctIds = g.account_id
+            ? [g.account_id]
+            : (await db.select<{ id: number }[]>(
+                "SELECT id FROM accounts WHERE profile_id=? AND account_type IN ('credit','loan') AND hidden_from_dashboard=0",
+                [profileId]
+              )).map((r) => r.id);
+
+          if (acctIds.length === 0) {
+            noBalanceData = true;
+          } else {
+            const ph = acctIds.map(() => "?").join(",");
+            const latestRows = await db.select<{ account_id: number; balance_cents: number | null }[]>(
+              `SELECT a.id as account_id,
+                 (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
+                  ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents
+               FROM accounts a WHERE a.id IN (${ph})`,
+              acctIds
+            );
+            const trackedLatest = latestRows.filter((r) => r.balance_cents !== null);
+            if (trackedLatest.length === 0) {
+              noBalanceData = true;
+            } else {
+              current = Math.abs(trackedLatest.reduce((s, r) => s + (r.balance_cents ?? 0), 0));
+
+              // Starting debt (as of goal creation, falling back to each account's very first
+              // known balance) drives the progress bar - comparing current owed directly to
+              // the target ceiling isn't a meaningful "% complete" on its own, since current
+              // owed is usually far larger than the target for most of a paydown goal's life.
+              const createdDate = g.created_at.slice(0, 10);
+              const startRows = await db.select<{ account_id: number; balance_cents: number | null }[]>(
+                `SELECT a.id as account_id,
+                   (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL AND t.date<=?
+                    ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents
+                 FROM accounts a WHERE a.id IN (${ph})`,
+                [createdDate, ...acctIds]
+              );
+              const earliestRows = await db.select<{ account_id: number; balance_cents: number | null }[]>(
+                `SELECT a.id as account_id,
+                   (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
+                    ORDER BY t.date ASC, t.id ASC LIMIT 1) as balance_cents
+                 FROM accounts a WHERE a.id IN (${ph})`,
+                acctIds
+              );
+              const startingDebt = Math.abs(
+                acctIds.reduce((sum, id) => {
+                  const viaCreated = startRows.find((r) => r.account_id === id)?.balance_cents;
+                  const viaEarliest = earliestRows.find((r) => r.account_id === id)?.balance_cents;
+                  return sum + (viaCreated ?? viaEarliest ?? 0);
+                }, 0)
+              );
+              debtPaydownPct = startingDebt > g.target_cents
+                ? Math.min(150, Math.max(0, Math.round(((startingDebt - current) / (startingDebt - g.target_cents)) * 100)))
+                : (current <= g.target_cents ? 100 : 0);
+            }
+          }
 
         } else if (g.type === "budget_streak") {
           // Count consecutive months (newest first) where spend <= budget
@@ -279,14 +369,17 @@ export default function GoalsPage() {
         const targetForPct = STREAK_TYPES.has(g.type)
           ? (g.target_months ?? 3) * 100
           : g.target_cents;
-        const pct = targetForPct > 0
+        const genericPct = targetForPct > 0
           ? Math.min(150, Math.round((current / targetForPct) * 100))
           : 0;
+        const pct = g.type === "debt_paydown" ? (debtPaydownPct ?? 0) : genericPct;
 
         const on_track = g.type === "reduce_spend"
           ? current <= g.target_cents
           : g.type === "balance_floor"
           ? current >= g.target_cents && !noBalanceData
+          : g.type === "debt_paydown"
+          ? current <= g.target_cents && !noBalanceData
           : STREAK_TYPES.has(g.type)
           ? streak >= (g.target_months ?? 3)
           : current >= (STREAK_TYPES.has(g.type) ? (g.target_months ?? 3) * 100 : g.target_cents);
@@ -352,6 +445,7 @@ export default function GoalsPage() {
   const handleTypeChange = (t: GoalType) => {
     setFormType(t);
     setFormCatId(0);
+    setFormAccountId(0);
     const defaults: Record<GoalType, string> = {
       net_savings:        "Save each month",
       reduce_spend:       "Limit spending",
@@ -360,6 +454,7 @@ export default function GoalsPage() {
       balance_floor:      "Keep buffer above",
       budget_streak:      "Under-budget streak",
       savings_rate_habit: "Savings rate habit",
+      debt_paydown:       "Pay off debt",
     };
     setFormName(defaults[t]);
     if (STREAK_TYPES.has(t)) setFormMonths("3");
@@ -367,12 +462,14 @@ export default function GoalsPage() {
 
   const addGoal = async () => {
     const amount = parseFloat(formTarget);
-    if (isNaN(amount) || amount <= 0) return;
+    // debt_paydown alone may target $0 (a full payoff) - every other type needs a positive amount.
+    if (isNaN(amount) || amount < 0 || (amount <= 0 && formType !== "debt_paydown")) return;
     setSaving(true);
     const db = await getDb();
-    const catId = (formType === "net_savings" || formType === "savings_target" || formType === "balance_floor" || formType === "savings_rate_habit")
+    const catId = (formType === "net_savings" || formType === "savings_target" || formType === "balance_floor" || formType === "savings_rate_habit" || formType === "debt_paydown")
       ? null
       : formCatId || null;
+    const accountId = formType === "debt_paydown" ? (formAccountId || null) : null;
     // For savings_rate_habit: store rate*100 in target_cents (e.g. 20% -> 2000)
     const targetCents = formType === "savings_rate_habit"
       ? Math.round(amount * 100)   // amount is the % (e.g. 20), *100 = 2000
@@ -380,14 +477,14 @@ export default function GoalsPage() {
     const targetMonths = STREAK_TYPES.has(formType) ? parseInt(formMonths) || 3 : null;
     if (editingId) {
       await db.execute(
-        "UPDATE goals SET name=?, type=?, category_id=?, target_cents=?, target_months=? WHERE id=?",
-        [formName || "Goal", formType, catId, targetCents, targetMonths, editingId]
+        "UPDATE goals SET name=?, type=?, category_id=?, account_id=?, target_cents=?, target_months=? WHERE id=?",
+        [formName || "Goal", formType, catId, accountId, targetCents, targetMonths, editingId]
       );
       setEditingId(null);
     } else {
       await db.execute(
-        "INSERT INTO goals (name, type, category_id, target_cents, target_months, profile_id) VALUES (?,?,?,?,?,?)",
-        [formName || "Goal", formType, catId, targetCents, targetMonths, profileId]
+        "INSERT INTO goals (name, type, category_id, account_id, target_cents, target_months, profile_id) VALUES (?,?,?,?,?,?,?)",
+        [formName || "Goal", formType, catId, accountId, targetCents, targetMonths, profileId]
       );
     }
     setFormTarget("");
@@ -400,6 +497,7 @@ export default function GoalsPage() {
     setFormType(g.type);
     setFormName(g.name);
     setFormCatId(g.category_id ?? 0);
+    setFormAccountId(g.account_id ?? 0);
     setFormTarget((g.target_cents / 100).toString());
     setFormMonths((g.target_months ?? 3).toString());
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -410,6 +508,7 @@ export default function GoalsPage() {
     setFormType("net_savings");
     setFormName("Save each month");
     setFormCatId(0);
+    setFormAccountId(0);
     setFormTarget("");
     setFormMonths("3");
   };
@@ -429,12 +528,14 @@ export default function GoalsPage() {
     (formType === "reduce_spend" || formType === "budget_streak") ? spendCats : [];
 
   const showCatPicker = formType === "reduce_spend" || formType === "budget_streak";
+  const showAccountPicker = formType === "debt_paydown";
   const showMonthsPicker = STREAK_TYPES.has(formType);
   const isRatePct = formType === "savings_rate_habit";
 
   const typeGroups: GoalType[][] = [
     ["net_savings", "reduce_spend", "increase_income"],
-    ["savings_target", "balance_floor", "budget_streak", "savings_rate_habit"],
+    ["savings_target", "balance_floor", "debt_paydown"],
+    ["budget_streak", "savings_rate_habit"],
   ];
 
   return (
@@ -449,11 +550,11 @@ export default function GoalsPage() {
         </div>
         <div className="flex items-center gap-1">
           <button onClick={() => navMonth(-1)} aria-label="Previous month"
-            className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors">�</button>
+            className="p-1.5 border rounded-lg leading-none hover:bg-[hsl(var(--muted))] transition-colors"><ChevronLeft size={16} /></button>
           <input type="month" value={month} onChange={(e) => setMonth(e.target.value)}
             className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]" />
           <button onClick={() => navMonth(1)} aria-label="Next month"
-            className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors">�</button>
+            className="p-1.5 border rounded-lg leading-none hover:bg-[hsl(var(--muted))] transition-colors"><ChevronRight size={16} /></button>
         </div>
       </div>
 
@@ -490,9 +591,18 @@ export default function GoalsPage() {
               <CategoryOptions categories={formCats} />
             </select>
           )}
+          {showAccountPicker && (
+            <select value={formAccountId} onChange={(e) => setFormAccountId(parseInt(e.target.value))}
+              className="border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
+              <option value={0}>All Credit Cards & Loans</option>
+              {debtAccounts.map((a) => (
+                <option key={a.id} value={a.id}>{a.name} ({a.account_type === "credit" ? "Credit Card" : "Loan"})</option>
+              ))}
+            </select>
+          )}
           <div className="flex items-center gap-1">
             {!isRatePct && <span className="text-sm text-[hsl(var(--muted-foreground))]">$</span>}
-            <input type="number" min="1" step={isRatePct ? "1" : "0.01"}
+            <input type="number" min={formType === "debt_paydown" ? "0" : "1"} step={isRatePct ? "1" : "0.01"}
               placeholder={isRatePct ? "Rate %" : "Target"}
               value={formTarget}
               onChange={(e) => setFormTarget(e.target.value)}
@@ -546,11 +656,12 @@ export default function GoalsPage() {
         const isIncome = g.type === "increase_income";
         const isStreak = STREAK_TYPES.has(g.type);
         const isClassic = CLASSIC_TYPES.has(g.type);
+        const isReduceType = isSpend || g.type === "debt_paydown";
         const targetMonths = g.target_months ?? 3;
         const streakCount = g.current_streak;
 
         const barPct = Math.min(100, g.pct);
-        const barColor = isSpend
+        const barColor = isReduceType
           ? (g.on_track ? "hsl(var(--success))" : "hsl(var(--error))")
           : (g.on_track ? "hsl(var(--success))" : g.pct >= 75 ? "hsl(var(--warning))" : "hsl(var(--neutral))");
 
@@ -574,6 +685,17 @@ export default function GoalsPage() {
                   <span className="text-xs px-2 py-0.5 rounded-full text-white"
                     style={{ backgroundColor: g.category_color ?? "hsl(var(--neutral))" }}>
                     {g.category_name}
+                  </span>
+                )}
+                {g.account_name && (
+                  <span className="text-xs px-2 py-0.5 rounded-full text-white"
+                    style={{ backgroundColor: g.account_kind === "credit" ? "#f59e0b" : "#8b5cf6" }}>
+                    {g.account_name}
+                  </span>
+                )}
+                {g.type === "debt_paydown" && !g.account_name && (
+                  <span className="text-xs px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: "hsl(var(--neutral))" }}>
+                    All Credit Cards & Loans
                   </span>
                 )}
               </div>
@@ -662,13 +784,14 @@ export default function GoalsPage() {
                     : isIncome     ? "Earned: "
                     : g.type === "savings_target" ? "Saved: "
                     : g.type === "balance_floor"  ? "Balance: "
+                    : g.type === "debt_paydown"   ? "Owed: "
                     :                              "Net: "}
                     <span className="font-medium text-[hsl(var(--foreground))]">
                       {formatCurrency(g.current_cents)}
                     </span>
                   </span>
                   <span>
-                    {isSpend || g.type === "balance_floor" ? "Target: " : "Goal: "}
+                    {isSpend || g.type === "balance_floor" || g.type === "debt_paydown" ? "Target: " : "Goal: "}
                     <span className="font-medium text-[hsl(var(--foreground))]">
                       {formatCurrency(g.target_cents)}
                     </span>

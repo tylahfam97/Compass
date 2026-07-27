@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { AlertTriangle, CheckCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import { getDb } from "@/lib/db";
 import { formatCurrency } from "@/lib/utils";
 import { pickVariantIndex } from "@/lib/voice";
@@ -352,7 +352,7 @@ export default function BudgetsPage() {
   useEffect(() => { loadBudgets().catch(console.error); }, [loadBudgets]);
 
   useEffect(() => {
-    // Don't clobber a prefill that was just applied � only default-init when truly empty
+    // Don't clobber a prefill that was just applied — only default-init when truly empty
     const hasPrefill = !!(location.state as { prefillBudget?: unknown } | null)?.prefillBudget;
     if (categories.length > 0 && formCatId === 0 && !hasPrefill) {
       setFormCatId(categories[0].id);
@@ -443,7 +443,7 @@ export default function BudgetsPage() {
     const db = await getDb();
     if (b.is_global) {
       await db.execute("UPDATE budgets SET is_global=0, profile_id=? WHERE id=?", [profileId, b.id]);
-      // In global view the budget is no longer global � remove it from the list.
+      // In global view the budget is no longer global — remove it from the list.
       // In profile view just flip the badge; the budget still belongs to this profile.
       if (viewMode === "global") {
         setBudgets((prev) => prev.filter((row) => row.id !== b.id));
@@ -492,7 +492,7 @@ export default function BudgetsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Budgets</h1>
           <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">
-            Soft limits � no penalties, just awareness.
+            Soft limits — no penalties, just awareness.
           </p>
         </div>
 
@@ -531,9 +531,9 @@ export default function BudgetsPage() {
           <button
             onClick={() => navMonth(-1)}
             aria-label="Previous month"
-            className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors"
+            className="p-1.5 border rounded-lg leading-none hover:bg-[hsl(var(--muted))] transition-colors"
           >
-            �
+            <ChevronLeft size={16} />
           </button>
           <input
             type="month"
@@ -544,9 +544,9 @@ export default function BudgetsPage() {
           <button
             onClick={() => navMonth(1)}
             aria-label="Next month"
-            className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors"
+            className="p-1.5 border rounded-lg leading-none hover:bg-[hsl(var(--muted))] transition-colors"
           >
-            �
+            <ChevronRight size={16} />
           </button>
         </div>
 
@@ -558,7 +558,7 @@ export default function BudgetsPage() {
           >
             <p className="text-sm font-semibold" style={{ color: "#b45309" }}>
               {lockedExcluded.length === 1 ? "1 profile is PIN-locked" : `${lockedExcluded.length} profiles are PIN-locked`}
-              {" "}� their transactions are excluded from global totals.
+              {" "}— their transactions are excluded from global totals.
             </p>
             <div className="flex flex-wrap gap-2">
               {lockedExcluded.map((p) => (
@@ -597,7 +597,7 @@ export default function BudgetsPage() {
               <p className="text-sm font-semibold" style={{ color: "var(--gold)" }}>Global view active</p>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">
                 Showing budgets shared across all profiles
-                {profiles.length > 1 ? ` � aggregating ${profiles.length} profiles` : ""}
+                {profiles.length > 1 ? ` — aggregating ${profiles.length} profiles` : ""}
               </p>
             </div>
           </div>

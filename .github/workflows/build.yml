@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   create-compass:
-    runs-on: [self-hosted, windows]
+    runs-on: [self-hosted, windows, server]
 
     defaults:
       run:
@@ -50,6 +50,37 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # This runner is a PERSISTENT self-hosted Windows VM, not an ephemeral GitHub-hosted
+          # one - actions/checkout's default `clean: true` runs `git clean -ffdx` before every
+          # checkout, which deletes src-tauri/target/ and node_modules/ (both gitignored) on
+          # EVERY run. That wipes the SQLCipher/OpenSSL vendored-openssl C build (via nmake,
+          # which doesn't parallelize) and all Rust dependency compilation, forcing a full
+          # from-scratch rebuild every time regardless of runner CPU speed (this is what turned
+          # a normally-incremental build into a 10+ minute one on a slower server CPU).
+          # clean: false skips that wipe - tracked files are still correctly checked out/reset
+          # to the right commit either way, only ignored/untracked build caches now persist.
+          clean: false
+
+      - name: Ensure Rust/cargo is on PATH
+        # On a self-hosted runner installed as a Windows service, the service process (and the
+        # job steps it spawns) does NOT reliably inherit the interactive user's PATH - rustup
+        # only adds %USERPROFILE%\.cargo\bin (or %CARGO_HOME%\bin) to the USER-level PATH, and
+        # Windows services snapshot their environment at service-start time under whatever
+        # account they run as. Symptom: `cargo -V` works fine over RDP, but `npm run tauri
+        # build` fails with "failed to run command cargo metadata ...: program not found".
+        # Appending cargo's bin dir to $GITHUB_PATH here fixes it for every step in this job,
+        # on any self-hosted runner VM, without needing a one-off machine-level PATH edit.
+        shell: powershell
+        run: |
+          $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE ".cargo" }
+          $cargoBin = Join-Path $cargoHome "bin"
+          if (Test-Path $cargoBin) {
+            Write-Host "Adding $cargoBin to PATH for this job"
+            Add-Content -Path $env:GITHUB_PATH -Value $cargoBin
+          } else {
+            Write-Warning "Cargo bin directory not found at $cargoBin - is Rust/rustup installed for this runner's account?"
+          }
 
       - name: Install frontend dependencies
         run: npm install
