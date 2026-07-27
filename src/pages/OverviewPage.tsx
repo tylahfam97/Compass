@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { AreaChart, Area, LineChart, Line, XAxis, ResponsiveContainer, Tooltip } from "recharts";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { getDb, setAccountHiddenFromDashboard } from "@/lib/db";
 import { formatCurrency, formatDate, combineAccountBalances, separateAccountBalances, accountChartColor } from "@/lib/utils";
@@ -254,11 +254,11 @@ export default function OverviewPage() {
           </div>
           <div className="flex items-center gap-1">
             <button onClick={() => navMonth(-1)} aria-label="Previous month"
-              className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors">�</button>
+              className="p-1.5 border rounded-lg leading-none hover:bg-[hsl(var(--muted))] transition-colors"><ChevronLeft size={16} /></button>
             <input type="month" value={month} onChange={(e) => setMonth(e.target.value)}
               className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]" />
             <button onClick={() => navMonth(1)} aria-label="Next month"
-              className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors">�</button>
+              className="p-1.5 border rounded-lg leading-none hover:bg-[hsl(var(--muted))] transition-colors"><ChevronRight size={16} /></button>
           </div>
         </div>
       </div>
@@ -271,7 +271,7 @@ export default function OverviewPage() {
           style={{ border: "1px solid rgba(245,158,11,0.35)", backgroundColor: "rgba(245,158,11,0.07)" }}>
           <p className="text-sm font-semibold" style={{ color: "#b45309" }}>
             {lockedExcluded.length === 1 ? "1 profile is PIN-locked" : `${lockedExcluded.length} profiles are PIN-locked`}
-            {" "}� excluded from combined totals below.
+            {" "}— excluded from combined totals below.
           </p>
           <div className="flex flex-wrap gap-2">
             {lockedExcluded.map((p) => (
@@ -292,7 +292,7 @@ export default function OverviewPage() {
       {!loading && netWorth !== null && (
         <div className="border rounded-2xl p-5 bg-[hsl(var(--muted))]/40">
           <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wide font-medium mb-3">
-            {isGlobalActive ? "Combined � unlocked profiles" : "This profile"}
+            {isGlobalActive ? "Combined — unlocked profiles" : "This profile"}
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
             <div>

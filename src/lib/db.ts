@@ -1021,6 +1021,17 @@ async function runMigrations(db: CompassDb): Promise<void> {
     }
     await db.execute("PRAGMA user_version = 22");
   }
+
+  // ── v23: Debt Paydown goals - track progress toward paying down a specific credit
+  //         card or loan balance to at or below a target amount (optionally $0 for a
+  //         full payoff). Needs a reference to which account the goal applies to. ────────
+  if (version < 23) {
+    assertSafeMigrationIdentifiers("goals", "account_id");
+    if (!(await colExists(db, "goals", "account_id"))) {
+      await db.execute("ALTER TABLE goals ADD COLUMN account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL");
+    }
+    await db.execute("PRAGMA user_version = 23");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────
