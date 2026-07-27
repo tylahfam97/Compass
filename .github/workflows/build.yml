@@ -155,10 +155,29 @@ jobs:
           }
           $pwshPath = $pwshCli.Source
           $wrapperPath = (Resolve-Path "scripts\sign-windows.ps1").Path
-          $signCommand = "`"$pwshPath`" -ExecutionPolicy Bypass -File `"$wrapperPath`" -CliPath `"$cliPath`" -Endpoint `"$($env:AZURE_SIGNING_ENDPOINT)`" -Account `"$($env:AZURE_SIGNING_ACCOUNT)`" -CertProfile `"$($env:AZURE_SIGNING_PROFILE)`" -TargetPath `"%1`""
+
+          # Use the STRUCTURED { cmd, args } form instead of a single command-line string -
+          # Tauri's Windows bundler does not appear to re-split a quoted string into argv the
+          # way a shell would (a plain string here previously caused "os error 123: The
+          # filename, directory name, or volume label syntax is incorrect", i.e. it likely
+          # treated the whole quoted string as one literal path). Passing args as a JSON array
+          # sidesteps quoting entirely - each element becomes exactly one argv entry, no
+          # re-parsing involved.
+          $signCommand = [PSCustomObject]@{
+            cmd  = $pwshPath
+            args = @(
+              "-ExecutionPolicy", "Bypass",
+              "-File", $wrapperPath,
+              "-CliPath", $cliPath,
+              "-Endpoint", $env:AZURE_SIGNING_ENDPOINT,
+              "-Account", $env:AZURE_SIGNING_ACCOUNT,
+              "-CertProfile", $env:AZURE_SIGNING_PROFILE,
+              "-TargetPath", "%1"
+            )
+          }
           $cfg.bundle.windows | Add-Member -NotePropertyName signCommand -NotePropertyValue $signCommand -Force
           $cfg | ConvertTo-Json -Depth 32 | Set-Content src-tauri\tauri.conf.json -NoNewline
-          Write-Host "signCommand configured: $signCommand"
+          Write-Host "signCommand configured: $($signCommand | ConvertTo-Json -Compress)"
 
       - name: Build Tauri application
         env:
