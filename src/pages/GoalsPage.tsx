@@ -206,12 +206,14 @@ export default function GoalsPage() {
           current = r?.v ?? 0;
 
         } else if (g.type === "reduce_spend") {
-          const extra = g.category_id ? " AND category_id=?" : "";
+          const extra = g.category_id ? " AND t.category_id=?" : "";
           const params: unknown[] = g.category_id
             ? [start, end, profileId, g.category_id]
             : [start, end, profileId];
           const [r] = await db.select<{ v: number }[]>(
-            `SELECT COALESCE(SUM(ABS(amount_cents)),0) as v FROM transactions WHERE date>=? AND date<? AND profile_id=? AND amount_cents<0 AND (category_id IS NULL OR category_id NOT IN (20,29))${extra}`,
+            `SELECT COALESCE(MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)),0) as v
+             FROM transactions t JOIN accounts a ON a.id=t.account_id
+             WHERE t.date>=? AND t.date<? AND t.profile_id=? AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))${extra}`,
             params
           );
           current = r?.v ?? 0;

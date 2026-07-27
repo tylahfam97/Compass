@@ -134,9 +134,11 @@ export default function DashboardPage() {
         [start, end, profileId]
       ),
       db.select<{ categoryId: number | null; name: string; color: string; total: number }[]>(
-        `SELECT t.category_id as categoryId, c.name, c.color, SUM(t.amount_cents) as total
+        `SELECT t.category_id as categoryId, c.name, c.color,
+                SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE t.amount_cents END) as total
          FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-         WHERE t.date>=? AND t.date<? AND t.amount_cents<0 AND t.profile_id=?
+         JOIN accounts a ON a.id=t.account_id
+         WHERE t.date>=? AND t.date<? AND t.profile_id=?
            AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
          GROUP BY t.category_id ORDER BY total ASC LIMIT 7`,
         [start, end, profileId]
@@ -184,7 +186,7 @@ export default function DashboardPage() {
     const inc = incRow[0]?.total ?? 0;
     const exp = expRow[0]?.total ?? 0;
     setStats({ income: inc, expenses: exp, net: inc + exp });
-    setCats(catRows.map((r) => ({ ...r, total: Math.abs(r.total) })));
+    setCats(catRows.map((r) => ({ ...r, total: Math.max(0, -r.total) })));
     setRecent(recentRows);
     setMonthTxnCount(monthCountRow[0]?.n ?? 0);
     setTotalTxnCount(totalCountRow[0]?.n ?? 0);

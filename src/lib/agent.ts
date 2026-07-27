@@ -122,12 +122,13 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
             CAST(AVG(monthly_total) AS INTEGER) as avg_monthly,
             COUNT(*) as month_count
      FROM (
-       SELECT category_id, strftime('%Y-%m', date) as month, SUM(ABS(amount_cents)) as monthly_total
-       FROM transactions
-       WHERE profile_id=? AND amount_cents<0
-         AND (category_id IS NULL OR category_id NOT IN (20,29))
-         AND date >= ?
-       GROUP BY category_id, month
+       SELECT tx.category_id, strftime('%Y-%m', tx.date) as month,
+              MAX(0, SUM(CASE WHEN tx.amount_cents>0 AND ac.account_type IN ('credit','loan') THEN 0 ELSE -tx.amount_cents END)) as monthly_total
+       FROM transactions tx JOIN accounts ac ON ac.id=tx.account_id
+       WHERE tx.profile_id=?
+         AND (tx.category_id IS NULL OR tx.category_id NOT IN (20,29))
+         AND tx.date >= ?
+       GROUP BY tx.category_id, month
      ) t
      JOIN categories c ON t.category_id=c.id
      WHERE c.id != 15
@@ -141,10 +142,11 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     category_id: number;
     total: number;
   }[]>(
-    `SELECT category_id, SUM(ABS(amount_cents)) as total
-     FROM transactions WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0
-       AND (category_id IS NULL OR category_id NOT IN (20,29))
-     GROUP BY category_id`,
+    `SELECT t.category_id, MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)) as total
+     FROM transactions t JOIN accounts a ON a.id=t.account_id
+     WHERE t.profile_id=? AND t.date>=? AND t.date<?
+       AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
+     GROUP BY t.category_id`,
     [profileId, thisStart, thisEnd]
   );
   const thisMonthCatMap = new Map(thisMonthCats.map((c) => [c.category_id, c.total]));
@@ -265,9 +267,11 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
        FROM budgets b
        JOIN categories c ON b.category_id=c.id
        JOIN (
-         SELECT category_id, strftime('%Y-%m', date) as month, SUM(ABS(amount_cents)) as spent
-         FROM transactions WHERE profile_id=? AND amount_cents<0
-         GROUP BY category_id, month
+         SELECT tx.category_id, strftime('%Y-%m', tx.date) as month,
+                MAX(0, SUM(CASE WHEN tx.amount_cents>0 AND ac.account_type IN ('credit','loan') THEN 0 ELSE -tx.amount_cents END)) as spent
+         FROM transactions tx JOIN accounts ac ON ac.id=tx.account_id
+         WHERE tx.profile_id=?
+         GROUP BY tx.category_id, month
        ) t ON t.category_id=b.category_id AND t.spent > b.amount_cents
        WHERE b.profile_id=?
        GROUP BY b.id HAVING over_count >= 2`,
@@ -316,9 +320,11 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
        FROM budgets b
        JOIN categories c ON b.category_id=c.id
        JOIN (
-         SELECT category_id, strftime('%Y-%m', date) as month, SUM(ABS(amount_cents)) as spent
-         FROM transactions WHERE profile_id=? AND amount_cents<0
-         GROUP BY category_id, month
+         SELECT tx.category_id, strftime('%Y-%m', tx.date) as month,
+                MAX(0, SUM(CASE WHEN tx.amount_cents>0 AND ac.account_type IN ('credit','loan') THEN 0 ELSE -tx.amount_cents END)) as spent
+         FROM transactions tx JOIN accounts ac ON ac.id=tx.account_id
+         WHERE tx.profile_id=?
+         GROUP BY tx.category_id, month
        ) t ON t.category_id=b.category_id AND t.spent <= b.amount_cents
        WHERE b.profile_id=?
        GROUP BY b.id HAVING under_count >= 3`,
@@ -846,20 +852,24 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     const recentAvgs = await db.select<{ category_id: number; category_name: string; avg_spend: number }[]>(
       `SELECT t.category_id, c.name as category_name,
               CAST(AVG(monthly) AS INTEGER) as avg_spend
-       FROM (SELECT category_id, strftime('%Y-%m',date) as mo, SUM(ABS(amount_cents)) as monthly
-             FROM transactions WHERE profile_id=? AND amount_cents<0 AND date>=?
-               AND (category_id IS NULL OR category_id NOT IN (20,29)) AND category_id != 15
-             GROUP BY category_id, mo) t
+       FROM (SELECT tx.category_id, strftime('%Y-%m',tx.date) as mo,
+                    MAX(0, SUM(CASE WHEN tx.amount_cents>0 AND ac.account_type IN ('credit','loan') THEN 0 ELSE -tx.amount_cents END)) as monthly
+             FROM transactions tx JOIN accounts ac ON ac.id=tx.account_id
+             WHERE tx.profile_id=? AND tx.date>=?
+               AND (tx.category_id IS NULL OR tx.category_id NOT IN (20,29)) AND tx.category_id != 15
+             GROUP BY tx.category_id, mo) t
        JOIN categories c ON t.category_id=c.id
        GROUP BY t.category_id HAVING COUNT(*)>=2`,
       [profileId, recent3Start]
     );
     const olderAvgs = await db.select<{ category_id: number; avg_spend: number }[]>(
       `SELECT category_id, CAST(AVG(monthly) AS INTEGER) as avg_spend
-       FROM (SELECT category_id, strftime('%Y-%m',date) as mo, SUM(ABS(amount_cents)) as monthly
-             FROM transactions WHERE profile_id=? AND amount_cents<0 AND date>=? AND date<?
-               AND (category_id IS NULL OR category_id NOT IN (20,29))
-             GROUP BY category_id, mo) t
+       FROM (SELECT tx.category_id as category_id, strftime('%Y-%m',tx.date) as mo,
+                    MAX(0, SUM(CASE WHEN tx.amount_cents>0 AND ac.account_type IN ('credit','loan') THEN 0 ELSE -tx.amount_cents END)) as monthly
+             FROM transactions tx JOIN accounts ac ON ac.id=tx.account_id
+             WHERE tx.profile_id=? AND tx.date>=? AND tx.date<?
+               AND (tx.category_id IS NULL OR tx.category_id NOT IN (20,29))
+             GROUP BY tx.category_id, mo) t
        GROUP BY category_id HAVING COUNT(*)>=2`,
       [profileId, older3Start, older3End]
     );
@@ -912,10 +922,11 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     if (prevMonth) {
       const [prevStart, prevEnd] = monthBounds(prevMonth);
       const prevCats = await db.select<{ category_id: number; total: number }[]>(
-        `SELECT category_id, SUM(ABS(amount_cents)) as total
-         FROM transactions WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0
-           AND (category_id IS NULL OR category_id NOT IN (20,29))
-         GROUP BY category_id`,
+        `SELECT t.category_id, MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)) as total
+         FROM transactions t JOIN accounts a ON a.id=t.account_id
+         WHERE t.profile_id=? AND t.date>=? AND t.date<?
+           AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
+         GROUP BY t.category_id`,
         [profileId, prevStart, prevEnd]
       );
       const prevMap = new Map(prevCats.map((c) => [c.category_id, c.total]));
@@ -1313,10 +1324,12 @@ export async function getSpendingProfile(profileIds: number[]): Promise<Spending
   const [topCat] = await db.select<{ name: string; avg_spend: number }[]>(
     `SELECT c.name, CAST(AVG(monthly_spend) AS INTEGER) as avg_spend
      FROM (
-       SELECT category_id, SUM(ABS(amount_cents)) as monthly_spend
-       FROM transactions WHERE profile_id IN (${ph}) AND amount_cents<0 AND date>=?
-         AND (category_id IS NULL OR category_id NOT IN (20,29))
-       GROUP BY category_id, strftime('%Y-%m', date)
+       SELECT tx.category_id, strftime('%Y-%m', tx.date) as mo,
+              MAX(0, SUM(CASE WHEN tx.amount_cents>0 AND ac.account_type IN ('credit','loan') THEN 0 ELSE -tx.amount_cents END)) as monthly_spend
+       FROM transactions tx JOIN accounts ac ON ac.id=tx.account_id
+       WHERE tx.profile_id IN (${ph}) AND tx.date>=?
+         AND (tx.category_id IS NULL OR tx.category_id NOT IN (20,29))
+       GROUP BY tx.category_id, mo
      ) t JOIN categories c ON t.category_id=c.id
      WHERE c.id != 15
      GROUP BY t.category_id ORDER BY avg_spend DESC LIMIT 1`,

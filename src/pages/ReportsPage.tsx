@@ -138,18 +138,20 @@ export default function ReportsPage() {
       const [thisMonthCats, prevMonthCats, totals, top, rec, subs, balTrend] = await Promise.all([
         db.select<CatRow[]>(
           `SELECT c.name as category_name, c.color as category_color,
-                  SUM(ABS(t.amount_cents)) as total_cents
+                  MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)) as total_cents
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-           WHERE t.date>=? AND t.date<? AND t.amount_cents<0 AND t.profile_id=?
+           JOIN accounts a ON a.id=t.account_id
+           WHERE t.date>=? AND t.date<? AND t.profile_id=?
              AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
            GROUP BY t.category_id ORDER BY total_cents DESC`,
           [start, end, profileId]
         ),
         db.select<CatRow[]>(
           `SELECT c.name as category_name, c.color as category_color,
-                  SUM(ABS(t.amount_cents)) as total_cents
+                  MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)) as total_cents
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-           WHERE t.date>=? AND t.date<? AND t.amount_cents<0 AND t.profile_id=?
+           JOIN accounts a ON a.id=t.account_id
+           WHERE t.date>=? AND t.date<? AND t.profile_id=?
              AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
            GROUP BY t.category_id ORDER BY total_cents DESC`,
           [prevStart, prevEnd, profileId]
