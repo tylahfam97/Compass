@@ -190,7 +190,16 @@ const KEYRING_USER: &str = "db_encryption_key";
 /// On every successful keyring read the key is also written to the file so
 /// that future keyring losses (Credential Manager reset, update side-effect,
 /// roaming profile sync, etc.) do NOT cause the DB to be abandoned.
-fn load_or_create_key(data_dir: &std::path::Path) -> Result<String, String> {
+///
+/// `db_exists` gates the ONE dangerous branch here: generating a brand-new key. If a database
+/// already exists on disk, a new (necessarily wrong) key would silently orphan it - the
+/// existing DB would look "encrypted with an unknown key" and get renamed away, replaced by an
+/// empty one, with no error shown to the user. So a new key is only ever generated on a
+/// genuinely fresh install (no DB file yet). If a DB exists and no valid key can be found
+/// anywhere after retrying the file read (to rule out a transient lock, e.g. antivirus scanning
+/// mid-read), this returns an error instead of guessing - callers must NOT treat that error as
+/// "proceed unencrypted" for an existing database.
+fn load_or_create_key(data_dir: &std::path::Path, db_exists: bool) -> Result<String, String> {
     let key_file = data_dir.join("compass.key");
 
     let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
@@ -199,28 +208,41 @@ fn load_or_create_key(data_dir: &std::path::Path) -> Result<String, String> {
     match entry.get_password() {
         Ok(key) => {
             // Keyring succeeded — refresh the file backup silently.
-            let _ = std::fs::write(&key_file, &key);
+            write_key_file_atomic(&key_file, &key);
             Ok(key)
         }
         Err(keyring::Error::NoEntry) => {
             // Keyring has no entry. Check the file backup before creating a new key,
             // because a new key would make the existing DB permanently unreadable.
-            if let Some(key) = read_key_file(&key_file) {
+            if let Some(key) = read_key_file_with_retry(&key_file) {
                 eprintln!("[compass] Keyring entry missing — key restored from backup file.");
-                let _ = entry.set_password(&key); // re-populate keyring
+                if let Err(e) = entry.set_password(&key) {
+                    eprintln!("[compass] Failed to re-populate keyring after restoring from backup: {e}");
+                }
                 return Ok(key);
             }
-            // Genuinely first launch: generate and persist a new key.
+            if db_exists {
+                return Err(format!(
+                    "an existing database was found at {} but no valid encryption key could be \
+                     located in the OS keyring or in the compass.key backup file after retrying - \
+                     refusing to generate a new key, which would make that database permanently \
+                     unreadable. The database has NOT been modified.",
+                    data_dir.display()
+                ));
+            }
+            // Genuinely first launch (no DB file yet): generate and persist a new key.
             let hex_key = generate_key();
-            let _ = entry.set_password(&hex_key);
-            let _ = std::fs::write(&key_file, &hex_key);
+            if let Err(e) = entry.set_password(&hex_key) {
+                eprintln!("[compass] Failed to save new key to keyring (will rely on the file backup instead): {e}");
+            }
+            write_key_file_atomic(&key_file, &hex_key);
             Ok(hex_key)
         }
         Err(e) => {
             // Keyring returned an unexpected error. Fall back to file rather than
             // treating it as "no entry" and generating a new (wrong) key.
             eprintln!("[compass] Keyring read error ({e}) — falling back to key file.");
-            if let Some(key) = read_key_file(&key_file) {
+            if let Some(key) = read_key_file_with_retry(&key_file) {
                 return Ok(key);
             }
             Err(format!("keyring read: {e}"))
@@ -232,6 +254,39 @@ fn generate_key() -> String {
     let mut bytes = [0u8; 32];
     rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut bytes);
     hex::encode(bytes)
+}
+
+/// Writes the key file via a temp-file-then-rename so a reader can never observe a partially
+/// written (torn) file - a plain `fs::write` truncates-then-writes in place, so a read that
+/// races with it (another process, an antivirus scan, a crash mid-write) could see a truncated
+/// file that fails `read_key_file`'s sanity check, which previously looked identical to "the key
+/// file doesn't exist" and could trigger generating a brand-new (wrong) key. `rename` on the
+/// same directory is atomic on both Windows and Unix.
+fn write_key_file_atomic(path: &std::path::Path, value: &str) {
+    let tmp_path = path.with_extension("key.tmp");
+    if let Err(e) = std::fs::write(&tmp_path, value) {
+        eprintln!("[compass] Failed to write key file backup: {e}");
+        return;
+    }
+    if let Err(e) = std::fs::rename(&tmp_path, path) {
+        eprintln!("[compass] Failed to finalize key file backup: {e}");
+    }
+}
+
+/// Retries a few times with a short delay before giving up - defends against a purely
+/// transient read failure (e.g. antivirus briefly holding the file, a race with another
+/// process mid-write) being mistaken for "the backup file is genuinely missing/invalid", which
+/// is the one mistake that can lead to silently generating a new key over an existing database.
+fn read_key_file_with_retry(path: &std::path::Path) -> Option<String> {
+    for attempt in 0..5 {
+        if let Some(key) = read_key_file(path) {
+            return Some(key);
+        }
+        if attempt < 4 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+    None
 }
 
 fn read_key_file(path: &std::path::Path) -> Option<String> {
@@ -306,10 +361,23 @@ fn open_db(app: &AppHandle) -> Result<Connection, String> {
     std::fs::create_dir_all(&data_dir)
         .map_err(|e| format!("create data dir: {e}"))?;
     let db_path = data_dir.join("compass.db");
+    let db_exists = db_path.exists();
 
-    let hex_key = match load_or_create_key(&data_dir) {
+    let hex_key = match load_or_create_key(&data_dir, db_exists) {
         Ok(k) => k,
         Err(e) => {
+            if db_exists {
+                // An existing, presumably-encrypted database is on disk and we couldn't find a
+                // key for it - do NOT open it unencrypted (that connection would just fail on
+                // first real query anyway) and absolutely do not touch/replace the file. Fail
+                // loudly instead, so this surfaces as a clear startup error rather than a
+                // silently "empty" app.
+                return Err(format!(
+                    "could not load the database encryption key ({e}). Your existing database \
+                     at {} was NOT modified or deleted."
+                    , db_path.display()
+                ));
+            }
             eprintln!("[compass] WARNING: keyring unavailable ({e}), DB will be unencrypted");
             return Connection::open(&db_path).map_err(|e| e.to_string());
         }
@@ -332,15 +400,19 @@ fn open_db(app: &AppHandle) -> Result<Connection, String> {
                 eprintln!("[compass] Plaintext DB detected — migrating to encrypted...");
                 migrate_to_encrypted(&db_path, &hex_key)
             } else {
-                // Already encrypted with an unknown key (e.g. keyring was reset).
-                // Preserve the old file and start fresh.
-                eprintln!("[compass] WARNING: DB is encrypted with an unknown key — \
-                           renaming to .db.lost and creating a new database.");
-                let lost_path = db_path.with_extension("db.lost");
-                let _ = std::fs::rename(&db_path, &lost_path);
-                let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
-                apply_key(&conn, &hex_key).map_err(|e| e.to_string())?;
-                Ok(conn)
+                // Already encrypted with an unknown key (e.g. keyring was reset). Deliberately
+                // do NOT rename/replace the file here - leave it exactly where it is so that if
+                // the user (or a future in-app recovery flow) manages to locate the correct key,
+                // simply relaunching works immediately with no manual file surgery required.
+                // Fail loudly instead of silently swapping in an empty database - a user whose
+                // real data suddenly "disappeared" with no error is a much worse outcome than an
+                // explicit startup error saying what happened and that nothing was touched.
+                Err(format!(
+                    "the database at {} is encrypted with a different key than the one just \
+                     loaded from the keyring/backup file. The file has NOT been modified, \
+                     renamed, or deleted.",
+                    db_path.display()
+                ))
             }
         }
         Err(e) => Err(format!("db key error: {e}")),
