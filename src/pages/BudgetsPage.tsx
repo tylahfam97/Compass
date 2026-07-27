@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { AlertTriangle, CheckCircle } from "lucide-react";
 import { getDb } from "@/lib/db";
 import { formatCurrency } from "@/lib/utils";
+import { pickVariantIndex } from "@/lib/voice";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
@@ -75,6 +77,49 @@ function daysElapsed(ym: string): number {
   const isCurrentMonth = now.getFullYear() === y && now.getMonth() + 1 === m;
   if (!isCurrentMonth) return daysInMonth(ym);
   return now.getDate();
+}
+
+/** A short, human narrative sentence for one budget's current standing - the "companion voice"
+ *  layer applied to budgets (see voice.ts), which otherwise only shows a progress bar and raw
+ *  numbers. Picks between a couple of phrasings deterministically (`seedKey`) so it doesn't
+ *  read identically for every budget, but stays stable within a single day. */
+function budgetNarrative(params: {
+  seedKey: string;
+  over: boolean;
+  effectiveLimit: number;
+  displayCents: number;
+  remaining: number;
+  dailyRemaining: number;
+  projectedOver: boolean;
+  projectedOverBy: number;
+}): { text: string; tone: "warning" | "success" | "info" } {
+  const { seedKey, over, effectiveLimit, displayCents, remaining, dailyRemaining, projectedOver, projectedOverBy } = params;
+  const daysLeftText = remaining > 0 ? `${remaining} day${remaining !== 1 ? "s" : ""} left` : "the period ends today";
+
+  if (over) {
+    const overBy = displayCents - effectiveLimit;
+    const variants = [
+      `You're ${formatCurrency(overBy)} over, with ${daysLeftText} - might be worth pausing new purchases here.`,
+      `Over by ${formatCurrency(overBy)} with ${daysLeftText} to go.`,
+    ];
+    return { text: variants[pickVariantIndex(seedKey, variants.length)], tone: "warning" };
+  }
+
+  const cushion = effectiveLimit - displayCents;
+  if (remaining > 0 && projectedOver) {
+    return {
+      text: `You're under for now, but on pace to go ${formatCurrency(projectedOverBy)} over with ${daysLeftText} - a good spot to ease off.`,
+      tone: "warning",
+    };
+  }
+  if (remaining > 0) {
+    const variants = [
+      `You're ${formatCurrency(cushion)} under, with ${daysLeftText} - ${formatCurrency(Math.max(0, dailyRemaining))}/day of room left.`,
+      `${formatCurrency(cushion)} of breathing room left, with ${daysLeftText}.`,
+    ];
+    return { text: variants[pickVariantIndex(seedKey, variants.length)], tone: "success" };
+  }
+  return { text: `You came in ${formatCurrency(cushion)} under this period.`, tone: "success" };
 }
 
 /** Walks month-by-month from a rollover-enabled budget's creation month up to (but excluding)
@@ -871,21 +916,28 @@ export default function BudgetsPage() {
                   </span>
                 </div>
 
-                {/* On-pace projection */}
-                {!isIncome && elapsed > 0 && projectedEnd > 0 && (
-                  <p
-                    className="text-xs mt-2"
-                    style={{
-                      color: projectedOver
-                        ? over ? "hsl(var(--error))" : "hsl(var(--warning))"
-                        : "hsl(var(--muted-foreground))",
-                      fontWeight: projectedOver ? 500 : 400,
-                    }}
-                  >
-                    On pace for {formatCurrency(projectedEnd)} by month-end
-                    {projectedOver && !over && " � approaching limit"}
-                  </p>
-                )}
+                {/* Narrative callout - the "companion voice" pass over what would otherwise be
+                    just a progress bar and raw numbers (see budgetNarrative above). */}
+                {!isIncome && elapsed > 0 && effectiveLimit > 0 && (() => {
+                  const { text, tone } = budgetNarrative({
+                    seedKey: `${b.id}:${month}:${elapsed}`,
+                    over,
+                    effectiveLimit,
+                    displayCents,
+                    remaining,
+                    dailyRemaining,
+                    projectedOver,
+                    projectedOverBy,
+                  });
+                  const ToneIcon = tone === "warning" ? AlertTriangle : CheckCircle;
+                  const toneColor = tone === "warning" ? "hsl(var(--warning))" : "hsl(var(--success))";
+                  return (
+                    <p className="text-xs mt-2 flex items-start gap-1.5" style={{ color: toneColor }}>
+                      <ToneIcon size={12} className="shrink-0 mt-0.5" />
+                      <span>{text}</span>
+                    </p>
+                  );
+                })()}
               </div>
 
               {/* Footer: daily remaining + weekly bar */}

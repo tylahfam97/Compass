@@ -189,7 +189,18 @@ Each spotlight card includes a forward-looking **“↗ potential” callout** c
 
 **Type-specific icons** — Each insight type has a distinct icon so you can scan at a glance: `Target` for budgets, `%` for rate insights, trend arrows for directional changes, `RefreshCw` for subscriptions, `Calendar` for timing alerts, `Shield` for account safety.
 
-**20+ insight types** including: budget pace, unusual spend spikes, savings rate, overspend streaks, under-budget streaks, ghost subscriptions, redundant spending, top merchants, food delivery %, subscription inventory, paycheck prediction, overdraft alerts, category creep, year-end savings projection, most-improved category, weekend spending pattern, spending velocity, emergency fund runway, bill due soon, and expense ratio drift.
+**30+ insight types** including: budget pace, unusual spend spikes, savings rate, overspend streaks, under-budget streaks, ghost subscriptions, redundant spending, top merchants, food delivery %, subscription inventory, paycheck prediction, overdraft alerts, category creep, year-end savings projection, most-improved category, weekend spending pattern, spending velocity, emergency fund runway, bill due soon, expense ratio drift, credit card & loan debt tracking, net worth trend, and investment performance.
+
+Insight wording also varies over time and references your recent history (e.g. "up from $1,200 last month") instead of repeating the exact same sentence every time the same insight fires.
+
+### 💳 Debt Payoff Dashboard
+
+For any loan or credit card with a balance, Compass builds a full payoff plan instead of just tracking the number. Rank every debt by **Avalanche** (highest interest rate first — saves the most money), **Snowball** (smallest balance first — the fastest visible win), or **Cash-flow First** (highest minimum payment first — frees up monthly cash soonest), then click any account to open its interactive plan:
+
+- **Live redirect slider** — toggle which discretionary categories (Entertainment, Shopping, Subscriptions, and more) to redirect toward debt and drag a slider to see your payoff date, total interest, and monthly cushion recompute instantly — no more picking between three fixed presets
+- **Payoff timeline** — a chart showing each account hitting $0 in sequence under your current plan
+- **Quick-win callout** — a plain-language comparison of avalanche vs. snowball for your specific debts, so you can weigh "cheapest" against "fastest visible progress" for yourself
+- **Progress badges** — "X% paid off since you started tracking this" for any account with enough history, plus 25/50/75% milestone celebrations on the way to $0
 
 ### 🔍 Transactions
 
@@ -252,7 +263,7 @@ Compass stores two files in your OS user profile - the exact folder depends on p
 
 | File | What it is |
 |---|---|
-| `%APPDATA%\com.compass.app\com.compass.app.db` (Windows) or `~/Library/Application Support/com.compass.app/com.compass.app.db` (macOS) | Encrypted SQLite database (all your transactions, budgets, goals, and categories) |
+| `%APPDATA%\com.compass.app\compass.db` (Windows) or `~/Library/Application Support/com.compass.app/compass.db` (macOS) | Encrypted SQLite database (all your transactions, budgets, goals, and categories) |
 | `%APPDATA%\com.compass.app\compass.key` (Windows) or `~/Library/Application Support/com.compass.app/compass.key` (macOS) | Backup copy of the database encryption key |
 
 Both files are accessible only to your OS user account.
@@ -280,7 +291,7 @@ No. There is no telemetry SDK, no analytics library, no error reporting service.
 
 To make a complete portable backup, copy **both** files from the app's data folder (`%APPDATA%\com.compass.app\` on Windows, `~/Library/Application Support/com.compass.app/` on macOS):
 
-- `com.compass.app.db` — the encrypted database
+- `compass.db` — the encrypted database
 - `compass.key` — the encryption key needed to open it
 
 Keep them together. Restoring only the `.db` file without the matching key file on a machine where the OS credential store no longer has the entry will result in an unreadable database. You can also export all transactions as CSV from the Transactions page (toggle **All time** → **↓ Export CSV**) for a plaintext backup that works anywhere.
@@ -319,10 +330,10 @@ Download the latest installer from the [Releases page](../../releases):
 ### Silent / Automated Installation
 ```
 # NSIS EXE — completely silent
-Compass_0.1.0_x64-setup.exe /S
+Compass_0.9.0_x64-setup.exe /S
 
 # MSI — silent, no reboot prompt
-msiexec /i Compass_0.1.0_x64_en-US.msi /quiet /norestart
+msiexec /i Compass_0.9.0_x64_en-US.msi /quiet /norestart
 ```
 
 ---
@@ -380,7 +391,6 @@ Being transparent about what Compass does not do helps you decide if it's the ri
 | **No mobile app** | Desktop only |
 | **Single currency** | Multi-currency not supported |
 | **No shared accounts** | No collaborative or family access features |
-| **No investment tracking** | Stocks, 401k, brokerage accounts not supported |
 | **Manual cash entries** | Cash transactions must be added individually |
 | **No scheduled transactions** | Recurring bills are tracked (ghost subscriptions), not scheduled |
 
@@ -412,7 +422,7 @@ Compass is focused on one thing: making it easy to understand your personal fina
 Statement import · Import history + undo · Auto-categorization · Edit/add/delete transactions · CSV export · Spending trends · Budgets with on-pace projection · Goals · Reports with custom date ranges · Insights · Ghost subscriptions · Running balance · All-accounts overview · Smart categorization rules · In-app auto-updates · Demo mode · Batch import · Collapsible sidebar · Profile switcher on launch · Investment portfolio tracking with net worth toggle
 
 ### ✅ Phase 2 — AI Insights *(complete)*
-AI agent for natural-language questions about your data · Automatic insight generation (budget gaps, unusual spending, savings rate, overspend streaks, low balance alerts) · Categorization rules engine with priority ordering · Debt Payoff plan with Avalanche/Snowball/Cash-flow ranking and three payoff scenarios (Stay the Course, Balanced Cushion, Most Aggressive) · Budget rollover · Investment allocation & category spending donut charts · Milestone celebrations
+AI agent for natural-language questions about your data · Automatic insight generation (budget gaps, unusual spending, savings rate, overspend streaks, low balance alerts) with varied, history-aware phrasing · Categorization rules engine with priority ordering · Interactive Debt Payoff Dashboard with Avalanche/Snowball/Cash-flow ranking, a live redirect slider, payoff timeline, and quick-win snowball/avalanche comparisons · Budget rollover · Investment allocation & category spending donut charts · Milestone celebrations, including partial debt-payoff progress
 
 ### 🔜 Phase 3 — Deeper Financial Clarity *(planned)*
 The goal: help you act on your data, not just see it.

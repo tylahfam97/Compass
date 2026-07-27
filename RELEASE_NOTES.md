@@ -2,72 +2,39 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
-## Compass 0.8.9 — Budget Rollover, Portfolio & Category Charts, Milestone Celebrations 🎉
+## Compass 0.9.0 — Interactive Debt Payoff & a Smarter Companion Voice 🎯
 
-A polish-and-features release: budgets can now carry unspent money into next month, two new
-donut charts make portfolio and spending composition easier to read at a glance, and Compass
-now throws a little confetti when you hit a real financial milestone. Plus a raft of bug fixes,
-missing-feature gaps closed, and an app-wide accessibility/consistency pass.
+A feature-and-hardening release: the Debt Payoff Dashboard goes from three fixed scenarios to a
+live, interactive simulator, insights get varied phrasing instead of repeating the same static
+sentence every time, and a real database-encryption reliability issue on Windows gets fixed and
+hardened against ever silently recurring.
 
-### New: Budget Rollover
-Monthly budgets can now opt in to rolling over unspent money into the next month, envelope-
-budgeting style. Enable it from the "Add Budget" form (or toggle it on an existing budget with
-the new "↻ Rollover" button), and any leftover under your limit carries forward as a visible
-"+$X rolled over" badge, automatically raising that month's effective limit. Overspending never
-creates a carried-forward debt — it simply resets that month's rollover to zero.
+### New: Interactive Debt Payoff Simulator
+The Debt Payoff plan no longer shows three fixed scenarios (Stay the Course / Balanced Cushion /
+Most Aggressive). Toggle exactly which discretionary categories (Entertainment, Shopping,
+Subscriptions, and more) you want to redirect toward debt, then drag a single slider — your
+payoff date, total interest, and monthly cushion recompute instantly. A new payoff timeline
+chart shows each account reaching $0 in sequence, and a "quick win" callout compares the
+avalanche (cheapest) vs. snowball (fastest visible progress) approach for your specific debts.
 
-### New: Investment Allocation & Category Spending Donut Charts
-The Investments page now shows a portfolio allocation donut (Stocks/ETFs/Mutual Funds/Cash/
-Other) with a percentage legend, replacing the old plain-text breakdown. The Reports page's
-"Spending by Category" section gets the same treatment — a donut chart (top categories plus an
-"Other" slice) sits next to the existing month-over-month table, so you can see where your
-money went at a glance instead of only scanning numbers.
+### New: Debt Payoff Progress Badges & Milestones
+Any loan or credit card with enough balance history now shows "X% paid off since you started
+tracking this" directly in its payoff plan. Milestone celebrations extend beyond "fully paid
+off" to 25%/50%/75% partial progress on the way there.
 
-### New: Milestone Celebrations 🎉
-Compass now notices a handful of real milestones — your net worth going positive for the first
-time, a loan or credit card balance hitting $0, or a savings goal reaching its target — and
-celebrates with a small gold confetti burst and a banner. Each milestone only celebrates once.
+### New: A Little More Personality in Insights
+Insight text now varies its phrasing and references your prior period ("up from $1,200 last
+month") instead of showing the exact same sentence every time the same insight fires. Budgets
+and Trends now also get short narrative callouts — e.g. "$40 under budget with 6 days left" —
+instead of only charts and raw numbers.
 
-### New: Budget & Goal Editing
-Budgets and Goals can now both be edited in place instead of only delete-and-recreate. Click
-"Edit" on any budget or goal card to update its category, amount/target, period/timeframe, and
-(for budgets) rollover setting.
+### Fixed: Database Encryption Key Reliability on Windows
+The database encryption key wasn't persisting to Windows Credential Manager / macOS Keychain —
+it silently relied on a backup file every single launch instead, invisibly but safely. This is
+now fixed so the key persists through the OS's native secure store as originally intended.
 
-### New: Direct Transaction Delete
-Transactions can now be deleted straight from the table row (hover to reveal a delete icon,
-with an inline confirm step) instead of requiring you to open the Edit modal first.
-
-### Improved: Delete Confirmations Everywhere
-Deleting a Budget or a Goal now requires a two-step "Delete? / Cancel" confirmation instead of
-removing it immediately on the first click — matching the safer pattern already used elsewhere.
-
-### Improved: Keyboard Accessibility
-Hover-only actions (budget scope/rollover toggles, delete buttons, insight dismiss buttons) are
-now also reachable via keyboard Tab/focus, not just mouse hover.
-
-### Improved: Consistent Colors & Month Labels
-Financial figures (gains/losses, income/expenses) now consistently use the app's success/error
-color tokens instead of a mix of hardcoded colors, and chart axes/tooltips across Trends,
-Reports, and the Agent tab now show friendly month labels ("Jul '26") instead of raw "2026-07"
-strings or bare numbers.
-
-### Improved: Reduced Redundancy on Overview
-Removed a per-profile mini In/Out/Net grid on the Overview page that exactly duplicated the
-page's own top summary banner.
-
-### Fixed: Dashboard/Account Modal Crash on Hover
-Hovering or clicking certain charts (an account's balance history, Dashboard's checking/credit/
-loan sparklines, Overview's profile-card sparklines, the Agent tab's Net Worth chart) could
-throw an error and leave the page stuck showing "Something went wrong" until manually retried.
-Root cause was a chart tooltip formatting a value that Recharts hadn't actually attached a date
-to — now fixed everywhere it occurred.
-
-### Fixed: Error Screens No Longer Follow You Between Pages
-Previously, a one-time rendering error on any page could leave every other page you navigated
-to afterward stuck on the same error screen until a manual retry. Each page now gets its own
-fresh error boundary.
-
-### Fixed: Net Worth Chart Click & Month Display
-Clicking a point on the Agent tab's Net Worth chart now correctly opens that month's Liquid/
-Investments/Debt/Net Worth breakdown (it previously did nothing), and the Savings Rate
-sparkline's tick labels now show real month names instead of raw digits.
+### Hardened: Encryption Key Loading Never Silently Replaces Your Data
+As a defense-in-depth measure alongside the fix above, the app now refuses to generate a new
+encryption key whenever an existing database is present on disk. If a valid key genuinely can't
+be found, it fails with a clear error and leaves your database completely untouched, rather than
+ever silently creating an empty replacement.

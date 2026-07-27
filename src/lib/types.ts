@@ -237,11 +237,29 @@ export interface DebtPayoffCategoryBreakdown {
   avgMonthlyCents: number;
 }
 
-/** One of the three payoff strategies shown side-by-side in the Debt Payoff modal. */
-export interface DebtPayoffScenario {
-  key: "minimum" | "balanced" | "aggressive";
-  label: string;
-  /** Extra monthly cents redirected toward debt on top of minimum payments. */
+/** One resolved debt, normalized to cents/fractional-monthly-rate, ready for the
+ *  month-by-month payoff simulation. Returned as part of `DebtPayoffPlan` so the Debt Payoff
+ *  modal can re-run `simulateCustomDebtPayoff` locally (e.g. on every slider tick or category
+ *  toggle) without a DB round-trip. */
+export interface DebtPayoffSimDebt {
+  id: number;
+  balanceCents: number;
+  /** Fractional monthly interest rate (annual bps already converted), e.g. 0.015 for 1.5%/mo. */
+  monthlyRate: number;
+  minPaymentCents: number;
+}
+
+/** One debt's projected payoff month under a given scenario - feeds the payoff timeline
+ *  visualization (each debt reaching $0 in sequence). */
+export interface DebtPayoffDebtMonths {
+  id: number;
+  monthsToPayoff: number | null;
+}
+
+/** Result of simulating one payoff scenario - either the fixed "Stay the Course" baseline
+ *  (extraMonthlyCents=0) or a live, user-adjusted scenario driven by the Debt Payoff modal's
+ *  slider + category toggles. */
+export interface DebtPayoffCustomResult {
   extraMonthlyCents: number;
   /** Months until every debt in the plan reaches $0, or null if minimum payments don't
    *  even cover interest at the current pace (would never pay off on its own). */
@@ -250,8 +268,8 @@ export interface DebtPayoffScenario {
   payoffDate: string | null;
   totalInterestCents: number;
   totalPaidCents: number;
-  /** Discretionary money left over each month under this scenario (not redirected to debt). */
-  cushionCents: number;
+  /** Per-debt month-to-payoff under this scenario, for the payoff timeline visualization. */
+  perDebtMonths: DebtPayoffDebtMonths[];
 }
 
 export interface DebtPayoffPlan {
@@ -262,7 +280,11 @@ export interface DebtPayoffPlan {
   discretionaryBreakdown: DebtPayoffCategoryBreakdown[];
   discretionaryTotalCents: number;
   monthsOfHistory: number;
-  scenarios: DebtPayoffScenario[];
+  /** Resolved simulation inputs - see `DebtPayoffSimDebt`. */
+  simDebts: DebtPayoffSimDebt[];
+  /** "Stay the course" (minimum payments only) scenario - the fixed reference point every
+   *  custom/live scenario is compared against. */
+  baseline: DebtPayoffCustomResult;
 }
 
 /** A recurring charge (subscription/bill) detected by day-of-month or "Nth weekday of month"
