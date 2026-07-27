@@ -74,6 +74,28 @@ jobs:
           # to the right commit either way, only ignored/untracked build caches now persist.
           clean: false
 
+      - name: Clean stale installer bundle output
+        # clean:false above (deliberately) leaves src-tauri/target/ alone so Rust/OpenSSL/
+        # SQLCipher compilation stays incremental. But that also means old installer files
+        # from a PREVIOUS version never get deleted from
+        # src-tauri\target\release\bundle\{msi,nsis}\ - tauri-bundler only ever ADDS the new
+        # version's Compass_<version>_*.exe/.msi there, it doesn't remove prior ones. When two
+        # versions' installers coexist, publish-release.ps1's
+        # `Get-ChildItem *.msi | Select-Object -First 1` (no sort) enumerates alphabetically,
+        # so an OLDER version (e.g. 0.9.2) can sort before and be picked/uploaded over a NEWER
+        # one (0.9.3) even though the git tag/latest.json correctly say 0.9.3 - the published
+        # exe/msi/nsis.zip silently mismatch the advertised version. That's exactly what
+        # causes an infinite auto-update loop (users download an "update" whose actual code is
+        # unchanged, so the version served by latest.json is still "newer" on the next check).
+        # Deleting just the bundle output (not all of target/) keeps compile caches while
+        # guaranteeing only the current build's installers exist to be uploaded.
+        shell: powershell
+        run: |
+          if (Test-Path "src-tauri\target\release\bundle") {
+            Write-Host "Removing stale src-tauri\target\release\bundle\ output from a previous build"
+            Remove-Item -Recurse -Force "src-tauri\target\release\bundle"
+          }
+
       - name: Ensure Rust/cargo is on PATH
         # On a self-hosted runner installed as a Windows service, the service process (and the
         # job steps it spawns) does NOT reliably inherit the interactive user's PATH - rustup

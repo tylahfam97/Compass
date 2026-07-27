@@ -10,7 +10,8 @@ if (-not $env:COMPASS_SIGNING_KEY) { Write-Warning "No signing key - skipping"; 
 $existing = Get-ChildItem src-tauri\target\release\bundle\nsis\*.nsis.zip -ErrorAction SilentlyContinue
 if ($existing) { Write-Host "Update bundle already exists, skipping manual creation"; exit 0 }
 
-$nsisExe = Get-ChildItem src-tauri\target\release\bundle\nsis\*.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+$nsisExe = Get-ChildItem src-tauri\target\release\bundle\nsis\*.exe -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if (-not $nsisExe) { Write-Warning "No NSIS exe found - skipping"; exit 0 }
 
 $zipPath = $nsisExe.FullName -replace '\.exe$', '.nsis.zip'

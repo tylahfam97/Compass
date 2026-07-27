@@ -108,8 +108,10 @@ $uploadHeaders = @{
 }
 $uploadBase = "https://uploads.github.com/repos/" + $repo + "/releases/" + $releaseId + "/assets"
 
-# Upload MSI
-$msi = Get-ChildItem "src-tauri\target\release\bundle\msi\*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
+# Upload MSI (sorted newest-first as defense-in-depth - the build.yml cleanup step should
+# already guarantee only one version's artifacts exist, but never silently pick a stale file)
+$msi = Get-ChildItem "src-tauri\target\release\bundle\msi\*.msi" -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if ($msi) {
     $msiBytes = [IO.File]::ReadAllBytes($msi.FullName)
     Invoke-RestMethod -Uri ($uploadBase + "?name=" + $msi.Name) -Headers $uploadHeaders -Method Post -Body $msiBytes | Out-Null
@@ -118,8 +120,9 @@ if ($msi) {
     Write-Warning "No MSI found in bundle output"
 }
 
-# Upload EXE (NSIS)
-$exe = Get-ChildItem "src-tauri\target\release\bundle\nsis\*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+# Upload EXE (NSIS) - sorted newest-first, see MSI comment above
+$exe = Get-ChildItem "src-tauri\target\release\bundle\nsis\*.exe" -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if ($exe) {
     $exeBytes = [IO.File]::ReadAllBytes($exe.FullName)
     Invoke-RestMethod -Uri ($uploadBase + "?name=" + $exe.Name) -Headers $uploadHeaders -Method Post -Body $exeBytes | Out-Null
@@ -131,7 +134,8 @@ if ($exe) {
 # Upload NSIS zip (used by the in-app auto-updater) + generate latest.json
 Write-Host "NSIS bundle contents:"
 Get-ChildItem "src-tauri\target\release\bundle\nsis\" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.Name)  ($([math]::Round($_.Length/1KB))KB)" }
-$nsisZip = Get-ChildItem "src-tauri\target\release\bundle\nsis\*.nsis.zip" -ErrorAction SilentlyContinue | Select-Object -First 1
+$nsisZip = Get-ChildItem "src-tauri\target\release\bundle\nsis\*.nsis.zip" -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
 $nsisSig = if ($nsisZip) { Get-Item ($nsisZip.FullName + ".sig") -ErrorAction SilentlyContinue } else { $null }
 
 if ($nsisZip -and $nsisSig) {
