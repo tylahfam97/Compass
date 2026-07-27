@@ -141,8 +141,21 @@ jobs:
           # succeed while the signing operation itself still fails). The wrapper always exits
           # 0 so a not-yet-active signing profile falls back to an unsigned build instead of
           # failing the whole workflow - see that script for details.
+          #
+          # Tauri's bundler spawns signCommand directly (not through a shell), splitting on
+          # whitespace to find the program to run - it does NOT fall back to a PATH search the
+          # way a normal shell invocation would in every runner/service context. Just like
+          # artifact-signing-cli above, resolve powershell.exe's fully-qualified path instead of
+          # relying on the bare "powershell" name - this is what "failed to run powershell"
+          # meant (Tauri couldn't spawn the bare name), the same class of issue as before.
+          $pwshCli = Get-Command powershell.exe -ErrorAction SilentlyContinue
+          if (-not $pwshCli) {
+            Write-Warning "powershell.exe could not be resolved on this runner - leaving the build unsigned rather than failing it."
+            exit 0
+          }
+          $pwshPath = $pwshCli.Source
           $wrapperPath = (Resolve-Path "scripts\sign-windows.ps1").Path
-          $signCommand = "powershell -ExecutionPolicy Bypass -File `"$wrapperPath`" -CliPath `"$cliPath`" -Endpoint `"$($env:AZURE_SIGNING_ENDPOINT)`" -Account `"$($env:AZURE_SIGNING_ACCOUNT)`" -CertProfile `"$($env:AZURE_SIGNING_PROFILE)`" -TargetPath `"%1`""
+          $signCommand = "`"$pwshPath`" -ExecutionPolicy Bypass -File `"$wrapperPath`" -CliPath `"$cliPath`" -Endpoint `"$($env:AZURE_SIGNING_ENDPOINT)`" -Account `"$($env:AZURE_SIGNING_ACCOUNT)`" -CertProfile `"$($env:AZURE_SIGNING_PROFILE)`" -TargetPath `"%1`""
           $cfg.bundle.windows | Add-Member -NotePropertyName signCommand -NotePropertyValue $signCommand -Force
           $cfg | ConvertTo-Json -Depth 32 | Set-Content src-tauri\tauri.conf.json -NoNewline
           Write-Host "signCommand configured: $signCommand"
