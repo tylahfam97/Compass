@@ -137,6 +137,9 @@ export default function TransactionsPage() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [addingTxn, setAddingTxn] = useState(false);
   const [viewTxn, setViewTxn] = useState<Transaction | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
+  const [bulkRecatOpen, setBulkRecatOpen] = useState(false);
   const categories = useCategoryStore((s) => s.categories);
   const activeProfile = useProfileStore((s) => s.activeProfile);
   const profileId = activeProfile?.id ?? 1;
@@ -214,6 +217,7 @@ export default function TransactionsPage() {
        LIMIT ${allTime ? ALL_TIME_LIMIT + 1 : MAX_ROWS + 1}`,
       params
     );
+    setSelectedIds(new Set());
     setRows(data);
     setLoading(false);
   }, [month, allTime, search, profileId, filterCategory, filterType, filterAmountMin, filterAmountMax, filterAccount, sortCol, sortDir]);
@@ -226,6 +230,45 @@ export default function TransactionsPage() {
     const db = await getDb();
     await db.execute("DELETE FROM transactions WHERE id=?", [id]);
     setConfirmDeleteId((cur) => (cur === id ? null : cur));
+    await loadRows();
+  };
+
+  const visibleRowIds = rows.slice(0, allTime ? ALL_TIME_LIMIT : MAX_ROWS).map((r) => r.id);
+  const allVisibleSelected = visibleRowIds.length > 0 && visibleRowIds.every((id) => selectedIds.has(id));
+
+  const toggleSelectAll = () => {
+    setSelectedIds(allVisibleSelected ? new Set() : new Set(visibleRowIds));
+  };
+
+  const toggleSelectOne = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setBulkDeleteConfirm(false);
+    setBulkRecatOpen(false);
+  };
+
+  const bulkDelete = async () => {
+    const db = await getDb();
+    const ids = [...selectedIds];
+    const placeholders = ids.map(() => "?").join(",");
+    await db.execute(`DELETE FROM transactions WHERE id IN (${placeholders})`, ids);
+    clearSelection();
+    await loadRows();
+  };
+
+  const bulkRecategorize = async (categoryId: number) => {
+    const db = await getDb();
+    const ids = [...selectedIds];
+    const placeholders = ids.map(() => "?").join(",");
+    await db.execute(`UPDATE transactions SET category_id=? WHERE id IN (${placeholders})`, [categoryId, ...ids]);
+    clearSelection();
     await loadRows();
   };
 
@@ -653,6 +696,61 @@ export default function TransactionsPage() {
         </div>
       )}
 
+      {/* Bulk actions - appears once any row is selected via the checkbox column */}
+      {selectedIds.size > 0 && (
+        <div
+          className="mb-4 flex items-center gap-3 border rounded-xl px-4 py-2.5"
+          style={{ borderColor: "hsl(var(--primary)/0.35)", backgroundColor: "hsl(var(--primary)/0.06)" }}
+        >
+          <span className="text-sm font-medium">{selectedIds.size} selected</span>
+          <div className="flex-1" />
+          {bulkRecatOpen ? (
+            <select
+              autoFocus
+              defaultValue=""
+              onChange={(e) => e.target.value && bulkRecategorize(parseInt(e.target.value, 10))}
+              onBlur={() => setBulkRecatOpen(false)}
+              className="border rounded-lg px-2 py-1 text-xs bg-[hsl(var(--background))]"
+            >
+              <option value="" disabled>Choose category…</option>
+              <CategoryOptions categories={categories} />
+            </select>
+          ) : (
+            <button
+              onClick={() => setBulkRecatOpen(true)}
+              className="text-xs px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))] transition-colors flex items-center gap-1.5"
+            >
+              <Tag size={13} /> Recategorize
+            </button>
+          )}
+          {bulkDeleteConfirm ? (
+            <span className="flex items-center gap-1.5">
+              <span className="text-xs text-[hsl(var(--muted-foreground))]">Delete {selectedIds.size}?</span>
+              <button
+                onClick={bulkDelete}
+                className="text-xs px-2.5 py-1.5 rounded-lg font-medium"
+                style={{ color: "white", backgroundColor: "hsl(var(--error))" }}
+              >
+                Confirm
+              </button>
+              <button onClick={() => setBulkDeleteConfirm(false)} className="text-xs px-2 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))] transition-colors">
+                Cancel
+              </button>
+            </span>
+          ) : (
+            <button
+              onClick={() => setBulkDeleteConfirm(true)}
+              className="text-xs px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--error)/0.1)] hover:border-[hsl(var(--error))] hover:text-[hsl(var(--error))] transition-colors flex items-center gap-1.5"
+            >
+              <Trash2 size={13} /> Delete
+            </button>
+          )}
+          <button onClick={clearSelection} className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors px-1">
+            × Clear
+          </button>
+        </div>
+      )}
+
       {loading && <TableSkeleton rows={8} cols={5} />}
 
       {!loading && rows.length === 0 && (
@@ -675,6 +773,15 @@ export default function TransactionsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left border-b text-[hsl(var(--muted-foreground))]">
+                <th className="pl-4 pr-1 py-3 w-8">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleSelectAll}
+                    aria-label="Select all"
+                    className="cursor-pointer"
+                  />
+                </th>
                 {([
                   { key: "date",        label: "Date",        cls: "w-28" },
                   { key: "description", label: "Description", cls: "" },
@@ -699,6 +806,15 @@ export default function TransactionsPage() {
               {rows.slice(0, allTime ? ALL_TIME_LIMIT : MAX_ROWS).map((t) => (
                 <tr key={t.id} onClick={() => setViewTxn(t)}
                   className="group border-b last:border-0 hover:bg-[hsl(var(--muted))] cursor-pointer">
+                  <td className="pl-4 pr-1 py-3" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(t.id)}
+                      onChange={() => toggleSelectOne(t.id)}
+                      aria-label={`Select ${t.description}`}
+                      className="cursor-pointer"
+                    />
+                  </td>
                   <td className="px-4 py-3 text-[hsl(var(--muted-foreground))] whitespace-nowrap">
                     {formatDate(t.date)}
                   </td>

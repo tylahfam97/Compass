@@ -23,11 +23,35 @@ Cards that open more detail on click - Credit Card/Investment Health, debt payof
 Dashboard's Bank/Credit Card/Loan tiles - now glow softly and shimmer to signal they're
 interactive, and show a "Click for more details" hint after a second of hovering.
 
-### Looking Ahead: We're at the Start of the Push Toward v1.0
-0.9.3 marks the point where Compass is feature-complete enough to start planning a full v1.0
-release rather than more incremental additions. Next up on the roadmap: an automated test suite
-covering the core balance/category math, in-app encrypted backup & restore, user-defined
-recurring transactions (schedule a bill ahead of time, not just detect it after the fact), bulk
-transaction operations, and a dedicated Settings page. See the README's Roadmap section for the
-full list.
+### New: A Settings Page
+A dedicated home for backup/restore and recurring transactions, linked from the sidebar.
+Currency stays USD-only for now.
+
+### New: One-Click Encrypted Backup & Restore
+Export Backup bundles your entire database and its encryption key into a single
+`.compassbackup` file - no more manually copying `compass.db` and `compass.key` separately.
+Restoring is validated before anything touches your live data (a bad or mismatched-key backup
+is rejected up front) and takes effect on the next relaunch, which Compass triggers
+automatically.
+
+### New: User-Defined Recurring Transactions
+Schedule a bill or paycheck ahead of time - monthly, weekly, or every two weeks - from the new
+Settings page, instead of only finding out it's recurring after it's already happened a few
+times. Reminder-only: nothing is ever posted automatically, you stay in control of every real
+transaction.
+
+### New: Bulk Transaction Operations
+Select multiple transactions on the Transactions page (checkbox column, "select all" in the
+header) to recategorize or delete them all at once, instead of one at a time.
+
+### New: Automated Test Suite
+The core balance/category-netting math (`utils.ts`, `voice.ts`, the new `recurring.ts`) now has
+unit test coverage via Vitest (`npm test`), so future changes to this arithmetic have a
+regression safety net.
+
+### Docs: README Accuracy Pass
+Fixed a couple of stale claims - loan and investment statements already accept PDF (the
+"Known Limitations" table said otherwise), and the Goals table was missing three real goal
+types (Balance Floor, Debt Paydown, Savings Target). The Roadmap section now reflects the
+actual path to v1.0.
 

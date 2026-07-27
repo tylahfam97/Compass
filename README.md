@@ -292,7 +292,12 @@ No. There is no telemetry SDK, no analytics library, no error reporting service.
 
 ### How do I back up my data?
 
-To make a complete portable backup, copy **both** files from the app's data folder (`%APPDATA%\com.compass.app\` on Windows, `~/Library/Application Support/com.compass.app/` on macOS):
+The easiest way: go to **Settings → Backup & Restore → Export Backup**. This bundles the
+database and its encryption key into a single `.compassbackup` file - restoring it (Settings →
+Restore Backup) validates the file before touching your live data and relaunches the app
+automatically to complete the swap.
+
+Prefer doing it manually? Copy **both** files from the app's data folder (`%APPDATA%\com.compass.app\` on Windows, `~/Library/Application Support/com.compass.app/` on macOS):
 
 - `compass.db` — the encrypted database
 - `compass.key` — the encryption key needed to open it
@@ -395,7 +400,7 @@ Being transparent about what Compass does not do helps you decide if it's the ri
 | **Single currency** | Multi-currency not supported |
 | **No shared accounts** | No collaborative or family access features |
 | **Manual cash entries** | Cash transactions must be added individually |
-| **No scheduled transactions** | Recurring bills are tracked (ghost subscriptions), not scheduled |
+| **Recurring transactions are reminder-only** | Scheduling a bill/income ahead of time (Settings → Recurring Transactions) never auto-posts a real transaction - you still add/edit it yourself |
 
 If a limitation is blocking you, [open an issue](../../issues) — user feedback directly shapes the roadmap.
 
@@ -427,14 +432,17 @@ Statement import · Import history + undo · Auto-categorization · Edit/add/del
 ### ✅ Phase 2 — AI Insights *(complete)*
 Automatic insight generation (budget gaps, unusual spending, savings rate, overspend streaks, low balance alerts) with varied, history-aware phrasing · Categorization rules engine with priority ordering · Interactive Debt Payoff Dashboard with Avalanche/Snowball/Cash-flow ranking, a live redirect slider, payoff timeline, and quick-win snowball/avalanche comparisons · Budget rollover · Investment allocation & category spending donut charts · Milestone celebrations, including partial debt-payoff progress
 
-### 🔜 Phase 3 — Path to v1.0 *(planned)*
+### � Phase 3 — Path to v1.0 *(in progress)*
 The goal: round out the app's remaining rough edges before calling it a full release.
 
-- **Automated test suite** — unit tests for the balance/category-netting math (`netWorth.ts`, `agent.ts`) and the DB migration system, so the core financial calculations have a regression safety net
-- **In-app backup & restore** — one-click encrypted export/import of the full database, instead of manually copying `compass.db` + `compass.key`
-- **User-defined recurring transactions** — schedule a bill or income ahead of time instead of only detecting it after it's already happened a few times
+**Shipped this release:**
+- **Automated test suite** — unit tests (Vitest) covering the core formatting/balance-combining and recurring-schedule math, so these calculations have a regression safety net
+- **In-app backup & restore** — one-click encrypted export/import of the full database as a single `.compassbackup` file, instead of manually copying `compass.db` + `compass.key`
+- **User-defined recurring transactions** — schedule a bill or income ahead of time (monthly/weekly/biweekly) instead of only detecting it after it's already happened a few times
 - **Bulk transaction operations** — multi-select rows on the Transactions page for bulk delete/recategorize
-- **Settings page** — a dedicated home for backup/restore, date format, and other app-wide preferences (currency stays USD-only for now)
+- **Settings page** — a dedicated home for backup/restore and recurring transactions (currency stays USD-only for now)
+
+**Still planned:**
 - **Bank-specific import presets** — one-click setup for more banks beyond the current Chase, Capital One, Wells Fargo, Bank of America, Navy Federal, Discover, Amex, Venmo, Cash App, and PayPal
 - **Emergency fund tracker widget** — a dedicated view built on the existing runway insight and Balance Floor goal, rather than only surfacing as an insight card
 - **Spending habit analysis** — natural-language answers to questions like *"Where did most of my money go last quarter?"*

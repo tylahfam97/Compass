@@ -3,7 +3,7 @@ import logoUrl from "@/assets/logo.svg";
 import { useState, useEffect, Suspense, lazy } from "react";
 import {
   LayoutDashboard, ArrowLeftRight, Upload, TrendingUp, LineChart,
-  Wallet, Target, BarChart2, Lightbulb, Globe, ChevronLeft, ChevronRight, MessageSquare, Sparkles,
+  Wallet, Target, BarChart2, Lightbulb, Globe, ChevronLeft, ChevronRight, MessageSquare, Sparkles, Settings as SettingsIcon,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import DashboardPage from "@/pages/DashboardPage";
@@ -13,6 +13,7 @@ import BudgetsPage from "@/pages/BudgetsPage";
 import GoalsPage from "@/pages/GoalsPage";
 import AgentPage from "@/pages/AgentPage";
 import OverviewPage from "@/pages/OverviewPage";
+import SettingsPage from "@/pages/SettingsPage";
 import ProfileSwitcher from "@/components/ProfileSwitcher";
 import UpdateChecker from "@/components/UpdateChecker";
 import PinModal from "@/components/PinModal";
@@ -62,6 +63,7 @@ function RoutedContent() {
         <Route path="/goals" element={<div className="py-6"><GoalsPage /></div>} />
         <Route path="/reports" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><ReportsPage /></div></Suspense>} />
         <Route path="/agent" element={<div className="py-6"><AgentPage /></div>} />
+        <Route path="/settings" element={<div className="py-6"><SettingsPage /></div>} />
       </Routes>
     </ErrorBoundary>
   );
@@ -85,6 +87,7 @@ const NAV_ITEMS = [
   { to: "/goals",        label: "Goals",         Icon: Target,           showBadge: false, tourId: undefined },
   { to: "/reports",      label: "Reports",       Icon: BarChart2,        showBadge: false, tourId: undefined },
   { to: "/agent",        label: "Insights",      Icon: Lightbulb,        showBadge: true,  tourId: "nav-agent" },
+  { to: "/settings",     label: "Settings",      Icon: SettingsIcon,     showBadge: false, tourId: undefined },
 ];
 
 function greeting(): string {
