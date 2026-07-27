@@ -187,7 +187,7 @@ export default function ReportsPage() {
         db.select<{ date: string; account_id: number; balance_cents: number }[]>(
           `SELECT t.date, t.account_id, t.balance_cents FROM transactions t
            JOIN accounts a ON a.id=t.account_id
-           WHERE t.profile_id=? AND t.balance_cents IS NOT NULL AND a.account_type IN ('checking','credit')
+           WHERE t.profile_id=? AND t.balance_cents IS NOT NULL AND a.account_type IN ('checking','credit') AND a.hidden_from_dashboard=0
            ORDER BY t.date ASC, t.id ASC`,
           [profileId]
         ),

@@ -70,13 +70,17 @@ export async function computeNetWorth(profileIds: number[], asOfDate?: string): 
     else liquidCents += row.balance_cents;
   }
 
-  // Latest holdings snapshot total, optionally capped at asOfDate.
-  const holdingDateFilter = asOfDate ? "AND as_of_date <= ?" : "";
-  const invParams = asOfDate ? [...profileIds, ...profileIds, asOfDate] : [...profileIds, ...profileIds];
+  // Latest holdings snapshot total per profile, optionally capped at asOfDate. The "latest
+  // as_of_date" is resolved separately FOR EACH profile (correlated on h.profile_id) rather
+  // than a single MAX(as_of_date) across all of `profileIds` combined - otherwise, in a
+  // multi-profile ("global") view, any profile whose latest snapshot predates another
+  // profile's would be silently zeroed out for not matching that other profile's date.
+  const holdingDateFilter = asOfDate ? "AND h2.as_of_date <= ?" : "";
+  const invParams = asOfDate ? [...profileIds, asOfDate] : [...profileIds];
   const [invRow] = await db.select<{ total: number | null }[]>(
-    `SELECT SUM(market_value_cents) as total FROM holdings
-     WHERE profile_id IN (${ph}) AND as_of_date = (
-       SELECT MAX(as_of_date) FROM holdings WHERE profile_id IN (${ph}) ${holdingDateFilter}
+    `SELECT SUM(h.market_value_cents) as total FROM holdings h
+     WHERE h.profile_id IN (${ph}) AND h.as_of_date = (
+       SELECT MAX(h2.as_of_date) FROM holdings h2 WHERE h2.profile_id = h.profile_id ${holdingDateFilter}
      )`,
     invParams
   );
