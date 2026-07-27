@@ -6,6 +6,34 @@ export interface Profile {
   created_at: string;
 }
 
+/** User-defined recurring transaction rule (reminder-only for now - see recurring.ts's
+ *  `computeNextOccurrence`; nothing is ever auto-inserted into `transactions`). Distinct from
+ *  `detectRecurringCharges` in agent.ts, which analyses PAST transactions to find patterns
+ *  after the fact - this lets a user schedule a bill/income ahead of its first occurrence. */
+export type RecurringCadence = "monthly" | "weekly" | "biweekly";
+
+export interface RecurringRule {
+  id: number;
+  profile_id: number;
+  account_id: number | null;
+  description: string;
+  amount_cents: number;
+  category_id: number | null;
+  cadence: RecurringCadence;
+  /** 1-31, used when cadence === "monthly". Clamped to each month's real last day. */
+  day_of_month: number | null;
+  /** 0=Mon..6=Sun (matches the `(strftime('%w',date)+6)%7` convention used elsewhere in the
+   *  app), used when cadence is "weekly" or "biweekly". */
+  day_of_week: number | null;
+  start_date: string;
+  active: boolean;
+  created_at: string;
+  // Joined
+  category_name?: string;
+  category_color?: string;
+  account_name?: string;
+}
+
 export type InsightType =
   | "budget_gap"
   | "ghost_subscription"

@@ -121,6 +121,7 @@ body {
   50%      { box-shadow: 0 0 0 1px rgba(201, 149, 43, 0.35), 0 0 14px -4px rgba(201, 149, 43, 0.40); }
 }
 .chart-clickable {
+  position: relative;
   will-change: box-shadow;
   animation: chart-shimmer-glow 3.2s ease-in-out infinite !important;
 }
@@ -128,6 +129,42 @@ body {
    rotating ring on top of it so the two animations don't stack. */
 .chart-clickable::before {
   display: none;
+}
+/* Soft ambient halo, layered on ::after (::before is already claimed above) since the
+   shimmer's animated box-shadow can't be blended with a second, independently-timed glow on
+   the same property. Faintly present at rest so a clickable card reads as interactive at a
+   glance without requiring a hover first, then blooms noticeably brighter on hover as direct
+   confirmation - tuned low-opacity/heavily-blurred to stay a "premium detail" rather than a
+   neon effect. Sits behind the card's own background (negative z-index within the stacking
+   context .chart-clickable's own `position: relative` establishes) so only the blurred edges
+   peek out as a halo instead of washing out the card's content. */
+.chart-clickable::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  z-index: -1;
+  border-radius: inherit;
+  background: radial-gradient(circle, rgba(201, 149, 43, 0.38) 0%, rgba(59, 130, 246, 0.26) 55%, transparent 78%);
+  filter: blur(14px);
+  opacity: 0.5;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+.chart-clickable:hover::after {
+  opacity: 1;
+}
+
+/* Delayed "click for details" hint - pure CSS (no JS/state needed): stays invisible until
+   the card has been hovered continuously for ~1s, then fades in over the halo above. Reverts
+   instantly (no delay) the moment the pointer leaves, since only the :hover rule below carries
+   a transition-delay. Drop a <ClickHint /> anywhere inside a .chart-clickable element. */
+.click-hint {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.chart-clickable:hover .click-hint {
+  opacity: 1;
+  transition: opacity 0.2s ease 1s;
 }
 
 /* Ambient premium border ring applied to every card-style box app-wide - a thin

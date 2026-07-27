@@ -127,9 +127,10 @@ export default function TrendsPage() {
     const start = `${y}-${String(m).padStart(2, "0")}-01`;
     const end = new Date(y, m, 1).toISOString().split("T")[0];
     const rows = await db.select<{ name: string; color: string; total: number }[]>(
-      `SELECT c.name, c.color, SUM(ABS(t.amount_cents)) as total
+      `SELECT c.name, c.color, MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)) as total
        FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-       WHERE t.date>=? AND t.date<? AND t.amount_cents<0 AND t.profile_id IN (${ph})
+       JOIN accounts a ON a.id=t.account_id
+       WHERE t.date>=? AND t.date<? AND t.profile_id IN (${ph})
          AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
        GROUP BY t.category_id ORDER BY total DESC LIMIT 3`,
       [start, end, ...ids]
@@ -170,9 +171,10 @@ export default function TrendsPage() {
         ),
         db.select<CatMonthRow[]>(
           `SELECT strftime('%Y-%m', t.date) as month, c.name as category, c.color, t.category_id as categoryId,
-                  SUM(ABS(t.amount_cents)) as total
+                  MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)) as total
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-           WHERE t.date>=? AND t.amount_cents<0 AND t.profile_id IN (${ph})
+           JOIN accounts a ON a.id=t.account_id
+           WHERE t.date>=? AND t.profile_id IN (${ph})
              AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
            GROUP BY month, t.category_id ORDER BY month`,
           [start, ...ids]

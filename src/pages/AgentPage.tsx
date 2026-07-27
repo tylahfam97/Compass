@@ -18,6 +18,7 @@ import {
 import type { Insight, Profile, HealthScore, SecurityType, CreditCardHealthScore, InvestmentHealthScore, RecurringCharge } from "@/lib/types";
 import InsightCarousel from "@/components/InsightCarousel";
 import InfoTooltip from "@/components/InfoTooltip";
+import ClickHint from "@/components/ClickHint";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import SpotlightCard from "@/components/SpotlightCard";
 import PinModal from "@/components/PinModal";
@@ -65,7 +66,7 @@ function MiniScoreCard({
   return (
     <div
       onClick={onClick}
-      className={`border rounded-2xl p-4 ${onClick ? "cursor-pointer hover:shadow-md transition-shadow" : ""}`}
+      className={`border rounded-2xl p-4 ${onClick ? "cursor-pointer hover:shadow-md transition-shadow chart-clickable" : ""}`}
       style={{ borderColor: score.color + "40" }}
     >
       <div className="flex items-center justify-between mb-1">
@@ -82,6 +83,7 @@ function MiniScoreCard({
       {onClick && (
         <p className="text-[10px] font-medium mt-2" style={{ color: score.color }}>See your payoff plan →</p>
       )}
+      {onClick && <ClickHint />}
     </div>
   );
 }
@@ -601,7 +603,7 @@ function LoanDashboardCard({ loans, onSelectLoan }: { loans: DebtEntry[]; onSele
             <div
               key={loan.id}
               onClick={() => onSelectLoan(loan)}
-              className={`flex items-center gap-3 border rounded-lg px-3 py-2 cursor-pointer hover:bg-[hsl(var(--muted))] transition-colors ${!loan.rankable ? "opacity-50" : ""}`}
+              className={`flex items-center gap-3 border rounded-lg px-3 py-2 cursor-pointer hover:bg-[hsl(var(--muted))] transition-colors chart-clickable ${!loan.rankable ? "opacity-50" : ""}`}
             >
               <span className="text-xs font-bold w-5 text-center shrink-0 text-[hsl(var(--muted-foreground))]">
                 {loan.rankable ? i + 1 : "—"}
@@ -958,19 +960,20 @@ export default function AgentPage() {
         detectRecurringCharges(ids),
         db.select<{ category_id: number; category_name: string; category_color: string; total: number }[]>(
           `SELECT t.category_id, c.name as category_name, c.color as category_color,
-                  SUM(ABS(t.amount_cents)) as total
+                  MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)) as total
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-           WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<? AND t.amount_cents<0
+           JOIN accounts a ON a.id=t.account_id
+           WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<?
              AND t.category_id!=15 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
            GROUP BY t.category_id ORDER BY total DESC LIMIT 8`,
           [...ids, ts, te]
         ),
         db.select<{ category_id: number; total: number }[]>(
-          `SELECT category_id, SUM(ABS(amount_cents)) as total
-           FROM transactions
-           WHERE profile_id IN (${ph}) AND date>=? AND date<? AND amount_cents<0
-             AND (category_id IS NULL OR category_id NOT IN (20,29))
-           GROUP BY category_id`,
+          `SELECT t.category_id, MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)) as total
+           FROM transactions t JOIN accounts a ON a.id=t.account_id
+           WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<?
+             AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
+           GROUP BY t.category_id`,
           [...ids, ls, le]
         ),
       ]);

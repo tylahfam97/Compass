@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { CategorizationRule, Account } from "./types";
+import type { CategorizationRule, Account, RecurringRule, RecurringCadence } from "./types";
 
 // ─── Invoke-based DB wrapper ──────────────────────────────────────────────────
 // Mirrors the tauri-plugin-sql Database API (select / execute) so all call
@@ -51,6 +51,7 @@ const ALLOWED_MIGRATION_TABLES = new Set([
   "profiles",
   "import_sessions",
   "holdings",
+  "recurring_rules",
 ]);
 
 const SAFE_COLUMN_NAME_RE = /^[a-z_][a-z0-9_]*$/i;
@@ -1081,6 +1082,49 @@ async function runMigrations(db: CompassDb): Promise<void> {
     }
     await db.execute("PRAGMA user_version = 24");
   }
+
+  // ── v25: Repair user-created categories orphaned by a bug in CategoryModal's INSERT -
+  //         it never set `profile_id`, which defaults to NULL, and NULL means "system/
+  //         shared" for this column (see v2 migration above). The category row itself was
+  //         never deleted, but `WHERE is_system=1 OR profile_id=?` (App.tsx /
+  //         ProfileSwitcher.tsx) excludes NULL-profile, non-system rows - so every custom
+  //         category silently disappeared from the UI on the next fresh load (e.g. after an
+  //         app update discards the in-memory Zustand store), even though it still existed
+  //         in the DB the whole time. CategoryModal.tsx now sets profile_id on insert; this
+  //         migration reattaches existing orphans to the default profile (id=1) so they
+  //         reappear. Best-effort: if a user has multiple profiles, an orphaned category
+  //         originally created under a non-default profile will resurface under the
+  //         default one instead - still strictly better than staying permanently invisible.
+  if (version < 25) {
+    await db.execute(
+      "UPDATE categories SET profile_id=1 WHERE is_system=0 AND profile_id IS NULL"
+    );
+    await db.execute("PRAGMA user_version = 25");
+  }
+
+  // ── v26: User-defined recurring transactions. Distinct from `detectRecurringCharges`
+  //         (agent.ts), which only finds a pattern AFTER it's already happened a few times -
+  //         this lets a user schedule a bill/income ahead of its first real occurrence.
+  //         Reminder-only for now: nothing here ever auto-inserts a real transaction row. ──
+  if (version < 26) {
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS recurring_rules (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_id   INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+        account_id   INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+        description  TEXT NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        category_id  INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+        cadence      TEXT NOT NULL DEFAULT 'monthly',
+        day_of_month INTEGER,
+        day_of_week  INTEGER,
+        start_date   TEXT NOT NULL,
+        active       INTEGER NOT NULL DEFAULT 1,
+        created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+    await db.execute("PRAGMA user_version = 26");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────
@@ -1791,4 +1835,68 @@ export async function reapplyCategorizationRules(
   }
 
   return matched;
+}
+
+// ─── Recurring transactions (user-defined) ────────────────────────────────────
+//
+// Reminder-only: creating/editing a rule never inserts a real transaction row. See
+// src/lib/recurring.ts's computeNextOccurrence for the pure date math these feed into.
+
+export interface RecurringRuleInput {
+  profileId: number;
+  accountId: number | null;
+  description: string;
+  amountCents: number;
+  categoryId: number | null;
+  cadence: RecurringCadence;
+  dayOfMonth: number | null;
+  dayOfWeek: number | null;
+  startDate: string;
+}
+
+export async function getRecurringRulesForProfile(profileId: number): Promise<RecurringRule[]> {
+  const db = await getDb();
+  const rows = await db.select<(Omit<RecurringRule, "active"> & { active: number })[]>(
+    `SELECT r.*, c.name as category_name, c.color as category_color, a.name as account_name
+     FROM recurring_rules r
+     LEFT JOIN categories c ON c.id=r.category_id
+     LEFT JOIN accounts a ON a.id=r.account_id
+     WHERE r.profile_id=?
+     ORDER BY r.active DESC, r.description`,
+    [profileId]
+  );
+  return rows.map((r) => ({ ...r, active: !!r.active }));
+}
+
+export async function createRecurringRule(input: RecurringRuleInput): Promise<number> {
+  const db = await getDb();
+  const result = await db.execute(
+    `INSERT INTO recurring_rules
+       (profile_id, account_id, description, amount_cents, category_id, cadence, day_of_month, day_of_week, start_date, active)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+    [input.profileId, input.accountId, input.description, input.amountCents, input.categoryId,
+     input.cadence, input.dayOfMonth, input.dayOfWeek, input.startDate]
+  );
+  return result.lastInsertId as number;
+}
+
+export async function updateRecurringRule(id: number, input: RecurringRuleInput): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `UPDATE recurring_rules
+     SET account_id=?, description=?, amount_cents=?, category_id=?, cadence=?, day_of_month=?, day_of_week=?, start_date=?
+     WHERE id=?`,
+    [input.accountId, input.description, input.amountCents, input.categoryId,
+     input.cadence, input.dayOfMonth, input.dayOfWeek, input.startDate, id]
+  );
+}
+
+export async function setRecurringRuleActive(id: number, active: boolean): Promise<void> {
+  const db = await getDb();
+  await db.execute("UPDATE recurring_rules SET active=? WHERE id=?", [active ? 1 : 0, id]);
+}
+
+export async function deleteRecurringRule(id: number): Promise<void> {
+  const db = await getDb();
+  await db.execute("DELETE FROM recurring_rules WHERE id=?", [id]);
 }

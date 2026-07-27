@@ -36,6 +36,18 @@ jobs:
         continue-on-error: true
         run: |
           if (Test-Path ".git") {
+            # This persistent runner's working directory is owned by a different Windows
+            # account than whatever the runner service currently runs as (e.g. after a runner
+            # reinstall/account change) - git refuses to touch it ("detected dubious ownership
+            # in repository at '...'") and every git command below would fail with exit code 1.
+            # Registering it as a safe.directory is idempotent (skip if already present) and
+            # fixes this permanently for this account, not just this run.
+            $repoPath = $PWD.Path -replace '\\', '/'
+            $safeDirs = git config --global --get-all safe.directory 2>$null
+            if ($safeDirs -notcontains $repoPath) {
+              Write-Host "Registering $repoPath as a safe.directory"
+              git config --global --add safe.directory $repoPath
+            }
             git remote prune origin 2>$null
             # Remove local branch namespace directories left by deleted namespaced branches
             # e.g. .git\refs\heads\dev\ (directory) blocks creating branch 'dev' (file)
@@ -50,6 +62,17 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # This runner is a PERSISTENT self-hosted Windows VM, not an ephemeral GitHub-hosted
+          # one - actions/checkout's default `clean: true` runs `git clean -ffdx` before every
+          # checkout, which deletes src-tauri/target/ and node_modules/ (both gitignored) on
+          # EVERY run. That wipes the SQLCipher/OpenSSL vendored-openssl C build (via nmake,
+          # which doesn't parallelize) and all Rust dependency compilation, forcing a full
+          # from-scratch rebuild every time regardless of runner CPU speed (this is what turned
+          # a normally-incremental build into a 10+ minute one on a slower server CPU).
+          # clean: false skips that wipe - tracked files are still correctly checked out/reset
+          # to the right commit either way, only ignored/untracked build caches now persist.
+          clean: false
 
       - name: Ensure Rust/cargo is on PATH
         # On a self-hosted runner installed as a Windows service, the service process (and the
