@@ -26,6 +26,18 @@ function hexToBytes(hex: string): Uint8Array {
 
 export type BackupResult = { ok: true } | { ok: false; error: string };
 
+const LAST_BACKUP_KEY = "compass_last_backup_at";
+
+/** ISO timestamp of the last successful export, or null if one has never completed on this
+ *  device - used to nudge the user if it's been a while since their data was last backed up. */
+export function getLastBackupAt(): string | null {
+  try {
+    return localStorage.getItem(LAST_BACKUP_KEY);
+  } catch {
+    return null;
+  }
+}
+
 function backupFilename(): string {
   return `compass-backup-${new Date().toISOString().slice(0, 10)}.compassbackup`;
 }
@@ -60,6 +72,7 @@ export async function exportBackup(): Promise<BackupResult> {
       a.click();
       URL.revokeObjectURL(url);
     }
+    try { localStorage.setItem(LAST_BACKUP_KEY, new Date().toISOString()); } catch { /* non-critical */ }
     return { ok: true };
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") return { ok: false, error: "cancelled" };

@@ -441,6 +441,11 @@ The goal: round out the app's remaining rough edges before calling it a full rel
 - **User-defined recurring transactions** — schedule a bill or income ahead of time (monthly/weekly/biweekly) instead of only detecting it after it's already happened a few times
 - **Bulk transaction operations** — multi-select rows on the Transactions page for bulk delete/recategorize
 - **Settings page** — a dedicated home for backup/restore and recurring transactions (currency stays USD-only for now)
+- **Visual refresh** — a calmer, more professional look: gold now marks specifically clickable/interactive elements, blue carries navigation and everything else, and the tiled background texture was replaced with a subtle gradient
+- **Balance integrity fixes** — several edge cases where manually adding a transaction (or importing right after one) could throw off an account's running balance are now fixed, plus a Settings diagnostic to flag any account worth double-checking
+- **Import duplicate detection** — the import wizard now catches likely duplicates of manually-added transactions before they're saved, letting you choose which one to keep instead of silently double-counting
+- **Editable interest rate & minimum payment** — no longer write-once during import; update either anytime from an account's detail view
+- **Backup reminder** — Settings now shows how long it's been since your last backup, with a nudge if it's gotten stale
 
 **Still planned:**
 - **Bank-specific import presets** — one-click setup for more banks beyond the current Chase, Capital One, Wells Fargo, Bank of America, Navy Federal, Discover, Amex, Venmo, Cash App, and PayPal

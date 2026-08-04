@@ -1024,6 +1024,7 @@ export default function DashboardPage() {
           insights={insights}
           onApply={handleApplyInsight}
           onClose={() => setViewAccount(null)}
+          onUpdated={() => loadData()}
         />
       )}
     </div>

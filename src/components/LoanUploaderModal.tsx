@@ -4,6 +4,7 @@ import { Upload, Loader2, Info } from "lucide-react";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import { upsertLoanStatement, getLoanAccountsForProfile, type LoanAccount } from "@/lib/db";
 import { parseLoanStatementFile } from "@/lib/pdfParse";
+import { parseDollarInput } from "@/lib/utils";
 
 interface Props {
   profileId: number;
@@ -25,11 +26,6 @@ function parseLooseDate(s: string): string {
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   const d = new Date(s);
   return isNaN(d.getTime()) ? new Date().toISOString().split("T")[0] : d.toISOString().split("T")[0];
-}
-
-function parseDollarInput(s: string): number {
-  const n = parseFloat(s.replace(/[^0-9.]/g, ""));
-  return isNaN(n) ? 0 : n;
 }
 
 /** True if `guess` (a loosely-extracted lender name) plausibly refers to `loan` - used to

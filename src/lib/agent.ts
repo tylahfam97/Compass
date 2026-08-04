@@ -4,6 +4,7 @@ import { computeNetWorth, computeInvestmentReturn } from "./netWorth";
 import { AVG_US_CREDIT_CARD_DEBT_CENTS, AVG_US_MARKET_RETURN_PCT, scoreGrade } from "./benchmarks";
 import { composeInsightText } from "./voice";
 import { getRemembered, remember } from "./voiceMemory";
+import { formatCurrencyWhole as formatCents } from "./utils";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -1381,14 +1382,6 @@ export async function getSavingsHistory(
 }
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
-
-function formatCents(cents: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(cents / 100);
-}
 
 function truncate(s: string, n: number): string {
   return s.length <= n ? s : s.slice(0, n - 1) + "…";
