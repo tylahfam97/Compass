@@ -32,8 +32,10 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      // 3. tell Vite to ignore watching `src-tauri` and `sample-data` (test fixtures, not
+      //    source - a large/locked file in here, e.g. a GIF held open by another program or a
+      //    sync client, can otherwise crash the dev server's file watcher with EBUSY)
+      ignored: ["**/src-tauri/**", "**/sample-data/**"],
     },
   },
 }));

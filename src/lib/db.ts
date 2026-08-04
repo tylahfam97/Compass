@@ -11,12 +11,34 @@ interface ExecResult {
   rowsAffected: number;
 }
 
+export interface BatchStatement {
+  sql: string;
+  params?: unknown[];
+}
+
+export interface ImportBatchResult {
+  duplicateIndices: number[];
+  errors: { index: number; message: string }[];
+}
+
 class CompassDb {
   select<T>(sql: string, params: unknown[] = []): Promise<T> {
     return invoke<T>("db_select", { sql, params });
   }
   execute(sql: string, params: unknown[] = []): Promise<ExecResult> {
     return invoke<ExecResult>("db_execute", { sql, params });
+  }
+  /** Runs every statement inside one real SQL transaction - all-or-nothing, used for schema
+   *  migrations that rebuild a table (rename/create/copy/drop) so a crash mid-sequence can
+   *  never leave the database in a half-migrated state. */
+  executeBatch(statements: BatchStatement[]): Promise<void> {
+    return invoke<void>("db_execute_batch", { statements });
+  }
+  /** Inserts transaction rows inside one transaction, classifying each row as inserted /
+   *  duplicate (unique-constraint violation) / error instead of aborting the whole import or
+   *  mislabeling every failure as "duplicate". */
+  importTransactionsBatch(statements: BatchStatement[]): Promise<ImportBatchResult> {
+    return invoke<ImportBatchResult>("import_transactions_batch", { statements });
   }
 }
 
@@ -666,29 +688,34 @@ async function runMigrations(db: CompassDb): Promise<void> {
   if (version < 9) {
     const hasTM = await colExists(db, "goals", "target_months");
     if (!hasTM) {
-      // Rename → recreate with expanded constraint → copy → drop old
-      await db.execute("ALTER TABLE goals RENAME TO goals_v8");
-      await db.execute(`
-        CREATE TABLE goals (
-          id            INTEGER PRIMARY KEY AUTOINCREMENT,
-          name          TEXT    NOT NULL,
-          type          TEXT    NOT NULL,
-          category_id   INTEGER REFERENCES categories(id) ON DELETE SET NULL,
-          target_cents  INTEGER NOT NULL DEFAULT 0,
-          target_months INTEGER,
-          active        INTEGER NOT NULL DEFAULT 1,
-          created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
-          profile_id    INTEGER DEFAULT 1
-        )
-      `);
-      await db.execute(`
-        INSERT INTO goals (id, name, type, category_id, target_cents, target_months, active, created_at, profile_id)
-        SELECT id, name, type, category_id, target_cents, NULL, active, created_at, profile_id
-        FROM goals_v8
-      `);
-      await db.execute("DROP TABLE goals_v8");
+      // Rename → recreate with expanded constraint → copy → drop old, all in one transaction so
+      // a crash mid-sequence can't leave goals renamed away with no replacement.
+      await db.executeBatch([
+        { sql: "ALTER TABLE goals RENAME TO goals_v8" },
+        { sql: `
+          CREATE TABLE goals (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            name          TEXT    NOT NULL,
+            type          TEXT    NOT NULL,
+            category_id   INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+            target_cents  INTEGER NOT NULL DEFAULT 0,
+            target_months INTEGER,
+            active        INTEGER NOT NULL DEFAULT 1,
+            created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+            profile_id    INTEGER DEFAULT 1
+          )
+        ` },
+        { sql: `
+          INSERT INTO goals (id, name, type, category_id, target_cents, target_months, active, created_at, profile_id)
+          SELECT id, name, type, category_id, target_cents, NULL, active, created_at, profile_id
+          FROM goals_v8
+        ` },
+        { sql: "DROP TABLE goals_v8" },
+        { sql: "PRAGMA user_version = 9" },
+      ]);
+    } else {
+      await db.execute("PRAGMA user_version = 9");
     }
-    await db.execute("PRAGMA user_version = 9");
   }
 
   // ── v10: Investment portfolio imports — holdings snapshots + session kind ──
@@ -1051,36 +1078,42 @@ async function runMigrations(db: CompassDb): Promise<void> {
     );
     const alreadyMigrated = (tbl?.sql ?? "").includes("account_id, import_hash");
     if (!alreadyMigrated) {
-      await db.execute("ALTER TABLE transactions RENAME TO transactions_v23");
-      await db.execute(`
-        CREATE TABLE transactions (
-          id                INTEGER PRIMARY KEY AUTOINCREMENT,
-          account_id        INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-          date              TEXT    NOT NULL,
-          amount_cents      INTEGER NOT NULL,
-          description       TEXT    NOT NULL DEFAULT '',
-          category_id       INTEGER REFERENCES categories(id) ON DELETE SET NULL,
-          notes             TEXT,
-          import_hash       TEXT    NOT NULL,
-          created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
-          profile_id        INTEGER DEFAULT 1,
-          balance_cents     INTEGER,
-          import_session_id INTEGER REFERENCES import_sessions(id) ON DELETE SET NULL,
-          UNIQUE(account_id, import_hash)
-        )
-      `);
-      await db.execute(`
-        INSERT INTO transactions
-          (id, account_id, date, amount_cents, description, category_id, notes, import_hash,
-           created_at, profile_id, balance_cents, import_session_id)
-        SELECT id, account_id, date, amount_cents, description, category_id, notes, import_hash,
-               created_at, profile_id, balance_cents, import_session_id
-        FROM transactions_v23
-      `);
-      await db.execute("DROP TABLE transactions_v23");
-      await db.execute("CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date)");
+      // Rename → recreate → copy → drop → reindex, all in one transaction so a crash mid-
+      // sequence can't leave transactions renamed away with no replacement.
+      await db.executeBatch([
+        { sql: "ALTER TABLE transactions RENAME TO transactions_v23" },
+        { sql: `
+          CREATE TABLE transactions (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id        INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+            date              TEXT    NOT NULL,
+            amount_cents      INTEGER NOT NULL,
+            description       TEXT    NOT NULL DEFAULT '',
+            category_id       INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+            notes             TEXT,
+            import_hash       TEXT    NOT NULL,
+            created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
+            profile_id        INTEGER DEFAULT 1,
+            balance_cents     INTEGER,
+            import_session_id INTEGER REFERENCES import_sessions(id) ON DELETE SET NULL,
+            UNIQUE(account_id, import_hash)
+          )
+        ` },
+        { sql: `
+          INSERT INTO transactions
+            (id, account_id, date, amount_cents, description, category_id, notes, import_hash,
+             created_at, profile_id, balance_cents, import_session_id)
+          SELECT id, account_id, date, amount_cents, description, category_id, notes, import_hash,
+                 created_at, profile_id, balance_cents, import_session_id
+          FROM transactions_v23
+        ` },
+        { sql: "DROP TABLE transactions_v23" },
+        { sql: "CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date)" },
+        { sql: "PRAGMA user_version = 24" },
+      ]);
+    } else {
+      await db.execute("PRAGMA user_version = 24");
     }
-    await db.execute("PRAGMA user_version = 24");
   }
 
   // ── v25: Repair user-created categories orphaned by a bug in CategoryModal's INSERT -
@@ -1124,6 +1157,67 @@ async function runMigrations(db: CompassDb): Promise<void> {
       )
     `);
     await db.execute("PRAGMA user_version = 26");
+  }
+
+  // ── v27: Scope column_profiles.header_sig uniqueness to (profile_id, header_sig) instead of
+  //         a bare global UNIQUE on header_sig alone - two profiles importing the same bank's
+  //         CSV header shape previously overwrote each other's saved column mapping (the SELECT
+  //         filtered by header_sig+profile_id, but the UNIQUE constraint/ON CONFLICT target only
+  //         knew about header_sig). Same rename -> create -> copy -> drop pattern as v9/v24. A
+  //         value already globally unique is trivially unique per-profile too, so the copy can't
+  //         fail on the new composite constraint. ──
+  if (version < 27) {
+    const [tbl] = await db.select<{ sql: string }[]>(
+      "SELECT sql FROM sqlite_master WHERE type='table' AND name='column_profiles'"
+    );
+    const alreadyMigrated = (tbl?.sql ?? "").includes("UNIQUE(profile_id, header_sig)");
+    if (!alreadyMigrated) {
+      await db.executeBatch([
+        { sql: "ALTER TABLE column_profiles RENAME TO column_profiles_v26" },
+        { sql: `
+          CREATE TABLE column_profiles (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            header_sig  TEXT    NOT NULL,
+            date_col    INTEGER NOT NULL,
+            desc_col    INTEGER NOT NULL,
+            amount_col  INTEGER NOT NULL,
+            created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+            profile_id  INTEGER DEFAULT 1,
+            type_col    INTEGER NOT NULL DEFAULT -1,
+            balance_col INTEGER NOT NULL DEFAULT -1,
+            UNIQUE(profile_id, header_sig)
+          )
+        ` },
+        { sql: `
+          INSERT INTO column_profiles
+            (id, header_sig, date_col, desc_col, amount_col, created_at, profile_id, type_col, balance_col)
+          SELECT id, header_sig, date_col, desc_col, amount_col, created_at, COALESCE(profile_id, 1), type_col, balance_col
+          FROM column_profiles_v26
+        ` },
+        { sql: "DROP TABLE column_profiles_v26" },
+        { sql: "PRAGMA user_version = 27" },
+      ]);
+    } else {
+      await db.execute("PRAGMA user_version = 27");
+    }
+  }
+
+  // ── v28: Persist manually-chosen invertAmounts (previously re-inferred every import instead
+  //         of saved), and add separate debit_col/credit_col for banks with two amount columns
+  //         (e.g. Capital One) instead of forcing a single amount column that silently drops
+  //         whichever side isn't selected. ──
+  if (version < 28) {
+    for (const [col, def] of [
+      ["invert_amounts", "INTEGER NOT NULL DEFAULT 0"],
+      ["debit_col", "INTEGER NOT NULL DEFAULT -1"],
+      ["credit_col", "INTEGER NOT NULL DEFAULT -1"],
+    ] as [string, string][]) {
+      assertSafeMigrationIdentifiers("column_profiles", col);
+      if (!(await colExists(db, "column_profiles", col))) {
+        await db.execute(`ALTER TABLE column_profiles ADD COLUMN ${col} ${def}`);
+      }
+    }
+    await db.execute("PRAGMA user_version = 28");
   }
 }
 
@@ -1657,11 +1751,6 @@ async function recomputeCalculatedBalancesWithDb(db: CompassDb, accountId: numbe
     running += row.amount_cents;
     await db.execute("UPDATE transactions SET balance_cents=? WHERE id=?", [running, row.id]);
   }
-}
-
-/** @deprecated use getOrCreateAccountForProfile */
-export async function getOrCreateDefaultAccount(): Promise<number> {
-  return getOrCreateAccountForProfile(1);
 }
 
 // ─── Categorization ───────────────────────────────────────────────────────────

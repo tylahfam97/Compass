@@ -31,6 +31,28 @@ struct ExecResult {
     rows_affected: usize,
 }
 
+/// One SQL statement + its bound params, as sent from the frontend for batch execution.
+#[derive(serde::Deserialize)]
+struct BatchStatement {
+    sql: String,
+    #[serde(default)]
+    params: Vec<Value>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportRowError {
+    index: usize,
+    message: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportBatchResult {
+    duplicate_indices: Vec<usize>,
+    errors: Vec<ImportRowError>,
+}
+
 // ─── Parameter binding ────────────────────────────────────────────────────────
 
 fn json_to_sql(v: &Value) -> Box<dyn rusqlite::ToSql> {
@@ -174,6 +196,193 @@ fn db_select(
         .map_err(|e| e.to_string())?;
 
     Ok(rows)
+}
+
+/// Runs every statement inside ONE real SQLite transaction, rolling back all of them if any
+/// statement fails - used for schema migrations, where a rebuild (rename -> create -> copy ->
+/// drop) must never be left half-applied by a mid-sequence crash or error. Each statement still
+/// passes through `validate_execute_sql`, same as `db_execute` - this only adds transactional
+/// wrapping around the SAME allowed statement types, it does not let the frontend send raw
+/// BEGIN/COMMIT/ROLLBACK.
+fn execute_batch_tx(conn: &mut Connection, statements: &[BatchStatement]) -> Result<(), String> {
+    for stmt in statements {
+        validate_execute_sql(&stmt.sql)?;
+    }
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    for stmt in statements {
+        let bound: Vec<Box<dyn rusqlite::ToSql>> = stmt.params.iter().map(json_to_sql).collect();
+        let refs: Vec<&dyn rusqlite::ToSql> = bound.iter().map(|b| b.as_ref()).collect();
+        tx.execute(&stmt.sql, refs.as_slice())
+            .map_err(|e| format!("migration statement failed, rolled back ({}): {e}", stmt.sql))?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn db_execute_batch(state: State<'_, DbState>, statements: Vec<BatchStatement>) -> Result<(), String> {
+    let mut conn = state.0.lock().map_err(|e| e.to_string())?;
+    execute_batch_tx(&mut conn, &statements)
+}
+
+/// Inserts a batch of already-prepared transaction rows inside ONE transaction. Unlike
+/// `execute_batch_tx`, a single row's failure does NOT abort the whole import (imports are
+/// deliberately resilient to a handful of bad/duplicate rows) - instead each row's outcome is
+/// classified so the frontend can report real duplicates separately from genuine errors, rather
+/// than folding everything into "skipped as duplicate". The transaction still guarantees that a
+/// mid-import crash rolls back the ENTIRE batch instead of leaving a half-imported file (previously
+/// every row was its own autocommitted statement).
+fn insert_import_batch_tx(conn: &mut Connection, statements: &[BatchStatement]) -> Result<ImportBatchResult, String> {
+    for stmt in statements {
+        validate_execute_sql(&stmt.sql)?;
+    }
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let mut duplicate_indices = Vec::new();
+    let mut errors = Vec::new();
+    for (index, stmt) in statements.iter().enumerate() {
+        let bound: Vec<Box<dyn rusqlite::ToSql>> = stmt.params.iter().map(json_to_sql).collect();
+        let refs: Vec<&dyn rusqlite::ToSql> = bound.iter().map(|b| b.as_ref()).collect();
+        match tx.execute(&stmt.sql, refs.as_slice()) {
+            Ok(_) => {}
+            // Only the UNIQUE-constraint case is a real duplicate (matches the
+            // `UNIQUE(account_id, import_hash)` constraint transactions/loan statements rely on
+            // for dedup) - NOT NULL/CHECK/FOREIGN KEY violations share the same coarse
+            // `ErrorCode::ConstraintViolation` but are genuine data errors, not duplicates, so
+            // they must fall through to the `errors` bucket instead of being mislabeled.
+            Err(RusqliteError::SqliteFailure(ref err, _))
+                if err.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE =>
+            {
+                duplicate_indices.push(index);
+            }
+            Err(e) => errors.push(ImportRowError { index, message: e.to_string() }),
+        }
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(ImportBatchResult { duplicate_indices, errors })
+}
+
+#[tauri::command]
+fn import_transactions_batch(
+    state: State<'_, DbState>,
+    statements: Vec<BatchStatement>,
+) -> Result<ImportBatchResult, String> {
+    let mut conn = state.0.lock().map_err(|e| e.to_string())?;
+    insert_import_batch_tx(&mut conn, &statements)
+}
+
+#[cfg(test)]
+mod batch_tx_tests {
+    use super::*;
+
+    fn stmt(sql: &str) -> BatchStatement {
+        BatchStatement { sql: sql.to_string(), params: vec![] }
+    }
+
+    /// Mirrors the v9-style goals rebuild (rename -> create -> copy -> drop -> bump version).
+    #[test]
+    fn migration_batch_commits_full_rebuild_atomically() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE goals (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+             INSERT INTO goals (id, name) VALUES (1, 'Emergency Fund');
+             PRAGMA user_version = 8;",
+        )
+        .unwrap();
+
+        let statements = vec![
+            stmt("ALTER TABLE goals RENAME TO goals_v8"),
+            stmt("CREATE TABLE goals (id INTEGER PRIMARY KEY, name TEXT NOT NULL, target_months INTEGER)"),
+            stmt("INSERT INTO goals (id, name, target_months) SELECT id, name, NULL FROM goals_v8"),
+            stmt("DROP TABLE goals_v8"),
+            stmt("PRAGMA user_version = 9"),
+        ];
+        execute_batch_tx(&mut conn, &statements).expect("batch should succeed");
+
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, 9);
+        let name: String = conn
+            .query_row("SELECT name FROM goals WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(name, "Emergency Fund");
+        let old_table_gone: Result<i64, _> =
+            conn.query_row("SELECT count(*) FROM sqlite_master WHERE name='goals_v8'", [], |r| r.get(0));
+        assert_eq!(old_table_gone.unwrap(), 0);
+    }
+
+    /// A failure partway through the rebuild must roll back EVERYTHING - the original table
+    /// under its original name, untouched, and user_version unchanged - not left renamed away
+    /// with no replacement.
+    #[test]
+    fn migration_batch_rolls_back_entirely_on_mid_sequence_failure() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE goals (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+             INSERT INTO goals (id, name) VALUES (1, 'Emergency Fund');
+             PRAGMA user_version = 8;",
+        )
+        .unwrap();
+
+        let statements = vec![
+            stmt("ALTER TABLE goals RENAME TO goals_v8"),
+            stmt("CREATE TABLE goals (id INTEGER PRIMARY KEY, name TEXT NOT NULL, target_months INTEGER)"),
+            // Deliberately broken: references a column that doesn't exist on goals_v8.
+            stmt("INSERT INTO goals (id, name, target_months) SELECT id, does_not_exist, NULL FROM goals_v8"),
+            stmt("DROP TABLE goals_v8"),
+            stmt("PRAGMA user_version = 9"),
+        ];
+        let result = execute_batch_tx(&mut conn, &statements);
+        assert!(result.is_err());
+
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, 8, "user_version must not bump on a rolled-back migration");
+        let name: String = conn
+            .query_row("SELECT name FROM goals WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(name, "Emergency Fund", "original goals table must survive intact under its original name");
+    }
+
+    #[test]
+    fn import_batch_classifies_duplicates_and_errors_without_aborting() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE transactions (
+                id INTEGER PRIMARY KEY,
+                account_id INTEGER NOT NULL,
+                description TEXT NOT NULL,
+                import_hash TEXT NOT NULL,
+                UNIQUE(account_id, import_hash)
+             );",
+        )
+        .unwrap();
+
+        let insert = |account_id: i64, description: &str, hash: &str| BatchStatement {
+            sql: "INSERT INTO transactions (account_id, description, import_hash) VALUES (?, ?, ?)".to_string(),
+            params: vec![
+                Value::Number(account_id.into()),
+                Value::String(description.to_string()),
+                Value::String(hash.to_string()),
+            ],
+        };
+
+        let statements = vec![
+            insert(1, "Coffee", "hash-a"),      // inserted
+            insert(1, "Coffee", "hash-a"),      // duplicate (same account+hash)
+            BatchStatement {
+                // genuine error: description is NOT NULL, violated here
+                sql: "INSERT INTO transactions (account_id, description, import_hash) VALUES (?, NULL, ?)".to_string(),
+                params: vec![Value::Number(1.into()), Value::String("hash-b".to_string())],
+            },
+            insert(1, "Groceries", "hash-c"),   // inserted
+        ];
+        let result = insert_import_batch_tx(&mut conn, &statements).expect("batch commits despite row errors");
+
+        assert_eq!(result.duplicate_indices, vec![1]);
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].index, 2);
+
+        let count: i64 = conn.query_row("SELECT count(*) FROM transactions", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 2, "successful rows must be committed even though other rows in the batch failed");
+    }
 }
 
 // ─── Key management ───────────────────────────────────────────────────────────
@@ -427,11 +636,11 @@ fn open_db(app: &AppHandle) -> Result<Connection, String> {
 // dependency for the key file, rather than adding base64 or shipping a raw byte array through
 // JSON, which bloats IPC payload size significantly for a multi-MB database).
 //
-// Export reads the two live files directly - safe here since every db_execute/db_select call
-// is its own autocommitted statement (see validate_execute_sql/validate_select_sql above), so
-// there's never a long-running transaction that a concurrent whole-file read could catch
-// mid-write, the same assumption the README's manual "copy compass.db + compass.key" backup
-// method already relies on.
+// Export snapshots the live database via SQLite's `VACUUM INTO` (taken while holding the same
+// mutex db_execute/db_select use), which produces a single consistent copy instead of racing a
+// raw file read against a concurrent write/journal/page change - a plain `fs::read` cannot
+// guarantee that on its own. The key file changes far less often and is written atomically
+// (write_key_file_atomic), so a plain read of it is fine.
 //
 // Restore is staged, never applied immediately: the live `compass.db` is held open by this
 // process's `Connection` for the whole session, and on Windows a rename/overwrite of a file
@@ -444,10 +653,26 @@ fn open_db(app: &AppHandle) -> Result<Connection, String> {
 const BACKUP_MAGIC: &[u8] = b"COMPASSBAK1";
 
 #[tauri::command]
-fn export_backup_bytes(app: AppHandle) -> Result<String, String> {
+fn export_backup_bytes(app: AppHandle, state: State<'_, DbState>) -> Result<String, String> {
     let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let db_bytes = std::fs::read(data_dir.join("compass.db"))
-        .map_err(|e| format!("could not read database file: {e}"))?;
+
+    // Unique temp path (pid-scoped) for the VACUUM INTO snapshot - target must not already exist.
+    let snapshot_path = data_dir.join(format!("compass.backup-snapshot.{}.tmp", std::process::id()));
+    let _ = std::fs::remove_file(&snapshot_path); // clean up any leftover from a previous crash
+    {
+        let conn = state.0.lock().map_err(|e| e.to_string())?;
+        let snapshot_str = snapshot_path.to_str().ok_or("export: non-UTF-8 app data path")?;
+        conn.execute(
+            &format!("VACUUM INTO '{}'", snapshot_str.replace('\'', "''")),
+            [],
+        )
+        .map_err(|e| format!("could not snapshot database: {e}"))?;
+    }
+    let db_bytes_result = std::fs::read(&snapshot_path)
+        .map_err(|e| format!("could not read database snapshot: {e}"));
+    let _ = std::fs::remove_file(&snapshot_path);
+    let db_bytes = db_bytes_result?;
+
     let key_bytes = std::fs::read(data_dir.join("compass.key")).map_err(|e| {
         format!(
             "could not read encryption key file: {e}. Try relaunching Compass once first so the \
@@ -530,6 +755,10 @@ fn stage_backup_restore(app: AppHandle, hex: String) -> Result<(), String> {
 /// restore into place if `stage_backup_restore` left one behind on a previous run. The
 /// previous live files are kept as `.beforerestore` backups rather than deleted outright, in
 /// case the restored backup turns out to be the wrong one.
+///
+/// The db and key are treated as a single pair: if any step after the first rename fails, every
+/// step already taken is unwound so the live db/key are never left mismatched, and the newly
+/// placed pair is probe-opened together before being trusted - a failed probe rolls back too.
 fn apply_pending_restore_if_any(data_dir: &std::path::Path) {
     let pending_db = data_dir.join("compass.db.pending");
     let pending_key = data_dir.join("compass.key.pending");
@@ -539,20 +768,64 @@ fn apply_pending_restore_if_any(data_dir: &std::path::Path) {
     eprintln!("[compass] Applying staged backup restore...");
     let db_path = data_dir.join("compass.db");
     let key_path = data_dir.join("compass.key");
-    if db_path.exists() {
-        let _ = std::fs::rename(&db_path, db_path.with_extension("db.beforerestore"));
+    let db_before = db_path.with_extension("db.beforerestore");
+    let key_before = key_path.with_extension("key.beforerestore");
+    let had_previous_db = db_path.exists();
+    let had_previous_key = key_path.exists();
+
+    // Roll back everything done so far and bail - shared by every failure branch below.
+    let rollback = |db_renamed: bool, key_renamed: bool| {
+        if db_renamed {
+            let _ = std::fs::rename(&db_path, &pending_db);
+        }
+        if key_renamed {
+            let _ = std::fs::rename(&key_path, &pending_key);
+        }
+        if had_previous_db {
+            let _ = std::fs::rename(&db_before, &db_path);
+        }
+        if had_previous_key {
+            let _ = std::fs::rename(&key_before, &key_path);
+        }
+        eprintln!("[compass] Restore rolled back - the previous database/key are still in place.");
+    };
+
+    if had_previous_db {
+        if let Err(e) = std::fs::rename(&db_path, &db_before) {
+            eprintln!("[compass] Failed to preserve previous database before restore: {e}");
+            return;
+        }
     }
-    if key_path.exists() {
-        let _ = std::fs::rename(&key_path, key_path.with_extension("key.beforerestore"));
+    if had_previous_key {
+        if let Err(e) = std::fs::rename(&key_path, &key_before) {
+            eprintln!("[compass] Failed to preserve previous key before restore: {e}");
+            rollback(false, false);
+            return;
+        }
     }
     if let Err(e) = std::fs::rename(&pending_db, &db_path) {
         eprintln!("[compass] Failed to finalize restored database: {e}");
+        rollback(false, false);
         return;
     }
     if let Err(e) = std::fs::rename(&pending_key, &key_path) {
         eprintln!("[compass] Failed to finalize restored key: {e}");
+        rollback(true, false);
         return;
     }
+
+    // Verify the newly-placed pair actually opens together before trusting it.
+    let probe: Result<(), String> = (|| {
+        let key_str = std::fs::read_to_string(&key_path).map_err(|e| e.to_string())?;
+        let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+        apply_key(&conn, key_str.trim()).map_err(|e| e.to_string())
+    })();
+    if let Err(e) = probe {
+        eprintln!("[compass] Restored database failed to open with its key ({e})");
+        rollback(true, true);
+        return;
+    }
+
     // Refresh the keyring too, so future launches don't depend solely on the file backup.
     if let Ok(key) = std::fs::read_to_string(&key_path) {
         if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER) {
@@ -581,7 +854,14 @@ pub fn run() {
             app.manage(DbState(Mutex::new(conn)));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![db_execute, db_select, export_backup_bytes, stage_backup_restore])
+        .invoke_handler(tauri::generate_handler![
+            db_execute,
+            db_select,
+            db_execute_batch,
+            import_transactions_batch,
+            export_backup_bytes,
+            stage_backup_restore
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

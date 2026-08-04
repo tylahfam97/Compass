@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { getDb } from "@/lib/db";
-import { useProfileStore, getSavedProfileId } from "@/stores/profileStore";
+import { useProfileStore } from "@/stores/profileStore";
 import { useCategoryStore } from "@/stores/categoryStore";
 import type { Profile, Category } from "@/lib/types";
 import PinModal, { hashPin } from "./PinModal";
@@ -569,29 +569,4 @@ export default function ProfileSwitcher() {
       )}
     </>
   );
-}
-
-/** Bootstrap: load all profiles from DB and set active profile from localStorage. */
-export async function bootstrapProfiles(
-  setProfiles: (p: Profile[]) => void,
-  setActiveProfile: (p: Profile) => void,
-  setCategories: (c: Category[]) => void
-) {
-  const db = await getDb();
-  const profiles = await db.select<Profile[]>(
-    "SELECT * FROM profiles ORDER BY created_at"
-  );
-  if (profiles.length === 0) return;
-  setProfiles(profiles);
-
-  const savedId = getSavedProfileId();
-  const active =
-    profiles.find((p) => p.id === savedId) ?? profiles[0];
-  setActiveProfile(active);
-
-  const cats = await db.select<Category[]>(
-    "SELECT * FROM categories WHERE is_system=1 OR profile_id=? ORDER BY name",
-    [active.id]
-  );
-  setCategories(cats);
 }

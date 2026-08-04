@@ -204,7 +204,7 @@ function ScopeToggle({ isGlobal, onToggle, size = "md" }: ScopeToggleProps) {
 }
 
 export default function BudgetsPage() {
-  const [month, setMonth] = useAutoMonth();
+  const [month, setMonth] = useAutoMonth("budgets");
   const [budgets, setBudgets] = useState<BudgetRow[]>([]);
   const [loading, setLoading] = useState(true);
   const categories = useCategoryStore((s) => s.categories);

@@ -2,7 +2,69 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
-## Compass 0.9.3 — Category Totals Now Net Out Refunds & Reimbursements 💰
+## Compass 0.9.5 — Data Integrity Hardening 🔒
+
+A behind-the-scenes release focused on making sure your data stays correct and intact, even when
+something goes wrong mid-operation - plus a handful of real import correctness fixes found during
+the audit.
+
+### Fixed: Schema Migrations Could Be Left Half-Applied
+Migrations that rebuild a table (rename → recreate → copy → drop) previously ran as several
+separate, independently-committed database statements. If Compass or the computer crashed partway
+through, the database could be left with a renamed-away table and no replacement. Every migration
+now runs inside one real database transaction - a crash or error midway rolls back the whole thing,
+leaving your existing data untouched instead of half-migrated.
+
+### Fixed: A Crash Mid-Import Could Leave a Partially Imported File
+CSV/XLSX imports inserted transactions one row at a time, each its own independent database write.
+Imports now run inside one transaction, so an interruption partway through can no longer leave a
+statement half-imported.
+
+### Fixed: Import Summaries Could Mislabel Real Errors as "Duplicates"
+Any row that failed to insert - for any reason - was previously counted as a "duplicate skipped,"
+even if the real cause was a genuine data or constraint error unrelated to it already existing.
+Compass now distinguishes true duplicates from real errors and reports them separately, so the
+import summary never quietly hides a real problem behind a reassuring "duplicates skipped" message.
+
+### Fixed: Two Legitimately Identical Transactions in One File Could Be Wrongly Treated as a Duplicate
+Two genuinely separate transactions with identical details (e.g. two $5 purchases at the same
+merchant on the same day) could collide and get silently dropped as if the second one were a
+re-import of the first. Both are now imported correctly, while re-importing an already-imported
+file is still correctly recognized as all duplicates.
+
+### Fixed: Capital One-Style Statements (Separate Debit/Credit Columns) Silently Dropped Rows
+Banks that export two separate amount columns instead of one signed column - Capital One being the
+common example - previously only read the Debit column, so any row with a value only in the Credit
+column (a payment, refund, or cashback) was silently skipped. Compass now supports mapping separate
+Debit and Credit columns directly, so nothing gets left out.
+
+### Fixed: Saved Column Mappings Could Collide Across Profiles
+Two profiles importing the same bank's CSV format could overwrite each other's saved column
+mapping. Mappings are now scoped per profile.
+
+### Fixed: A Manually Chosen Sign-Flip Setting Wasn't Saved
+The "flip amounts" choice for banks that export expenses as positive numbers wasn't persisted with
+the rest of a saved column mapping, so it could be lost on a later import for a custom bank. It's
+now saved and restored correctly.
+
+### Fixed: Backups Read the Database File Directly
+Backups previously read `compass.db` straight off disk while the app had it open, relying on the
+assumption that nothing would ever be mid-write. Backups now take a proper SQLite snapshot first,
+guaranteeing a consistent copy every time.
+
+### Fixed: A Restore Could Leave a Mismatched Database/Key Pair
+If restoring a backup failed partway through swapping files into place, the live database and its
+encryption key could end up as a mismatched pair. Restores are now fully rolled back on any
+failure, and the newly restored database is verified to actually open before being trusted.
+
+### Fixed: Impossible Calendar Dates Could Be Silently Accepted
+A date like February 31st could previously be normalized into a string and imported as if it were
+valid. Dates are now validated against the real calendar before being accepted; amount parsing also
+now recognizes trailing "CR"/"DR" suffixes some statements use.
+
+### Cleanup: Removed Dead Code
+Removed several unused/unreachable leftovers found during this pass, including an entire unused
+Rust command module that wasn't even compiled into the app.
 
 A correctness release for anyone who gets money back into a spending category - a reimbursement,
 refund, or shared-cost repayment deposited back into your account and categorized alongside the

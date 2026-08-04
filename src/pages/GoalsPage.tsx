@@ -127,7 +127,7 @@ function recentMonths(n: number): string[] {
 }
 
 export default function GoalsPage() {
-  const [month, setMonth] = useAutoMonth();
+  const [month, setMonth] = useAutoMonth("goals");
   const [goals, setGoals] = useState<GoalWithProgress[]>([]);
   const [loading, setLoading] = useState(true);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
