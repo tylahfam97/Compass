@@ -3,16 +3,18 @@ import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import {
   Calendar, Tag, DollarSign, BarChart2, Upload, Loader2, CheckCircle2, Info,
-  Landmark, CreditCard, TrendingUp, HandCoins,
+  Landmark, CreditCard, TrendingUp, HandCoins, AlertTriangle,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import {
   getDb, applyCategorizationRules, recomputeCalculatedBalances,
   listAccountsForProfile, resolveAccountId, setAccountInterestRate, setAccountMinimumPayment,
+  getManualTransactionsForAccount, shiftBalanceAnchorForTransactionChange,
 } from "@/lib/db";
 import type { AccountChoice } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { parseDate, parseAmount, dedupeRowHash } from "@/lib/importParsing";
+import { parseDate, parseAmount, dedupeRowHash, findDuplicateCandidates } from "@/lib/importParsing";
+import type { DuplicateCandidate } from "@/lib/importParsing";
 import type { CategorizationRule, SecurityType, Account } from "@/lib/types";
 import { TRANSFER_CATEGORY_ID, EXCLUDED_CATEGORY_ID } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
@@ -25,7 +27,8 @@ import LoanUploaderModal from "@/components/LoanUploaderModal";
 type Step =
   | "upload" | "checking"
   | "wizard:account"
-  | "wizard:data" | "wizard:date" | "wizard:desc" | "wizard:amount" | "wizard:balance" | "wizard:preview"
+  | "wizard:data" | "wizard:date" | "wizard:desc" | "wizard:amount" | "wizard:balance"
+  | "wizard:reconcile" | "wizard:preview"
   | "wizard:investment-preview"
   | "importing" | "done";
 
@@ -250,6 +253,11 @@ interface Summary {
    *  genuine constraint/data error) - kept separate from `skipped` so the summary never
    *  reassures the user that a real failure was "just a duplicate". */
   errors?: { index: number; message: string }[];
+  /** From the reconcile step - rows the user chose to skip because they already had a
+   *  matching manual entry, and manual entries the user chose to replace with the imported
+   *  version instead. Both default to 0/undefined when no possible duplicates were found. */
+  keptManualCount?: number;
+  replacedManualCount?: number;
 }
 
 interface ImportSession {
@@ -272,6 +280,10 @@ const WIZARD_STEPS = [
 ];
 
 function wizardNum(step: string): number {
+  // The reconcile step is an interstitial gate shown only when duplicates are found - it
+  // shares Preview's bubble number rather than getting its own, so skipping it entirely
+  // (the common case) doesn't shift every later step's number.
+  if (step === "wizard:reconcile") return 7;
   return WIZARD_STEPS.find((s) => s.step === step)?.num ?? 0;
 }
 
@@ -1025,6 +1037,11 @@ export default function ImportPage() {
   // (findLabeledValue-based, same machinery as the loan uploader) - only ever used to prefill
   // `currentBalanceInput`, never saved without the user seeing/confirming it first.
   const [parsedStatementBalance, setParsedStatementBalance] = useState<string | null>(null);
+  // Possible duplicates of already-existing manual transactions, found when leaving the
+  // "Balance" step - only ever populated (and the reconcile step only ever shown) when at
+  // least one is found; each item's `resolution` defaults to "keep_both" (never destructive
+  // unless the user explicitly says otherwise).
+  const [dupCandidates, setDupCandidates] = useState<(DuplicateCandidate & { resolution: "keep_both" | "keep_manual" | "keep_imported" })[]>([]);
   const [profileFound, setProfileFound] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1207,6 +1224,39 @@ export default function ImportPage() {
     setWizardDir(dir);
     setStep(target);
     setMaxStepReached((m) => Math.max(m, wizardNum(target)));
+  };
+
+  /** Gate between the wizard's column-mapping steps and Preview - checks incoming rows against
+   *  this account's existing manually-added transactions for possible duplicates (see
+   *  importParsing.ts) and, only if any are found, detours through the reconcile step instead
+   *  of going straight to Preview. A brand-new account has no manual transactions to conflict
+   *  with, so this is a no-op (straight to Preview) in that case. */
+  const proceedToPreview = async () => {
+    if (!parsed || !accountChoice || accountChoice.mode !== "existing") {
+      wizardGo("wizard:preview", "forward");
+      return;
+    }
+    const manualTxns = await getManualTransactionsForAccount(accountChoice.accountId);
+    if (manualTxns.length === 0) {
+      wizardGo("wizard:preview", "forward");
+      return;
+    }
+    const importedRows = parsed.rows
+      .map((row, rowIndex) => {
+        const date = parseDate(row[colMap.dateCol] ?? "");
+        const description = (row[colMap.descCol] ?? "").trim();
+        const amount = computeRowAmount(row, colMap);
+        if (!date || !description || !isFinite(amount) || amount === 0) return null;
+        return { rowIndex, date, description, amountCents: Math.round(amount * 100) };
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null);
+    const candidates = findDuplicateCandidates(importedRows, manualTxns);
+    if (candidates.length === 0) {
+      wizardGo("wizard:preview", "forward");
+      return;
+    }
+    setDupCandidates(candidates.map((c) => ({ ...c, resolution: "keep_both" as const })));
+    wizardGo("wizard:reconcile", "forward");
   };
 
   const undoImport = async (sessionId: number) => {
@@ -1460,6 +1510,7 @@ export default function ImportPage() {
     setCreditInterestRateInput("");
     setCreditMinimumPaymentInput("");
     setParsedStatementBalance(null);
+    setDupCandidates([]);
     setMaxStepReached(1);
     const derived = deriveHeaders(data, initialSkip);
     if (!derived) {
@@ -1616,12 +1667,21 @@ export default function ImportPage() {
       let imported = 0;
       let skipped = 0;
       let transferCount = 0;
+      // From the reconcile step (only ever non-zero when possible duplicates were found and
+      // resolved) - tracked separately from `skipped` since that specifically means "already-
+      // imported duplicate via content hash", a different situation from "user chose to keep
+      // their manual entry instead".
+      let keptManualCount = 0;
+      let replacedManualCount = 0;
+      let deletedAnyManual = false;
+      const dupByRow = new Map(dupCandidates.map((c) => [c.rowIndex, c]));
       const rowErrors: { index: number; message: string }[] = [];
 
       const seenHashCounts = new Map<string, number>();
       const rowPayloads: { params: unknown[]; categoryId: number | null }[] = [];
 
-      for (const row of parsed.rows) {
+      for (let rowIndex = 0; rowIndex < parsed.rows.length; rowIndex++) {
+        const row = parsed.rows[rowIndex];
         const requiredCols = [colMap.dateCol, colMap.descCol];
         if (colMap.debitCol >= 0 || colMap.creditCol >= 0) {
           if (colMap.debitCol >= 0) requiredCols.push(colMap.debitCol);
@@ -1636,6 +1696,22 @@ export default function ImportPage() {
         const description = (row[colMap.descCol] ?? "").trim();
         const amount = computeRowAmount(row, colMap);
         if (!date || !description || !isFinite(amount) || amount === 0) continue;
+
+        const dup = dupByRow.get(rowIndex);
+        if (dup?.resolution === "keep_manual") { keptManualCount++; continue; }
+        if (dup?.resolution === "keep_imported") {
+          // Remove the manual entry this row is replacing FIRST, shifting the balance anchor by
+          // its removal exactly like any other manual delete (see shiftBalanceAnchorForTransactionChange) -
+          // the new row below then gets inserted as if the manual one never existed.
+          await db.execute("DELETE FROM transactions WHERE id=?", [dup.existingTxnId]);
+          await shiftBalanceAnchorForTransactionChange(
+            accountId,
+            { date: dup.existingDate, amountCents: dup.existingAmountCents },
+            null
+          );
+          replacedManualCount++;
+          deletedAnyManual = true;
+        }
 
         const amountCents = Math.round(amount * 100);
         const hash = await dedupeRowHash(row, seenHashCounts);
@@ -1706,11 +1782,13 @@ export default function ImportPage() {
 
       // No native balance column - (re)calculate a running balance for every transaction on
       // this account from its balance anchor (or 0), so charts/dashboards still have a value.
-      if (colMap.balanceCol < 0) {
+      // Also needed whenever a manual duplicate was deleted above, regardless of balanceCol -
+      // the surrounding rows that relied on calculated balances still need to reflect its removal.
+      if (colMap.balanceCol < 0 || deletedAnyManual) {
         await recomputeCalculatedBalances(accountId);
       }
 
-      setSummary({ imported, skipped, transferCount, errors: rowErrors });
+      setSummary({ imported, skipped, transferCount, errors: rowErrors, keptManualCount, replacedManualCount });
       await loadHistory();
       setStep("done");
       setImportSubmitting(false);
@@ -1721,7 +1799,10 @@ export default function ImportPage() {
     }
   };
 
-  /** Silently import a file using a previously approved column mapping (batch auto-mode). */
+  /** Silently import a file using a previously approved column mapping (batch auto-mode). Does
+   *  NOT run manual-duplicate reconciliation (see proceedToPreview/wizard:reconcile) - pausing
+   *  an unattended batch mid-flight for input would break its whole "silent" contract, so this
+   *  path always behaves like "keep both" for any manual entry a row might actually duplicate. */
   const autoImportFile = useCallback(async (file: File, savedColMap: ColMap) => {
     setError(null);
     setCurrentFilename(file.name);
@@ -1857,6 +1938,7 @@ export default function ImportPage() {
     setCreditInterestRateInput("");
     setCreditMinimumPaymentInput("");
     setParsedStatementBalance(null);
+    setDupCandidates([]);
     setMaxStepReached(1);
     setCurrentFilename("");
     setIsPdfImport(false);
@@ -2225,7 +2307,7 @@ export default function ImportPage() {
               className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
               Back
             </button>
-            <button onClick={() => wizardGo("wizard:preview", "forward")}
+            <button onClick={proceedToPreview}
               className="px-5 py-2 border rounded-lg text-sm font-medium hover:bg-[hsl(var(--muted))] transition-colors">
               Skip to Preview
             </button>
@@ -2291,7 +2373,7 @@ export default function ImportPage() {
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
               Continue
             </button>
-            <button onClick={() => wizardGo("wizard:preview", "forward")}
+            <button onClick={proceedToPreview}
               className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
               Skip to Preview
             </button>
@@ -2345,7 +2427,7 @@ export default function ImportPage() {
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
               Continue
             </button>
-            <button onClick={() => wizardGo("wizard:preview", "forward")}
+            <button onClick={proceedToPreview}
               className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
               Skip to Preview
             </button>
@@ -2536,7 +2618,7 @@ export default function ImportPage() {
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
               Continue
             </button>
-            <button onClick={() => wizardGo("wizard:preview", "forward")}
+            <button onClick={proceedToPreview}
               className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
               Skip to Preview
             </button>
@@ -2639,7 +2721,7 @@ export default function ImportPage() {
               className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
               Back
             </button>
-            <button onClick={() => wizardGo("wizard:preview", "forward")}
+            <button onClick={proceedToPreview}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
               Continue to Preview
             </button>
@@ -2790,6 +2872,76 @@ export default function ImportPage() {
               Import {invTotals.count} Positions
             </button>
             <button onClick={reset} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {step === "wizard:reconcile" && parsed && (
+        <div key="wizard:reconcile" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "hsl(var(--warning)/0.12)" }}>
+              <AlertTriangle size={18} className="text-[hsl(var(--warning))]" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold leading-tight">Possible duplicates found</h2>
+              <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">
+                {dupCandidates.length} transaction{dupCandidates.length === 1 ? "" : "s"} in this file look like they might
+                already be on this account as a manual entry (same amount, a close date, and a similar description).
+                Choose what to keep for each - "Keep both" is safest if they're actually different.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {dupCandidates.map((c, i) => (
+              <div key={c.existingTxnId} className="border rounded-xl p-4 space-y-3">
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="border rounded-lg p-3">
+                    <p className="text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))] mb-1">Your manual entry</p>
+                    <p className="font-medium truncate">{c.existingDescription}</p>
+                    <p className="text-xs text-[hsl(var(--muted-foreground))]">{formatDate(c.existingDate)} · {formatCurrency(c.existingAmountCents)}</p>
+                  </div>
+                  <div className="border rounded-lg p-3">
+                    <p className="text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))] mb-1">Being imported</p>
+                    <p className="font-medium truncate">{c.importedDescription}</p>
+                    <p className="text-xs text-[hsl(var(--muted-foreground))]">{formatDate(c.importedDate)} · {formatCurrency(c.importedAmountCents)}</p>
+                  </div>
+                </div>
+                <div className="flex gap-2 text-xs flex-wrap">
+                  {([
+                    { key: "keep_both" as const, label: "Keep both (not a duplicate)" },
+                    { key: "keep_manual" as const, label: "Keep my manual entry" },
+                    { key: "keep_imported" as const, label: "Keep the imported one" },
+                  ]).map((opt) => (
+                    <button
+                      key={opt.key}
+                      onClick={() => setDupCandidates((prev) => prev.map((p, pi) => (pi === i ? { ...p, resolution: opt.key } : p)))}
+                      className={`px-2.5 py-1.5 rounded-lg border transition-colors ${
+                        c.resolution === opt.key
+                          ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent"
+                          : "hover:bg-[hsl(var(--muted))]"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex gap-3">
+            <button onClick={() => wizardGo("wizard:balance", "back")}
+              className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
+              Back
+            </button>
+            <button onClick={() => wizardGo("wizard:preview", "forward")}
+              className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
+              Continue
+            </button>
+            <button onClick={reset} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
+              Cancel
+            </button>
           </div>
         </div>
       )}
@@ -2996,6 +3148,17 @@ export default function ImportPage() {
                   <strong>{summary.errors.length}</strong> {summary.errors.length === 1 ? "row" : "rows"} could not be
                   imported due to an error (not a duplicate) - e.g. "{summary.errors[0].message}". These rows were not
                   saved and are not counted above.
+                </p>
+              )}
+              {(!!summary.keptManualCount || !!summary.replacedManualCount) && (
+                <p className="text-xs text-[hsl(var(--warning))] mb-6 max-w-md mx-auto border rounded-lg px-3 py-2 border-[hsl(var(--warning)/0.3)]"
+                  style={{ backgroundColor: "hsl(var(--warning)/0.05)" }}>
+                  {!!summary.keptManualCount && (
+                    <>Kept <strong>{summary.keptManualCount}</strong> existing manual {summary.keptManualCount === 1 ? "entry" : "entries"} instead of the matching imported row{summary.keptManualCount === 1 ? "" : "s"}. </>
+                  )}
+                  {!!summary.replacedManualCount && (
+                    <>Replaced <strong>{summary.replacedManualCount}</strong> manual {summary.replacedManualCount === 1 ? "entry" : "entries"} with the imported version.</>
+                  )}
                 </p>
               )}
             </>

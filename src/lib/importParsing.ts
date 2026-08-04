@@ -62,3 +62,86 @@ export async function dedupeRowHash(row: string[], seenCounts: Map<string, numbe
   seenCounts.set(base, count + 1);
   return count === 0 ? base : await hashRow([...row, `__dupe_ordinal_${count}`]);
 }
+
+// ─── Manual-vs-import duplicate detection ──────────────────────────────────────
+// A manually-added transaction's import_hash is a random UUID (see EditTransactionModal), never
+// derived from its content - so it can NEVER match a later real import's content-based hash.
+// Without this, entering a transaction by hand and later seeing the same one on an imported
+// statement silently double-counts it. This is a separate, deliberately loose/"maybe" heuristic
+// (never auto-applied) that the import wizard uses to flag candidates for the user to resolve.
+
+function normalizeForDuplicateMatch(s: string): string {
+  return s.toUpperCase().replace(/[^A-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/** True if two descriptions are close enough to flag as a possible duplicate - exact match, one
+ *  containing the other, or sharing at least one meaningful (3+ char) word. Deliberately loose
+ *  since a manually-typed description rarely matches a bank's own wording character-for-character. */
+export function descriptionsLikelyMatch(a: string, b: string): boolean {
+  const na = normalizeForDuplicateMatch(a);
+  const nb = normalizeForDuplicateMatch(b);
+  if (!na || !nb) return false;
+  if (na === nb || na.includes(nb) || nb.includes(na)) return true;
+  const wordsA = new Set(na.split(" ").filter((w) => w.length >= 3));
+  return nb.split(" ").some((w) => w.length >= 3 && wordsA.has(w));
+}
+
+export interface ManualTxnForMatch {
+  id: number;
+  date: string;
+  description: string;
+  amount_cents: number;
+}
+
+export interface ImportedRowForMatch {
+  rowIndex: number;
+  date: string;
+  description: string;
+  amountCents: number;
+}
+
+export interface DuplicateCandidate {
+  rowIndex: number;
+  existingTxnId: number;
+  existingDate: string;
+  existingDescription: string;
+  existingAmountCents: number;
+  importedDate: string;
+  importedDescription: string;
+  importedAmountCents: number;
+}
+
+/** A same-date transaction posted a day or two later is common (weekend/holiday clearing) -
+ *  wide enough to catch that, narrow enough to stay "super confident" rather than guessing. */
+const DUPLICATE_DATE_WINDOW_DAYS = 3;
+
+/** Flags statement rows about to be imported that look like they might already exist as a
+ *  manually-added transaction on the same account: exact amount match (no tolerance), date
+ *  within a few days, and a similar-enough description. Each manual transaction can only match
+ *  ONE imported row, so several same-amount rows on one statement can't all falsely claim the
+ *  same manual entry. Returns an empty array (no UI shown) when nothing looks like a match. */
+export function findDuplicateCandidates(
+  importedRows: ImportedRowForMatch[],
+  manualTxns: ManualTxnForMatch[]
+): DuplicateCandidate[] {
+  const usedManualIds = new Set<number>();
+  const candidates: DuplicateCandidate[] = [];
+  for (const row of importedRows) {
+    const match = manualTxns.find((m) => {
+      if (usedManualIds.has(m.id)) return false;
+      if (m.amount_cents !== row.amountCents) return false;
+      const days = Math.abs((new Date(m.date).getTime() - new Date(row.date).getTime()) / 86400000);
+      if (days > DUPLICATE_DATE_WINDOW_DAYS) return false;
+      return descriptionsLikelyMatch(m.description, row.description);
+    });
+    if (match) {
+      usedManualIds.add(match.id);
+      candidates.push({
+        rowIndex: row.rowIndex, existingTxnId: match.id, existingDate: match.date,
+        existingDescription: match.description, existingAmountCents: match.amount_cents,
+        importedDate: row.date, importedDescription: row.description, importedAmountCents: row.amountCents,
+      });
+    }
+  }
+  return candidates;
+}

@@ -1305,6 +1305,19 @@ export async function getBalanceAnchorRiskReport(profileId: number): Promise<Bal
     }));
 }
 
+/** Existing manually-added transactions on an account (import_hash is a random UUID, never
+ *  content-derived) - fetched so the import wizard can check incoming statement rows against
+ *  them for possible duplicates before anything gets inserted. */
+export async function getManualTransactionsForAccount(
+  accountId: number
+): Promise<{ id: number; date: string; description: string; amount_cents: number }[]> {
+  const db = await getDb();
+  return db.select<{ id: number; date: string; description: string; amount_cents: number }[]>(
+    "SELECT id, date, description, amount_cents FROM transactions WHERE account_id=? AND import_hash LIKE 'manual_%'",
+    [accountId]
+  );
+}
+
 /** Sets (or clears, with `null`) an account's informational interest rate - used for credit
  *  cards during import (optional APR entry) the same way loan statements already do. Never
  *  used in any calculation, purely for display and Avalanche-method ranking on the Debt
