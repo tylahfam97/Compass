@@ -961,7 +961,7 @@ export default function DashboardPage() {
               {monthTxnCount > 0 && (
                 <button
                   onClick={() => setConfirmClear("month")}
-                  className="text-[hsl(var(--muted-foreground))] hover:text-red-500 transition-colors"
+                  className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))] transition-colors"
                 >
                   Clear {month}
                 </button>
@@ -972,7 +972,7 @@ export default function DashboardPage() {
               {totalTxnCount > 0 && (
                 <button
                   onClick={() => setConfirmClear("all")}
-                  className="text-[hsl(var(--muted-foreground))] hover:text-red-500 transition-colors"
+                  className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))] transition-colors"
                 >
                   Clear all transactions
                 </button>
@@ -980,15 +980,15 @@ export default function DashboardPage() {
             </div>
           ) : (
             <div className="flex items-center gap-3 flex-wrap">
-              <p className="text-sm text-red-500">
+              <p className="text-sm text-[hsl(var(--error))]">
                 {confirmClear === "month"
                   ? `Delete all transactions for ${month}? This cannot be undone.`
                   : "Delete ALL transactions? This cannot be undone."}
               </p>
               <button
                 onClick={() => handleClear(confirmClear)}
-                className="px-3 py-1 bg-red-500 text-white rounded-lg text-sm font-medium
-                           hover:bg-red-600 transition-colors"
+                className="px-3 py-1 bg-[hsl(var(--error))] text-white rounded-lg text-sm font-medium
+                           hover:opacity-90 transition-colors"
               >
                 Yes, delete
               </button>

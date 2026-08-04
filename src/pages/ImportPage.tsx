@@ -1951,12 +1951,12 @@ export default function ImportPage() {
                 <p className="text-xs text-[hsl(var(--muted-foreground))] border-t pt-2 flex items-start gap-1"><Info size={12} className="shrink-0 mt-0.5" /> {BANK_PRESETS[selectedPresetId].note}</p>
               )}
               {selectedPresetId && (
-                <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1"><CheckCircle2 size={12} /> {BANK_PRESETS[selectedPresetId].name} selected - column mapping will be pre-filled.</p>
+                <p className="text-xs text-[hsl(var(--success))] flex items-center gap-1"><CheckCircle2 size={12} /> {BANK_PRESETS[selectedPresetId].name} selected - column mapping will be pre-filled.</p>
               )}
             </div>
           )}
 
-          {error && <p className="mt-4 text-red-500 text-sm">{error}</p>}
+          {error && <p className="mt-4 text-[hsl(var(--error))] text-sm">{error}</p>}
         </div>
       )}
 
@@ -1976,13 +1976,13 @@ export default function ImportPage() {
                       wizardNum(step) === ws.num
                         ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
                         : wizardNum(step) > ws.num
-                        ? "bg-green-500 text-white cursor-pointer hover:opacity-80"
+                        ? "bg-[hsl(var(--success))] text-white cursor-pointer hover:opacity-80"
                         : "bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] cursor-not-allowed"
                     }`}>
                     {wizardNum(step) > ws.num ? "✓" : ws.num}
                   </button>
                   {i < WIZARD_STEPS.length - 1 && (
-                    <div className={`h-0.5 w-6 transition-colors ${wizardNum(step) > ws.num ? "bg-green-500" : "bg-[hsl(var(--muted))]"}`} />
+                    <div className={`h-0.5 w-6 transition-colors ${wizardNum(step) > ws.num ? "bg-[hsl(var(--success))]" : "bg-[hsl(var(--muted))]"}`} />
                   )}
                 </div>
               );
@@ -2020,15 +2020,15 @@ export default function ImportPage() {
 
           <div className="border rounded-xl p-5 space-y-4">
             {accountChoice?.mode === "existing" && (
-              <div className="px-3 py-2.5 rounded-lg text-sm border border-green-300 bg-green-50
-                              text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300 flex items-start gap-2">
+              <div className="px-3 py-2.5 rounded-lg text-sm border border-[hsl(var(--success)/0.4)] bg-[hsl(var(--success)/0.08)]
+                              text-[hsl(var(--success))] dark:border-[hsl(var(--success)/0.5)] dark:bg-[hsl(var(--success)/0.15)] flex items-start gap-2">
                 <CheckCircle2 size={14} className="shrink-0 mt-0.5" />
                 <span>This looks like your existing <strong>{accountChoice.name}</strong> account - we'll add these transactions there.</span>
               </div>
             )}
             {accountChoice?.mode === "new" && existingAccountsForType.length > 0 && (
-              <div className="px-3 py-2.5 rounded-lg text-sm border border-blue-300 bg-blue-50
-                              text-blue-800 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300 flex items-start gap-2">
+              <div className="px-3 py-2.5 rounded-lg text-sm border border-[hsl(var(--primary)/0.4)] bg-[hsl(var(--primary)/0.08)]
+                              text-[hsl(var(--primary))] dark:border-[hsl(var(--primary)/0.5)] dark:bg-[hsl(var(--primary)/0.15)] flex items-start gap-2">
                 <Info size={14} className="shrink-0 mt-0.5" />
                 <span>This looks like a new account - we'll create <strong>{accountChoice.name || "it"}</strong>.</span>
               </div>
@@ -2187,8 +2187,8 @@ export default function ImportPage() {
           </div>
 
           {profileFound && (
-            <div className="px-4 py-2.5 rounded-lg text-sm border border-green-300 bg-green-50
-                            text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
+            <div className="px-4 py-2.5 rounded-lg text-sm border border-[hsl(var(--success)/0.4)] bg-[hsl(var(--success)/0.08)]
+                            text-[hsl(var(--success))] dark:border-[hsl(var(--success)/0.5)] dark:bg-[hsl(var(--success)/0.15)]">
                   Column layout recognized from a previous import.
             </div>
           )}
@@ -2245,7 +2245,7 @@ export default function ImportPage() {
                 return (
                   <div key={i} className="py-3 text-center">
                     <p className="font-mono text-sm text-[hsl(var(--muted-foreground))]">{raw}</p>
-                    <p className={`text-base font-semibold mt-0.5 ${ok ? "text-green-600" : "text-red-500"}`}>
+                    <p className={`text-base font-semibold mt-0.5 ${ok ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
                       {ok ? formatDate(iso) : "Couldn't parse"}
                     </p>
                   </div>
@@ -2370,7 +2370,7 @@ export default function ImportPage() {
                         )}
                         <p className="font-mono text-xs text-[hsl(var(--muted-foreground))] truncate">{raw}</p>
                       </div>
-                      <p className={`font-mono text-base font-semibold shrink-0 ${amt < 0 ? "text-[hsl(var(--error))]" : amt > 0 ? "text-[hsl(var(--success))]" : "text-amber-500"}`}>
+                      <p className={`font-mono text-base font-semibold shrink-0 ${amt < 0 ? "text-[hsl(var(--error))]" : amt > 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--warning))]"}`}>
                         {formatCurrency(Math.round(amt * 100))}
                       </p>
                     </div>
@@ -2622,10 +2622,10 @@ export default function ImportPage() {
 
       {step === "wizard:investment-preview" && invParsed && (
         <div key="wizard:investment-preview" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
-          {error && <p className="text-red-500 text-sm p-3 border border-red-300 rounded-lg">{error}</p>}
+          {error && <p className="text-[hsl(var(--error))] text-sm p-3 border border-[hsl(var(--error)/0.4)] rounded-lg">{error}</p>}
 
           {isPdfImport && (
-            <p className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1.5 p-3 border border-amber-300/50 rounded-lg bg-amber-500/5">
+            <p className="text-xs text-[hsl(var(--warning))] flex items-start gap-1.5 p-3 border border-[hsl(var(--warning)/0.35)] rounded-lg bg-[hsl(var(--warning)/0.06)]">
               <Info size={13} className="shrink-0 mt-0.5" />
               PDF portfolio statements are read with text-extraction heuristics, not a guaranteed column layout -
               double-check the sections and columns below (use "Fix columns" if anything looks misaligned) before importing.
@@ -2644,7 +2644,7 @@ export default function ImportPage() {
           </div>
 
           {accountChoice && (
-            <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+            <p className="text-xs text-[hsl(var(--success))] flex items-center gap-1">
               <CheckCircle2 size={12} />
               {accountChoice.mode === "existing"
                 ? <>Adding a new snapshot to your existing <strong>{accountChoice.name}</strong> account.</>
@@ -2690,7 +2690,7 @@ export default function ImportPage() {
                 </div>
               </div>
               {noValueData && (
-                <p className="px-4 py-2 text-xs text-amber-600 dark:text-amber-400 border-b flex items-start gap-1 normal-case font-normal">
+                <p className="px-4 py-2 text-xs text-[hsl(var(--warning))] border-b flex items-start gap-1 normal-case font-normal">
                   <Info size={12} className="shrink-0 mt-0.5" />
                   This section's file columns are all empty for shares, price, market value, and dates - Compass found the holdings but no numbers to go with them. Check <strong>Fix columns</strong> below to confirm, or re-export the statement with those columns visible.
                 </p>
@@ -2766,10 +2766,10 @@ export default function ImportPage() {
 
       {step === "wizard:preview" && parsed && (
         <div key="wizard:preview" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
-          {error && <p className="text-red-500 text-sm p-3 border border-red-300 rounded-lg">{error}</p>}
+          {error && <p className="text-[hsl(var(--error))] text-sm p-3 border border-[hsl(var(--error)/0.4)] rounded-lg">{error}</p>}
 
           {isPdfImport && (
-            <p className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1.5 p-3 border border-amber-300/50 rounded-lg bg-amber-500/5">
+            <p className="text-xs text-[hsl(var(--warning))] flex items-start gap-1.5 p-3 border border-[hsl(var(--warning)/0.35)] rounded-lg bg-[hsl(var(--warning)/0.06)]">
               <Info size={13} className="shrink-0 mt-0.5" />
               PDF statements are read with text-extraction heuristics, not a guaranteed column layout -
               double-check the rows below before importing. A CSV/XLSX export from your bank is more reliable when available.
@@ -2777,7 +2777,7 @@ export default function ImportPage() {
           )}
 
           {importKind === "credit" && accountChoice && (
-            <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+            <p className="text-xs text-[hsl(var(--success))] flex items-center gap-1">
               <CheckCircle2 size={12} />
               {accountChoice.mode === "existing"
                 ? <>Adding to your existing <strong>{accountChoice.name}</strong> account.</>
@@ -2904,7 +2904,7 @@ export default function ImportPage() {
 
       {step === "importing" && (
         <div className="text-center py-16">
-              <div className="flex justify-center mb-4 text-blue-500"><Info size={48} /></div>
+              <div className="flex justify-center mb-4 text-[hsl(var(--primary))]"><Info size={48} /></div>
           {batchAutoMode && totalBatchCount > 1 ? (
             <>
               <p className="font-medium mb-1">
@@ -2930,7 +2930,7 @@ export default function ImportPage() {
         <div className="text-center py-12 wizard-enter-done">
           {summary.imported === 0 ? (
             <>
-              <div className="flex justify-center mb-4 text-blue-500"><Info size={48} /></div>
+              <div className="flex justify-center mb-4 text-[hsl(var(--primary))]"><Info size={48} /></div>
               <p className="text-xl font-semibold mb-2">Already imported</p>
               <p className="text-[hsl(var(--muted-foreground))] mb-6">
                 All {summary.skipped} rows from <strong>{currentFilename}</strong> already exist
@@ -2939,7 +2939,7 @@ export default function ImportPage() {
             </>
           ) : (
             <>
-              <div className="flex justify-center mb-4 wizard-enter-done"><CheckCircle2 size={48} className="text-green-500" /></div>
+              <div className="flex justify-center mb-4 wizard-enter-done"><CheckCircle2 size={48} className="text-[hsl(var(--success))]" /></div>
               <p className="text-xl font-semibold mb-2">Import complete!</p>
               <p className="text-[hsl(var(--muted-foreground))] mb-6">
                 <span className="text-[hsl(var(--success))] font-semibold">{summary.imported} transactions</span>{" "}
@@ -3057,7 +3057,7 @@ export default function ImportPage() {
                         <span className="flex items-center justify-end gap-2 text-xs">
                           <button
                             onClick={() => undoImport(s.id)}
-                            className="text-red-500 font-medium hover:underline"
+                            className="text-[hsl(var(--error))] font-medium hover:underline"
                           >
                             Delete {s.row_count} rows
                           </button>
@@ -3072,7 +3072,7 @@ export default function ImportPage() {
                       ) : (
                         <button
                           onClick={() => setConfirmDeleteId(s.id)}
-                          className="text-xs text-[hsl(var(--muted-foreground))] hover:text-red-500
+                          className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))]
                                      transition-colors"
                         >
                           Undo

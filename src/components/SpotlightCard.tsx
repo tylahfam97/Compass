@@ -36,8 +36,8 @@ function StreakTrack({ streak }: { streak: number }) {
             style={{
               width: 12,
               height: 12,
-              backgroundColor: i < streak ? "#059669" : "hsl(var(--muted))",
-              boxShadow: i === streak - 1 ? "0 0 0 3px #05996930" : "none",
+              backgroundColor: i < streak ? "hsl(var(--success))" : "hsl(var(--muted))",
+              boxShadow: i === streak - 1 ? "0 0 0 3px hsl(var(--success)/0.19)" : "none",
             }}
           />
         ))}
@@ -45,7 +45,7 @@ function StreakTrack({ streak }: { streak: number }) {
       {streak >= 6 && (
         <span className="text-sm ml-1">🔥</span>
       )}
-      <span className="text-xs text-emerald-600 font-semibold ml-1">
+      <span className="text-xs text-[hsl(var(--success))] font-semibold ml-1">
         {streak} month{streak !== 1 ? "s" : ""} straight
       </span>
     </div>
@@ -56,13 +56,13 @@ function RateGauge({ current, target = 0.2 }: { current: number; target?: number
   const MAX = 0.4;
   const currentPct = Math.min(100, (current / MAX) * 100);
   const targetPct  = Math.min(100, (target  / MAX) * 100);
-  const color = current >= target ? "#059669" : current >= target * 0.7 ? "#d97706" : "#dc2626";
+  const color = current >= target ? "hsl(var(--success))" : current >= target * 0.7 ? "hsl(var(--warning))" : "hsl(var(--error))";
 
   return (
     <div className="space-y-2">
       <div
         className="relative h-3.5 rounded-full overflow-visible"
-        style={{ background: "linear-gradient(to right, #dc2626 0%, #f59e0b 45%, #22c55e 100%)" }}
+        style={{ background: "linear-gradient(to right, hsl(var(--error)) 0%, hsl(var(--warning)) 45%, hsl(var(--success)) 100%)" }}
       >
         {/* Target marker */}
         <div
@@ -77,7 +77,7 @@ function RateGauge({ current, target = 0.2 }: { current: number; target?: number
       </div>
       <div className="flex justify-between text-[10px] text-[hsl(var(--muted-foreground))]">
         <span>0%</span>
-        <span className="font-semibold text-amber-500">{Math.round(target * 100)}% target</span>
+        <span className="font-semibold text-[hsl(var(--warning))]">{Math.round(target * 100)}% target</span>
         <span>40%+</span>
       </div>
       <p className="text-xs font-semibold" style={{ color }}>
@@ -99,12 +99,12 @@ function PaceMeter({ paceMonthly, avgMonthly }: { paceMonthly: number; avgMonthl
     <div className="space-y-2">
       <div className="relative h-3.5 rounded-full bg-[hsl(var(--muted))] overflow-hidden">
         <div
-          className="absolute left-0 top-0 h-full rounded-l-full bg-blue-400"
+          className="absolute left-0 top-0 h-full rounded-l-full bg-[hsl(var(--primary))]"
           style={{ width: `${normalFillPct}%` }}
         />
         {overshootPct > 0 && (
           <div
-            className="absolute top-0 h-full bg-amber-400"
+            className="absolute top-0 h-full bg-[hsl(var(--warning))]"
             style={{ left: `${normalFillPct}%`, width: `${overshootPct}%` }}
           />
         )}
@@ -115,10 +115,10 @@ function PaceMeter({ paceMonthly, avgMonthly }: { paceMonthly: number; avgMonthl
         />
       </div>
       <div className="flex justify-between text-[10px]">
-        <span className="text-blue-500 font-semibold">
+        <span className="text-[hsl(var(--primary))] font-semibold">
           avg: {formatCurrency(avgMonthly)}
         </span>
-        <span className="text-amber-500 font-semibold">
+        <span className="text-[hsl(var(--warning))] font-semibold">
           pace: {formatCurrency(paceMonthly)}
         </span>
       </div>
@@ -149,11 +149,11 @@ function BeforeAfterBars({ before, after }: { before: number; after: number }) {
             className="h-3 rounded-full flex-1 bg-[hsl(var(--muted))]"
           >
             <div
-              className="h-full rounded-full bg-emerald-500"
+              className="h-full rounded-full bg-[hsl(var(--success))]"
               style={{ width: `${afterPct}%` }}
             />
           </div>
-          <span className="text-[10px] text-emerald-600 font-semibold w-20 shrink-0 text-right">
+          <span className="text-[10px] text-[hsl(var(--success))] font-semibold w-20 shrink-0 text-right">
             Now: {formatCurrency(after)} (−{dropPct}%)
           </span>
         </div>
@@ -165,7 +165,7 @@ function BeforeAfterBars({ before, after }: { before: number; after: number }) {
 function RunwaySegments({ runway }: { runway: number }) {
   const MAX = 12;
   const fillPct = Math.min(100, (Math.min(runway, MAX) / MAX) * 100);
-  const color = runway < 1 ? "#dc2626" : runway < 3 ? "#d97706" : runway < 6 ? "#2563eb" : "#059669";
+  const color = runway < 1 ? "hsl(var(--error))" : runway < 3 ? "hsl(var(--warning))" : runway < 6 ? "hsl(var(--primary))" : "hsl(var(--success))";
   const markers = [
     { frac: 1 / 12, label: "1mo" },
     { frac: 3 / 12, label: "3mo" },
@@ -229,16 +229,16 @@ export default function SpotlightCard({ insight, onApply }: SpotlightCardProps) 
     ?? (isSuccess ? CheckCircle : isWarning ? Target : Info);
 
   const wrapStyle = isSuccess
-    ? "border-emerald-200 dark:border-emerald-800/50 bg-emerald-50/50 dark:bg-emerald-950/20"
+    ? "border-[hsl(var(--success)/0.3)] dark:border-[hsl(var(--success)/0.35)] bg-[hsl(var(--success)/0.06)] dark:bg-[hsl(var(--success)/0.12)]"
     : isWarning
-    ? "border-amber-200 dark:border-amber-800/50 bg-amber-50/50 dark:bg-amber-950/20"
+    ? "border-[hsl(var(--warning)/0.3)] dark:border-[hsl(var(--warning)/0.35)] bg-[hsl(var(--warning)/0.06)] dark:bg-[hsl(var(--warning)/0.12)]"
     : "border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.4)]";
-  const accentCls = isSuccess ? "text-emerald-600" : isWarning ? "text-amber-500" : "text-blue-500";
+  const accentCls = isSuccess ? "text-[hsl(var(--success))]" : isWarning ? "text-[hsl(var(--warning))]" : "text-[hsl(var(--primary))]";
   const actionCls = isSuccess
-    ? "border border-emerald-400 text-emerald-700 hover:bg-emerald-100 dark:hover:bg-emerald-900/30"
+    ? "border border-[hsl(var(--success)/0.5)] text-[hsl(var(--success))] hover:bg-[hsl(var(--success)/0.12)] dark:hover:bg-[hsl(var(--success)/0.18)]"
     : isWarning
-    ? "border border-amber-400 text-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/30"
-    : "border border-blue-400 text-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/30";
+    ? "border border-[hsl(var(--warning)/0.5)] text-[hsl(var(--warning))] hover:bg-[hsl(var(--warning)/0.12)] dark:hover:bg-[hsl(var(--warning)/0.18)]"
+    : "border border-[hsl(var(--primary)/0.5)] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.12)] dark:hover:bg-[hsl(var(--primary)/0.18)]";
 
   function Viz(r: NonNullable<Insight["richData"]>) {
     switch (insight.type) {

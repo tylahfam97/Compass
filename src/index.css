@@ -43,14 +43,20 @@
   border-color: hsl(var(--border));
 }
 
+/* Barely-there cool radial gradient (not a flat texture) - reads as depth/quality rather
+   than a visible "blue wash"; --primary opacity is intentionally tiny per mode below. */
 body {
   background-color: hsl(var(--background));
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='60'%3E%3Cpath d='M0 20 Q100 8 200 20 Q300 32 400 20' fill='none' stroke='rgba(201%2C149%2C43%2C0.055)' stroke-width='1.5'/%3E%3Cpath d='M0 42 Q100 30 200 42 Q300 54 400 42' fill='none' stroke='rgba(201%2C149%2C43%2C0.03)' stroke-width='1'/%3E%3C/svg%3E");
-  background-repeat: repeat;
+  background-image: radial-gradient(ellipse 1400px 900px at 50% -8%, hsl(var(--primary) / 0.035), transparent 60%);
+  background-attachment: fixed;
   color: hsl(var(--foreground));
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+}
+
+.dark body {
+  background-image: radial-gradient(ellipse 1400px 900px at 50% -8%, hsl(var(--primary) / 0.1), transparent 60%);
 }
 
 /* ── Wizard transition animations ──────────────────────────────────────────── */
@@ -90,8 +96,8 @@ body {
 .spotlight-sparkle {
   position: absolute;
   border-radius: 9999px;
-  background: var(--gold);
-  box-shadow: 0 0 6px 1px var(--gold);
+  background: hsl(var(--primary));
+  box-shadow: 0 0 6px 1px hsl(var(--primary));
   animation: spotlight-twinkle 2.6s ease-in-out infinite;
   pointer-events: none;
 }
@@ -115,10 +121,12 @@ body {
   outline: none !important;
 }
 
-/* Subtle blue -> gold shimmer to signal "this box can be clicked for detail". */
+/* Dim gold pulse (two intensities of the same hue) signals "this box can be clicked for
+   detail" - gold is reserved app-wide for things you can click, so its presence alone reads as
+   an affordance. Kept tight to the edge (small blur/spread) rather than a bright bloom. */
 @keyframes chart-shimmer-glow {
-  0%, 100% { box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.30), 0 0 14px -4px rgba(59, 130, 246, 0.35); }
-  50%      { box-shadow: 0 0 0 1px rgba(201, 149, 43, 0.35), 0 0 14px -4px rgba(201, 149, 43, 0.40); }
+  0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--gold) 16%, transparent), 0 0 5px -2px color-mix(in srgb, var(--gold) 18%, transparent); }
+  50%      { box-shadow: 0 0 0 1px color-mix(in srgb, var(--gold) 26%, transparent), 0 0 6px -1px color-mix(in srgb, var(--gold) 28%, transparent); }
 }
 .chart-clickable {
   position: relative;
@@ -133,25 +141,25 @@ body {
 /* Soft ambient halo, layered on ::after (::before is already claimed above) since the
    shimmer's animated box-shadow can't be blended with a second, independently-timed glow on
    the same property. Faintly present at rest so a clickable card reads as interactive at a
-   glance without requiring a hover first, then blooms noticeably brighter on hover as direct
-   confirmation - tuned low-opacity/heavily-blurred to stay a "premium detail" rather than a
-   neon effect. Sits behind the card's own background (negative z-index within the stacking
-   context .chart-clickable's own `position: relative` establishes) so only the blurred edges
-   peek out as a halo instead of washing out the card's content. */
+   glance without requiring a hover first, then dims up slightly on hover as confirmation -
+   `inset: 0` keeps it clipped to the card's own footprint (no bleed past the border), and the
+   low opacity/small blur keep it a "premium detail" rather than a bright bloom. Sits behind the
+   card's own background (negative z-index within the stacking context .chart-clickable's own
+   `position: relative` establishes). */
 .chart-clickable::after {
   content: "";
   position: absolute;
-  inset: -8px;
+  inset: 0;
   z-index: -1;
   border-radius: inherit;
-  background: radial-gradient(circle, rgba(201, 149, 43, 0.38) 0%, rgba(59, 130, 246, 0.26) 55%, transparent 78%);
-  filter: blur(14px);
-  opacity: 0.5;
+  background: radial-gradient(circle, color-mix(in srgb, var(--gold) 20%, transparent) 0%, color-mix(in srgb, var(--gold) 8%, transparent) 55%, transparent 78%);
+  filter: blur(6px);
+  opacity: 0.35;
   pointer-events: none;
   transition: opacity 0.3s ease;
 }
 .chart-clickable:hover::after {
-  opacity: 1;
+  opacity: 0.65;
 }
 
 /* Delayed "click for details" hint - pure CSS (no JS/state needed): stays invisible until
@@ -197,7 +205,7 @@ body {
   background: conic-gradient(
     from var(--ring-angle),
     transparent 0%,
-    rgba(201, 149, 43, 0.6) 6%,
+    hsl(var(--primary) / 0.55) 6%,
     transparent 18%,
     transparent 100%
   );
@@ -215,22 +223,20 @@ body {
 
 /* ── Minimal gradient utilities ───────────────────────────────────────────────
    Used sparingly (headline numbers, key branding) - not meant to be applied
-   broadly. Text gradient reads as foreground fading to the gold accent. */
-.text-gradient-gold {
-  background: linear-gradient(100deg, hsl(var(--foreground)) 25%, var(--gold) 100%);
+   broadly. Text gradient reads as foreground fading to the primary accent. */
+.text-gradient-primary {
+  background: linear-gradient(100deg, hsl(var(--foreground)) 25%, hsl(var(--primary)) 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 
 /* ── Insight card icon glow ───────────────────────────────────────────────────
-   Orange -> blue radial glow that blooms in behind an insight card's icon
-   whenever the card is hovered, plus a gentle pulse for as long as the hover
-   lasts - shares the same blue/gold accent pairing as .chart-clickable's
-   shimmer so it reads as consistent with the rest of the app's "premium" glow
-   language, but only appears on hover rather than running ambiently. Plain CSS
-   (not a Tailwind arbitrary value) so it can't be silently dropped by a JIT
-   parsing edge case. */
+   Gold radial glow that blooms in behind an insight card's icon whenever the
+   card is hovered, plus a gentle pulse for as long as the hover lasts - insight
+   cards are clickable (expand on click), so gold here matches the app-wide rule
+   that gold marks interactive content. Plain CSS (not a Tailwind arbitrary value)
+   so it can't be silently dropped by a JIT parsing edge case. */
 @keyframes insight-icon-glow-pulse {
   0%, 100% { opacity: 0.6;  transform: scale(0.92); }
   50%      { opacity: 0.95; transform: scale(1.1); }
@@ -241,7 +247,7 @@ body {
   border-radius: 9999px;
   opacity: 0;
   pointer-events: none;
-  background: radial-gradient(circle, rgba(251, 146, 60, 0.7) 0%, rgba(59, 130, 246, 0.55) 60%, transparent 100%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--gold) 65%, transparent) 0%, color-mix(in srgb, var(--gold) 38%, transparent) 60%, transparent 100%);
   filter: blur(7px);
   transition: opacity 0.2s ease;
 }

@@ -962,10 +962,10 @@ export default function TransactionsPage() {
             <div className={`border shadow-xl rounded-xl px-5 py-3
                             flex items-center gap-4 text-sm
                             bg-[hsl(var(--background))]
-                            ${autoCatError ? "border-red-500" : ""}`}>
+                            ${autoCatError ? "border-[hsl(var(--error))]" : ""}`}>
               <span className="flex-1 text-[hsl(var(--foreground))]">
                 {autoCatError
-                  ? <span className="text-red-500">Error: {autoCatError}</span>
+                  ? <span className="text-[hsl(var(--error))]">Error: {autoCatError}</span>
                   : autoCatResult!.updated === 0
                     ? "No transactions matched any rule to recategorize."
                     : <><strong>{autoCatResult!.updated}</strong> transaction{autoCatResult!.updated !== 1 ? "s" : ""} recategorized using your current rules.</>

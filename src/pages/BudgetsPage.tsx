@@ -908,7 +908,7 @@ export default function BudgetsPage() {
                       <span className="ml-1.5 text-xs font-semibold text-[hsl(var(--error))]">over budget</span>
                     )}
                     {under && (
-                      <span className="ml-1.5 text-xs font-semibold text-orange-500">below target</span>
+                      <span className="ml-1.5 text-xs font-semibold text-[hsl(var(--warning))]">below target</span>
                     )}
                   </span>
                   <span className="text-[hsl(var(--muted-foreground))] tabular-nums">

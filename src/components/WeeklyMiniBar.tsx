@@ -35,9 +35,9 @@ export default function WeeklyMiniBar({
         let barColor = "bg-[hsl(var(--muted-foreground))]/20";
         if (!isFuture && amount > 0) {
           if (overIsBad) {
-            barColor = isOver ? "bg-red-400" : "bg-emerald-500";
+            barColor = isOver ? "bg-[hsl(var(--error))]" : "bg-[hsl(var(--success))]";
           } else {
-            barColor = amount >= dailyTarget ? "bg-emerald-500" : "bg-amber-400";
+            barColor = amount >= dailyTarget ? "bg-[hsl(var(--success))]" : "bg-[hsl(var(--warning))]";
           }
         }
 

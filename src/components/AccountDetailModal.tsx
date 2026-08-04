@@ -55,7 +55,7 @@ const NOTE_ICONS: Record<DerivedNote["severity"], React.ElementType> = {
   info: Info, success: CheckCircle, warning: AlertTriangle,
 };
 const NOTE_ICON_CLS: Record<DerivedNote["severity"], string> = {
-  info: "text-blue-500", success: "text-emerald-600", warning: "text-amber-500",
+  info: "text-[hsl(var(--primary))]", success: "text-[hsl(var(--success))]", warning: "text-[hsl(var(--warning))]",
 };
 
 /** Loans and credit cards have no generic Insight type of their own for balance-trend/rate

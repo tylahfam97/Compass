@@ -222,8 +222,8 @@ export default function LoanUploaderModal({ profileId, existingLoan, onClose, on
           they only track balance over time for the Loan Dashboard and net worth.
         </p>
 
-        {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
-        {batchWarning && <p className="mb-3 text-sm text-amber-600 dark:text-amber-400">{batchWarning}</p>}
+        {error && <p className="mb-3 text-sm text-[hsl(var(--error))]">{error}</p>}
+        {batchWarning && <p className="mb-3 text-sm text-[hsl(var(--warning))]">{batchWarning}</p>}
 
         <label
           className={`mb-4 flex items-center justify-center gap-2 border-2 border-dashed rounded-xl p-4 text-sm cursor-pointer
@@ -243,7 +243,7 @@ export default function LoanUploaderModal({ profileId, existingLoan, onClose, on
         </label>
 
         {pdfNotice && (
-          <p className="mb-2 text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1.5">
+          <p className="mb-2 text-xs text-[hsl(var(--warning))] flex items-start gap-1.5">
             <Info size={12} className="shrink-0 mt-0.5" />
             {pdfNotice}
           </p>

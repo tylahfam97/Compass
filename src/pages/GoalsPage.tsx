@@ -75,14 +75,14 @@ const CLASSIC_TYPES = new Set<GoalType>(["net_savings", "reduce_spend", "increas
 // Goal-type badge colors, grouped by meaning rather than one hue per type - 7 nearly
 // indistinguishable pastels read as visual noise; 3 clear groups read as intentional.
 const GOAL_TYPE_STYLE: Record<GoalType, string> = {
-  net_savings:        "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
-  savings_target:     "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
-  balance_floor:      "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
-  savings_rate_habit: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
-  reduce_spend:       "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
-  budget_streak:      "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
-  debt_paydown:       "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
-  increase_income:    "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
+  net_savings:        "bg-[hsl(var(--primary)/0.1)] text-[hsl(var(--primary))] dark:bg-[hsl(var(--primary)/0.18)]",
+  savings_target:     "bg-[hsl(var(--primary)/0.1)] text-[hsl(var(--primary))] dark:bg-[hsl(var(--primary)/0.18)]",
+  balance_floor:      "bg-[hsl(var(--primary)/0.1)] text-[hsl(var(--primary))] dark:bg-[hsl(var(--primary)/0.18)]",
+  savings_rate_habit: "bg-[hsl(var(--primary)/0.1)] text-[hsl(var(--primary))] dark:bg-[hsl(var(--primary)/0.18)]",
+  reduce_spend:       "bg-[hsl(var(--warning)/0.12)] text-[hsl(var(--warning))] dark:bg-[hsl(var(--warning)/0.2)]",
+  budget_streak:      "bg-[hsl(var(--warning)/0.12)] text-[hsl(var(--warning))] dark:bg-[hsl(var(--warning)/0.2)]",
+  debt_paydown:       "bg-[hsl(var(--warning)/0.12)] text-[hsl(var(--warning))] dark:bg-[hsl(var(--warning)/0.2)]",
+  increase_income:    "bg-[hsl(var(--success)/0.12)] text-[hsl(var(--success))] dark:bg-[hsl(var(--success)/0.2)]",
 };
 
 function monthBounds(ym: string): [string, string] {
@@ -703,7 +703,7 @@ export default function GoalsPage() {
               </div>
               <div className="flex items-center gap-3 shrink-0">
                 {!g.noBalanceData && !g.noBudgetData && (
-                  <span className={`text-xs font-medium ${g.on_track ? "text-[hsl(var(--success))]" : "text-orange-500"}`}>
+                  <span className={`text-xs font-medium ${g.on_track ? "text-[hsl(var(--success))]" : "text-[hsl(var(--warning))]"}`}>
                     {g.on_track ? "On track" : "Needs attention"}
                   </span>
                 )}
@@ -736,12 +736,12 @@ export default function GoalsPage() {
 
             {/* No-data banners */}
             {g.noBalanceData && (
-              <p className="text-xs text-amber-600 mb-3">
+              <p className="text-xs text-[hsl(var(--warning))] mb-3">
                 No balance data yet -- import a CSV with a Balance column to enable this goal.
               </p>
             )}
             {g.noBudgetData && (
-              <p className="text-xs text-amber-600 mb-3">
+              <p className="text-xs text-[hsl(var(--warning))] mb-3">
                 No budget found for this category. Create a budget first to track your streak.
               </p>
             )}
@@ -812,8 +812,8 @@ export default function GoalsPage() {
                   </p>
                   <p className={`text-sm font-semibold ${
                     isSpend
-                      ? dailyNeeded < 0 ? "text-[hsl(var(--error))]" : "text-emerald-600"
-                      : dailyNeeded <= 0 ? "text-emerald-600" : "text-[hsl(var(--foreground))]"
+                      ? dailyNeeded < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"
+                      : dailyNeeded <= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--foreground))]"
                   }`}>
                     {isSpend
                       ? dailyNeeded < 0 ? "Over limit"

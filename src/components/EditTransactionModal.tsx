@@ -125,7 +125,7 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
       >
         <h2 className="text-lg font-semibold mb-4">{isAdd ? "Add Transaction" : "Edit Transaction"}</h2>
 
-        {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
+        {error && <p className="mb-3 text-sm text-[hsl(var(--error))]">{error}</p>}
 
         <div className="space-y-4">
           <div>
@@ -147,7 +147,7 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
                 ))}
               </select>
               {accounts.length === 0 && (
-                <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400">
+                <p className="mt-1.5 text-xs text-[hsl(var(--warning))]">
                   No accounts found for this profile yet - import a statement first.
                 </p>
               )}
@@ -177,7 +177,7 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
               <CategoryOptions categories={categories} />
             </select>
             {catId === 20 && (
-              <div className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+              <div className="mt-1.5 flex items-start gap-1.5 text-xs text-[hsl(var(--warning))]">
                 <Info size={12} className="shrink-0 mt-0.5" />
                 <span>Transfers are excluded from income and expense totals across all reports and insights.</span>
               </div>
@@ -198,13 +198,13 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
           <div>
             {!isAdd && !confirmDel && (
               <button onClick={() => setConfirmDel(true)}
-                className="text-sm text-red-500 hover:underline">Delete</button>
+                className="text-sm text-[hsl(var(--error))] hover:underline">Delete</button>
             )}
             {confirmDel && (
               <span className="text-sm flex items-center gap-2">
                 <span className="text-[hsl(var(--muted-foreground))]">Delete this transaction?</span>
                 <button onClick={handleDelete} disabled={saving}
-                  className="text-red-500 font-medium hover:underline">Yes</button>
+                  className="text-[hsl(var(--error))] font-medium hover:underline">Yes</button>
                 <span>/</span>
                 <button onClick={() => setConfirmDel(false)} className="hover:underline">No</button>
               </span>

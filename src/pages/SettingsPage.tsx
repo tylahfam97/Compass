@@ -194,8 +194,8 @@ export default function SettingsPage() {
         {backupMsg && (
           <p className={`text-sm px-3 py-2 rounded-lg ${
             backupMsg.tone === "success"
-              ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
-              : "bg-red-50 text-[hsl(var(--error))] dark:bg-red-950/30"
+              ? "bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success))]"
+              : "bg-[hsl(var(--error)/0.1)] text-[hsl(var(--error))]"
           }`}>
             {backupMsg.text}
           </p>

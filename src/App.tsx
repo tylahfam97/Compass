@@ -171,7 +171,7 @@ function App() {
           <GoldParticleField />
           <div className="relative z-10 flex flex-col items-center">
             <img src={logoUrl} alt="Compass" className="h-12 mb-8 opacity-90" />
-            <h1 className="text-2xl font-semibold mb-1 text-gradient-gold">{greeting()}</h1>
+            <h1 className="text-2xl font-semibold mb-1 text-gradient-primary">{greeting()}</h1>
             <p className="text-sm text-[hsl(var(--muted-foreground))] mb-8">
               {profiles.length > 1 ? "Who's tracking today?" : "Enter your PIN to continue"}
             </p>
@@ -218,7 +218,7 @@ function App() {
         <aside
           className={`shrink-0 flex flex-col overflow-y-auto bg-[hsl(var(--muted))] transition-all duration-200
                       ${sidebarOpen ? "w-52" : "w-12"}`}
-          style={{ borderRight: '1.5px solid var(--gold)' }}
+          style={{ borderRight: '1.5px solid hsl(var(--primary) / 0.25)' }}
         >
           {/* Logo row + collapse toggle */}
           <div className={`border-b flex items-center ${sidebarOpen ? "px-4 py-3 justify-between" : "py-3 justify-center"}`}>
@@ -262,12 +262,12 @@ function App() {
                   <span className="flex-1 flex items-center justify-between">
                     {label}
                     {showBadge && insightWarnings > 0 && (
-                      <span className="w-2 h-2 rounded-full bg-amber-500" />
+                      <span className="w-2 h-2 rounded-full bg-[hsl(var(--warning))]" />
                     )}
                   </span>
                 )}
                 {!sidebarOpen && showBadge && insightWarnings > 0 && (
-                  <span className="absolute ml-3 -mt-3 w-2 h-2 rounded-full bg-amber-500" />
+                  <span className="absolute ml-3 -mt-3 w-2 h-2 rounded-full bg-[hsl(var(--warning))]" />
                 )}
               </NavLink>
             ))}
