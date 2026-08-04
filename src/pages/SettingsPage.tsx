@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
-import { Download, Upload, RotateCcw, Plus, Pencil, Trash2, Pause, Play, CalendarClock, ShieldAlert } from "lucide-react";
+import { Download, Upload, RotateCcw, Plus, Pencil, Trash2, Pause, Play, CalendarClock, ShieldAlert, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { getDb } from "@/lib/db";
 import {
   getRecurringRulesForProfile, createRecurringRule, updateRecurringRule,
   setRecurringRuleActive, deleteRecurringRule, type RecurringRuleInput,
+  getBalanceAnchorRiskReport, type BalanceAnchorRiskEntry,
 } from "@/lib/db";
 import { computeNextOccurrence, daysUntil, formatCadenceLabel } from "@/lib/recurring";
 import { exportBackup, restoreBackup } from "@/lib/backup";
@@ -55,6 +56,17 @@ export default function SettingsPage() {
   const [backupMsg, setBackupMsg] = useState<{ text: string; tone: "success" | "error" } | null>(null);
   const [restoreBusy, setRestoreBusy] = useState(false);
   const [restoreConfirm, setRestoreConfirm] = useState(false);
+
+  // ── Balance anchor check ─────────────────────────────────────────────────
+  const [balanceReport, setBalanceReport] = useState<BalanceAnchorRiskEntry[] | null>(null);
+  const [balanceCheckBusy, setBalanceCheckBusy] = useState(false);
+
+  const handleCheckBalances = async () => {
+    setBalanceCheckBusy(true);
+    const report = await getBalanceAnchorRiskReport(profileId);
+    setBalanceReport(report);
+    setBalanceCheckBusy(false);
+  };
 
   const handleExport = async () => {
     setBackupBusy(true);
@@ -179,6 +191,51 @@ export default function SettingsPage() {
           Backup &amp; restore, and upcoming bills you want to plan for ahead of time.
         </p>
       </div>
+
+      {/* ── Balance Anchor Check ─────────────────────────────────────────── */}
+      <section className="border rounded-2xl p-5 space-y-4">
+        <div>
+          <h2 className="font-semibold flex items-center gap-1.5"><AlertTriangle size={15} /> Balance Anchor Check</h2>
+          <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
+            Lists checking/credit accounts with 2+ manually-added transactions - the pattern that
+            could have tripped a balance-calculation bug fixed in 0.9.6. Being listed doesn't mean
+            an account is wrong, just worth comparing against your real bank balance once.
+          </p>
+        </div>
+
+        <button
+          onClick={handleCheckBalances}
+          disabled={balanceCheckBusy}
+          className="text-sm px-3 py-1.5 rounded-lg border hover:bg-[hsl(var(--muted))]
+                     transition-colors flex items-center gap-1.5 disabled:opacity-50"
+        >
+          <AlertTriangle size={14} /> {balanceCheckBusy ? "Checking…" : "Check My Accounts"}
+        </button>
+
+        {balanceReport && (
+          balanceReport.length === 0 ? (
+            <p className="text-sm text-[hsl(var(--success))] flex items-center gap-1.5">
+              <CheckCircle2 size={14} /> No accounts match the risk pattern.
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {balanceReport.map((r) => (
+                <div key={r.accountId} className="flex items-center justify-between text-sm border rounded-lg px-3 py-2">
+                  <span>
+                    <strong>{r.name}</strong>{" "}
+                    <span className="text-xs text-[hsl(var(--muted-foreground))]">
+                      ({r.manualTxnCount} manual entries{r.hasAnchor ? "" : ", no confirmed balance yet"})
+                    </span>
+                  </span>
+                  <span className="font-mono text-[hsl(var(--muted-foreground))]">
+                    {r.latestBalanceCents != null ? formatCurrency(r.latestBalanceCents) : "—"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )
+        )}
+      </section>
 
       {/* ── Backup & Restore ────────────────────────────────────────────── */}
       <section className="border rounded-2xl p-5 space-y-4">

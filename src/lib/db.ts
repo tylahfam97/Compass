@@ -1260,6 +1260,51 @@ export async function listAccountsForProfile(profileId: number, accountType: str
   );
 }
 
+export interface BalanceAnchorRiskEntry {
+  accountId: number;
+  name: string;
+  accountType: string;
+  hasAnchor: boolean;
+  manualTxnCount: number;
+  latestBalanceCents: number | null;
+}
+
+/**
+ * Flags accounts that have had 2+ manually-added transactions (via "Add Transaction", not an
+ * import) - the exact pattern that could trip the anchor-absorption bug fixed in
+ * `recomputeCalculatedBalancesWithDb`/`shiftBalanceAnchorForTransactionChange` (see
+ * import-account-resolution.md). A flagged account ISN'T necessarily wrong - the fix prevents
+ * the bug going forward regardless - this is just a "worth double-checking against your real
+ * bank balance" list for anyone who used the app before that fix shipped. Scoped to
+ * checking/credit accounts, the only types manual transactions meaningfully apply to.
+ */
+export async function getBalanceAnchorRiskReport(profileId: number): Promise<BalanceAnchorRiskEntry[]> {
+  const db = await getDb();
+  const rows = await db.select<{
+    id: number; name: string; account_type: string;
+    balance_anchor_cents: number | null;
+    manual_txn_count: number;
+    latest_balance_cents: number | null;
+  }[]>(
+    `SELECT a.id, a.name, a.account_type, a.balance_anchor_cents,
+       (SELECT COUNT(*) FROM transactions t WHERE t.account_id=a.id AND t.import_hash LIKE 'manual_%') as manual_txn_count,
+       (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
+        ORDER BY t.date DESC, t.id DESC LIMIT 1) as latest_balance_cents
+     FROM accounts a
+     WHERE a.profile_id=? AND a.account_type IN ('checking','credit')
+     ORDER BY a.account_type, a.name`,
+    [profileId]
+  );
+  return rows
+    .filter((r) => r.manual_txn_count >= 2)
+    .map((r) => ({
+      accountId: r.id, name: r.name, accountType: r.account_type,
+      hasAnchor: r.balance_anchor_cents != null,
+      manualTxnCount: r.manual_txn_count,
+      latestBalanceCents: r.latest_balance_cents,
+    }));
+}
+
 /** Sets (or clears, with `null`) an account's informational interest rate - used for credit
  *  cards during import (optional APR entry) the same way loan statements already do. Never
  *  used in any calculation, purely for display and Avalanche-method ranking on the Debt
@@ -1758,6 +1803,30 @@ async function recomputeCalculatedBalancesWithDb(db: CompassDb, accountId: numbe
         anchorDate = rows[i].date;
         break;
       }
+    }
+    if (anchorCents != null && anchorDate) {
+      // Any OTHER row dated on/before the picked anchor date that doesn't have a balance_cents
+      // value yet isn't reflected in that native number at all - it's either a manual
+      // transaction added in this very same operation, or an older no-balance-column import
+      // that's never been computed - so shift the anchor by its amount first, the same reason
+      // shiftBalanceAnchorForTransactionChange exists for an anchor that already existed
+      // in `accounts` before this call.
+      const unreflectedCents = rows
+        .filter((r) => r.date <= anchorDate! && r.balance_cents == null)
+        .reduce((sum, r) => sum + r.amount_cents, 0);
+      anchorCents += unreflectedCents;
+      // Persist this as a real explicit anchor going forward - otherwise a SECOND manual
+      // add/edit/delete would re-derive an implicit anchor from whatever the FIRST one just
+      // computed (its balance_cents is no longer a genuine bank-native value at that point,
+      // just this function's own prior output), silently re-anchoring to an already-adjusted
+      // number and compounding every mutation after it instead of shifting from a fixed point.
+      // shiftBalanceAnchorForTransactionChange (called by add/edit/delete BEFORE this function)
+      // can only shift an anchor that already exists in `accounts` - this makes one exist after
+      // the very first mutation on a previously anchor-less (native-balance-column) account.
+      await db.execute(
+        "UPDATE accounts SET balance_anchor_cents=?, balance_anchor_date=? WHERE id=?",
+        [anchorCents, anchorDate, accountId]
+      );
     }
   }
 

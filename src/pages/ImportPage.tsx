@@ -1112,9 +1112,13 @@ export default function ImportPage() {
   }, [step]);
 
   // When there's no balance column, prefill "Current balance" - preferring a figure freshly
-  // parsed off this statement (credit-card PDFs only) over the account's last-saved anchor,
-  // since the statement's own "New Balance" is more current than whatever was saved last time.
-  // Either way this only ever pre-fills the editable field below, never saves anything by itself.
+  // parsed off this statement (credit-card PDFs only) over the account's last-saved anchor.
+  // Either way, the stored anchor by itself is stale the moment this step is reached: it
+  // reflects the balance BEFORE this batch's transactions, but the field means "balance AFTER
+  // these transactions" - so it's added to this batch's own signed total (every row here is
+  // new, not yet reflected in the stored anchor at all). Submitting the suggested value
+  // unedited must already be correct, exactly like every other parsed field in this wizard -
+  // this only ever pre-fills the editable input below, never saves anything by itself.
   useEffect(() => {
     if (step !== "wizard:balance" || colMap.balanceCol >= 0) return;
     if (parsedStatementBalance) { setCurrentBalanceInput(parsedStatementBalance); return; }
@@ -1127,11 +1131,15 @@ export default function ImportPage() {
           [accountChoice.accountId]
         );
         const cents = rows[0]?.balance_anchor_cents;
-        setCurrentBalanceInput(cents != null ? (cents / 100).toFixed(2) : "");
+        if (cents == null) { setCurrentBalanceInput(""); return; }
+        const newRowsCents = parsed
+          ? parsed.rows.reduce((sum, row) => sum + Math.round(computeRowAmount(row, colMap) * 100), 0)
+          : 0;
+        setCurrentBalanceInput(((cents + newRowsCents) / 100).toFixed(2));
       } catch { /* leave blank */ }
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, parsedStatementBalance]);
+  }, [step, parsedStatementBalance, parsed]);
 
 
   // Re-derives each section's holding rows after applying any manual column-map overrides

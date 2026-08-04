@@ -7,6 +7,24 @@
 A visual polish pass ahead of v1.0 - a calmer, more professional look plus a handful of real
 month-picker bugs found along the way.
 
+### Fixed: Manually Adding/Editing/Deleting a Transaction Could Corrupt Your Account Balance
+If you manually added, edited, or deleted a transaction dated on or before the day you last
+entered your account's real balance, the running balance could silently fail to update - e.g.
+adding a $300 transfer out of an account showing $315 could still show $315 afterward instead of
+$15, throwing off every balance calculated from that point on. This is now fixed: your entered
+balance correctly shifts by the change instead of absorbing it. The same stale-balance problem
+could also happen when importing another batch of transactions right after - the Import
+wizard's "Current balance" field now correctly suggests your balance including the new
+transactions instead of the old, pre-import figure, so accepting the suggested value is safe
+again. A third, deeper case affected accounts that were originally imported with their own
+running-balance column and never had a manually-entered balance at all: adding a second manual
+transaction right after a first one could bump every earlier transaction's balance up by the
+new amount instead of applying it correctly. All three now share the same fix, so your real
+balance stays correct through any combination of manual entries and imports. If an account was
+already thrown off by this before updating, re-confirm its real balance once (via a small
+re-import through the Import wizard's "Current balance" field) to reset it - this fix prevents
+it happening again, but can't retroactively repair a balance that was already thrown off.
+
 ### New: A Calmer, More Professional Look
 The tiled background texture is gone, replaced by a barely-there gradient. Gold is now reserved
 specifically for things you can click or interact with (chart cards, profile switching, the
