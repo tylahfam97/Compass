@@ -7,7 +7,7 @@ import {
   getBalanceAnchorRiskReport, type BalanceAnchorRiskEntry,
 } from "@/lib/db";
 import { computeNextOccurrence, daysUntil, formatCadenceLabel } from "@/lib/recurring";
-import { exportBackup, restoreBackup } from "@/lib/backup";
+import { exportBackup, restoreBackup, getLastBackupAt } from "@/lib/backup";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
 import { useCategoryStore } from "@/stores/categoryStore";
@@ -56,6 +56,7 @@ export default function SettingsPage() {
   const [backupMsg, setBackupMsg] = useState<{ text: string; tone: "success" | "error" } | null>(null);
   const [restoreBusy, setRestoreBusy] = useState(false);
   const [restoreConfirm, setRestoreConfirm] = useState(false);
+  const [lastBackupAt, setLastBackupAt] = useState<string | null>(() => getLastBackupAt());
 
   // ── Balance anchor check ─────────────────────────────────────────────────
   const [balanceReport, setBalanceReport] = useState<BalanceAnchorRiskEntry[] | null>(null);
@@ -73,7 +74,7 @@ export default function SettingsPage() {
     setBackupMsg(null);
     const result = await exportBackup();
     setBackupBusy(false);
-    if (result.ok) setBackupMsg({ text: "Backup saved.", tone: "success" });
+    if (result.ok) { setBackupMsg({ text: "Backup saved.", tone: "success" }); setLastBackupAt(getLastBackupAt()); }
     else if (result.error !== "cancelled") setBackupMsg({ text: `Backup failed: ${result.error}`, tone: "error" });
   };
 
@@ -247,6 +248,24 @@ export default function SettingsPage() {
             <code>compass.key</code> separately.
           </p>
         </div>
+
+        {(() => {
+          const daysSince = lastBackupAt != null
+            ? Math.floor((Date.now() - new Date(lastBackupAt).getTime()) / 86400000)
+            : null;
+          const stale = daysSince == null || daysSince >= 30;
+          return (
+            <p className={`text-xs px-3 py-2 rounded-lg ${
+              stale ? "bg-[hsl(var(--warning)/0.1)] text-[hsl(var(--warning))]" : "text-[hsl(var(--muted-foreground))]"
+            }`}>
+              {daysSince == null
+                ? "You haven't backed up yet - your data only exists on this device. Consider creating one now."
+                : daysSince >= 30
+                ? `It's been ${daysSince} days since your last backup (${formatDate(lastBackupAt!.split("T")[0])}) - consider backing up again.`
+                : `Last backup: ${formatDate(lastBackupAt!.split("T")[0])}.`}
+            </p>
+          );
+        })()}
 
         {backupMsg && (
           <p className={`text-sm px-3 py-2 rounded-lg ${

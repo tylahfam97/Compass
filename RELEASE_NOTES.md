@@ -2,6 +2,27 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 0.9.8 — Quality of Life 🛠️
+
+A round of small but real quality-of-life improvements ahead of v1.0.
+
+### New: Edit an Account's Interest Rate & Minimum Payment Anytime
+Previously, a credit card's APR and minimum payment could only be set once, during import -
+there was no way to update them later if a rate changed. Both are now editable directly from an
+account's detail view (click any credit card or loan tile), no re-import required.
+
+### New: Backup Reminder
+Settings now shows how long it's been since your last backup, with a gentle nudge if it's been
+30+ days (or if you've never backed up at all) - so it's easier to notice before it matters.
+
+### Improved: Insights Page Loading State
+The Insights page now shows the same loading skeleton as every other page while your data is
+being analyzed, instead of a different one-off spinner.
+
+### Improved: Roadmap Refresh
+The README's "Path to v1.0" section now reflects everything shipped in the last few releases -
+the visual refresh, the balance-integrity fixes, and import duplicate detection.
+
 ## Compass 0.9.7 — Import Duplicate Protection 🔍
 
 A focused release closing a real gap: a transaction entered by hand and later seen on an

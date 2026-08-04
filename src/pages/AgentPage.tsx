@@ -25,6 +25,7 @@ import PinModal from "@/components/PinModal";
 import DebtPayoffModal from "@/components/DebtPayoffModal";
 import MilestoneCelebration from "@/components/MilestoneCelebration";
 import { detectNewMilestones } from "@/lib/milestones";
+import { CardListSkeleton } from "@/components/Skeleton";
 
 const ROI_SECTION_LABELS: Record<SecurityType, string> = {
   stock: "Stocks", etf: "ETFs", mutual_fund: "Mutual Funds", cash: "Cash", other: "Other",
@@ -1065,11 +1066,8 @@ export default function AgentPage() {
       <>
         {pinTarget && <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />}
         {PageHeader}
-        <div className="flex items-center justify-center py-24">
-          <div className="flex flex-col items-center gap-3 text-[hsl(var(--muted-foreground))]">
-            <div className="w-8 h-8 rounded-full border-2 border-current animate-spin" style={{ borderTopColor: "transparent" }} />
-            <p className="text-sm">Analysing your data...</p>
-          </div>
+        <div className="p-8">
+          <CardListSkeleton count={4} />
         </div>
       </>
     );

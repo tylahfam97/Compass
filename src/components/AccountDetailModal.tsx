@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { AreaChart, Area, XAxis, ResponsiveContainer, Tooltip } from "recharts";
-import { X, TrendingUp, TrendingDown, Info, CheckCircle, AlertTriangle } from "lucide-react";
+import { X, TrendingUp, TrendingDown, Info, CheckCircle, AlertTriangle, Pencil } from "lucide-react";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
-import { getDb } from "@/lib/db";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { getDb, setAccountInterestRate, setAccountMinimumPayment } from "@/lib/db";
+import { formatCurrency, formatDate, parseDollarInput } from "@/lib/utils";
 import type { Insight, InsightType, Transaction } from "@/lib/types";
 import InsightCard from "@/components/InsightCard";
 
@@ -27,6 +27,9 @@ interface Props {
   insights: Insight[];
   onApply: (insight: Insight) => void;
   onClose: () => void;
+  /** Called after the interest rate/minimum payment is edited, so the parent page can reload
+   *  its own account data - this modal only ever receives a point-in-time snapshot as a prop. */
+  onUpdated?: () => void;
 }
 
 // Insights aren't tagged to a specific account (besides the credit-card-debt ones below, which
@@ -104,10 +107,19 @@ function derivedCheckingNotes(account: AccountDetailAccount): DerivedNote[] {
   return notes;
 }
 
-export default function AccountDetailModal({ account, insights, onApply, onClose }: Props) {
+export default function AccountDetailModal({ account, insights, onApply, onClose, onUpdated }: Props) {
   const { onBackdropClick } = useModalDismiss(onClose);
   const [txns, setTxns] = useState<Transaction[]>([]);
   const [loadingTxns, setLoadingTxns] = useState(account.accountType === "credit" || account.accountType === "checking");
+  const [editingRates, setEditingRates] = useState(false);
+  const [rateInput, setRateInput] = useState(account.interestRateBps != null ? (account.interestRateBps / 100).toFixed(2) : "");
+  const [paymentInput, setPaymentInput] = useState(account.minimumPaymentCents != null ? (account.minimumPaymentCents / 100).toFixed(2) : "");
+  const [savingRates, setSavingRates] = useState(false);
+  // Mirrors account.interestRateBps/minimumPaymentCents until a save happens - the parent only
+  // passes a point-in-time snapshot, so this modal must track its own edits to reflect them
+  // immediately instead of showing the stale value until closed and reopened.
+  const [displayRateBps, setDisplayRateBps] = useState(account.interestRateBps ?? null);
+  const [displayPaymentCents, setDisplayPaymentCents] = useState(account.minimumPaymentCents ?? null);
 
   useEffect(() => {
     if (account.accountType !== "credit" && account.accountType !== "checking") return;
@@ -145,8 +157,26 @@ export default function AccountDetailModal({ account, insights, onApply, onClose
     ? insights.filter((i) => LOAN_RELEVANT_TYPES.includes(i.type) && i.accountId === account.id).slice(0, 2)
     : [];
   const notes = account.accountType === "loan" || account.accountType === "credit"
-    ? derivedDebtNotes(account).slice(0, 2)
+    ? derivedDebtNotes({ ...account, interestRateBps: displayRateBps, minimumPaymentCents: displayPaymentCents }).slice(0, 2)
     : derivedCheckingNotes(account).slice(0, 2);
+
+  const saveRates = async () => {
+    setSavingRates(true);
+    try {
+      const rate = rateInput.trim();
+      const payment = paymentInput.trim();
+      const rateBps = rate ? Math.round(parseFloat(rate) * 100) : null;
+      const paymentCents = payment ? Math.round(parseDollarInput(payment) * 100) : null;
+      await setAccountInterestRate(account.id, rateBps);
+      await setAccountMinimumPayment(account.id, paymentCents);
+      setDisplayRateBps(rateBps);
+      setDisplayPaymentCents(paymentCents);
+      setEditingRates(false);
+      onUpdated?.();
+    } finally {
+      setSavingRates(false);
+    }
+  };
 
   return (
     <motion.div
@@ -186,12 +216,51 @@ export default function AccountDetailModal({ account, insights, onApply, onClose
           )}
         </div>
 
-        {(account.accountType === "loan" || account.accountType === "credit") && (account.interestRateBps != null || account.minimumPaymentCents != null) && (
-          <p className="text-xs text-[hsl(var(--muted-foreground))] mb-3">
-            {account.interestRateBps != null && <>{(account.interestRateBps / 100).toFixed(2)}% APR</>}
-            {account.interestRateBps != null && account.minimumPaymentCents != null && " · "}
-            {account.minimumPaymentCents != null && <>{formatCurrency(account.minimumPaymentCents)} min/mo</>}
-          </p>
+        {(account.accountType === "loan" || account.accountType === "credit") && (
+          editingRates ? (
+            <div className="flex items-center gap-2 mb-3 text-xs">
+              <div className="relative w-24">
+                <input
+                  type="text" inputMode="decimal" placeholder="APR %" value={rateInput}
+                  onChange={(e) => setRateInput(e.target.value)}
+                  className="w-full border rounded-md pl-2 pr-5 py-1 bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
+                />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[hsl(var(--muted-foreground))]">%</span>
+              </div>
+              <div className="relative w-28">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[hsl(var(--muted-foreground))]">$</span>
+                <input
+                  type="text" inputMode="decimal" placeholder="Min/mo" value={paymentInput}
+                  onChange={(e) => setPaymentInput(e.target.value)}
+                  className="w-full border rounded-md pl-5 pr-2 py-1 bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
+                />
+              </div>
+              <button onClick={saveRates} disabled={savingRates}
+                className="px-2 py-1 rounded-md bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] font-medium disabled:opacity-50">
+                {savingRates ? "Saving…" : "Save"}
+              </button>
+              <button onClick={() => setEditingRates(false)} className="px-2 py-1 rounded-md border hover:bg-[hsl(var(--muted))] transition-colors">
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setEditingRates(true)}
+              title="Edit interest rate / minimum payment"
+              className="flex items-center gap-1.5 text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] mb-3 transition-colors"
+            >
+              {(displayRateBps != null || displayPaymentCents != null) ? (
+                <>
+                  {displayRateBps != null && <>{(displayRateBps / 100).toFixed(2)}% APR</>}
+                  {displayRateBps != null && displayPaymentCents != null && " · "}
+                  {displayPaymentCents != null && <>{formatCurrency(displayPaymentCents)} min/mo</>}
+                </>
+              ) : (
+                <span>Add interest rate / minimum payment</span>
+              )}
+              <Pencil size={11} className="shrink-0" />
+            </button>
+          )
         )}
 
         {series.length > 1 && (
