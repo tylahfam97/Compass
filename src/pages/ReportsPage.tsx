@@ -58,7 +58,7 @@ function changePct(now: number, prev: number): number {
 }
 
 export default function ReportsPage() {
-  const [month, setMonth] = useAutoMonth();
+  const [month, setMonth] = useAutoMonth("reports");
   const [rangeMode, setRangeMode] = useState<"month" | "custom">("month");
   const [customStart, setCustomStart] = useState(() => {
     const d = new Date(); d.setMonth(d.getMonth() - 2); d.setDate(1);

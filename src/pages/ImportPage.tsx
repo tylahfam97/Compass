@@ -12,6 +12,7 @@ import {
 } from "@/lib/db";
 import type { AccountChoice } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { parseDate, parseAmount, dedupeRowHash } from "@/lib/importParsing";
 import type { CategorizationRule, SecurityType, Account } from "@/lib/types";
 import { TRANSFER_CATEGORY_ID, EXCLUDED_CATEGORY_ID } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
@@ -77,6 +78,8 @@ interface ColMap {
   typeCol: number; // -1 = no transaction-type column
   balanceCol: number; // -1 = no running balance column
   invertAmounts: boolean; // true for banks that export expenses as positive (Discover, Amex)
+  debitCol: number; // -1 = no separate debit column (banks with two amount columns, e.g. Capital One)
+  creditCol: number; // -1 = no separate credit column
 }
 
 interface BankPreset {
@@ -91,6 +94,10 @@ interface BankPreset {
   /** Distinctive column names (beyond date/desc/amount) used to auto-detect this preset
    *  with confidence, even if the user never manually selects it. */
   fingerprintKeywords?: string[];
+  /** Present for banks that export separate Debit/Credit amount columns instead of one signed
+   *  amount column - when set, these take priority over amountKeywords. */
+  debitKeywords?: string[];
+  creditKeywords?: string[];
 }
 
 const BANK_PRESETS: Record<string, BankPreset> = {
@@ -112,9 +119,9 @@ const BANK_PRESETS: Record<string, BankPreset> = {
     dateKeywords: ["transaction date"],
     descKeywords: ["description"],
     amountKeywords: ["debit"],
-    typeKeywords: [],
-    note: "Capital One uses separate Debit and Credit columns. Select the Debit column as the amount - expenses will be positive numbers.",
-    invertAmounts: true,
+    debitKeywords: ["debit"],
+    creditKeywords: ["credit"],
+    note: "Capital One uses separate Debit and Credit columns - Compass reads both, so payments/refunds are no longer dropped.",
   },
   "wells-fargo": {
     name: "Wells Fargo",
@@ -203,6 +210,12 @@ function applyPreset(preset: BankPreset, headers: string[]): Partial<ColMap> {
     result.balanceCol = b;
   }
   if (preset.invertAmounts !== undefined) result.invertAmounts = preset.invertAmounts;
+  if (preset.debitKeywords || preset.creditKeywords) {
+    const debit = preset.debitKeywords ? findByKeywords(preset.debitKeywords) : -1;
+    const credit = preset.creditKeywords ? findByKeywords(preset.creditKeywords) : -1;
+    if (debit >= 0) result.debitCol = debit;
+    if (credit >= 0) result.creditCol = credit;
+  }
   return result;
 }
 
@@ -233,6 +246,10 @@ interface Summary {
    *  payment) - shown on the "done" screen so it's clear those won't double-count against
    *  income/expense totals. */
   transferCount?: number;
+  /** Rows that failed for a reason OTHER than being an already-imported duplicate (e.g. a
+   *  genuine constraint/data error) - kept separate from `skipped` so the summary never
+   *  reassures the user that a real failure was "just a duplicate". */
+  errors?: { index: number; message: string }[];
 }
 
 interface ImportSession {
@@ -313,31 +330,33 @@ function autoDetect(headers: string[]): ColMap {
     typeCol,
     balanceCol,
     invertAmounts: false,
+    debitCol: -1,
+    creditCol: -1,
   };
 }
 
-function parseAmount(s: string): number {
-  const neg = s.includes("(") || s.trimStart().startsWith("-");
-  const n = parseFloat(s.replace(/[$,\s()]/g, ""));
-  return isNaN(n) ? 0 : neg ? -Math.abs(n) : Math.abs(n);
-}
-
-function parseDate(s: string): string {
-  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m) return `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  const d = new Date(s);
-  return isNaN(d.getTime()) ? s : d.toISOString().split("T")[0];
-}
-
-async function hashRow(row: string[]): Promise<string> {
-  const buf = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(row.join("||"))
-  );
-  return Array.from(new Uint8Array(buf))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+/** Computes the signed dollar amount for one row, given the active column mapping. When
+ *  `debitCol`/`creditCol` are both set (banks with two amount columns, e.g. Capital One), a
+ *  non-blank debit cell means an expense (negative) and a non-blank credit cell means a credit
+ *  (positive) - whichever cell actually has a value wins, since a row typically populates only
+ *  one of the two. Falls back to the existing single-amount-column logic otherwise. */
+function computeRowAmount(row: string[], colMap: ColMap): number {
+  if (colMap.debitCol >= 0 || colMap.creditCol >= 0) {
+    const debitRaw = colMap.debitCol >= 0 ? (row[colMap.debitCol] ?? "").trim() : "";
+    const creditRaw = colMap.creditCol >= 0 ? (row[colMap.creditCol] ?? "").trim() : "";
+    if (debitRaw) return -Math.abs(parseAmount(debitRaw));
+    if (creditRaw) return Math.abs(parseAmount(creditRaw));
+    return 0;
+  }
+  const rawAmount = parseAmount(row[colMap.amountCol] ?? "0");
+  let amount = rawAmount;
+  if (colMap.typeCol >= 0) {
+    const typeVal = (row[colMap.typeCol] ?? "").trim().toLowerCase();
+    if (typeVal === "debit") amount = -Math.abs(rawAmount);
+    else if (typeVal === "credit") amount = Math.abs(rawAmount);
+  }
+  if (colMap.invertAmounts) amount = -amount;
+  return amount;
 }
 
 function currentYM(): string {
@@ -1000,7 +1019,7 @@ export default function ImportPage() {
   const [currentFilename, setCurrentFilename] = useState("");
   const [isPdfImport, setIsPdfImport] = useState(false);
   const [importSubmitting, setImportSubmitting] = useState(false);
-  const [colMap, setColMap] = useState<ColMap>({ dateCol: 0, descCol: 1, amountCol: 2, typeCol: -1, balanceCol: -1, invertAmounts: false });
+  const [colMap, setColMap] = useState<ColMap>({ dateCol: 0, descCol: 1, amountCol: 2, typeCol: -1, balanceCol: -1, invertAmounts: false, debitCol: -1, creditCol: -1 });
   const [currentBalanceInput, setCurrentBalanceInput] = useState("");
   const [profileFound, setProfileFound] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -1430,19 +1449,29 @@ export default function ImportPage() {
         const db = await getDb();
         const colProfiles = await db.select<{
           date_col: number; desc_col: number; amount_col: number;
-          type_col: number; balance_col: number;
+          type_col: number; balance_col: number; invert_amounts: number;
+          debit_col: number; credit_col: number;
         }[]>(
-          "SELECT date_col, desc_col, amount_col, COALESCE(type_col, -1) as type_col, COALESCE(balance_col, -1) as balance_col FROM column_profiles WHERE header_sig=? AND profile_id=?",
+          `SELECT date_col, desc_col, amount_col, COALESCE(type_col, -1) as type_col,
+                  COALESCE(balance_col, -1) as balance_col, COALESCE(invert_amounts, 0) as invert_amounts,
+                  COALESCE(debit_col, -1) as debit_col, COALESCE(credit_col, -1) as credit_col
+           FROM column_profiles WHERE header_sig=? AND profile_id=?`,
           [sig, profileId]
         );
         if (colProfiles.length > 0) {
           const p = colProfiles[0];
-          // Restore invertAmounts from fingerprint detection even when a saved column
-          // profile is found - it is not persisted in column_profiles so would otherwise
-          // always revert to false on repeat imports (e.g. Amex).
+          // A stored TRUE always wins (an explicit user/preset choice, persisted since v28).
+          // A stored FALSE could just mean "never explicitly saved" (migrated default), so it
+          // still falls back to fingerprint detection - preserves old behavior (e.g. Amex) for
+          // profiles saved before invertAmounts was persisted.
           const fpId = detectPresetByFingerprint(headers);
-          const restoredInvert = (fpId && BANK_PRESETS[fpId]?.invertAmounts) ? BANK_PRESETS[fpId].invertAmounts! : false;
-          setColMap({ dateCol: p.date_col, descCol: p.desc_col, amountCol: p.amount_col, typeCol: p.type_col, balanceCol: p.balance_col, invertAmounts: restoredInvert });
+          const fingerprintInvert = (fpId && BANK_PRESETS[fpId]?.invertAmounts) ? BANK_PRESETS[fpId].invertAmounts! : false;
+          const restoredInvert = p.invert_amounts === 1 ? true : fingerprintInvert;
+          setColMap({
+            dateCol: p.date_col, descCol: p.desc_col, amountCol: p.amount_col,
+            typeCol: p.type_col, balanceCol: p.balance_col, invertAmounts: restoredInvert,
+            debitCol: p.debit_col, creditCol: p.credit_col,
+          });
           setProfileFound(true);
         } else {
           const base = autoDetect(headers);
@@ -1561,26 +1590,29 @@ export default function ImportPage() {
       let imported = 0;
       let skipped = 0;
       let transferCount = 0;
+      const rowErrors: { index: number; message: string }[] = [];
+
+      const seenHashCounts = new Map<string, number>();
+      const rowPayloads: { params: unknown[]; categoryId: number | null }[] = [];
 
       for (const row of parsed.rows) {
-        const requiredCols = [colMap.dateCol, colMap.descCol, colMap.amountCol];
+        const requiredCols = [colMap.dateCol, colMap.descCol];
+        if (colMap.debitCol >= 0 || colMap.creditCol >= 0) {
+          if (colMap.debitCol >= 0) requiredCols.push(colMap.debitCol);
+          if (colMap.creditCol >= 0) requiredCols.push(colMap.creditCol);
+        } else {
+          requiredCols.push(colMap.amountCol);
+        }
         if (colMap.typeCol >= 0) requiredCols.push(colMap.typeCol);
         const maxIdx = Math.max(...requiredCols);
         if (row.length <= maxIdx) continue;
         const date = parseDate(row[colMap.dateCol] ?? "");
         const description = (row[colMap.descCol] ?? "").trim();
-        const rawAmount = parseAmount(row[colMap.amountCol] ?? "0");
-        let amount = rawAmount;
-        if (colMap.typeCol >= 0) {
-          const typeVal = (row[colMap.typeCol] ?? "").trim().toLowerCase();
-          if (typeVal === "debit") amount = -Math.abs(rawAmount);
-          else if (typeVal === "credit") amount = Math.abs(rawAmount);
-        }
-        if (colMap.invertAmounts) amount = -amount;
+        const amount = computeRowAmount(row, colMap);
         if (!date || !description || !isFinite(amount) || amount === 0) continue;
 
         const amountCents = Math.round(amount * 100);
-        const hash = await hashRow(row);
+        const hash = await dedupeRowHash(row, seenHashCounts);
         const categoryId = applyCategorizationRules(description, rules, amountCents);
         // Credit card statements print the amount you owe as a positive number, but that's a
         // liability - always store it negative, regardless of the file's own sign convention.
@@ -1588,20 +1620,31 @@ export default function ImportPage() {
           ? (() => { const c = Math.round(parseAmount(row[colMap.balanceCol]) * 100); return importKind === "credit" ? -Math.abs(c) : c; })()
           : null;
 
-        try {
-          await db.execute(
-            `INSERT INTO transactions
-               (account_id, date, amount_cents, description, category_id, import_hash,
-                balance_cents, profile_id, import_session_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [accountId, date, amountCents, description, categoryId, hash,
-             balanceCents, profileId, sessionId]
-          );
+        rowPayloads.push({
+          params: [accountId, date, amountCents, description, categoryId, hash, balanceCents, profileId, sessionId],
+          categoryId,
+        });
+      }
+
+      if (rowPayloads.length > 0) {
+        const result = await db.importTransactionsBatch(
+          rowPayloads.map((p) => ({
+            sql: `INSERT INTO transactions
+                    (account_id, date, amount_cents, description, category_id, import_hash,
+                     balance_cents, profile_id, import_session_id)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            params: p.params,
+          }))
+        );
+        const duplicateSet = new Set(result.duplicateIndices);
+        const errorSet = new Set(result.errors.map((e) => e.index));
+        rowErrors.push(...result.errors);
+        rowPayloads.forEach((p, i) => {
+          if (errorSet.has(i)) return;
+          if (duplicateSet.has(i)) { skipped++; return; }
           imported++;
-          if (categoryId === TRANSFER_CATEGORY_ID || categoryId === EXCLUDED_CATEGORY_ID) transferCount++;
-        } catch {
-          skipped++;
-        }
+          if (p.categoryId === TRANSFER_CATEGORY_ID || p.categoryId === EXCLUDED_CATEGORY_ID) transferCount++;
+        });
       }
 
       if (imported === 0) {
@@ -1618,15 +1661,21 @@ export default function ImportPage() {
       // Save / update the column profile for next time
       const sig = computeHeaderSig(parsed.headers);
       await db.execute(
-        `INSERT INTO column_profiles (header_sig, date_col, desc_col, amount_col, type_col, balance_col, profile_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(header_sig) DO UPDATE SET
-           date_col    = excluded.date_col,
-           desc_col    = excluded.desc_col,
-           amount_col  = excluded.amount_col,
-           type_col    = excluded.type_col,
-           balance_col = excluded.balance_col`,
-        [sig, colMap.dateCol, colMap.descCol, colMap.amountCol, colMap.typeCol, colMap.balanceCol, profileId]
+        `INSERT INTO column_profiles
+           (header_sig, date_col, desc_col, amount_col, type_col, balance_col, profile_id,
+            invert_amounts, debit_col, credit_col)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(profile_id, header_sig) DO UPDATE SET
+           date_col       = excluded.date_col,
+           desc_col       = excluded.desc_col,
+           amount_col     = excluded.amount_col,
+           type_col       = excluded.type_col,
+           balance_col    = excluded.balance_col,
+           invert_amounts = excluded.invert_amounts,
+           debit_col      = excluded.debit_col,
+           credit_col     = excluded.credit_col`,
+        [sig, colMap.dateCol, colMap.descCol, colMap.amountCol, colMap.typeCol, colMap.balanceCol, profileId,
+         colMap.invertAmounts ? 1 : 0, colMap.debitCol, colMap.creditCol]
       );
 
       // No native balance column - (re)calculate a running balance for every transaction on
@@ -1635,7 +1684,7 @@ export default function ImportPage() {
         await recomputeCalculatedBalances(accountId);
       }
 
-      setSummary({ imported, skipped, transferCount });
+      setSummary({ imported, skipped, transferCount, errors: rowErrors });
       await loadHistory();
       setStep("done");
       setImportSubmitting(false);
@@ -1686,36 +1735,51 @@ export default function ImportPage() {
       );
       const sessionId = sessionResult.lastInsertId as number;
       let imported = 0; let skipped = 0; let transferCount = 0;
+      const rowErrors: { index: number; message: string }[] = [];
+      const seenHashCounts = new Map<string, number>();
+      const rowPayloads: { params: unknown[]; categoryId: number | null }[] = [];
       for (const row of derived.rows) {
-        const reqCols = [savedColMap.dateCol, savedColMap.descCol, savedColMap.amountCol];
+        const reqCols = [savedColMap.dateCol, savedColMap.descCol];
+        if (savedColMap.debitCol >= 0 || savedColMap.creditCol >= 0) {
+          if (savedColMap.debitCol >= 0) reqCols.push(savedColMap.debitCol);
+          if (savedColMap.creditCol >= 0) reqCols.push(savedColMap.creditCol);
+        } else {
+          reqCols.push(savedColMap.amountCol);
+        }
         if (savedColMap.typeCol >= 0) reqCols.push(savedColMap.typeCol);
         if (row.length <= Math.max(...reqCols)) continue;
         const date = parseDate(row[savedColMap.dateCol] ?? "");
         const description = (row[savedColMap.descCol] ?? "").trim();
-        const rawAmount = parseAmount(row[savedColMap.amountCol] ?? "0");
-        let amount = rawAmount;
-        if (savedColMap.typeCol >= 0) {
-          const tv = (row[savedColMap.typeCol] ?? "").trim().toLowerCase();
-          if (tv === "debit") amount = -Math.abs(rawAmount);
-          else if (tv === "credit") amount = Math.abs(rawAmount);
-        }
-        if (savedColMap.invertAmounts) amount = -amount;
+        const amount = computeRowAmount(row, savedColMap);
         if (!date || !description || !isFinite(amount) || amount === 0) continue;
         const amountCents = Math.round(amount * 100);
-        const hash = await hashRow(row);
+        const hash = await dedupeRowHash(row, seenHashCounts);
         const categoryId = applyCategorizationRules(description, rules, amountCents);
         const balanceCents = savedColMap.balanceCol >= 0 && row[savedColMap.balanceCol]
           ? (() => { const c = Math.round(parseAmount(row[savedColMap.balanceCol]) * 100); return importKind === "credit" ? -Math.abs(c) : c; })() : null;
-        try {
-          await db.execute(
-            `INSERT INTO transactions (account_id, date, amount_cents, description, category_id,
-               import_hash, balance_cents, profile_id, import_session_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [accountId, date, amountCents, description, categoryId, hash, balanceCents, profileId, sessionId]
-          );
+        rowPayloads.push({
+          params: [accountId, date, amountCents, description, categoryId, hash, balanceCents, profileId, sessionId],
+          categoryId,
+        });
+      }
+      if (rowPayloads.length > 0) {
+        const result = await db.importTransactionsBatch(
+          rowPayloads.map((p) => ({
+            sql: `INSERT INTO transactions (account_id, date, amount_cents, description, category_id,
+                    import_hash, balance_cents, profile_id, import_session_id)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            params: p.params,
+          }))
+        );
+        const duplicateSet = new Set(result.duplicateIndices);
+        const errorSet = new Set(result.errors.map((e) => e.index));
+        rowErrors.push(...result.errors);
+        rowPayloads.forEach((p, i) => {
+          if (errorSet.has(i)) return;
+          if (duplicateSet.has(i)) { skipped++; return; }
           imported++;
-          if (categoryId === TRANSFER_CATEGORY_ID || categoryId === EXCLUDED_CATEGORY_ID) transferCount++;
-        } catch { skipped++; }
+          if (p.categoryId === TRANSFER_CATEGORY_ID || p.categoryId === EXCLUDED_CATEGORY_ID) transferCount++;
+        });
       }
       if (imported === 0) {
         await db.execute("DELETE FROM import_sessions WHERE id=?", [sessionId]);
@@ -1729,7 +1793,7 @@ export default function ImportPage() {
         await recomputeCalculatedBalances(accountId);
       }
       await loadHistory();
-      setSummary({ imported, skipped, transferCount });
+      setSummary({ imported, skipped, transferCount, errors: rowErrors });
       setStep("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -2290,15 +2354,13 @@ export default function ImportPage() {
                 </span>
               </div>
               <div className="divide-y">
-                {parsed.rows.filter((r) => r[colMap.amountCol]).slice(0, 6).map((row, i) => {
-                  const raw = row[colMap.amountCol] ?? "";
-                  let amt = parseAmount(raw);
-                  if (colMap.typeCol >= 0) {
-                    const tv = (row[colMap.typeCol] ?? "").trim().toLowerCase();
-                    if (tv === "debit") amt = -Math.abs(amt);
-                    else if (tv === "credit") amt = Math.abs(amt);
-                  }
-                  if (colMap.invertAmounts) amt = -amt;
+                {parsed.rows.filter((r) => (colMap.debitCol >= 0 || colMap.creditCol >= 0)
+                  ? (colMap.debitCol >= 0 && r[colMap.debitCol]) || (colMap.creditCol >= 0 && r[colMap.creditCol])
+                  : r[colMap.amountCol]).slice(0, 6).map((row, i) => {
+                  const raw = colMap.debitCol >= 0 || colMap.creditCol >= 0
+                    ? (row[colMap.debitCol] || row[colMap.creditCol] || "")
+                    : (row[colMap.amountCol] ?? "");
+                  const amt = computeRowAmount(row, colMap);
                   const desc = colMap.descCol >= 0 ? (row[colMap.descCol] ?? "").trim() : "";
                   return (
                     <div key={i} className="py-3 px-3 flex items-center justify-between gap-3">
@@ -2322,21 +2384,31 @@ export default function ImportPage() {
               <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
                 Does your bank use a separate "Debit / Credit" column?
               </p>
-              <div className="flex gap-3 text-sm">
+              <div className="flex gap-3 text-sm flex-wrap">
                 <button
-                  onClick={() => setColMap((m) => ({ ...m, typeCol: -1 }))}
-                  className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.typeCol === -1 ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
+                  onClick={() => setColMap((m) => ({ ...m, typeCol: -1, debitCol: -1, creditCol: -1 }))}
+                  className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.typeCol === -1 && colMap.debitCol === -1 && colMap.creditCol === -1 ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
                 >
                   No - amounts are already signed
                 </button>
                 <button
                   onClick={() => {
                     const typeGuess = parsed.headers.findIndex((h) => h.toLowerCase().includes("type") && !h.toLowerCase().includes("amount"));
-                    setColMap((m) => ({ ...m, typeCol: typeGuess >= 0 ? typeGuess : 0 }));
+                    setColMap((m) => ({ ...m, typeCol: typeGuess >= 0 ? typeGuess : 0, debitCol: -1, creditCol: -1 }));
                   }}
                   className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.typeCol >= 0 ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
                 >
-                  Yes - select that column
+                  Yes - one Transaction Type column
+                </button>
+                <button
+                  onClick={() => {
+                    const debitGuess = parsed.headers.findIndex((h) => h.toLowerCase().includes("debit"));
+                    const creditGuess = parsed.headers.findIndex((h) => h.toLowerCase().includes("credit"));
+                    setColMap((m) => ({ ...m, typeCol: -1, debitCol: debitGuess >= 0 ? debitGuess : 0, creditCol: creditGuess >= 0 ? creditGuess : 0 }));
+                  }}
+                  className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.debitCol >= 0 || colMap.creditCol >= 0 ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
+                >
+                  Yes - separate Debit and Credit columns
                 </button>
               </div>
               {colMap.typeCol >= 0 && (
@@ -2345,6 +2417,26 @@ export default function ImportPage() {
                   className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
                   {parsed.headers.map((h, i) => <option key={i} value={i}>{h || `Column ${i + 1}`}</option>)}
                 </select>
+              )}
+              {(colMap.debitCol >= 0 || colMap.creditCol >= 0) && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-[hsl(var(--muted-foreground))]">Debit column (money out)</label>
+                    <select value={colMap.debitCol}
+                      onChange={(e) => setColMap((m) => ({ ...m, debitCol: parseInt(e.target.value) }))}
+                      className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
+                      {parsed.headers.map((h, i) => <option key={i} value={i}>{h || `Column ${i + 1}`}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-[hsl(var(--muted-foreground))]">Credit column (money in)</label>
+                    <select value={colMap.creditCol}
+                      onChange={(e) => setColMap((m) => ({ ...m, creditCol: parseInt(e.target.value) }))}
+                      className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
+                      {parsed.headers.map((h, i) => <option key={i} value={i}>{h || `Column ${i + 1}`}</option>)}
+                    </select>
+                  </div>
+                </div>
               )}
             </div>
 
@@ -2697,7 +2789,7 @@ export default function ImportPage() {
             <div className="border rounded-xl p-4 text-center">
               <p className="text-2xl font-bold">{parsed.rows.filter((r) => {
                 const d = parseDate(r[colMap.dateCol] ?? "");
-                const a = parseAmount(r[colMap.amountCol] ?? "0");
+                const a = computeRowAmount(r, colMap);
                 return d && r[colMap.descCol]?.trim() && a !== 0;
               }).length}</p>
               <p className="text-[hsl(var(--muted-foreground))] text-xs mt-0.5">Transactions to import</p>
@@ -2728,13 +2820,7 @@ export default function ImportPage() {
               </thead>
               <tbody>
                 {parsed.rows.slice(0, 5).map((row, i) => {
-                  const rawAmt = parseAmount(row[colMap.amountCol] ?? "0");
-                  let amt = rawAmt;
-                  if (colMap.typeCol >= 0) {
-                    const tv = (row[colMap.typeCol] ?? "").trim().toLowerCase();
-                    if (tv === "debit") amt = -Math.abs(rawAmt);
-                    else if (tv === "credit") amt = Math.abs(rawAmt);
-                  }
+                  const amt = computeRowAmount(row, colMap);
                   const balRaw = colMap.balanceCol >= 0 ? (row[colMap.balanceCol] ?? "") : "";
                   return (
                     <tr key={i} className="border-t">
@@ -2872,6 +2958,14 @@ export default function ImportPage() {
                   {summary.transferCount === 1 ? "was" : "were"} recognized as a transfer/payment (e.g. a credit-card
                   payment) and categorized as Transfers or Excluded - so it won't be double-counted as both a checking
                   withdrawal and a card credit. Review it under Transactions if that doesn't look right.
+                </p>
+              )}
+              {!!summary.errors && summary.errors.length > 0 && (
+                <p className="text-xs text-[hsl(var(--error))] mb-6 max-w-md mx-auto border rounded-lg px-3 py-2 border-[hsl(var(--error)/0.3)]"
+                  style={{ backgroundColor: "hsl(var(--error)/0.05)" }}>
+                  <strong>{summary.errors.length}</strong> {summary.errors.length === 1 ? "row" : "rows"} could not be
+                  imported due to an error (not a duplicate) - e.g. "{summary.errors[0].message}". These rows were not
+                  saved and are not counted above.
                 </p>
               )}
             </>

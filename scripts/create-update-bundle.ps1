@@ -6,11 +6,19 @@
 
 if (-not $env:COMPASS_SIGNING_KEY) { Write-Warning "No signing key - skipping"; exit 0 }
 
+# Canonical version source of truth - see report-windows-signing-status.ps1 for why this (not
+# just mtime) is what actually identifies THIS build's own files in a bundle folder that can
+# hold installers from many past versions.
+$version = try { (Get-Content src-tauri\tauri.conf.json -Raw | ConvertFrom-Json).version } catch { $null }
+if (-not $version) { $version = $env:APP_VERSION }
+$exePattern = if ($version) { "src-tauri\target\release\bundle\nsis\*_${version}_*.exe" } else { "src-tauri\target\release\bundle\nsis\*.exe" }
+$zipPattern = if ($version) { "src-tauri\target\release\bundle\nsis\*_${version}_*.nsis.zip" } else { "src-tauri\target\release\bundle\nsis\*.nsis.zip" }
+
 # Skip if Tauri already created the bundle during build
-$existing = Get-ChildItem src-tauri\target\release\bundle\nsis\*.nsis.zip -ErrorAction SilentlyContinue
+$existing = Get-ChildItem $zipPattern -ErrorAction SilentlyContinue
 if ($existing) { Write-Host "Update bundle already exists, skipping manual creation"; exit 0 }
 
-$nsisExe = Get-ChildItem src-tauri\target\release\bundle\nsis\*.exe -ErrorAction SilentlyContinue |
+$nsisExe = Get-ChildItem $exePattern -ErrorAction SilentlyContinue |
     Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if (-not $nsisExe) { Write-Warning "No NSIS exe found - skipping"; exit 0 }
 

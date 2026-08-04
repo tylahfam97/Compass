@@ -69,10 +69,3 @@ export const useProfileStore = create<ProfileStore>((set, get) => ({
     set({ dismissedInsights: [] });
   },
 }));
-
-/** Returns the saved last-used profile ID, or null. */
-export function getSavedProfileId(): number | null {
-  const raw = localStorage.getItem(LS_ACTIVE_KEY);
-  const n = raw ? parseInt(raw, 10) : NaN;
-  return isNaN(n) ? null : n;
-}

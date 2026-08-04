@@ -17,10 +17,15 @@
 $checkMark = [char]0x2705
 $warnMark  = [string]([char]0x26A0) + [string]([char]0xFE0F)
 
+# Canonical version source of truth (tauri.conf.json) - falls back to APP_VERSION (set earlier
+# this job by read-version-and-patch-config.ps1) only if the config can't be read for some reason.
+$version = try { (Get-Content src-tauri\tauri.conf.json -Raw | ConvertFrom-Json).version } catch { $null }
+if (-not $version) { $version = $env:APP_VERSION }
+
 # Parses compass-sign-status.txt (written line-by-line by sign-windows.ps1 as `signed|<path>` or
-# `unsigned|<path>|exit_<code>`) into a short grouped summary instead of dumping one line per file -
-# an NSIS bundle signs a dozen+ plugin DLLs individually, and listing all of them when they all
-# share the same root cause (e.g. "exit_1") is noisy and not actionable.
+# `unsigned|<path>|exit_<code>|<error text>`) into a short grouped summary instead of dumping one
+# line per file - an NSIS bundle signs a dozen+ plugin DLLs individually, and listing all of them
+# when they all share the same root cause (e.g. "exit_1") is noisy and not actionable.
 function Format-SigningLog {
     param([string]$Path)
 
@@ -35,9 +40,10 @@ function Format-SigningLog {
     $entries = $lines | ForEach-Object {
         $parts = $_ -split '\|'
         [pscustomobject]@{
-            Status   = $parts[0]
-            ExitCode = if ($parts.Count -gt 2) { $parts[2] -replace '^exit_', '' } else { $null }
-            Name     = Split-Path $parts[1] -Leaf
+            Status    = $parts[0]
+            ExitCode  = if ($parts.Count -gt 2) { $parts[2] -replace '^exit_', '' } else { $null }
+            ErrorText = if ($parts.Count -gt 3) { $parts[3] } else { $null }
+            Name      = Split-Path $parts[1] -Leaf
         }
     }
 
@@ -53,12 +59,21 @@ function Format-SigningLog {
         if ($rest.Count -gt 0) {
             $names += "+$($rest.Count) supporting file$(if ($rest.Count -ne 1) { 's' }) (WiX/NSIS plugin DLLs, same cause)"
         }
-        "- $label`: $($names -join ', ')"
+        $line = "- $label`: $($names -join ', ')"
+        if ($sample.ErrorText) { $line += "`n  - artifact-signing-cli said: $($sample.ErrorText)" }
+        $line
     }
     return ($summaryLines -join "`n")
 }
 
-$exe = Get-ChildItem src-tauri\target\release\bundle\nsis\*.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+# Filtered to the CURRENT version's filename (not just sorted by mtime) - a local/long-lived
+# bundle folder can hold installers from many past versions, and a stale file's timestamp can
+# end up newer than a fresh rebuild's for all sorts of reasons. Sort-Object stays as a
+# tie-breaker only. Falls back to an unfiltered (sorted) pick if $version couldn't be resolved
+# at all, rather than reporting nothing.
+$pattern = if ($version) { "src-tauri\target\release\bundle\nsis\*_${version}_*.exe" } else { "src-tauri\target\release\bundle\nsis\*.exe" }
+$exe = Get-ChildItem $pattern -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if (-not $exe) {
     Write-Warning "No built .exe found under src-tauri\target\release\bundle\nsis - skipping signing status check (build likely failed earlier)"
     exit 0
@@ -74,6 +89,6 @@ if ($sig.Status -eq "Valid") {
         Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
 } else {
     Write-Warning "UNSIGNED - $($exe.Name) - Get-AuthenticodeSignature status: $($sig.Status) ($($sig.StatusMessage))"
-    "## $warnMark Windows build is UNSIGNED`n`n**File:** $($exe.Name)`n**Signature status:** $($sig.Status) - $($sig.StatusMessage)`n**Signing attempt log:**`n$attempted`n`nThe build itself succeeded - this is expected until Azure Trusted Signing is fully active in production, and does not need any action unless it's unexpected." |
+    "## $warnMark Windows build is UNSIGNED`n`n**File:** $($exe.Name)`n**Signature status:** $($sig.Status) - $($sig.StatusMessage)`n**Signing attempt log:**`n$attempted" |
         Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
 }

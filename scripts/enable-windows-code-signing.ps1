@@ -18,6 +18,61 @@ if (-not ($env:AZURE_SIGNING_ENDPOINT -and $env:AZURE_SIGNING_ACCOUNT -and $env:
     exit 0
 }
 
+# artifact-signing-cli needs an actual Azure CLI login session (its own env-var auth path
+# doesn't work) - install it if missing and log in as the signing service principal every run.
+$azCmd = Get-Command az -ErrorAction SilentlyContinue
+$azWbin = Join-Path $env:ProgramFiles "Microsoft SDKs\Azure\CLI2\wbin"
+if (-not $azCmd -and -not (Test-Path (Join-Path $azWbin "az.cmd"))) {
+    Write-Host "Azure CLI not found - installing..."
+    $msiPath = Join-Path $env:TEMP "AzureCLI.msi"
+    Invoke-WebRequest -Uri "https://aka.ms/installazurecliwindows" -OutFile $msiPath -UseBasicParsing
+    $msiLogPath = Join-Path $env:TEMP "AzureCLI-install.log"
+    $installProc = Start-Process msiexec.exe -Wait -PassThru -ArgumentList "/I `"$msiPath`" /quiet /norestart /log `"$msiLogPath`""
+    Remove-Item $msiPath -Force -ErrorAction SilentlyContinue
+    if ($installProc.ExitCode -ne 0) {
+        # Commonly means the runner service account isn't elevated enough to install silently.
+        Write-Warning "Azure CLI MSI install exited with code $($installProc.ExitCode) - see $msiLogPath on the runner if this needs manual follow-up."
+    } else {
+        Write-Host "Azure CLI MSI install completed (exit 0)"
+    }
+}
+if (-not $azCmd -and (Test-Path (Join-Path $azWbin "az.cmd"))) {
+    # Freshly installed in this same process - PATH won't pick it up until a new session.
+    Add-Content -Path $env:GITHUB_PATH -Value $azWbin
+    $env:PATH = "$azWbin;$env:PATH"
+}
+$azResolved = Get-Command az -ErrorAction SilentlyContinue
+if ($azResolved) {
+    # artifact-signing-cli does not do PATH-based lookup for az - it needs AZURE_CLI_PATH set to
+    # az's actual resolved location, exported via GITHUB_ENV so the later "Build Tauri
+    # application" step (and its cargo -> signCommand subprocess chain) inherits it too.
+    $azCliPath = $azResolved.Source
+    Write-Host "az resolved to: $azCliPath - exporting as AZURE_CLI_PATH for this and later steps"
+    "AZURE_CLI_PATH=$azCliPath" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
+    $env:AZURE_CLI_PATH = $azCliPath
+
+    Write-Host "Logging into Azure CLI as the signing service principal..."
+    az login --service-principal -u $env:AZURE_CLIENT_ID -p $env:AZURE_CLIENT_SECRET --tenant $env:AZURE_TENANT_ID --output none
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "az login --service-principal failed (exit $LASTEXITCODE) - the client id/secret/tenant may be wrong, expired, or missing the Trusted Signing role assignment. Signing will likely still fail, but the build continues unsigned."
+    } else {
+        Write-Host "Azure CLI login succeeded"
+    }
+} else {
+    Write-Warning "Azure CLI install did not produce a usable az.cmd - signing will likely still fail via its Azure CLI fallback."
+}
+
+# signtool loads Azure.CodeSigning.Dlib.dll (a .NET assembly) via /dlib - this requires a
+# properly-registered .NET Desktop Runtime (writes the HKLM registry entries native hostfxr
+# CLR-hosting resolution depends on). Not auto-installed here: doing so unattended needs admin
+# rights this runner's service account may not have, and an unregistered/xcopy-style install
+# does not fix this specific failure mode. If signing ever silently fails with a non-zero exit
+# and zero output from signtool, install the official .NET Desktop Runtime x64 installer
+# (dotnet.microsoft.com/download) via a one-time elevated RDP session on the runner.
+if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
+    Write-Warning ".NET runtime not found - Azure Code Signing DLIB signing will likely fail silently. See the comment above this check for the fix."
+}
+
 # Install BEFORE resolving/patching signCommand below - on a fresh runner with no cache,
 # computing signCommand first would bake in a reference to a binary that doesn't exist on disk
 # yet until this install step runs. Cached/idempotent on this persistent self-hosted runner -

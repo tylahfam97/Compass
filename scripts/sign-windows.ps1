@@ -23,15 +23,16 @@ param(
     [Parameter(Mandatory = $true)][string]$TargetPath
 )
 
-# AZURE_CLIENT_ID / AZURE_CLIENT_SECRET / AZURE_TENANT_ID are inherited as env vars from the
-# "Build Tauri application" step (the parent process here) - artifact-signing-cli reads them
-# itself via the standard Azure SDK environment variable names, nothing to pass explicitly.
+# AZURE_CLIENT_ID / AZURE_CLIENT_SECRET / AZURE_TENANT_ID / AZURE_CLI_PATH are inherited as env
+# vars from the "Build Tauri application" step - artifact-signing-cli reads them itself, nothing
+# to pass explicitly.
 
 $statusFile = Join-Path $env:RUNNER_TEMP "compass-sign-status.txt"
 
 Write-Host "Attempting to sign: $TargetPath"
-& $CliPath -e $Endpoint -a $Account -c $CertProfile -d Compass $TargetPath
+$cliOutput = & $CliPath -e $Endpoint -a $Account -c $CertProfile -d Compass $TargetPath 2>&1
 $exitCode = $LASTEXITCODE
+$cliOutput | ForEach-Object { Write-Host $_ }
 
 if ($exitCode -eq 0) {
     Write-Host "Successfully signed: $TargetPath"
@@ -39,6 +40,10 @@ if ($exitCode -eq 0) {
     exit 0
 }
 
-Write-Warning "Azure Trusted Signing failed for '$TargetPath' (artifact-signing-cli exited $exitCode). This usually means the signing account/certificate profile isn't fully active in Azure yet, even though credentials/config are set. Continuing with an UNSIGNED binary rather than failing the build."
-"unsigned|$TargetPath|exit_$exitCode" | Out-File -FilePath $statusFile -Encoding utf8 -Append
-exit 0
+# Collapse to one line and strip '|' so it can't corrupt the pipe-delimited status file format -
+# this is what lets the summary step show WHY it failed instead of just an exit code.
+$errorText = (($cliOutput | Out-String).Trim() -replace '[\r\n\|]+', ' ')
+if (-not $errorText) { $errorText = "(artifact-signing-cli produced no output)" }
+
+Write-Warning "Azure Trusted Signing failed for '$TargetPath' (artifact-signing-cli exited $exitCode): $errorText"
+"unsigned|$TargetPath|exit_$exitCode|$errorText" | Out-File -FilePath $statusFile -Encoding utf8 -Append

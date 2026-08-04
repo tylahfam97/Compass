@@ -117,8 +117,14 @@ export default function TransactionsPage() {
   const navState = location.state as { month?: string; category?: number | null } | null;
   const initialMonth = navState?.month;
   const initialCategory = navState?.category;
-  const [month, setMonth] = useAutoMonth(initialMonth);
+  const [month, setMonth] = useAutoMonth("transactions", initialMonth);
   const [allTime, setAllTime] = useState(false);
+
+  const navMonth = (dir: -1 | 1) => {
+    const [y, m] = month.split("-").map(Number);
+    const d = new Date(y, m - 1 + dir, 1);
+    setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  };
   const [search, setSearch] = useState("");
   const [rows, setRows] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -541,15 +547,21 @@ export default function TransactionsPage() {
         {/* Row 1 — the essentials, always visible */}
         <div className="flex gap-3 flex-wrap items-center">
           {!allTime && (
-            <input
-              ref={monthInputRef}
-              type="month"
-              value={month}
-              onChange={(e) => setMonth(e.target.value)}
-              onClick={() => { try { monthInputRef.current?.showPicker(); } catch { /* unsupported */ } }}
-              className="cursor-pointer border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))]
-                         text-[hsl(var(--foreground))]"
-            />
+            <div className="flex items-center gap-1">
+              <button onClick={() => navMonth(-1)} aria-label="Previous month"
+                className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors">‹</button>
+              <input
+                ref={monthInputRef}
+                type="month"
+                value={month}
+                onChange={(e) => setMonth(e.target.value)}
+                onClick={() => { try { monthInputRef.current?.showPicker(); } catch { /* unsupported */ } }}
+                className="cursor-pointer border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))]
+                           text-[hsl(var(--foreground))]"
+              />
+              <button onClick={() => navMonth(1)} aria-label="Next month"
+                className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))] transition-colors">›</button>
+            </div>
           )}
           <button
             onClick={() => setAllTime((v) => !v)}
