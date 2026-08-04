@@ -1,54 +1,32 @@
-import { useState, useEffect } from "react";
-import { getDb } from "@/lib/db";
-import { useProfileStore } from "@/stores/profileStore";
+import { useCallback, useEffect } from "react";
+import { useMonthNavStore } from "@/stores/monthNavStore";
 
 function currentYM(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function monthBounds(ym: string): [string, string] {
-  const [y, m] = ym.split("-").map(Number);
-  return [
-    `${y}-${String(m).padStart(2, "0")}-01`,
-    new Date(y, m, 1).toISOString().split("T")[0],
-  ];
-}
-
 /**
- * Returns [month, setMonth] ("YYYY-MM"), scoped to the active profile.
- * On profile change, if the current month has no transactions for that
- * profile, automatically selects the most recent month that does.
+ * Returns [month, setMonth] ("YYYY-MM") for the page identified by `pageKey`. Defaults to the
+ * real current month - always, with no silent "jump to whichever month has data" override, so
+ * views never quietly show a stale month. The selection is remembered in a shared store (not
+ * local useState), so navigating to another tab and back restores whatever month you were on
+ * instead of resetting.
  *
- * Pass `initialMonth` to seed the picker with a specific month on first
- * render (e.g. navigating here from the import flow).
+ * Pass `initialMonth` to force-jump to a specific month right now (e.g. arriving here from the
+ * import flow's "View Transactions" with a target month) - this always wins over a remembered
+ * month and becomes the new remembered value going forward.
  */
-export function useAutoMonth(initialMonth?: string) {
-  const [month, setMonth] = useState(() => initialMonth ?? currentYM());
-  const activeProfile = useProfileStore((s) => s.activeProfile);
+export function useAutoMonth(pageKey: string, initialMonth?: string) {
+  const storedMonth = useMonthNavStore((s) => s.months[pageKey]);
+  const setStoredMonth = useMonthNavStore((s) => s.setMonth);
 
   useEffect(() => {
-    if (!activeProfile) return;
-    let cancelled = false;
-    async function init() {
-      const db = await getDb();
-      const [start, end] = monthBounds(currentYM());
-      const [row] = await db.select<{ n: number }[]>(
-        "SELECT COUNT(*) as n FROM transactions WHERE date>=? AND date<? AND profile_id=?",
-        [start, end, activeProfile!.id]
-      );
-      if ((row?.n ?? 0) === 0) {
-        const [latest] = await db.select<{ month: string }[]>(
-          "SELECT strftime('%Y-%m', date) as month FROM transactions WHERE profile_id=? ORDER BY date DESC LIMIT 1",
-          [activeProfile!.id]
-        );
-        if (!cancelled && latest?.month) setMonth(latest.month);
-        else if (!cancelled) setMonth(currentYM());
-      }
-    }
-    init().catch(console.error);
-    return () => { cancelled = true; };
-  }, [activeProfile?.id]); // re-run when profile changes
+    if (initialMonth) setStoredMonth(pageKey, initialMonth);
+  }, [initialMonth, pageKey, setStoredMonth]);
+
+  const month = initialMonth ?? storedMonth ?? currentYM();
+  const setMonth = useCallback((m: string) => setStoredMonth(pageKey, m), [pageKey, setStoredMonth]);
 
   return [month, setMonth] as const;
 }

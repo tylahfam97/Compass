@@ -74,7 +74,7 @@ export default function OverviewPage() {
   const navigate = useNavigate();
   const { profiles, setActiveProfile, activeProfile, unlockedIds, unlockProfile } = useProfileStore();
   const profileId = activeProfile?.id ?? profiles[0]?.id ?? 1;
-  const [month, setMonth] = useAutoMonth();
+  const [month, setMonth] = useAutoMonth("overview");
   const [data, setData] = useState<Map<number, ProfileData>>(new Map());
   const [loading, setLoading] = useState(true);
   const [netWorth, setNetWorth] = useState<NetWorthSnapshot | null>(null);

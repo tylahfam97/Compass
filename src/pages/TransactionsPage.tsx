@@ -117,7 +117,7 @@ export default function TransactionsPage() {
   const navState = location.state as { month?: string; category?: number | null } | null;
   const initialMonth = navState?.month;
   const initialCategory = navState?.category;
-  const [month, setMonth] = useAutoMonth(initialMonth);
+  const [month, setMonth] = useAutoMonth("transactions", initialMonth);
   const [allTime, setAllTime] = useState(false);
   const [search, setSearch] = useState("");
   const [rows, setRows] = useState<Transaction[]>([]);

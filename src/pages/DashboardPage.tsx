@@ -74,7 +74,7 @@ function monthBounds(ym: string): [string, string] {
 }
 
 export default function DashboardPage() {
-  const [month, setMonth] = useAutoMonth();
+  const [month, setMonth] = useAutoMonth("dashboard");
   const navigate = useNavigate();
   const activeProfile = useProfileStore((s) => s.activeProfile);
   const dismissedInsights = useProfileStore((s) => s.dismissedInsights);

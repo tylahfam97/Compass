@@ -17,6 +17,7 @@ import SettingsPage from "@/pages/SettingsPage";
 import ProfileSwitcher from "@/components/ProfileSwitcher";
 import UpdateChecker from "@/components/UpdateChecker";
 import PinModal from "@/components/PinModal";
+import MonthRolloverModal from "@/components/MonthRolloverModal";
 import GoldParticleField from "@/components/GoldParticleField";
 import Spotlight from "@/components/Spotlight";
 import OnboardingChecklistWidget from "@/components/OnboardingChecklistWidget";
@@ -211,6 +212,7 @@ function App() {
           onCancel={() => setPinTarget(null)}
         />
       )}
+      {profileSelected && <MonthRolloverModal />}
       <div className="flex h-screen overflow-hidden">
         {/* Sidebar */}
         <aside
