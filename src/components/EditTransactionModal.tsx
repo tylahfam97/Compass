@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion } from "motion/react";
-import { getDb, recomputeCalculatedBalances } from "@/lib/db";
+import { getDb, recomputeCalculatedBalances, shiftBalanceAnchorForTransactionChange } from "@/lib/db";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import CategoryOptions from "@/components/CategoryOptions";
@@ -83,6 +83,7 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           [accountId, date, amountCents, desc.trim(), catId, notes.trim() || null, hash, profileId]
         );
+        await shiftBalanceAnchorForTransactionChange(accountId as number, null, { date, amountCents });
         await recomputeCalculatedBalances(accountId as number);
       } else {
         await db.execute(
@@ -93,6 +94,11 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
         );
         // Amount/date edits shift every later transaction's running balance - recompute
         // the whole account so Overview/Dashboard/Trends read correct numbers next load.
+        await shiftBalanceAnchorForTransactionChange(
+          transaction!.account_id,
+          { date: transaction!.date, amountCents: transaction!.amount_cents },
+          { date, amountCents }
+        );
         await recomputeCalculatedBalances(transaction!.account_id);
       }
       onSaved();
@@ -107,6 +113,11 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
     try {
       const db = await getDb();
       await db.execute("DELETE FROM transactions WHERE id=?", [transaction.id]);
+      await shiftBalanceAnchorForTransactionChange(
+        transaction.account_id,
+        { date: transaction.date, amountCents: transaction.amount_cents },
+        null
+      );
       await recomputeCalculatedBalances(transaction.account_id);
       onSaved();
       onClose();

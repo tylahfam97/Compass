@@ -1656,6 +1656,41 @@ export async function deleteLoanAccount(accountId: number): Promise<void> {
 }
 
 /**
+ * Shifts a manually-set balance anchor by a transaction change that falls within the anchor's
+ * coverage window (date <= the anchor's date). Without this, adding/editing/deleting a single
+ * transaction dated on or before the anchor date gets silently absorbed by
+ * `recomputeCalculatedBalancesWithDb`'s backward-fit pass instead of actually changing the
+ * anchor's own target value - e.g. adding a same-day $300 transfer out of an account anchored
+ * at $315 would otherwise leave the anchor (and therefore the latest balance) unchanged at
+ * $315, instead of correctly becoming $15. `removed` is the transaction's PRE-change date/amount
+ * (pass for an edit or delete), `added` is its POST-change date/amount (pass for an edit or a
+ * new add) - either may be null. No-op if the account has no anchor set, or if neither date
+ * falls on/before it.
+ */
+export async function shiftBalanceAnchorForTransactionChange(
+  accountId: number,
+  removed: { date: string; amountCents: number } | null,
+  added: { date: string; amountCents: number } | null
+): Promise<void> {
+  const db = await getDb();
+  const [acct] = await db.select<{ balance_anchor_cents: number | null; balance_anchor_date: string | null }[]>(
+    "SELECT balance_anchor_cents, balance_anchor_date FROM accounts WHERE id=?",
+    [accountId]
+  );
+  if (acct?.balance_anchor_cents == null || !acct.balance_anchor_date) return;
+
+  let delta = 0;
+  if (removed && removed.date <= acct.balance_anchor_date) delta -= removed.amountCents;
+  if (added && added.date <= acct.balance_anchor_date) delta += added.amountCents;
+  if (delta !== 0) {
+    await db.execute(
+      "UPDATE accounts SET balance_anchor_cents=balance_anchor_cents+? WHERE id=?",
+      [delta, accountId]
+    );
+  }
+}
+
+/**
  * Recalculates `balance_cents` for every transaction on an account using its manually-set
  * balance anchor - the real balance AFTER all transactions up to `balance_anchor_date`
  * (typically "today", the date the value was entered). Transactions on or before that date
@@ -1666,6 +1701,11 @@ export async function deleteLoanAccount(accountId: number): Promise<void> {
  * see the "implicit anchor" comment below for why this matters. Used for imports whose source
  * file has no native running-balance column, and any time a transaction is manually
  * added/edited/deleted or an import batch is undone.
+ *
+ * Callers that add/edit/delete a SINGLE transaction dated on or before the anchor date must
+ * call {@link shiftBalanceAnchorForTransactionChange} first - this function trusts the stored
+ * anchor as-is and has no way to tell a brand-new transaction apart from one that already
+ * existed when the anchor was set.
  */
 export async function recomputeCalculatedBalances(accountId: number): Promise<void> {
   const db = await getDb();
