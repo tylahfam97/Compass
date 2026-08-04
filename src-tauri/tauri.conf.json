@@ -1,7 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Compass",
+<<<<<<< HEAD
   "version": "0.9.5",
+=======
+  "version": "0.9.6",
+>>>>>>> 263b3c3 (feat: updated version and dulled glow more, changed transaction memo on empty months)
   "identifier": "com.compass.app",
   "build": {
     "beforeDevCommand": "npm run dev",

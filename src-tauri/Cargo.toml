@@ -1,6 +1,10 @@
 [package]
 name = "compass"
+<<<<<<< HEAD
 version = "0.9.5"
+=======
+version = "0.9.6"
+>>>>>>> 263b3c3 (feat: updated version and dulled glow more, changed transaction memo on empty months)
 description = "Compass – Personal Finance Companion"
 authors = ["Tyler Fameli"]
 edition = "2021"

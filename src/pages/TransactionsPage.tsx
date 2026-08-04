@@ -773,10 +773,28 @@ export default function TransactionsPage() {
           >
             &#128269;
           </div>
-          <p className="font-semibold text-[hsl(var(--foreground))]">No transactions found</p>
-          <p className="text-sm text-[hsl(var(--muted-foreground))] max-w-xs">
-            Try a different month, clear your search or filters, or import a bank statement to get started.
-          </p>
+          {/* Genuinely no data for this month (no search/filters active) gets a friendlier,
+              actionable message instead of the generic "try different filters" one. */}
+          {!allTime && search === "" && !hasActiveFilters ? (
+            <>
+              <p className="font-semibold text-[hsl(var(--foreground))]">No transactions for this month</p>
+              <p className="text-sm text-[hsl(var(--muted-foreground))] max-w-xs">Add some now!</p>
+              <button
+                onClick={() => setAddingTxn(true)}
+                className="mt-1 text-sm px-3 py-1.5 rounded-lg bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
+                           hover:opacity-90 transition-opacity flex items-center gap-1.5 font-medium"
+              >
+                <Plus size={14} /> Add a transaction
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="font-semibold text-[hsl(var(--foreground))]">No transactions found</p>
+              <p className="text-sm text-[hsl(var(--muted-foreground))] max-w-xs">
+                Try a different month, clear your search or filters, or import a bank statement to get started.
+              </p>
+            </>
+          )}
         </div>
       )}
 
