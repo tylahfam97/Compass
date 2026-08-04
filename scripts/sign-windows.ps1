@@ -23,28 +23,15 @@ param(
     [Parameter(Mandatory = $true)][string]$TargetPath
 )
 
-# AZURE_CLIENT_ID / AZURE_CLIENT_SECRET / AZURE_TENANT_ID are inherited as env vars from the
-# "Build Tauri application" step (the parent process here) - artifact-signing-cli reads them
-# itself via the standard Azure SDK environment variable names, nothing to pass explicitly.
-#
-# 2026-08: a real run showed artifact-signing-cli falling through to an Azure CLI credential
-# ("azure cli ... does not exists") instead of authenticating via these env vars - meaning
-# EnvironmentCredential didn't succeed, for a reason not yet known (vars genuinely missing from
-# THIS process - Tauri spawns signCommand as its own subprocess per file, which may not inherit
-# the full parent env - vs. present but rejected for some other reason look identical from
-# outside). The two lines below log which case it is (values themselves are never printed) and
-# RUST_LOG=debug asks artifact-signing-cli's own Azure SDK crate for a more specific reason.
+# AZURE_CLIENT_ID / AZURE_CLIENT_SECRET / AZURE_TENANT_ID / AZURE_CLI_PATH are inherited as env
+# vars from the "Build Tauri application" step - artifact-signing-cli reads them itself, nothing
+# to pass explicitly.
 
 $statusFile = Join-Path $env:RUNNER_TEMP "compass-sign-status.txt"
 
 Write-Host "Attempting to sign: $TargetPath"
-Write-Host ("Service principal env vars present in THIS process - ClientId:{0} ClientSecret:{1} TenantId:{2} AzureCliPath:{3}" -f `
-    (-not [string]::IsNullOrEmpty($env:AZURE_CLIENT_ID)), (-not [string]::IsNullOrEmpty($env:AZURE_CLIENT_SECRET)), (-not [string]::IsNullOrEmpty($env:AZURE_TENANT_ID)), $env:AZURE_CLI_PATH)
-$prevRustLog = $env:RUST_LOG
-$env:RUST_LOG = "debug"
 $cliOutput = & $CliPath -e $Endpoint -a $Account -c $CertProfile -d Compass $TargetPath 2>&1
 $exitCode = $LASTEXITCODE
-$env:RUST_LOG = $prevRustLog
 $cliOutput | ForEach-Object { Write-Host $_ }
 
 if ($exitCode -eq 0) {

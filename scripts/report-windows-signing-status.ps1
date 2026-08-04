@@ -89,6 +89,6 @@ if ($sig.Status -eq "Valid") {
         Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
 } else {
     Write-Warning "UNSIGNED - $($exe.Name) - Get-AuthenticodeSignature status: $($sig.Status) ($($sig.StatusMessage))"
-    "## $warnMark Windows build is UNSIGNED`n`n**File:** $($exe.Name)`n**Signature status:** $($sig.Status) - $($sig.StatusMessage)`n**Signing attempt log:**`n$attempted`n`nThe build itself succeeded - this is expected until Azure Trusted Signing is fully active in production, and does not need any action unless it's unexpected." |
+    "## $warnMark Windows build is UNSIGNED`n`n**File:** $($exe.Name)`n**Signature status:** $($sig.Status) - $($sig.StatusMessage)`n**Signing attempt log:**`n$attempted" |
         Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
 }
