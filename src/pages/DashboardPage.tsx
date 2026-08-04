@@ -413,7 +413,12 @@ export default function DashboardPage() {
             >
               Import Transactions
             </Link>
-            {!hasDemoAccounts && (
+            {/* Demo Mode is only offered when this profile has genuinely never had any real
+                transactions - once any data exists (even in a different month, or after demo
+                data itself was imported), it's no longer relevant. Recomputed live from
+                totalTxnCount, so clearing all transactions brings it back automatically, and
+                each profile is judged independently of every other profile's data. */}
+            {!hasDemoAccounts && totalTxnCount === 0 && (
               <button
                 data-tour="demo-mode"
                 onClick={async () => {
