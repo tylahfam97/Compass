@@ -18,6 +18,40 @@ if (-not ($env:AZURE_SIGNING_ENDPOINT -and $env:AZURE_SIGNING_ACCOUNT -and $env:
     exit 0
 }
 
+# 2026-08 finding: artifact-signing-cli fails with "azure cli ... does not exists" even when
+# AZURE_CLIENT_ID/SECRET/TENANT_ID are confirmed present in its own process (verified via a
+# diagnostic in sign-windows.ps1) - so it does not authenticate via those env vars alone the way
+# the Azure SDK's EnvironmentCredential normally would. It needs an actual Azure CLI install with
+# a live login session, which is what its own error message is asking for. Installing it here
+# (MSI, not winget - Windows Server images often lack winget) and logging in as the same service
+# principal every run keeps this working even if the runner is ever reimaged.
+$azCmd = Get-Command az -ErrorAction SilentlyContinue
+$azWbin = Join-Path $env:ProgramFiles "Microsoft SDKs\Azure\CLI2\wbin"
+if (-not $azCmd -and -not (Test-Path (Join-Path $azWbin "az.cmd"))) {
+    Write-Host "Azure CLI not found - installing..."
+    $msiPath = Join-Path $env:TEMP "AzureCLI.msi"
+    Invoke-WebRequest -Uri "https://aka.ms/installazurecliwindows" -OutFile $msiPath -UseBasicParsing
+    Start-Process msiexec.exe -Wait -ArgumentList "/I `"$msiPath`" /quiet /norestart"
+    Remove-Item $msiPath -Force -ErrorAction SilentlyContinue
+}
+if (-not $azCmd -and (Test-Path (Join-Path $azWbin "az.cmd"))) {
+    # Freshly installed in this same process - PATH won't pick it up until a new session, same
+    # class of gotcha as the cargo bin PATH issue above. Add it for this job's remaining steps too.
+    Add-Content -Path $env:GITHUB_PATH -Value $azWbin
+    $env:PATH = "$azWbin;$env:PATH"
+}
+if (Get-Command az -ErrorAction SilentlyContinue) {
+    Write-Host "Logging into Azure CLI as the signing service principal..."
+    az login --service-principal -u $env:AZURE_CLIENT_ID -p $env:AZURE_CLIENT_SECRET --tenant $env:AZURE_TENANT_ID --output none
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "az login --service-principal failed (exit $LASTEXITCODE) - the client id/secret/tenant may be wrong, expired, or missing the Trusted Signing role assignment. Signing will likely still fail, but the build continues unsigned."
+    } else {
+        Write-Host "Azure CLI login succeeded"
+    }
+} else {
+    Write-Warning "Azure CLI install did not produce a usable az.cmd - signing will likely still fail via its Azure CLI fallback."
+}
+
 # Install BEFORE resolving/patching signCommand below - on a fresh runner with no cache,
 # computing signCommand first would bake in a reference to a binary that doesn't exist on disk
 # yet until this install step runs. Cached/idempotent on this persistent self-hosted runner -
