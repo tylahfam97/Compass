@@ -2,6 +2,21 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 0.9.7 — Import Duplicate Protection 🔍
+
+A focused release closing a real gap: a transaction entered by hand and later seen on an
+imported statement had no way to be recognized as the same one.
+
+### New: The Import Wizard Now Catches Possible Duplicates of Manual Entries
+Manually-added transactions never had a way to match against a real import - so entering one by
+hand and later importing a statement that includes it could quietly double-count it. The import
+wizard now checks incoming statement rows against your existing manual entries (same amount, a
+close date, and a similar description) and, only when it finds a likely match, shows a
+side-by-side comparison before anything is saved: keep both, keep your manual entry, or keep the
+imported one. Nothing is ever deleted automatically - "keep both" is the default for anything you
+don't explicitly resolve. This step stays out of the way entirely when nothing looks like a
+duplicate, which is the common case.
+
 ## Compass 0.9.6 — Premier UI Refresh ✨
 
 A visual polish pass ahead of v1.0 - a calmer, more professional look plus a handful of real
