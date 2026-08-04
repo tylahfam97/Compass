@@ -9,6 +9,15 @@ on:
 
   workflow_dispatch:
 
+# Only one run per branch at a time on the shared, persistent self-hosted Windows runner
+# (clean:false + a single bundle output dir means two overlapping runs could otherwise stomp on
+# each other's src-tauri\target\release\bundle - e.g. a stale installer from an older run's
+# version getting picked up mid-build by a newer run). A new push to the same branch cancels the
+# older in-flight run rather than racing it.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
   actions: write
