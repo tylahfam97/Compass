@@ -38,8 +38,8 @@ param(
 $statusFile = Join-Path $env:RUNNER_TEMP "compass-sign-status.txt"
 
 Write-Host "Attempting to sign: $TargetPath"
-Write-Host ("Service principal env vars present in THIS process - ClientId:{0} ClientSecret:{1} TenantId:{2}" -f `
-    (-not [string]::IsNullOrEmpty($env:AZURE_CLIENT_ID)), (-not [string]::IsNullOrEmpty($env:AZURE_CLIENT_SECRET)), (-not [string]::IsNullOrEmpty($env:AZURE_TENANT_ID)))
+Write-Host ("Service principal env vars present in THIS process - ClientId:{0} ClientSecret:{1} TenantId:{2} AzureCliPath:{3}" -f `
+    (-not [string]::IsNullOrEmpty($env:AZURE_CLIENT_ID)), (-not [string]::IsNullOrEmpty($env:AZURE_CLIENT_SECRET)), (-not [string]::IsNullOrEmpty($env:AZURE_TENANT_ID)), $env:AZURE_CLI_PATH)
 $prevRustLog = $env:RUST_LOG
 $env:RUST_LOG = "debug"
 $cliOutput = & $CliPath -e $Endpoint -a $Account -c $CertProfile -d Compass $TargetPath 2>&1

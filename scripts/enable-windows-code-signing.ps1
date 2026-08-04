@@ -31,8 +31,16 @@ if (-not $azCmd -and -not (Test-Path (Join-Path $azWbin "az.cmd"))) {
     Write-Host "Azure CLI not found - installing..."
     $msiPath = Join-Path $env:TEMP "AzureCLI.msi"
     Invoke-WebRequest -Uri "https://aka.ms/installazurecliwindows" -OutFile $msiPath -UseBasicParsing
-    Start-Process msiexec.exe -Wait -ArgumentList "/I `"$msiPath`" /quiet /norestart"
+    $msiLogPath = Join-Path $env:TEMP "AzureCLI-install.log"
+    $installProc = Start-Process msiexec.exe -Wait -PassThru -ArgumentList "/I `"$msiPath`" /quiet /norestart /log `"$msiLogPath`""
     Remove-Item $msiPath -Force -ErrorAction SilentlyContinue
+    if ($installProc.ExitCode -ne 0) {
+        # 1603/1618 etc. commonly mean the runner service account isn't elevated enough to
+        # install software silently - same class of permissions gotcha as cargo/Perl above.
+        Write-Warning "Azure CLI MSI install exited with code $($installProc.ExitCode) - likely a permissions issue with the runner service account, not a network/download problem. See $msiLogPath on the runner for the real MSI log if this needs manual follow-up."
+    } else {
+        Write-Host "Azure CLI MSI install completed (exit 0)"
+    }
 }
 if (-not $azCmd -and (Test-Path (Join-Path $azWbin "az.cmd"))) {
     # Freshly installed in this same process - PATH won't pick it up until a new session, same
@@ -40,7 +48,20 @@ if (-not $azCmd -and (Test-Path (Join-Path $azWbin "az.cmd"))) {
     Add-Content -Path $env:GITHUB_PATH -Value $azWbin
     $env:PATH = "$azWbin;$env:PATH"
 }
-if (Get-Command az -ErrorAction SilentlyContinue) {
+$azResolved = Get-Command az -ErrorAction SilentlyContinue
+if ($azResolved) {
+    # artifact-signing-cli does NOT do PATH-based lookup for az - its own error text says so
+    # ("please specify PATH with env AZURE_CLI_PATH"), and it kept failing even after `az login`
+    # succeeded right here in this same step, proving az itself works but isn't at whatever ONE
+    # hardcoded default location that tool checks. AZURE_CLI_PATH is the documented override -
+    # point it at wherever az ACTUALLY resolves to (its .cmd shim, not az.exe) and export it via
+    # GITHUB_ENV so later steps (Build Tauri application -> cargo -> signCommand) inherit it too,
+    # the same way AZURE_CLIENT_ID/SECRET/TENANT_ID already reliably do.
+    $azCliPath = $azResolved.Source
+    Write-Host "az resolved to: $azCliPath - exporting as AZURE_CLI_PATH for this and later steps"
+    "AZURE_CLI_PATH=$azCliPath" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
+    $env:AZURE_CLI_PATH = $azCliPath
+
     Write-Host "Logging into Azure CLI as the signing service principal..."
     az login --service-principal -u $env:AZURE_CLIENT_ID -p $env:AZURE_CLIENT_SECRET --tenant $env:AZURE_TENANT_ID --output none
     if ($LASTEXITCODE -ne 0) {
