@@ -59,31 +59,31 @@ const TYPE_ICONS: Record<string, React.ElementType> = {
   portfolio_concentration_risk: PieChart,};
 
 const CARD_STYLES: Record<string, string> = {
-  warning: "bg-gradient-to-br from-amber-50 to-amber-50/30 dark:from-amber-950/30 dark:to-amber-950/10",
-  info:    "bg-gradient-to-br from-blue-50/80 to-blue-50/20 dark:from-blue-950/25 dark:to-blue-950/10",
-  success: "bg-gradient-to-br from-emerald-50/80 to-emerald-50/20 dark:from-emerald-950/25 dark:to-emerald-950/10",
+  warning: "bg-gradient-to-br from-[hsl(var(--warning)/0.08)] to-[hsl(var(--warning)/0.02)] dark:from-[hsl(var(--warning)/0.12)] dark:to-[hsl(var(--warning)/0.04)]",
+  info:    "bg-gradient-to-br from-[hsl(var(--primary)/0.08)] to-[hsl(var(--primary)/0.02)] dark:from-[hsl(var(--primary)/0.12)] dark:to-[hsl(var(--primary)/0.04)]",
+  success: "bg-gradient-to-br from-[hsl(var(--success)/0.08)] to-[hsl(var(--success)/0.02)] dark:from-[hsl(var(--success)/0.12)] dark:to-[hsl(var(--success)/0.04)]",
 };
 // Short, rounded accent tick (not a full-height bar) - a lighter-touch severity cue that
 // reads as a deliberate premium detail rather than a hard boxy stripe.
 const ACCENT_BAR_CLS: Record<string, string> = {
-  warning: "bg-amber-400",
-  info:    "bg-blue-400",
-  success: "bg-emerald-400",
+  warning: "bg-[hsl(var(--warning))]",
+  info:    "bg-[hsl(var(--primary))]",
+  success: "bg-[hsl(var(--success))]",
 };
 const ICON_CLS: Record<string, string> = {
-  warning: "text-amber-500",
-  info:    "text-blue-500",
-  success: "text-emerald-600",
+  warning: "text-[hsl(var(--warning))]",
+  info:    "text-[hsl(var(--primary))]",
+  success: "text-[hsl(var(--success))]",
 };
 const TITLE_CLS: Record<string, string> = {
-  warning: "text-amber-900 dark:text-amber-100",
+  warning: "text-[hsl(var(--foreground))]",
   info:    "text-[hsl(var(--foreground))]",
-  success: "text-emerald-900 dark:text-emerald-100",
+  success: "text-[hsl(var(--foreground))]",
 };
 const ACTION_CLS: Record<string, string> = {
-  warning: "border border-amber-400 text-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/30",
-  info:    "border border-blue-400 text-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/30",
-  success: "border border-emerald-500 text-emerald-700 hover:bg-emerald-100 dark:hover:bg-emerald-900/30",
+  warning: "border border-[hsl(var(--warning)/0.5)] text-[hsl(var(--warning))] hover:bg-[hsl(var(--warning)/0.12)] dark:hover:bg-[hsl(var(--warning)/0.18)]",
+  info:    "border border-[hsl(var(--primary)/0.5)] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.12)] dark:hover:bg-[hsl(var(--primary)/0.18)]",
+  success: "border border-[hsl(var(--success)/0.5)] text-[hsl(var(--success))] hover:bg-[hsl(var(--success)/0.12)] dark:hover:bg-[hsl(var(--success)/0.18)]",
 };
 const CARD_ICONS: Record<string, React.ElementType> = {
   warning: AlertTriangle,

@@ -370,8 +370,8 @@ export default function ProfileSwitcher() {
                             }
                             className={`text-xs px-1.5 transition-colors ${
                               deleteConfirm === p.id
-                                ? "text-red-500 font-medium"
-                                : "text-[hsl(var(--muted-foreground))] hover:text-red-500"
+                                ? "text-[hsl(var(--error))] font-medium"
+                                : "text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))]"
                             }`}
                           >
                             {deleteConfirm === p.id ? "Confirm?" : "Delete"}
@@ -478,7 +478,7 @@ export default function ProfileSwitcher() {
                           {editState.pinAction === "set" &&
                             editState.pin.length >= 4 &&
                             editState.pin !== editState.pinConfirm && (
-                              <p className="text-xs text-red-500">PINs do not match.</p>
+                              <p className="text-xs text-[hsl(var(--error))]">PINs do not match.</p>
                             )}
                         </div>
 

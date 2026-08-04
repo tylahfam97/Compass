@@ -413,7 +413,12 @@ export default function DashboardPage() {
             >
               Import Transactions
             </Link>
-            {!hasDemoAccounts && (
+            {/* Demo Mode is only offered when this profile has genuinely never had any real
+                transactions - once any data exists (even in a different month, or after demo
+                data itself was imported), it's no longer relevant. Recomputed live from
+                totalTxnCount, so clearing all transactions brings it back automatically, and
+                each profile is judged independently of every other profile's data. */}
+            {!hasDemoAccounts && totalTxnCount === 0 && (
               <button
                 data-tour="demo-mode"
                 onClick={async () => {
@@ -961,7 +966,7 @@ export default function DashboardPage() {
               {monthTxnCount > 0 && (
                 <button
                   onClick={() => setConfirmClear("month")}
-                  className="text-[hsl(var(--muted-foreground))] hover:text-red-500 transition-colors"
+                  className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))] transition-colors"
                 >
                   Clear {month}
                 </button>
@@ -972,7 +977,7 @@ export default function DashboardPage() {
               {totalTxnCount > 0 && (
                 <button
                   onClick={() => setConfirmClear("all")}
-                  className="text-[hsl(var(--muted-foreground))] hover:text-red-500 transition-colors"
+                  className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))] transition-colors"
                 >
                   Clear all transactions
                 </button>
@@ -980,15 +985,15 @@ export default function DashboardPage() {
             </div>
           ) : (
             <div className="flex items-center gap-3 flex-wrap">
-              <p className="text-sm text-red-500">
+              <p className="text-sm text-[hsl(var(--error))]">
                 {confirmClear === "month"
                   ? `Delete all transactions for ${month}? This cannot be undone.`
                   : "Delete ALL transactions? This cannot be undone."}
               </p>
               <button
                 onClick={() => handleClear(confirmClear)}
-                className="px-3 py-1 bg-red-500 text-white rounded-lg text-sm font-medium
-                           hover:bg-red-600 transition-colors"
+                className="px-3 py-1 bg-[hsl(var(--error))] text-white rounded-lg text-sm font-medium
+                           hover:opacity-90 transition-colors"
               >
                 Yes, delete
               </button>

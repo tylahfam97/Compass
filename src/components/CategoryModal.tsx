@@ -90,7 +90,7 @@ export default function CategoryModal({ category, onClose, profileId }: Props) {
       >
         <h2 className="text-lg font-semibold mb-4">{isEdit ? "Edit Category" : "New Category"}</h2>
 
-        {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
+        {error && <p className="mb-3 text-sm text-[hsl(var(--error))]">{error}</p>}
 
         <div className="space-y-4">
           <div>
@@ -131,12 +131,12 @@ export default function CategoryModal({ category, onClose, profileId }: Props) {
           <div>
             {isEdit && !isSystem && !confirmDelete && (
               <button onClick={() => setConfirmDelete(true)}
-                className="text-sm text-red-500 hover:underline">Delete</button>
+                className="text-sm text-[hsl(var(--error))] hover:underline">Delete</button>
             )}
             {confirmDelete && (
               <span className="text-sm">
                 Sure?{" "}
-                <button onClick={handleDelete} className="text-red-500 font-medium hover:underline">Yes, delete</button>{" / "}
+                <button onClick={handleDelete} className="text-[hsl(var(--error))] font-medium hover:underline">Yes, delete</button>{" / "}
                 <button onClick={() => setConfirmDelete(false)} className="hover:underline">Cancel</button>
               </span>
             )}

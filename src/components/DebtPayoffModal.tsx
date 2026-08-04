@@ -206,7 +206,7 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
             </div>
 
             {!plan.hasRateData && (
-              <p className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1.5">
+              <p className="text-xs text-[hsl(var(--warning))] flex items-start gap-1.5">
                 <Info size={12} className="shrink-0 mt-0.5" />
                 No interest rate is on file for these accounts, so the timelines below assume 0% interest as a placeholder.
                 Add a rate via "Add a Statement" for an accurate estimate.
@@ -373,7 +373,7 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
                     No debts pay off within the projection window at this pace - increase the redirect above.
                   </div>
                 )}
-                <p className={`text-[11px] text-amber-600 dark:text-amber-400 mt-1 ${unresolvedDebtNames.length > 0 ? "" : "invisible"}`}>
+                <p className={`text-[11px] text-[hsl(var(--warning))] mt-1 ${unresolvedDebtNames.length > 0 ? "" : "invisible"}`}>
                   {unresolvedDebtNames.length > 0 ? `${unresolvedDebtNames.join(", ")} won't pay off at this pace - increase the redirect above.` : "placeholder"}
                 </p>
               </div>

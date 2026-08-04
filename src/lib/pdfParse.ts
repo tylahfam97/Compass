@@ -227,9 +227,11 @@ function guessInstitutionFromFilename(filename: string): string | null {
 
 /**
  * Best-effort extraction of the handful of fields a loan statement upload needs: current
- * balance, interest rate, minimum payment, statement date, and lender/institution. Loan
- * statement layouts vary enormously by lender, so this is deliberately loose label-matching,
- * not a strict parser - the caller (loan uploader UI) always shows these as editable,
+ * balance, interest rate, minimum payment, statement date, and lender/institution. Also reused
+ * by the credit-card import wizard (ImportPage.tsx) just for the balance field, since a card's
+ * "New Balance" line matches the same label patterns. Loan statement layouts vary enormously by
+ * lender, so this is deliberately loose label-matching, not a strict parser - the caller
+ * (loan uploader UI) always shows these as editable,
  * pre-filled fields rather than importing them silently, since 100% reliable extraction
  * across arbitrary lenders isn't realistic. Interest rate/minimum payment are informational
  * only and never used in any calculation elsewhere in the app. Accepts PDF, CSV, or XLSX -

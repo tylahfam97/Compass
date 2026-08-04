@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion } from "motion/react";
-import { getDb, recomputeCalculatedBalances } from "@/lib/db";
+import { getDb, recomputeCalculatedBalances, shiftBalanceAnchorForTransactionChange } from "@/lib/db";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import CategoryOptions from "@/components/CategoryOptions";
@@ -83,6 +83,7 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           [accountId, date, amountCents, desc.trim(), catId, notes.trim() || null, hash, profileId]
         );
+        await shiftBalanceAnchorForTransactionChange(accountId as number, null, { date, amountCents });
         await recomputeCalculatedBalances(accountId as number);
       } else {
         await db.execute(
@@ -93,6 +94,11 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
         );
         // Amount/date edits shift every later transaction's running balance - recompute
         // the whole account so Overview/Dashboard/Trends read correct numbers next load.
+        await shiftBalanceAnchorForTransactionChange(
+          transaction!.account_id,
+          { date: transaction!.date, amountCents: transaction!.amount_cents },
+          { date, amountCents }
+        );
         await recomputeCalculatedBalances(transaction!.account_id);
       }
       onSaved();
@@ -107,6 +113,11 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
     try {
       const db = await getDb();
       await db.execute("DELETE FROM transactions WHERE id=?", [transaction.id]);
+      await shiftBalanceAnchorForTransactionChange(
+        transaction.account_id,
+        { date: transaction.date, amountCents: transaction.amount_cents },
+        null
+      );
       await recomputeCalculatedBalances(transaction.account_id);
       onSaved();
       onClose();
@@ -125,7 +136,7 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
       >
         <h2 className="text-lg font-semibold mb-4">{isAdd ? "Add Transaction" : "Edit Transaction"}</h2>
 
-        {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
+        {error && <p className="mb-3 text-sm text-[hsl(var(--error))]">{error}</p>}
 
         <div className="space-y-4">
           <div>
@@ -147,7 +158,7 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
                 ))}
               </select>
               {accounts.length === 0 && (
-                <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400">
+                <p className="mt-1.5 text-xs text-[hsl(var(--warning))]">
                   No accounts found for this profile yet - import a statement first.
                 </p>
               )}
@@ -177,7 +188,7 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
               <CategoryOptions categories={categories} />
             </select>
             {catId === 20 && (
-              <div className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+              <div className="mt-1.5 flex items-start gap-1.5 text-xs text-[hsl(var(--warning))]">
                 <Info size={12} className="shrink-0 mt-0.5" />
                 <span>Transfers are excluded from income and expense totals across all reports and insights.</span>
               </div>
@@ -198,13 +209,13 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
           <div>
             {!isAdd && !confirmDel && (
               <button onClick={() => setConfirmDel(true)}
-                className="text-sm text-red-500 hover:underline">Delete</button>
+                className="text-sm text-[hsl(var(--error))] hover:underline">Delete</button>
             )}
             {confirmDel && (
               <span className="text-sm flex items-center gap-2">
                 <span className="text-[hsl(var(--muted-foreground))]">Delete this transaction?</span>
                 <button onClick={handleDelete} disabled={saving}
-                  className="text-red-500 font-medium hover:underline">Yes</button>
+                  className="text-[hsl(var(--error))] font-medium hover:underline">Yes</button>
                 <span>/</span>
                 <button onClick={() => setConfirmDel(false)} className="hover:underline">No</button>
               </span>

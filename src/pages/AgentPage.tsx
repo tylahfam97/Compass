@@ -259,19 +259,19 @@ function InsightGroup({ label, severity, items, onApply, open, onToggle }: Insig
   type StyleMap = { iconWrap: string; chevronCls: string; badgeCls: string; };
   const styles: Record<string, StyleMap> = {
     success: {
-      iconWrap:   "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400",
-      chevronCls: "text-emerald-500/80",
-      badgeCls:   "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
+      iconWrap:   "bg-[hsl(var(--success)/0.12)] text-[hsl(var(--success))]",
+      chevronCls: "text-[hsl(var(--success)/0.8)]",
+      badgeCls:   "bg-[hsl(var(--success)/0.12)] text-[hsl(var(--success))]",
     },
     info: {
-      iconWrap:   "bg-blue-500/12 text-blue-600 dark:text-blue-400",
-      chevronCls: "text-blue-500/80",
-      badgeCls:   "bg-blue-500/12 text-blue-700 dark:text-blue-300",
+      iconWrap:   "bg-[hsl(var(--primary)/0.12)] text-[hsl(var(--primary))]",
+      chevronCls: "text-[hsl(var(--primary)/0.8)]",
+      badgeCls:   "bg-[hsl(var(--primary)/0.12)] text-[hsl(var(--primary))]",
     },
     warning: {
-      iconWrap:   "bg-amber-500/12 text-amber-600 dark:text-amber-400",
-      chevronCls: "text-amber-500/80",
-      badgeCls:   "bg-amber-500/12 text-amber-700 dark:text-amber-300",
+      iconWrap:   "bg-[hsl(var(--warning)/0.12)] text-[hsl(var(--warning))]",
+      chevronCls: "text-[hsl(var(--warning)/0.8)]",
+      badgeCls:   "bg-[hsl(var(--warning)/0.12)] text-[hsl(var(--warning))]",
     },
   };
   const s = styles[severity];
@@ -486,7 +486,7 @@ function NetWorthCard({
         <div className="grid grid-cols-2 gap-4 pt-3 border-t">
           <div>
             <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wide mb-0.5">Savings Rate</p>
-            <p className={`text-lg font-bold ${savingsRatePct >= 20 ? "text-[hsl(var(--success))]" : savingsRatePct >= 10 ? "text-amber-500" : "text-[hsl(var(--error))]"}`}>
+            <p className={`text-lg font-bold ${savingsRatePct >= 20 ? "text-[hsl(var(--success))]" : savingsRatePct >= 10 ? "text-[hsl(var(--warning))]" : "text-[hsl(var(--error))]"}`}>
               {savingsRatePct}%
             </p>
           </div>
@@ -628,7 +628,7 @@ function LoanDashboardCard({ loans, onSelectLoan }: { loans: DebtEntry[]; onSele
         </div>
 
         {method === "avalanche" && !hasAnyRate && (
-          <p className="text-xs text-amber-600 dark:text-amber-400 mb-3 flex items-start gap-1.5">
+          <p className="text-xs text-[hsl(var(--warning))] mb-3 flex items-start gap-1.5">
             <Info size={12} className="shrink-0 mt-0.5" />
             Add an interest rate to your loans (via "Add a Statement") to rank them by avalanche priority.
           </p>
@@ -1269,7 +1269,7 @@ export default function AgentPage() {
                 {
                   label: "Avg Savings Rate",
                   value: `${avgSavingsRatePct}%`,
-                  color: avgSavingsRatePct >= 20 ? "text-[hsl(var(--success))]" : avgSavingsRatePct >= 10 ? "text-amber-500" : "text-[hsl(var(--error))]",
+                  color: avgSavingsRatePct >= 20 ? "text-[hsl(var(--success))]" : avgSavingsRatePct >= 10 ? "text-[hsl(var(--warning))]" : "text-[hsl(var(--error))]",
                   sub: avgSavingsRatePct >= 20 ? "Healthy" : avgSavingsRatePct >= 10 ? "Building" : "Below target",
                 },
                 {
@@ -1367,9 +1367,9 @@ export default function AgentPage() {
           </div>
 
           {visibleInsights.length === 0 && (
-            <div className="border-2 border-dashed border-emerald-200 dark:border-emerald-900/60 rounded-2xl py-14 text-center">
+            <div className="border-2 border-dashed border-[hsl(var(--success)/0.35)] rounded-2xl py-14 text-center">
               <p className="text-4xl mb-3">🎉</p>
-              <p className="font-semibold text-base text-emerald-700 dark:text-emerald-400">All clear!</p>
+              <p className="font-semibold text-base text-[hsl(var(--success))]">All clear!</p>
               <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1.5">
                 No active insights — your finances are looking healthy.
               </p>

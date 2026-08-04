@@ -160,7 +160,7 @@ export default function PinModal({ profile, onSuccess, onCancel }: PinModalProps
           />
 
           {error && (
-            <p className="text-xs text-red-500 text-center">
+            <p className="text-xs text-[hsl(var(--error))] text-center">
               {cooldown > 0 ? `Too many attempts. Wait ${cooldown}s.` : error}
             </p>
           )}

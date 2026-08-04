@@ -72,7 +72,7 @@ function RuleForm({ form, setForm, categories, onSubmit, submitLabel, saving, er
 
   return (
     <div className="space-y-3">
-      {error && <p className="text-xs text-red-500">{error}</p>}
+      {error && <p className="text-xs text-[hsl(var(--error))]">{error}</p>}
 
       {/* ── Simple mode ── */}
       <div>
@@ -464,7 +464,7 @@ export default function CategorizationRulesModal({ onClose, profileId }: Props) 
                         <button
                           onClick={() => deleteRule(r.id)}
                           title="Delete rule"
-                          className="text-red-500 hover:text-red-700 transition-colors text-base leading-none shrink-0 px-1"
+                          className="text-[hsl(var(--error))] hover:opacity-80 transition-colors text-base leading-none shrink-0 px-1"
                         >
                           ×
                         </button>

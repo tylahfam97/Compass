@@ -1,5 +1,6 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useMonthNavStore } from "@/stores/monthNavStore";
+import { useProfileStore } from "@/stores/profileStore";
 
 function currentYM(): string {
   const d = new Date();
@@ -11,7 +12,8 @@ function currentYM(): string {
  * real current month - always, with no silent "jump to whichever month has data" override, so
  * views never quietly show a stale month. The selection is remembered in a shared store (not
  * local useState), so navigating to another tab and back restores whatever month you were on
- * instead of resetting.
+ * instead of resetting - except on profile switch, which wipes every page's remembered month so
+ * a new (or different) profile never inherits a stale month left over from the last one.
  *
  * Pass `initialMonth` to force-jump to a specific month right now (e.g. arriving here from the
  * import flow's "View Transactions" with a target month) - this always wins over a remembered
@@ -20,10 +22,20 @@ function currentYM(): string {
 export function useAutoMonth(pageKey: string, initialMonth?: string) {
   const storedMonth = useMonthNavStore((s) => s.months[pageKey]);
   const setStoredMonth = useMonthNavStore((s) => s.setMonth);
+  const resetAllMonths = useMonthNavStore((s) => s.resetAll);
+  const activeProfileId = useProfileStore((s) => s.activeProfile?.id);
+  const lastProfileId = useRef(activeProfileId);
 
   useEffect(() => {
     if (initialMonth) setStoredMonth(pageKey, initialMonth);
   }, [initialMonth, pageKey, setStoredMonth]);
+
+  useEffect(() => {
+    if (lastProfileId.current !== activeProfileId) {
+      lastProfileId.current = activeProfileId;
+      resetAllMonths();
+    }
+  }, [activeProfileId, resetAllMonths]);
 
   const month = initialMonth ?? storedMonth ?? currentYM();
   const setMonth = useCallback((m: string) => setStoredMonth(pageKey, m), [pageKey, setStoredMonth]);

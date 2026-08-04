@@ -341,14 +341,14 @@ export default function TrendsPage() {
               <div
                 className={`flex items-start gap-2.5 rounded-xl px-4 py-3 text-sm ${
                   categoryTrendNarrative.rising
-                    ? "bg-gradient-to-br from-amber-50 to-amber-50/30 dark:from-amber-950/30 dark:to-amber-950/10"
-                    : "bg-gradient-to-br from-emerald-50/80 to-emerald-50/20 dark:from-emerald-950/25 dark:to-emerald-950/10"
+                    ? "bg-gradient-to-br from-[hsl(var(--warning)/0.08)] to-[hsl(var(--warning)/0.02)] dark:from-[hsl(var(--warning)/0.12)] dark:to-[hsl(var(--warning)/0.04)]"
+                    : "bg-gradient-to-br from-[hsl(var(--success)/0.08)] to-[hsl(var(--success)/0.02)] dark:from-[hsl(var(--success)/0.12)] dark:to-[hsl(var(--success)/0.04)]"
                 }`}
               >
                 {categoryTrendNarrative.rising
-                  ? <TrendingUp size={15} className="shrink-0 mt-0.5 text-amber-500" />
-                  : <TrendingDown size={15} className="shrink-0 mt-0.5 text-emerald-600" />}
-                <p className={categoryTrendNarrative.rising ? "text-amber-900 dark:text-amber-100" : "text-emerald-900 dark:text-emerald-100"}>
+                  ? <TrendingUp size={15} className="shrink-0 mt-0.5 text-[hsl(var(--warning))]" />
+                  : <TrendingDown size={15} className="shrink-0 mt-0.5 text-[hsl(var(--success))]" />}
+                <p className="text-[hsl(var(--foreground))]">
                   {categoryTrendNarrative.text}
                 </p>
               </div>
