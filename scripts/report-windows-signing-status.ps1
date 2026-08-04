@@ -17,6 +17,11 @@
 $checkMark = [char]0x2705
 $warnMark  = [string]([char]0x26A0) + [string]([char]0xFE0F)
 
+# Canonical version source of truth (tauri.conf.json) - falls back to APP_VERSION (set earlier
+# this job by read-version-and-patch-config.ps1) only if the config can't be read for some reason.
+$version = try { (Get-Content src-tauri\tauri.conf.json -Raw | ConvertFrom-Json).version } catch { $null }
+if (-not $version) { $version = $env:APP_VERSION }
+
 # Parses compass-sign-status.txt (written line-by-line by sign-windows.ps1 as `signed|<path>` or
 # `unsigned|<path>|exit_<code>|<error text>`) into a short grouped summary instead of dumping one
 # line per file - an NSIS bundle signs a dozen+ plugin DLLs individually, and listing all of them
@@ -61,13 +66,13 @@ function Format-SigningLog {
     return ($summaryLines -join "`n")
 }
 
-# Sorted by LastWriteTime (newest first) - `clean:false` checkout + the "Clean stale installer
-# bundle output" step SHOULD guarantee only this run's own installer exists here, but if that step
-# is ever skipped/races another run on this shared self-hosted runner, an unsorted pick could
-# silently report on a leftover installer from a DIFFERENT version instead of the one just built
-# (same bug class already fixed in publish-release.ps1/create-update-bundle.ps1 - this pick was
-# the one place that fix never reached).
-$exe = Get-ChildItem src-tauri\target\release\bundle\nsis\*.exe -ErrorAction SilentlyContinue |
+# Filtered to the CURRENT version's filename (not just sorted by mtime) - a local/long-lived
+# bundle folder can hold installers from many past versions, and a stale file's timestamp can
+# end up newer than a fresh rebuild's for all sorts of reasons. Sort-Object stays as a
+# tie-breaker only. Falls back to an unfiltered (sorted) pick if $version couldn't be resolved
+# at all, rather than reporting nothing.
+$pattern = if ($version) { "src-tauri\target\release\bundle\nsis\*_${version}_*.exe" } else { "src-tauri\target\release\bundle\nsis\*.exe" }
+$exe = Get-ChildItem $pattern -ErrorAction SilentlyContinue |
     Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if (-not $exe) {
     Write-Warning "No built .exe found under src-tauri\target\release\bundle\nsis - skipping signing status check (build likely failed earlier)"

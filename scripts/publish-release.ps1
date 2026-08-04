@@ -108,9 +108,13 @@ $uploadHeaders = @{
 }
 $uploadBase = "https://uploads.github.com/repos/" + $repo + "/releases/" + $releaseId + "/assets"
 
-# Upload MSI (sorted newest-first as defense-in-depth - the build.yml cleanup step should
-# already guarantee only one version's artifacts exist, but never silently pick a stale file)
-$msi = Get-ChildItem "src-tauri\target\release\bundle\msi\*.msi" -ErrorAction SilentlyContinue |
+# Upload MSI (filtered to the CURRENT version's filename, not just "newest by mtime" - a local
+# dev machine's bundle folder can accumulate installers from many past versions over months,
+# and a stale file's timestamp can end up newer than a fresh rebuild's for all sorts of reasons
+# (git operations, antivirus scans, copies). Matching "_<version>_" in the name is unambiguous
+# regardless of how messy the folder is - build.yml's cleanup step should make this a non-issue
+# in CI, but this is what makes local/manual runs of this script safe too.)
+$msi = Get-ChildItem "src-tauri\target\release\bundle\msi\*_${version}_*.msi" -ErrorAction SilentlyContinue |
     Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if ($msi) {
     $msiBytes = [IO.File]::ReadAllBytes($msi.FullName)
@@ -120,8 +124,8 @@ if ($msi) {
     Write-Warning "No MSI found in bundle output"
 }
 
-# Upload EXE (NSIS) - sorted newest-first, see MSI comment above
-$exe = Get-ChildItem "src-tauri\target\release\bundle\nsis\*.exe" -ErrorAction SilentlyContinue |
+# Upload EXE (NSIS) - filtered by version, see MSI comment above
+$exe = Get-ChildItem "src-tauri\target\release\bundle\nsis\*_${version}_*.exe" -ErrorAction SilentlyContinue |
     Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if ($exe) {
     $exeBytes = [IO.File]::ReadAllBytes($exe.FullName)
@@ -134,7 +138,7 @@ if ($exe) {
 # Upload NSIS zip (used by the in-app auto-updater) + generate latest.json
 Write-Host "NSIS bundle contents:"
 Get-ChildItem "src-tauri\target\release\bundle\nsis\" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.Name)  ($([math]::Round($_.Length/1KB))KB)" }
-$nsisZip = Get-ChildItem "src-tauri\target\release\bundle\nsis\*.nsis.zip" -ErrorAction SilentlyContinue |
+$nsisZip = Get-ChildItem "src-tauri\target\release\bundle\nsis\*_${version}_*.nsis.zip" -ErrorAction SilentlyContinue |
     Sort-Object LastWriteTime -Descending | Select-Object -First 1
 $nsisSig = if ($nsisZip) { Get-Item ($nsisZip.FullName + ".sig") -ErrorAction SilentlyContinue } else { $null }
 
