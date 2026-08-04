@@ -4,7 +4,7 @@ import { LineChart, Line, XAxis, ResponsiveContainer, Tooltip } from "recharts";
 import { Eye, EyeOff, ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { getDb, setAccountHiddenFromDashboard } from "@/lib/db";
-import { formatCurrency, formatDate, separateAccountBalances, accountChartColor } from "@/lib/utils";
+import { formatCurrency, formatDate, formatMonthLabel, separateAccountBalances, accountChartColor } from "@/lib/utils";
 import { computeNetWorth, type NetWorthSnapshot } from "@/lib/netWorth";
 import { useProfileStore } from "@/stores/profileStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
@@ -343,6 +343,11 @@ export default function OverviewPage() {
               </p>
             </div>
           </div>
+          {totalIncome === 0 && totalExpenses === 0 && (
+            <p className="text-xs text-[hsl(var(--muted-foreground))] italic pt-2">
+              No transactions recorded for {formatMonthLabel(month)} yet - not a calculation error, just an empty month. Use the arrows above to check a month you've imported data for.
+            </p>
+          )}
         </div>
       )}
 
