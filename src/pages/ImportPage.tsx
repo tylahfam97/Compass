@@ -17,7 +17,7 @@ import type { CategorizationRule, SecurityType, Account } from "@/lib/types";
 import { TRANSFER_CATEGORY_ID, EXCLUDED_CATEGORY_ID } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
 import { takePendingImportFiles } from "@/lib/pendingImport";
-import { parsePdfStatement, extractPdfRows } from "@/lib/pdfParse";
+import { parsePdfStatement, extractPdfRows, parseLoanStatementFile } from "@/lib/pdfParse";
 import InfoTooltip from "@/components/InfoTooltip";
 import ManageAccountsPanel from "@/components/ManageAccountsPanel";
 import LoanUploaderModal from "@/components/LoanUploaderModal";
@@ -1021,6 +1021,10 @@ export default function ImportPage() {
   const [importSubmitting, setImportSubmitting] = useState(false);
   const [colMap, setColMap] = useState<ColMap>({ dateCol: 0, descCol: 1, amountCol: 2, typeCol: -1, balanceCol: -1, invertAmounts: false, debitCol: -1, creditCol: -1 });
   const [currentBalanceInput, setCurrentBalanceInput] = useState("");
+  // Best-effort "New/Current Balance" figure read straight off a credit-card PDF statement
+  // (findLabeledValue-based, same machinery as the loan uploader) - only ever used to prefill
+  // `currentBalanceInput`, never saved without the user seeing/confirming it first.
+  const [parsedStatementBalance, setParsedStatementBalance] = useState<string | null>(null);
   const [profileFound, setProfileFound] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1107,10 +1111,13 @@ export default function ImportPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
-  // When there's no balance column, prefill the account's current balance anchor (the real
-  // balance as of the day it was entered) so returning to the step shows what's already saved.
+  // When there's no balance column, prefill "Current balance" - preferring a figure freshly
+  // parsed off this statement (credit-card PDFs only) over the account's last-saved anchor,
+  // since the statement's own "New Balance" is more current than whatever was saved last time.
+  // Either way this only ever pre-fills the editable field below, never saves anything by itself.
   useEffect(() => {
     if (step !== "wizard:balance" || colMap.balanceCol >= 0) return;
+    if (parsedStatementBalance) { setCurrentBalanceInput(parsedStatementBalance); return; }
     if (!accountChoice || accountChoice.mode !== "existing") { setCurrentBalanceInput(""); return; }
     (async () => {
       try {
@@ -1124,7 +1131,7 @@ export default function ImportPage() {
       } catch { /* leave blank */ }
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step]);
+  }, [step, parsedStatementBalance]);
 
 
   // Re-derives each section's holding rows after applying any manual column-map overrides
@@ -1320,6 +1327,16 @@ export default function ImportPage() {
           return;
         }
         finishParsingData([["Date", "Description", "Amount"], ...rows]);
+        // Credit-card statements almost never have a per-transaction running-balance column,
+        // so this is the only shot at pre-filling "Current balance" from the statement itself
+        // rather than the account's last-saved anchor - kicked off after finishParsingData (which
+        // resets parsedStatementBalance to null for the new file) so it can't be clobbered by that
+        // reset resolving out of order.
+        if (importKind === "credit") {
+          parseLoanStatementFile(file).then((fields) => {
+            if (fields.balance) setParsedStatementBalance(fields.balance);
+          }).catch(() => { /* best-effort only - leave blank */ });
+        }
       }).catch(() => {
         setError("Could not read that PDF. Make sure it's a valid, text-based statement.");
         setStep("upload");
@@ -1434,6 +1451,7 @@ export default function ImportPage() {
     setExistingAccountsForType([]);
     setCreditInterestRateInput("");
     setCreditMinimumPaymentInput("");
+    setParsedStatementBalance(null);
     setMaxStepReached(1);
     const derived = deriveHeaders(data, initialSkip);
     if (!derived) {
@@ -1830,6 +1848,7 @@ export default function ImportPage() {
     setExistingAccountsForType([]);
     setCreditInterestRateInput("");
     setCreditMinimumPaymentInput("");
+    setParsedStatementBalance(null);
     setMaxStepReached(1);
     setCurrentFilename("");
     setIsPdfImport(false);
@@ -2589,6 +2608,9 @@ export default function ImportPage() {
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">
                   Know your real account balance today, after these transactions? Enter it and Compass will calculate each transaction's running balance by working backward from today's date. Leave it blank and Compass will still calculate a relative running total starting from $0.
                 </p>
+                {parsedStatementBalance && (
+                  <p className="text-xs text-[hsl(var(--primary))]">Pre-filled from your statement - double-check it before continuing.</p>
+                )}
                 <div className="relative max-w-xs">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[hsl(var(--muted-foreground))]">$</span>
                   <input
