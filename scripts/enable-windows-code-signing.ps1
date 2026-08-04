@@ -73,6 +73,48 @@ if ($azResolved) {
     Write-Warning "Azure CLI install did not produce a usable az.cmd - signing will likely still fail via its Azure CLI fallback."
 }
 
+# 2026-08 RESOLVED: `signtool` + the Azure Code Signing DLIB (Azure.CodeSigning.Dlib.dll, a
+# .NET assembly signtool loads natively via /dlib) was failing instantly with zero console
+# output and a non-standard exit code (3) because no .NET runtime was installed on this runner
+# at all. CONFIRMED FIX (via manual on-runner testing): installing the REAL, properly-registered
+# .NET Desktop Runtime installer (the one from https://dotnet.microsoft.com/download, which
+# writes the HKLM registry entries native CLR-hosting/hostfxr resolution depends on) made
+# signing succeed immediately - `Get-AuthenticodeSignature` returned Status: Valid with a real
+# Microsoft-issued cert chain. The private/xcopy-style `dotnet-install.ps1` script install
+# below is kept ONLY as a best-effort fallback for a from-scratch/reimaged runner with no
+# internet-facing installer access - it puts `dotnet` on PATH (fine for anything that just
+# shells out to the `dotnet` CLI) but is NOT confirmed to create the registry entries this
+# specific native-hosting scenario needs, since registry writes need admin rights this
+# unattended runner-service context may not have (same suspected class of permissions gap as
+# the az CLI MSI install above). If a future runner reimage ever hits this exact silent
+# exit-code-3 failure again, the confirmed fix is a ONE-TIME manual elevated install of the
+# official .NET Desktop Runtime x64 installer (same precedent as Strawberry Perl elsewhere in
+# this file/repo memory) - don't assume the auto-install fallback below is sufficient on its own.
+if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
+    Write-Host ".NET runtime not found - attempting a best-effort install (needed to host the Azure Code Signing DLIB signtool loads; see comment above if this doesn't actually fix silent signing failures)..."
+    $dotnetInstallScript = Join-Path $env:TEMP "dotnet-install.ps1"
+    Invoke-WebRequest -Uri "https://dot.net/v1/dotnet-install.ps1" -OutFile $dotnetInstallScript -UseBasicParsing
+    & $dotnetInstallScript -Channel LTS -Runtime windowsdesktop
+    Remove-Item $dotnetInstallScript -Force -ErrorAction SilentlyContinue
+}
+$dotnetResolved = Get-Command dotnet -ErrorAction SilentlyContinue
+if (-not $dotnetResolved) {
+    # dotnet-install.ps1's own per-user default is %LocalAppData%\Microsoft\dotnet, NOT
+    # %USERPROFILE%\.dotnet (confirmed via its own "Adding to current process PATH" log line
+    # during manual testing - the earlier assumption here was wrong and cost a whole debug cycle).
+    $dotnetDir = Join-Path $env:LOCALAPPDATA "Microsoft\dotnet"
+    if (Test-Path (Join-Path $dotnetDir "dotnet.exe")) {
+        Add-Content -Path $env:GITHUB_PATH -Value $dotnetDir
+        $env:PATH = "$dotnetDir;$env:PATH"
+        $dotnetResolved = Get-Command dotnet -ErrorAction SilentlyContinue
+    }
+}
+if ($dotnetResolved) {
+    Write-Host ".NET runtime available: $($dotnetResolved.Source)"
+} else {
+    Write-Warning ".NET runtime install did not produce a usable dotnet.exe - signing will likely still fail silently via the Azure Code Signing DLIB."
+}
+
 # Install BEFORE resolving/patching signCommand below - on a fresh runner with no cache,
 # computing signCommand first would bake in a reference to a binary that doesn't exist on disk
 # yet until this install step runs. Cached/idempotent on this persistent self-hosted runner -
