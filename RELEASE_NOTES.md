@@ -2,6 +2,43 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 0.9.6 — Premier UI Refresh ✨
+
+A visual polish pass ahead of v1.0 - a calmer, more professional look plus a handful of real
+month-picker bugs found along the way.
+
+### New: A Calmer, More Professional Look
+The tiled background texture is gone, replaced by a barely-there gradient. Gold is now reserved
+specifically for things you can click or interact with (chart cards, profile switching, the
+onboarding checklist), while blue carries everything else - navigation, buttons, and structural
+chrome - for a more consistent, less "busy" feel throughout the app.
+
+### Improved: Dimmed and Contained the Glow on Clickable Cards
+The gold glow that signals a chart card can be clicked for detail was brighter than intended and
+bled out past the card's own edges. It's now dimmer and clipped to the card itself.
+
+### Fixed: Some Month Pickers Were Missing Their Forward/Back Buttons
+The Transactions page's month picker had no way to step forward or backward a month - only
+Dashboard, Overview, Budgets, Goals, and Reports had them. All month pickers are now consistent.
+
+### Fixed: The Month Picker Could Silently Jump to a Different Month Than Expected
+If the real current month had no transactions yet, every month picker used to quietly jump to
+whichever past month last had data - easy to miss, and confusing right at the start of a new
+month. Every page now always defaults to the actual current month, and each page's selection is
+now remembered independently when navigating between tabs, resetting to the current month again
+on profile switch.
+
+### New: A Friendlier Empty State for a Transaction-Free Month
+The Transactions page now says "No transactions for this month - Add some now!" (with a button
+to add one directly) when a month is genuinely empty, instead of a generic "no results" message
+meant for search/filters.
+
+### Fixed: "Try Demo Mode" Could Appear After You Already Had Real Data
+The empty-month Demo Mode button only checked whether demo accounts already existed, not whether
+the profile had any real transactions at all - so it could resurface on a month with no data even
+after you'd been actively using the app. It now only appears for a profile that has never had any
+real transactions, and correctly reappears if everything is later cleared.
+
 ## Compass 0.9.5 — Data Integrity Hardening 🔒
 
 A behind-the-scenes release focused on making sure your data stays correct and intact, even when
