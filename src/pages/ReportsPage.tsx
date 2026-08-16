@@ -491,7 +491,11 @@ export default function ReportsPage() {
           {/* ── MOST RECURRING ── */}
           {recurring.length > 0 && (
             <section>
-              <h2 className="font-semibold mb-3">Most Recurring Payees</h2>
+              <h2 className="font-semibold mb-1">Most Recurring Payees</h2>
+              <p className="text-sm text-[hsl(var(--muted-foreground))] mb-3">
+                Who you've paid most often across all time — counts every charge, whether or not
+                it follows a regular schedule. For active subscriptions specifically, see below.
+              </p>
               <div className="border rounded-xl overflow-hidden">
                 <table className="w-full text-sm">
                   <thead>
