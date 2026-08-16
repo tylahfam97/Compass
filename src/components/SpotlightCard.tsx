@@ -54,8 +54,11 @@ function StreakTrack({ streak }: { streak: number }) {
 
 function RateGauge({ current, target = 0.2, label = "Current rate" }: { current: number; target?: number; label?: string }) {
   const MAX = 0.4;
-  const currentPct = Math.min(100, (current / MAX) * 100);
-  const targetPct  = Math.min(100, (target  / MAX) * 100);
+  // The gauge only spans 0-40%, but a savings rate can be negative - without a lower clamp the
+  // thumb is positioned at a negative offset and escapes the card entirely.
+  const asPct = (v: number) => Math.max(0, Math.min(100, (v / MAX) * 100));
+  const currentPct = asPct(current);
+  const targetPct  = asPct(target);
   const color = current >= target ? "hsl(var(--success))" : current >= target * 0.7 ? "hsl(var(--warning))" : "hsl(var(--error))";
 
   return (

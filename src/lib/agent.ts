@@ -1,6 +1,7 @@
 import { getDb, getLoanAccountsForProfile, getCreditAccountsForProfile } from "./db";
 import type { Insight, HealthScore, CreditCardHealthScore, DebtPayoffPlan, DebtPayoffSimDebt, DebtPayoffCustomResult, DebtPayoffCategoryBreakdown, RecurringCharge } from "./types";
 import { computeNetWorth, computeInvestmentReturn, latestHoldingPerAccount } from "./netWorth";
+import { incomeSumSql, expenseSumSql, categorySpendSql, latestBalancePerAccountSql } from "./reportingSql";
 import { AVG_US_CREDIT_CARD_DEBT_CENTS, AVG_US_MARKET_RETURN_PCT, scoreGrade } from "./benchmarks";
 import { composeInsightText } from "./voice";
 import { getRemembered, remember } from "./voiceMemory";
@@ -45,24 +46,10 @@ export function aggregateSavingsRate(months: { income: number; expenses: number 
 }
 
 // The savings rate is "income that didn't go back out": every dollar earned, minus every dollar
-// spent, whatever it was spent on. Both halves are defined here once because four separate
-// queries (monthly summaries, spending profile, the 12-month chart and the health score) all
-// report the same number to the user, and any drift between them is visible as a mismatch.
-// Requires `FROM transactions t JOIN accounts a ON a.id=t.account_id`.
-
-/** Money arriving in a spending account. A positive amount on a credit or loan account is a
- *  payment reducing debt, never income. */
-const INCOME_SUM_SQL =
-  `SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
-             AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END)`;
-
-/** Money going out, on ANY account type. A credit-card purchase is money spent even though the
- *  cash leaves checking later - the card payment itself is a Transfer (category 20) and is
- *  excluded here, so the same spending is never counted twice. Loan statement rows are also
- *  written as category 20, so a balance snapshot can't register as spending either. */
-const EXPENSE_SUM_SQL =
-  `SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
-            THEN ABS(t.amount_cents) ELSE 0 END)`;
+// spent, whatever it was spent on. Definitions live in reportingSql.ts because the pages report
+// the same numbers and any drift between them is visible to the user as a mismatch.
+const INCOME_SUM_SQL = incomeSumSql();
+const EXPENSE_SUM_SQL = expenseSumSql();
 
 /** Standard amortization payoff estimate in months, given a positive balance and monthly
  *  payment (both in dollars) and a monthly interest rate (decimal, e.g. 0.015 for 1.5%/mo).
@@ -95,11 +82,14 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   const insights: Insight[] = [];
 
   // ── 0. Current account balance (liquid cash only - checking, not credit) ──
+  // Summed per account: a bare `ORDER BY date DESC LIMIT 1` would report only whichever
+  // checking account happened to be updated most recently and ignore the rest.
   const [balanceRow] = await db.select<{ balance_cents: number; date: string }[]>(
-    `SELECT t.balance_cents, t.date FROM transactions t
-     JOIN accounts a ON a.id=t.account_id
-     WHERE t.profile_id=? AND t.balance_cents IS NOT NULL AND a.account_type='checking' AND a.excluded_from_insights=0
-     ORDER BY t.date DESC, t.id DESC LIMIT 1`,
+    `SELECT COALESCE(SUM(${latestBalancePerAccountSql()}), 0) as balance_cents,
+            MAX((SELECT bt.date FROM transactions bt WHERE bt.account_id=a.id AND bt.balance_cents IS NOT NULL
+                 ORDER BY bt.date DESC, bt.id DESC LIMIT 1)) as date
+     FROM accounts a
+     WHERE a.profile_id=? AND a.account_type='checking' AND a.excluded_from_insights=0`,
     [profileId]
   );
   // balanceRow is available for insight logic below
@@ -165,7 +155,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
             COUNT(*) as month_count
      FROM (
        SELECT tx.category_id, strftime('%Y-%m', tx.date) as month,
-              MAX(0, SUM(CASE WHEN tx.amount_cents>0 AND ac.account_type IN ('credit','loan') THEN 0 ELSE -tx.amount_cents END)) as monthly_total
+              ${categorySpendSql("tx", "ac")} as monthly_total
        FROM transactions tx JOIN accounts ac ON ac.id=tx.account_id
        WHERE tx.profile_id=?
          AND (tx.category_id IS NULL OR tx.category_id NOT IN (20,29))
@@ -184,7 +174,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     category_id: number;
     total: number;
   }[]>(
-    `SELECT t.category_id, MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)) as total
+    `SELECT t.category_id, ${categorySpendSql()} as total
      FROM transactions t JOIN accounts a ON a.id=t.account_id
      WHERE t.profile_id=? AND t.date>=? AND t.date<?
        AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
@@ -316,7 +306,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
        JOIN categories c ON b.category_id=c.id
        JOIN (
          SELECT tx.category_id, strftime('%Y-%m', tx.date) as month,
-                MAX(0, SUM(CASE WHEN tx.amount_cents>0 AND ac.account_type IN ('credit','loan') THEN 0 ELSE -tx.amount_cents END)) as spent
+                ${categorySpendSql("tx", "ac")} as spent
          FROM transactions tx JOIN accounts ac ON ac.id=tx.account_id
          WHERE tx.profile_id=?
          GROUP BY tx.category_id, month
@@ -369,7 +359,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
        JOIN categories c ON b.category_id=c.id
        JOIN (
          SELECT tx.category_id, strftime('%Y-%m', tx.date) as month,
-                MAX(0, SUM(CASE WHEN tx.amount_cents>0 AND ac.account_type IN ('credit','loan') THEN 0 ELSE -tx.amount_cents END)) as spent
+                ${categorySpendSql("tx", "ac")} as spent
          FROM transactions tx JOIN accounts ac ON ac.id=tx.account_id
          WHERE tx.profile_id=?
          GROUP BY tx.category_id, month
@@ -756,7 +746,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     `SELECT description, SUM(ABS(amount_cents)) as total
      FROM transactions
      WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0
-       AND (category_id IS NULL OR category_id NOT IN (20))
+       AND (category_id IS NULL OR category_id NOT IN (20,29))
      GROUP BY description ORDER BY total DESC LIMIT 5`,
     [profileId, thisStart, thisEnd]
   );
@@ -901,7 +891,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
       `SELECT t.category_id, c.name as category_name,
               CAST(AVG(monthly) AS INTEGER) as avg_spend
        FROM (SELECT tx.category_id, strftime('%Y-%m',tx.date) as mo,
-                    MAX(0, SUM(CASE WHEN tx.amount_cents>0 AND ac.account_type IN ('credit','loan') THEN 0 ELSE -tx.amount_cents END)) as monthly
+                    ${categorySpendSql("tx", "ac")} as monthly
              FROM transactions tx JOIN accounts ac ON ac.id=tx.account_id
              WHERE tx.profile_id=? AND tx.date>=?
                AND (tx.category_id IS NULL OR tx.category_id NOT IN (20,29)) AND tx.category_id != 15
@@ -913,7 +903,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     const olderAvgs = await db.select<{ category_id: number; avg_spend: number }[]>(
       `SELECT category_id, CAST(AVG(monthly) AS INTEGER) as avg_spend
        FROM (SELECT tx.category_id as category_id, strftime('%Y-%m',tx.date) as mo,
-                    MAX(0, SUM(CASE WHEN tx.amount_cents>0 AND ac.account_type IN ('credit','loan') THEN 0 ELSE -tx.amount_cents END)) as monthly
+                    ${categorySpendSql("tx", "ac")} as monthly
              FROM transactions tx JOIN accounts ac ON ac.id=tx.account_id
              WHERE tx.profile_id=? AND tx.date>=? AND tx.date<?
                AND (tx.category_id IS NULL OR tx.category_id NOT IN (20,29))
@@ -970,7 +960,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     if (prevMonth) {
       const [prevStart, prevEnd] = monthBounds(prevMonth);
       const prevCats = await db.select<{ category_id: number; total: number }[]>(
-        `SELECT t.category_id, MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)) as total
+        `SELECT t.category_id, ${categorySpendSql()} as total
          FROM transactions t JOIN accounts a ON a.id=t.account_id
          WHERE t.profile_id=? AND t.date>=? AND t.date<?
            AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
@@ -1064,9 +1054,9 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     if (elapsed >= 5 && monthlySummaries.length >= 2) {
       const [currentSpendRow] = await db.select<{ total: number }[]>(
-        `SELECT COALESCE(SUM(ABS(amount_cents)),0) as total
-         FROM transactions WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0
-           AND (category_id IS NULL OR category_id NOT IN (20,29))`,
+        `SELECT ${EXPENSE_SUM_SQL} as total
+         FROM transactions t JOIN accounts a ON a.id=t.account_id
+         WHERE t.profile_id=? AND t.date>=? AND t.date<? AND a.excluded_from_insights=0`,
         [profileId, thisStart, thisEnd]
       );
       const currentSpend = currentSpendRow?.total ?? 0;
@@ -1428,7 +1418,7 @@ export async function getSpendingProfile(profileIds: number[]): Promise<Spending
     `SELECT c.name, CAST(AVG(monthly_spend) AS INTEGER) as avg_spend
      FROM (
        SELECT tx.category_id, strftime('%Y-%m', tx.date) as mo,
-              MAX(0, SUM(CASE WHEN tx.amount_cents>0 AND ac.account_type IN ('credit','loan') THEN 0 ELSE -tx.amount_cents END)) as monthly_spend
+              ${categorySpendSql("tx", "ac")} as monthly_spend
        FROM transactions tx JOIN accounts ac ON ac.id=tx.account_id
        WHERE tx.profile_id IN (${ph}) AND tx.date>=?
          AND (tx.category_id IS NULL OR tx.category_id NOT IN (20,29))
@@ -1528,7 +1518,7 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
     // under a category net against it, floored at $0.
     const spendRows = await db.select<{ category_id: number; spent: number }[]>(
       `SELECT t.category_id,
-              MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)) as spent
+              ${categorySpendSql()} as spent
        FROM transactions t JOIN accounts a ON a.id=t.account_id
        WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<? AND a.excluded_from_insights=0
        GROUP BY t.category_id`,
@@ -1542,20 +1532,20 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
 
   // ── 3. Balance Runway (20 pts) — liquid cash only, not credit card debt ──
   const [balRow] = await db.select<{ balance_cents: number | null }[]>(
-    `SELECT t.balance_cents FROM transactions t
-     JOIN accounts a ON a.id=t.account_id
-     WHERE t.profile_id IN (${ph}) AND t.balance_cents IS NOT NULL AND a.account_type='checking' AND a.excluded_from_insights=0
-     ORDER BY t.date DESC, t.id DESC LIMIT 1`,
+    `SELECT COALESCE(SUM(${latestBalancePerAccountSql()}), 0) as balance_cents
+     FROM accounts a
+     WHERE a.profile_id IN (${ph}) AND a.account_type='checking' AND a.excluded_from_insights=0`,
     [...profileIds]
   );
   let balanceScore = 10;
   if ((balRow?.balance_cents ?? 0) > 0) {
     const [expRow] = await db.select<{ avg_exp: number }[]>(
       `SELECT AVG(me) as avg_exp FROM (
-         SELECT SUM(ABS(amount_cents)) as me FROM transactions
-         WHERE profile_id IN (${ph}) AND amount_cents<0 AND (category_id IS NULL OR category_id NOT IN (20,29)) AND date>=?
-         GROUP BY strftime('%Y-%m', date))`,
-      [...profileIds, threeAgo]
+         SELECT ${EXPENSE_SUM_SQL} as me
+         FROM transactions t JOIN accounts a ON a.id=t.account_id
+         WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<? AND a.excluded_from_insights=0
+         GROUP BY strftime('%Y-%m', t.date))`,
+      [...profileIds, threeAgo, msStart]
     );
     const avgExp = expRow?.avg_exp ?? 0;
     if (avgExp > 0) {
@@ -1566,11 +1556,11 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
 
   // ── 4. Income Stability (10 pts) — 6-month variance ───────────────────
   const incRows = await db.select<{ income: number }[]>(
-    `SELECT SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income
+    `SELECT ${INCOME_SUM_SQL} as income
      FROM transactions t JOIN accounts a ON a.id=t.account_id
-     WHERE t.profile_id IN (${ph}) AND t.date>=? AND a.excluded_from_insights=0
+     WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<? AND a.excluded_from_insights=0
      GROUP BY strftime('%Y-%m', t.date)`,
-    [...profileIds, sixAgo]
+    [...profileIds, sixAgo, msStart]
   );
   const incomes = incRows.filter(r => r.income > 0).map(r => r.income);
   let incomeScore = 5;

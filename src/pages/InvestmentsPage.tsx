@@ -159,7 +159,9 @@ export default function InvestmentsPage() {
       const db = await getDb();
       const [latestRow, historyRows, activityRows, summaryRows] = await Promise.all([
         db.select<{ d: string | null }[]>(
-          "SELECT MAX(as_of_date) as d FROM holdings WHERE profile_id=?",
+          // Latest across accounts, purely for the header label - the holdings below are each
+          // account's own snapshot, so `mixedAsOfDates` warns when they don't share this date.
+          `SELECT MAX(h.as_of_date) as d FROM holdings h WHERE h.profile_id=? AND ${latestHoldingPerAccount()}`,
           [profileId]
         ),
         db.select<{ account_id: number; as_of_date: string; total: number }[]>(
