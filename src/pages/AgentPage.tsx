@@ -6,6 +6,7 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import { getDb, getAccountsSummaryForProfile, setAccountExcludedFromInsights, getLoanAccountsForProfile, getCreditAccountsForProfile, getLoanBalanceHistory, type AccountSummary, type LoanAccount } from "@/lib/db";
+import { categorySpendSql } from "@/lib/reportingSql";
 import { formatCurrency, formatMonthLabel } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
 import {
@@ -961,7 +962,7 @@ export default function AgentPage() {
         detectRecurringCharges(ids),
         db.select<{ category_id: number; category_name: string; category_color: string; total: number }[]>(
           `SELECT t.category_id, c.name as category_name, c.color as category_color,
-                  MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)) as total
+                  ${categorySpendSql()} as total
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
            JOIN accounts a ON a.id=t.account_id
            WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<?
@@ -970,7 +971,7 @@ export default function AgentPage() {
           [...ids, ts, te]
         ),
         db.select<{ category_id: number; total: number }[]>(
-          `SELECT t.category_id, MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)) as total
+          `SELECT t.category_id, ${categorySpendSql()} as total
            FROM transactions t JOIN accounts a ON a.id=t.account_id
            WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<?
              AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))

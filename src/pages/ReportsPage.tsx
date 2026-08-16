@@ -4,6 +4,7 @@ import {
 } from "recharts";
 import { Ghost } from "lucide-react";
 import { getDb } from "@/lib/db";
+import { incomeSumSql, expenseSumSql, categorySpendSql } from "@/lib/reportingSql";
 import { detectRecurringCharges } from "@/lib/agent";
 import { formatCurrency, formatDate, formatMonthLabel, formatAxisCurrency, combineAccountBalances } from "@/lib/utils";
 import type { Transaction, RecurringCharge } from "@/lib/types";
@@ -138,7 +139,7 @@ export default function ReportsPage() {
       const [thisMonthCats, prevMonthCats, totals, top, rec, subs, balTrend] = await Promise.all([
         db.select<CatRow[]>(
           `SELECT c.name as category_name, c.color as category_color,
-                  MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)) as total_cents
+                  ${categorySpendSql()} as total_cents
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
            JOIN accounts a ON a.id=t.account_id
            WHERE t.date>=? AND t.date<? AND t.profile_id=?
@@ -148,7 +149,7 @@ export default function ReportsPage() {
         ),
         db.select<CatRow[]>(
           `SELECT c.name as category_name, c.color as category_color,
-                  MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)) as total_cents
+                  ${categorySpendSql()} as total_cents
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
            JOIN accounts a ON a.id=t.account_id
            WHERE t.date>=? AND t.date<? AND t.profile_id=?
@@ -158,8 +159,8 @@ export default function ReportsPage() {
         ),
         db.select<{ month: string; income_cents: number; expense_cents: number }[]>(
           `SELECT strftime('%Y-%m', t.date) as month,
-                  SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income_cents,
-                  SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) THEN ABS(t.amount_cents) ELSE 0 END) as expense_cents
+                  ${incomeSumSql()} as income_cents,
+                  ${expenseSumSql()} as expense_cents
            FROM transactions t JOIN accounts a ON a.id=t.account_id
            WHERE t.date>=? AND t.date<? AND t.profile_id=? GROUP BY month ORDER BY month`,
           [chartStart, end, profileId]
@@ -490,7 +491,11 @@ export default function ReportsPage() {
           {/* ── MOST RECURRING ── */}
           {recurring.length > 0 && (
             <section>
-              <h2 className="font-semibold mb-3">Most Recurring Payees</h2>
+              <h2 className="font-semibold mb-1">Most Recurring Payees</h2>
+              <p className="text-sm text-[hsl(var(--muted-foreground))] mb-3">
+                Who you've paid most often across all time — counts every charge, whether or not
+                it follows a regular schedule. For active subscriptions specifically, see below.
+              </p>
               <div className="border rounded-xl overflow-hidden">
                 <table className="w-full text-sm">
                   <thead>

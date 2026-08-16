@@ -4,8 +4,9 @@ import { LineChart, Line, XAxis, ResponsiveContainer, Tooltip } from "recharts";
 import { Eye, EyeOff, ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { getDb, setAccountHiddenFromDashboard } from "@/lib/db";
+import { incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
 import { formatCurrency, formatDate, formatMonthLabel, separateAccountBalances, accountChartColor } from "@/lib/utils";
-import { computeNetWorth, type NetWorthSnapshot } from "@/lib/netWorth";
+import { computeNetWorth, latestHoldingPerAccount, type NetWorthSnapshot } from "@/lib/netWorth";
 import { useProfileStore } from "@/stores/profileStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import PinModal from "@/components/PinModal";
@@ -148,13 +149,13 @@ export default function OverviewPage() {
               [p.id]
             ),
             db.select<{ total: number }[]>(
-              `SELECT COALESCE(SUM(t.amount_cents),0) as total FROM transactions t JOIN accounts a ON a.id=t.account_id
-               WHERE t.profile_id=? AND t.date>=? AND t.date<? AND t.amount_cents>0
-                 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan')`,
+              `SELECT ${incomeSumSql()} as total FROM transactions t JOIN accounts a ON a.id=t.account_id
+               WHERE t.profile_id=? AND t.date>=? AND t.date<?`,
               [p.id, start, end]
             ),
             db.select<{ total: number }[]>(
-              "SELECT COALESCE(SUM(amount_cents),0) as total FROM transactions WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0",
+              `SELECT -${expenseSumSql()} as total FROM transactions t JOIN accounts a ON a.id=t.account_id
+               WHERE t.profile_id=? AND t.date>=? AND t.date<?`,
               [p.id, start, end]
             ),
             db.select<{ n: number }[]>(
@@ -170,9 +171,9 @@ export default function OverviewPage() {
               [p.id]
             ),
             db.select<{ total: number | null }[]>(
-              `SELECT SUM(market_value_cents) as total FROM holdings
-               WHERE profile_id=? AND as_of_date=(SELECT MAX(as_of_date) FROM holdings WHERE profile_id=?)`,
-              [p.id, p.id]
+              `SELECT SUM(h.market_value_cents) as total FROM holdings h
+               WHERE h.profile_id=? AND ${latestHoldingPerAccount()}`,
+              [p.id]
             ),
             db.select<{ id: number; name: string }[]>(
               "SELECT id, name FROM accounts WHERE profile_id=? AND account_type IN ('checking','credit') AND hidden_from_dashboard=1 ORDER BY name",
