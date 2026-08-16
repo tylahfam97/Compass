@@ -2,6 +2,87 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 0.9.9 — Brokerage Statements & Honest Numbers 📊
+
+Full E\*TRADE statement support, plus a round of accuracy fixes to how your savings rate and
+investment totals are calculated. **Some of your numbers will change after updating — that's
+intentional, and explained below.**
+
+### New: E\*TRADE / Morgan Stanley Client Statements
+Compass now reads an E\*TRADE (Morgan Stanley) monthly or quarterly client statement PDF
+directly. Unlike a portfolio-positions export, a statement carries the whole picture, and
+Compass now imports all of it:
+
+- **Holdings** — symbol, shares, share price, total cost, market value and estimated annual income
+- **Activity** — the period's buys, sells, dividends, interest, fees, deposits, withdrawals and
+  transfers, each categorized automatically
+- **Period totals** — beginning and ending value, change in value, cash balance, and realized
+  and unrealized gain
+
+The statement's own period-end date is used as the snapshot date, so importing a few months of
+back statements builds a real portfolio history rather than stacking them all on today.
+
+### New: Activity and Income & Gains Views
+The Investments page gains two new tabs alongside Holdings. **Activity** lists every transaction
+from your imported statements, filterable by type. **Income & Gains** shows dividends and
+interest you actually received, charted by month, next to realized gains — a real counterpart to
+the "Est. Annual Income" tile, which has always been the brokerage's forward-looking projection
+rather than a record of anything paid.
+
+### New: Re-Import Protection for Statements
+Importing the same statement twice used to silently double every position in it. Compass now
+notices when a snapshot already exists for that account and date and asks whether to replace it,
+rather than quietly counting everything twice.
+
+### Fixed: One Account's Statement Could Hide All Your Other Investment Accounts
+If you held, say, a 401(k) that reports quarterly and a brokerage account that reports monthly,
+importing the monthly statement made the 401(k) disappear from the Investments page, your
+portfolio value, and your net worth. Nothing was ever deleted — Compass was looking for holdings
+dated on one single "most recent" date and quietly dropping every account that hadn't filed a
+statement on exactly that day. Each account is now read as of its own latest statement. The
+portfolio value chart was affected by the same issue and no longer collapses toward zero on
+months where only one account reported. The Investments page also now lists each account with
+its own "priced as of" date so mixed statement schedules are visible rather than silent.
+
+### Fixed: Savings Rate Ignored Credit Card Spending
+Your savings rate is meant to be the share of income you didn't spend. It was only counting
+money that left your checking account, so anything charged to a credit card was invisible to it —
+which could show a comfortable savings rate in a month you actually spent more than you earned.
+Card purchases now count as spending, while the card payment itself is still treated as a
+transfer so nothing is counted twice.
+
+**Expect your savings rate to drop** if you use credit cards regularly. The old number was
+flattering, not accurate. Your Financial Health Score may drop alongside it, and budgets now
+count card purchases against their category the same way the Budgets page always has.
+
+### Fixed: Savings Rate Math and Labelling
+Three separate problems made the savings rate on the Insights page disagree with the savings
+rate chart directly above it:
+
+- It averaged each month's percentage rather than dividing the actual dollars, so a single
+  unusual month could swing the figure wildly past anything your real income and spending
+  justified
+- It blended in the current, half-finished month, so the number drifted every day
+- It was labelled "Current rate" while actually being a multi-month average — now labelled
+  "3-month average"
+
+### Fixed: Pages Disagreeing About the Same Numbers
+Several figures were calculated independently in different places and had drifted apart. The
+Trends expense chart excluded credit card spending while the cumulative-net line on the same
+page included it; the All Accounts overview counted transfers and loan statement rows as
+spending while the Dashboard didn't; a budget-streak goal could break a streak the Budgets page
+showed as under budget; and the "low balance" insight reported only one checking account's
+balance if you had more than one. Every reporting figure now comes from a single shared
+definition, so the same number means the same thing everywhere.
+
+### Improved: Existing Investment Formats
+The other supported formats got the same depth of extraction while this work was underway.
+Fidelity exports now use the file's own download date instead of today's, and correctly identify
+stocks, ETFs and funds even when the export leaves its type column blank (previously everything
+landed under "Other"). Thrivent's combined stock/ETF holdings are now filed individually rather
+than all as ETFs, cash sweep funds are recognized as cash, and holdings without a ticker fall
+back to their CUSIP. Principal 401(k) statements now also record their period totals.
+
 ## Compass 0.9.8 — Quality of Life 🛠️
 
 A round of small but real quality-of-life improvements ahead of v1.0.
