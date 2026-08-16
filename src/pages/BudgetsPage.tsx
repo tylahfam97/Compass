@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AlertTriangle, CheckCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import { getDb } from "@/lib/db";
+import { categorySpendSql } from "@/lib/reportingSql";
 import { formatCurrency } from "@/lib/utils";
 import { pickVariantIndex } from "@/lib/voice";
 import { useCategoryStore } from "@/stores/categoryStore";
@@ -143,8 +144,7 @@ async function computeRolloverCents(
   while (cursor < currentMonthYM && iterations < MAX_ROLLOVER_MONTHS) {
     const [s, e] = monthBounds(cursor);
     const [row] = await db.select<{ spent: number }[]>(
-      `SELECT COALESCE(SUM(CASE WHEN t.amount_cents<0 THEN -t.amount_cents
-         WHEN (a.account_type IS NULL OR a.account_type NOT IN ('credit','loan')) THEN -t.amount_cents ELSE 0 END),0) as spent
+      `SELECT COALESCE(${categorySpendSql()},0) as spent
        FROM transactions t LEFT JOIN accounts a ON a.id=t.account_id
        WHERE t.category_id=? AND t.date>=? AND t.date<? AND t.profile_id IN (${ph})`,
       [categoryId, s, e, ...spendProfileIds]
@@ -280,8 +280,7 @@ export default function BudgetsPage() {
         `SELECT b.id, b.category_id, c.parent_id as category_parent_id,
                 c.name as category_name, c.color as category_color,
                 b.amount_cents, b.period, b.start_date, b.is_global, b.rollover,
-                COALESCE(MAX(0, SUM(CASE WHEN t.amount_cents<0 THEN -t.amount_cents
-                  WHEN (acc.account_type IS NULL OR acc.account_type NOT IN ('credit','loan')) THEN -t.amount_cents ELSE 0 END)),0) as spent_cents,
+                COALESCE(${categorySpendSql("t", "acc")},0) as spent_cents,
                 COALESCE(SUM(CASE WHEN t.amount_cents>0 AND (acc.account_type IS NULL OR acc.account_type NOT IN ('credit','loan')) THEN t.amount_cents ELSE 0 END),0) as earned_cents
          FROM budgets b
          JOIN categories c ON b.category_id=c.id
@@ -304,8 +303,7 @@ export default function BudgetsPage() {
         `SELECT b.id, b.category_id, c.parent_id as category_parent_id,
                 c.name as category_name, c.color as category_color,
                 b.amount_cents, b.period, b.start_date, b.is_global, b.rollover,
-                COALESCE(MAX(0, SUM(CASE WHEN t.amount_cents<0 THEN -t.amount_cents
-                  WHEN (acc.account_type IS NULL OR acc.account_type NOT IN ('credit','loan')) THEN -t.amount_cents ELSE 0 END)),0) as spent_cents,
+                COALESCE(${categorySpendSql("t", "acc")},0) as spent_cents,
                 COALESCE(SUM(CASE WHEN t.amount_cents>0 AND (acc.account_type IS NULL OR acc.account_type NOT IN ('credit','loan')) THEN t.amount_cents ELSE 0 END),0) as earned_cents
          FROM budgets b
          JOIN categories c ON b.category_id=c.id

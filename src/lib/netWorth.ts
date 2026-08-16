@@ -2,6 +2,23 @@ import { getDb } from "./db";
 import type { SecurityType, InvestmentHealthScore } from "./types";
 import { AVG_US_MARKET_RETURN_PCT, scoreGrade } from "./benchmarks";
 
+/**
+ * SQL predicate selecting each investment ACCOUNT's own most recent holdings snapshot.
+ *
+ * Every investment account is on its own statement schedule - a 401(k) files quarterly while a
+ * brokerage files monthly - so "what I own right now" is the union of each account's latest
+ * snapshot, NOT the rows matching one shared `MAX(as_of_date)`. Resolving that date once across
+ * a whole profile silently drops every account that didn't happen to file a statement on that
+ * exact date (import one monthly brokerage statement and an entire quarterly 401(k) vanishes).
+ *
+ * Requires the `holdings` table to be aliased `h`. Pass `capped` to bound the snapshot at a
+ * date (for historical points in time) - that adds one trailing `?` parameter to the query.
+ */
+export function latestHoldingPerAccount(capped = false): string {
+  return `h.as_of_date = (SELECT MAX(h2.as_of_date) FROM holdings h2
+            WHERE h2.account_id = h.account_id${capped ? " AND h2.as_of_date <= ?" : ""})`;
+}
+
 /** Net worth broken into its components. `debtCents` and `loanDebtCents` are <= 0 (credit
  *  card / loan balances are stored negative), so
  *  netWorthCents = liquid + debt + loanDebt + investment. */
@@ -70,18 +87,12 @@ export async function computeNetWorth(profileIds: number[], asOfDate?: string): 
     else liquidCents += row.balance_cents;
   }
 
-  // Latest holdings snapshot total per profile, optionally capped at asOfDate. The "latest
-  // as_of_date" is resolved separately FOR EACH profile (correlated on h.profile_id) rather
-  // than a single MAX(as_of_date) across all of `profileIds` combined - otherwise, in a
-  // multi-profile ("global") view, any profile whose latest snapshot predates another
-  // profile's would be silently zeroed out for not matching that other profile's date.
-  const holdingDateFilter = asOfDate ? "AND h2.as_of_date <= ?" : "";
+  // Latest holdings snapshot total, optionally capped at asOfDate. The "latest as_of_date" is
+  // resolved separately FOR EACH ACCOUNT - see `latestHoldingPerAccount`.
   const invParams = asOfDate ? [...profileIds, asOfDate] : [...profileIds];
   const [invRow] = await db.select<{ total: number | null }[]>(
     `SELECT SUM(h.market_value_cents) as total FROM holdings h
-     WHERE h.profile_id IN (${ph}) AND h.as_of_date = (
-       SELECT MAX(h2.as_of_date) FROM holdings h2 WHERE h2.profile_id = h.profile_id ${holdingDateFilter}
-     )`,
+     WHERE h.profile_id IN (${ph}) AND ${latestHoldingPerAccount(!!asOfDate)}`,
     invParams
   );
   const investmentCents = invRow?.total ?? 0;
@@ -227,7 +238,7 @@ export async function getTopRoiHoldings(
   }[]>(
     `SELECT h.security_type, h.description, h.symbol, h.cost_basis_cents, h.market_value_cents FROM holdings h
      WHERE h.profile_id IN (${ph})
-       AND h.as_of_date = (SELECT MAX(as_of_date) FROM holdings h2 WHERE h2.profile_id=h.profile_id)`,
+       AND ${latestHoldingPerAccount()}`,
     [...profileIds]
   );
 

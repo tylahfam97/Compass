@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { getDb } from "@/lib/db";
+import { incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
 import { useProfileStore } from "@/stores/profileStore";
 import { useCategoryStore } from "@/stores/categoryStore";
 import type { Profile, Category } from "@/lib/types";
@@ -81,7 +82,9 @@ export default function ProfileSwitcher() {
               [p.id]
             ),
             db.select<{ v: number }[]>(
-              "SELECT COALESCE(SUM(amount_cents),0) as v FROM transactions WHERE profile_id=? AND date>=? AND date<?",
+              `SELECT ${incomeSumSql()} - ${expenseSumSql()} as v
+               FROM transactions t JOIN accounts a ON a.id=t.account_id
+               WHERE t.profile_id=? AND t.date>=? AND t.date<?`,
               [p.id, start, end]
             ),
           ]);

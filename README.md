@@ -239,16 +239,18 @@ Aggregates all profiles in one place. Each account card shows current balance, a
 
 ### 📈 Investments
 
-Import a brokerage "Portfolio Positions" export (Wells Fargo Advisors format — `.csv`, `.xlsx`, or `.xls`) and Compass will:
+Import a brokerage portfolio-positions export or a full monthly/quarterly statement — Wells Fargo Advisors (`.csv`/`.xlsx`/`.xls`), Fidelity and Thrivent (`.csv`), Principal 401(k) quarterly statements (`.pdf`), and E\*TRADE / Morgan Stanley client statements (`.pdf`) — and Compass will:
 
 - Detect every section of the statement (Stocks, ETFs, Mutual Funds, Cash, Other) along with each security's individual tax lots, scanning every tab in the workbook to find the one that actually contains the positions table
+- Read the statement's own as-of or period-end date, so importing an older statement files it under the date it actually covers rather than today
+- Pull the period's **transaction activity** — buys, sells, dividends, interest, fees, deposits, withdrawals and transfers — plus the statement's **period totals** (beginning/ending value, change in value, cash balance, realized and unrealized gain)
 - Show a grouped preview with per-section totals before anything is imported, with a **Fix columns** control per section if any field was detected wrong — each option shows how many rows actually have data in it, so you're never guessing
 - Check whether another profile already tracks investments, or has a plausibly-named profile, before offering to create a dedicated **Investments** profile — so brokerage holdings never mix into everyday spending totals
-- Track holdings as dated snapshots, so re-importing a later statement builds a value-over-time history instead of overwriting it
+- Track holdings as dated snapshots, so re-importing a later statement builds a value-over-time history instead of overwriting it — and warn you before re-importing a statement date you already have, instead of silently double-counting it
 
-The Investments page shows KPI tiles (portfolio value, cost basis, unrealized gain/loss, estimated annual dividend income), an allocation donut chart (Stocks/ETFs/Mutual Funds/Cash/Other) with a percentage legend, holdings grouped by symbol with expandable tax-lot detail, and a portfolio value chart once two or more statements have been imported.
+The Investments page shows KPI tiles (portfolio value, cost basis, unrealized gain/loss, estimated annual dividend income), an allocation donut chart (Stocks/ETFs/Mutual Funds/Cash/Other) with a percentage legend, holdings grouped by symbol with expandable tax-lot detail, and a portfolio value chart once two or more statements have been imported. **Activity** and **Income & Gains** tabs list the statement's own transactions and show dividends and interest actually received by month alongside realized gains.
 
-> Dividend and "Est. Annual Income" figures reflect the brokerage's projected estimates as of the statement date — not a history of dividends actually paid.
+> "Est. Annual Income" figures reflect the brokerage's projected estimates as of the statement date — not a history of dividends actually paid. Income actually received lives on the **Income & Gains** tab.
 
 ### 🔄 In-App Auto-Updates
 

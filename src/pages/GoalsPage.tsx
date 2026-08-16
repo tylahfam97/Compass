@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { getDb } from "@/lib/db";
+import { categorySpendSql, incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
 import { formatCurrency } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
@@ -211,7 +212,7 @@ export default function GoalsPage() {
             ? [start, end, profileId, g.category_id]
             : [start, end, profileId];
           const [r] = await db.select<{ v: number }[]>(
-            `SELECT COALESCE(MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)),0) as v
+            `SELECT COALESCE(${categorySpendSql()},0) as v
              FROM transactions t JOIN accounts a ON a.id=t.account_id
              WHERE t.date>=? AND t.date<? AND t.profile_id=? AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))${extra}`,
             params
@@ -235,8 +236,7 @@ export default function GoalsPage() {
           const [r] = await db.select<{ v: number }[]>(
             `SELECT COALESCE(SUM(net),0) as v FROM (
                SELECT strftime('%Y-%m',t.date) as mo,
-                 SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END)
-                 - SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) THEN ABS(t.amount_cents) ELSE 0 END) as net
+                 ${incomeSumSql()} - ${expenseSumSql()} as net
                FROM transactions t JOIN accounts a ON a.id=t.account_id
                WHERE t.profile_id=? AND t.date>=?
                GROUP BY mo
@@ -334,7 +334,9 @@ export default function GoalsPage() {
               for (const mo of months12) {
                 const [ms, me] = monthBounds(mo);
                 const [r] = await db.select<{ spent: number }[]>(
-                  "SELECT COALESCE(SUM(ABS(amount_cents)),0) as spent FROM transactions WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0 AND category_id=?",
+                  `SELECT ${categorySpendSql()} as spent
+                   FROM transactions t JOIN accounts a ON a.id=t.account_id
+                   WHERE t.profile_id=? AND t.date>=? AND t.date<? AND t.category_id=?`,
                   [profileId, ms, me, g.category_id]
                 );
                 if ((r?.spent ?? 0) > budgetRow.amount_cents) break;
@@ -353,8 +355,8 @@ export default function GoalsPage() {
             const [ms, me] = monthBounds(mo);
             const [r] = await db.select<{ income: number; expenses: number }[]>(
               `SELECT
-                 COALESCE(SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END),0) as income,
-                 COALESCE(SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) THEN ABS(t.amount_cents) ELSE 0 END),0) as expenses
+                 ${incomeSumSql()} as income,
+                 ${expenseSumSql()} as expenses
                FROM transactions t JOIN accounts a ON a.id=t.account_id
                WHERE t.profile_id=? AND t.date>=? AND t.date<?`,
               [profileId, ms, me]

@@ -7,6 +7,7 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { TrendingUp, TrendingDown } from "lucide-react";
 import { getDb } from "@/lib/db";
+import { incomeSumSql, expenseSumSql, categorySpendSql } from "@/lib/reportingSql";
 import { formatCurrency, formatMonthLabel, formatAxisCurrency, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
 import { pickVariantIndex } from "@/lib/voice";
 import { useProfileStore } from "@/stores/profileStore";
@@ -127,7 +128,7 @@ export default function TrendsPage() {
     const start = `${y}-${String(m).padStart(2, "0")}-01`;
     const end = new Date(y, m, 1).toISOString().split("T")[0];
     const rows = await db.select<{ name: string; color: string; total: number }[]>(
-      `SELECT c.name, c.color, MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)) as total
+      `SELECT c.name, c.color, ${categorySpendSql()} as total
        FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
        JOIN accounts a ON a.id=t.account_id
        WHERE t.date>=? AND t.date<? AND t.profile_id IN (${ph})
@@ -162,8 +163,8 @@ export default function TrendsPage() {
       const [incExpRows, catRows, allTimeRow, cumRows, balanceRows, balanceAcctRows] = await Promise.all([
         db.select<{ month: string; income: number; expenses: number }[]>(
           `SELECT strftime('%Y-%m', t.date) as month,
-                  SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income,
-                  SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+                  ${incomeSumSql()} as income,
+                  ${expenseSumSql()} as expenses
            FROM transactions t JOIN accounts a ON a.id=t.account_id
            WHERE t.date>=? AND t.profile_id IN (${ph})
            GROUP BY month ORDER BY month`,
@@ -171,7 +172,7 @@ export default function TrendsPage() {
         ),
         db.select<CatMonthRow[]>(
           `SELECT strftime('%Y-%m', t.date) as month, c.name as category, c.color, t.category_id as categoryId,
-                  MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)) as total
+                  ${categorySpendSql()} as total
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
            JOIN accounts a ON a.id=t.account_id
            WHERE t.date>=? AND t.profile_id IN (${ph})
@@ -181,16 +182,15 @@ export default function TrendsPage() {
         ),
         db.select<{ income: number; expenses: number }[]>(
           `SELECT
-             SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income,
-             SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+             ${incomeSumSql()} as income,
+             ${expenseSumSql()} as expenses
            FROM transactions t JOIN accounts a ON a.id=t.account_id
            WHERE t.profile_id IN (${ph})`,
           [...ids]
         ),
         db.select<{ month: string; net: number }[]>(
           `SELECT strftime('%Y-%m', t.date) as month,
-             SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END)
-             - SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) THEN ABS(t.amount_cents) ELSE 0 END) as net
+             ${incomeSumSql()} - ${expenseSumSql()} as net
            FROM transactions t JOIN accounts a ON a.id=t.account_id
            WHERE t.profile_id IN (${ph})
            GROUP BY month ORDER BY month`,

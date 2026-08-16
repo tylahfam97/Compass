@@ -56,6 +56,8 @@ const TYPE_ICONS: Record<string, React.ElementType> = {
   // ━━ Investments ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   investment_performance:      LineChart,
   dividend_income_projected:   DollarSign,
+  investment_income_received:  DollarSign,
+  realized_gains_ytd:          LineChart,
   portfolio_concentration_risk: PieChart,};
 
 const CARD_STYLES: Record<string, string> = {
