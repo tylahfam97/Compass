@@ -29,6 +29,21 @@ function recentMonths(n: number): string[] {
   return months;
 }
 
+/**
+ * Savings rate across a set of months: total net dollars over total income dollars.
+ *
+ * Deliberately a ratio of sums rather than the mean of each month's own ratio - averaging
+ * ratios weights every month equally regardless of size, so one unusually low-income month
+ * (a tiny denominator) produces an extreme value that dominates the result and disagrees with
+ * what the underlying dollars, and the savings-rate chart, actually show.
+ * Returns null when there's no income to divide by.
+ */
+export function aggregateSavingsRate(months: { income: number; expenses: number }[]): number | null {
+  const income = months.reduce((s, m) => s + m.income, 0);
+  if (income <= 0) return null;
+  return (income - months.reduce((s, m) => s + m.expenses, 0)) / income;
+}
+
 /** Standard amortization payoff estimate in months, given a positive balance and monthly
  *  payment (both in dollars) and a monthly interest rate (decimal, e.g. 0.015 for 1.5%/mo).
  *  Returns null if the payment doesn't even cover the interest charge (balance would never
@@ -96,6 +111,12 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
      WHERE t.profile_id=? AND a.excluded_from_insights=0 GROUP BY month ORDER BY month DESC LIMIT 12`,
     [profileId]
   );
+
+  // Whole months only. The current month is partly elapsed, so its totals aren't comparable to
+  // a full month and must never be averaged in alongside them.
+  const completeMonths = monthlySummaries[0]?.month === thisMonth
+    ? monthlySummaries.slice(1)
+    : monthlySummaries;
 
   // ── 3. Existing budgets ─────────────────────────────────────────────────
   const budgets = await db.select<{
@@ -198,19 +219,24 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
 
   // ── INSIGHT: savings_rate_low ────────────────────────────────────────────
   if (monthCount >= 2) {
-    const recentSummaries = monthlySummaries.slice(0, Math.min(3, monthCount));
+    // The current month is only partly elapsed, so its income/expense totals aren't comparable
+    // to a full month - blending it in makes the headline rate swing daily and disagree with
+    // the savings-rate chart, which plots whole months.
+    const recentSummaries = completeMonths.slice(0, 3);
     const lowSavingsMonths = recentSummaries.filter((s) => {
       if (s.income === 0) return false;
       return (s.income - s.expenses) / s.income < 0.2;
     });
-    if (lowSavingsMonths.length >= 2) {
-      const avgRate = recentSummaries.reduce((sum, s) => {
-        if (s.income === 0) return sum;
-        return sum + (s.income - s.expenses) / s.income;
-      }, 0) / recentSummaries.length;
-      const avgIncome = recentSummaries.reduce((s, r) => s + r.income, 0) / recentSummaries.length;
+    if (recentSummaries.length >= 2 && lowSavingsMonths.length >= 2) {
+      const totalIncome = recentSummaries.reduce((s, r) => s + r.income, 0);
+      const totalExpenses = recentSummaries.reduce((s, r) => s + r.expenses, 0);
+      // Ratio of sums, not the mean of each month's own ratio: averaging ratios lets a single
+      // low-income month (a small denominator) swing the result far past anything the
+      // underlying dollars justify. Matches how `getSpendingProfile` computes the same figure.
+      const avgRate = aggregateSavingsRate(recentSummaries) ?? 0;
+      const avgIncome = totalIncome / recentSummaries.length;
       const suggestedSavings = Math.round(avgIncome * 0.2);
-      const avgExpenses = recentSummaries.reduce((s, r) => s + r.expenses, 0) / recentSummaries.length;
+      const avgExpenses = totalExpenses / recentSummaries.length;
       const cutPct = avgExpenses > avgIncome * 0.8
         ? Math.round(((avgExpenses - avgIncome * 0.8) / avgExpenses) * 100) : 0;
       const savingsRatePct = Math.round(avgRate * 100);
@@ -246,6 +272,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         richData: {
           currentRate: avgRate,
           targetRate: 0.2,
+          rateLabel: `${recentSummaries.length}-month average`,
           potentialLabel: cutPct > 0
             ? `Cut expenses by ${cutPct}% → savings rate reaches 20%`
             : undefined,
@@ -1127,11 +1154,13 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   // ── INSIGHT: expense_ratio_drift ─────────────────────────────────────────
   // Is the expense/income ratio getting worse over time?
   if (monthCount >= 6) {
-    const recent3 = monthlySummaries.slice(0, 3).filter((m) => m.income > 0);
-    const older3  = monthlySummaries.slice(3, 6).filter((m) => m.income > 0);
+    const recent3 = completeMonths.slice(0, 3).filter((m) => m.income > 0);
+    const older3  = completeMonths.slice(3, 6).filter((m) => m.income > 0);
     if (recent3.length >= 2 && older3.length >= 2) {
-      const recentRatio = recent3.reduce((s, m) => s + m.expenses / m.income, 0) / recent3.length;
-      const olderRatio  = older3.reduce((s, m) => s + m.expenses / m.income, 0) / older3.length;
+      const recentRate = aggregateSavingsRate(recent3);
+      const olderRate  = aggregateSavingsRate(older3);
+      const recentRatio = recentRate !== null ? 1 - recentRate : 1;
+      const olderRatio  = olderRate !== null ? 1 - olderRate : 1;
       const driftPts = Math.round((recentRatio - olderRatio) * 100); // percentage points
       if (driftPts >= 8) {
         const recentSavingsPct = Math.round((1 - recentRatio) * 100);

@@ -111,6 +111,8 @@ export interface InsightRichData {
   budgetAmountCents?: number;
   currentRate?: number;
   targetRate?: number;
+  /** What `currentRate` measures, e.g. "3-month average" - it is rarely a single month. */
+  rateLabel?: string;
   beforeAmount?: number;
   afterAmount?: number;
   paceMonthly?: number;

@@ -52,7 +52,7 @@ function StreakTrack({ streak }: { streak: number }) {
   );
 }
 
-function RateGauge({ current, target = 0.2 }: { current: number; target?: number }) {
+function RateGauge({ current, target = 0.2, label = "Current rate" }: { current: number; target?: number; label?: string }) {
   const MAX = 0.4;
   const currentPct = Math.min(100, (current / MAX) * 100);
   const targetPct  = Math.min(100, (target  / MAX) * 100);
@@ -81,7 +81,7 @@ function RateGauge({ current, target = 0.2 }: { current: number; target?: number
         <span>40%+</span>
       </div>
       <p className="text-xs font-semibold" style={{ color }}>
-        Current rate: {Math.round(current * 100)}%
+        {label}: {Math.round(current * 100)}%
       </p>
     </div>
   );
@@ -247,7 +247,7 @@ export default function SpotlightCard({ insight, onApply }: SpotlightCardProps) 
           ? <StreakTrack streak={r.streakMonths} /> : null;
       case "savings_rate_low":
         return r.currentRate !== undefined
-          ? <RateGauge current={r.currentRate} target={r.targetRate ?? 0.2} /> : null;
+          ? <RateGauge current={r.currentRate} target={r.targetRate ?? 0.2} label={r.rateLabel} /> : null;
       case "most_improved":
         return r.beforeAmount !== undefined && r.afterAmount !== undefined
           ? <BeforeAfterBars before={r.beforeAmount} after={r.afterAmount} /> : null;
