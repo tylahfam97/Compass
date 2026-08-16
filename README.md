@@ -181,7 +181,7 @@ Automatic analysis surfaced from your data — no configuration required. The pa
 
 **Spotlight Cards** — Up to two of your most actionable insights are promoted to full-width featured cards with inline data visualizations:
 - **StreakTrack** — dot row showing consecutive under-budget months
-- **RateGauge** — gradient track with your current savings rate vs. the 20% target
+- **RateGauge** — gradient track with your recent savings rate (a 3-month average of complete months) vs. the 20% target
 - **PaceMeter** — bar showing this month’s spend pace vs. your normal
 - **BeforeAfterBars** — side-by-side bar comparison for category improvements
 - **RunwaySegments** — segmented track showing months of expenses covered by your balance
@@ -192,7 +192,9 @@ Each spotlight card includes a forward-looking **“↗ potential” callout** c
 
 **Type-specific icons** — Each insight type has a distinct icon so you can scan at a glance: `Target` for budgets, `%` for rate insights, trend arrows for directional changes, `RefreshCw` for subscriptions, `Calendar` for timing alerts, `Shield` for account safety.
 
-**30+ insight types** including: budget pace, unusual spend spikes, savings rate, overspend streaks, under-budget streaks, ghost subscriptions, redundant spending, top merchants, food delivery %, subscription inventory, paycheck prediction, overdraft alerts, category creep, year-end savings projection, most-improved category, weekend spending pattern, spending velocity, emergency fund runway, bill due soon, expense ratio drift, credit card & loan debt tracking, net worth trend, and investment performance.
+**30+ insight types** including: budget pace, unusual spend spikes, savings rate, overspend streaks, under-budget streaks, ghost subscriptions, redundant spending, top merchants, food delivery %, subscription inventory, paycheck prediction, overdraft alerts, category creep, year-end savings projection, most-improved category, weekend spending pattern, spending velocity, emergency fund runway, bill due soon, expense ratio drift, credit card & loan debt tracking, net worth trend, investment performance, investment income received, and realized gains.
+
+> Your savings rate counts every dollar that went out, including credit card purchases — the card payment itself is treated as a transfer so nothing is counted twice.
 
 Insight wording also varies over time and references your recent history (e.g. "up from $1,200 last month") instead of repeating the exact same sentence every time the same insight fires.
 
@@ -397,7 +399,7 @@ Being transparent about what Compass does not do helps you decide if it's the ri
 | Limitation | Notes |
 |---|---|
 | **macOS is beta/unsigned** | Windows builds are signed; macOS builds aren't code-signed or notarized yet — right-click → Open (or `xattr -cr`) on first launch. Linux isn't supported yet. |
-| **Bank/credit import is CSV or XLSX** | No direct bank connections, no OFX/QIF. Loan statements and investment/brokerage statements also accept PDF. |
+| **Bank/credit import is CSV or XLSX** | No direct bank connections, no OFX/QIF. Loan statements and investment/brokerage statements also accept PDF (Wells Fargo Advisors, Fidelity, Thrivent, Principal, and E\*TRADE / Morgan Stanley). |
 | **No mobile app** | Desktop only |
 | **Single currency** | Multi-currency not supported |
 | **No shared accounts** | No collaborative or family access features |
@@ -438,7 +440,13 @@ Automatic insight generation (budget gaps, unusual spending, savings rate, overs
 The goal: round out the app's remaining rough edges before calling it a full release.
 
 **Shipped this release:**
-- **Automated test suite** — unit tests (Vitest) covering the core formatting/balance-combining and recurring-schedule math, so these calculations have a regression safety net
+- **E\*TRADE / Morgan Stanley statement import** — reads a full client statement PDF: holdings, the period's trade/dividend/transfer activity, and the statement's own period totals, dated by the statement rather than by today
+- **Investment activity & income tracking** — new Activity and Income & Gains views showing what actually happened in an account, including dividends and interest genuinely received rather than only the brokerage's projection
+- **Multi-account investment fix** — accounts on different statement schedules (a quarterly 401(k) alongside a monthly brokerage) no longer hide one another from the Investments page, portfolio value, or net worth
+- **Savings rate accuracy** — credit card spending now counts toward the savings rate, the figure is calculated from actual dollars rather than an average of monthly percentages, and it no longer blends in the current half-finished month
+- **One definition per number** — income, expense, category-spend and account-balance totals now come from a single shared definition, fixing several places where two pages showed different values for the same thing
+- **Statement re-import protection** — re-importing a statement you already have prompts before replacing it instead of silently double-counting every position
+- **Automated test suite** — unit tests (Vitest) covering the core formatting/balance-combining, recurring-schedule, statement-parsing and savings-rate math, so these calculations have a regression safety net
 - **In-app backup & restore** — one-click encrypted export/import of the full database as a single `.compassbackup` file, instead of manually copying `compass.db` + `compass.key`
 - **User-defined recurring transactions** — schedule a bill or income ahead of time (monthly/weekly/biweekly) instead of only detecting it after it's already happened a few times
 - **Bulk transaction operations** — multi-select rows on the Transactions page for bulk delete/recategorize
