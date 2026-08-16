@@ -1227,6 +1227,51 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     });
   }
 
+  // ── INSIGHT: investment_income_received ────────────────────────────────────
+  // The counterpart to the projection above: dividends/interest that actually landed in the
+  // account this year, from imported statement activity.
+  const [incomeRow] = await db.select<{ total: number | null }[]>(
+    `SELECT SUM(ABS(amount_cents)) as total FROM investment_activity
+     WHERE profile_id=? AND activity_type IN ('dividend','reinvest','interest')
+       AND trade_date >= ?`,
+    [profileId, `${thisMonth.slice(0, 4)}-01-01`]
+  );
+  if ((incomeRow?.total ?? 0) > 0) {
+    const received = incomeRow!.total!;
+    insights.push({
+      id: `investment_income_received_${thisMonth}`,
+      type: "investment_income_received",
+      title: `${formatCents(received)} in investment income received this year`,
+      description: `Your imported statements show ${formatCents(received)} of dividends and interest actually paid into your investment accounts so far this year.`,
+      severity: "success",
+      dismissKey: `investment_income_received_${thisMonth}`,
+    });
+  }
+
+  // ── INSIGHT: realized_gains_ytd ────────────────────────────────────────────
+  // Statements report this as an account-level total rather than per sale, so take the most
+  // recent statement's own YTD figure instead of summing activity rows.
+  const [realizedRow] = await db.select<{ total: number | null }[]>(
+    `SELECT SUM(realized_gain_ytd_cents) as total FROM investment_summaries s
+     WHERE s.profile_id=? AND s.realized_gain_ytd_cents IS NOT NULL
+       AND s.period_end = (SELECT MAX(period_end) FROM investment_summaries s2
+                           WHERE s2.account_id = s.account_id)`,
+    [profileId]
+  );
+  if (realizedRow?.total) {
+    const realized = realizedRow.total;
+    insights.push({
+      id: `realized_gains_ytd_${thisMonth}`,
+      type: "realized_gains_ytd",
+      title: `${formatCents(Math.abs(realized))} in realized ${realized >= 0 ? "gains" : "losses"} this year`,
+      description: realized >= 0
+        ? `Sales in your investment accounts have realized ${formatCents(realized)} of gains year to date - these are generally taxable in a non-retirement account.`
+        : `Sales in your investment accounts have realized ${formatCents(Math.abs(realized))} of losses year to date, which may offset gains at tax time.`,
+      severity: realized >= 0 ? "success" : "info",
+      dismissKey: `realized_gains_ytd_${thisMonth}`,
+    });
+  }
+
   // ── INSIGHT: portfolio_concentration_risk ──────────────────────────────────
   const holdingRows = await db.select<{ symbol: string | null; description: string; market_value_cents: number | null }[]>(
     `SELECT h.symbol, h.description, h.market_value_cents FROM holdings h

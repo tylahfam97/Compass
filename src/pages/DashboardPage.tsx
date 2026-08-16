@@ -100,6 +100,7 @@ export default function DashboardPage() {
   const [loanModal, setLoanModal] = useState<"new" | LoanAccount | null>(null);
   const [viewAccount, setViewAccount] = useState<AccountDetailAccount | null>(null);
   const [portfolioValueCents, setPortfolioValueCents] = useState(0);
+  const [portfolioChange, setPortfolioChange] = useState<{ change: number; periodEnd: string } | null>(null);
   const [expandedCat, setExpandedCat] = useState<CatStat | null>(null);
   const [expandedCatTxns, setExpandedCatTxns] = useState<Transaction[] | null>(null);
   const [includeInvestments, setIncludeInvestments] = useState(
@@ -124,7 +125,7 @@ export default function DashboardPage() {
     setLoading(true);
     const db = await getDb();
     const [start, end] = monthBounds(month);
-    const [incRow, expRow, catRows, recentRows, monthCountRow, totalCountRow, balanceRow, balancePointRows, portfolioRow, balanceAcctRows, demoAcctRow] = await Promise.all([
+    const [incRow, expRow, catRows, recentRows, monthCountRow, totalCountRow, balanceRow, balancePointRows, portfolioRow, portfolioChangeRow, balanceAcctRows, demoAcctRow] = await Promise.all([
       db.select<{ total: number }[]>(
         `SELECT COALESCE(SUM(t.amount_cents),0) as total FROM transactions t JOIN accounts a ON a.id=t.account_id
          WHERE t.date>=? AND t.date<? AND t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') AND t.profile_id=?`,
@@ -174,6 +175,13 @@ export default function DashboardPage() {
         `SELECT SUM(market_value_cents) as total FROM holdings
          WHERE profile_id=? AND as_of_date=(SELECT MAX(as_of_date) FROM holdings WHERE profile_id=?)`,
         [profileId, profileId]
+      ),
+      db.select<{ change: number | null; period_end: string }[]>(
+        `SELECT change_in_value_cents as change, period_end FROM investment_summaries s
+         WHERE s.profile_id=? AND s.change_in_value_cents IS NOT NULL
+           AND s.period_end = (SELECT MAX(period_end) FROM investment_summaries s2 WHERE s2.profile_id=s.profile_id)
+         LIMIT 1`,
+        [profileId]
       ),
       db.select<{ id: number; name: string; account_type: string; hidden_from_dashboard: number; interest_rate_bps: number | null; minimum_payment_cents: number | null }[]>(
         "SELECT id, name, account_type, hidden_from_dashboard, interest_rate_bps, minimum_payment_cents FROM accounts WHERE profile_id=? AND account_type IN ('checking','credit') ORDER BY account_type, name",
@@ -249,6 +257,11 @@ export default function DashboardPage() {
       })
     );
     setPortfolioValueCents(portfolioRow[0]?.total ?? 0);
+    setPortfolioChange(
+      portfolioChangeRow[0]?.change != null
+        ? { change: portfolioChangeRow[0].change, periodEnd: portfolioChangeRow[0].period_end }
+        : null
+    );
     setHasDemoAccounts((demoAcctRow[0]?.n ?? 0) > 0);
     setExpandedCat(null);
     setExpandedCatTxns(null);
@@ -510,6 +523,11 @@ export default function DashboardPage() {
                     ? `${formatCurrency(currentBalance)} checking${includeInvestments ? ` + ${formatCurrency(portfolioValueCents)} investments` : ""} (excludes credit card debt)`
                     : "Checking/bank accounts only - excludes credit card debt"}
                 </p>
+                {includeInvestments && portfolioChange && (
+                  <p className={`text-xs mt-0.5 ${portfolioChange.change >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
+                    {portfolioChange.change >= 0 ? "+" : ""}{formatCurrency(portfolioChange.change)} on your latest statement period
+                  </p>
+                )}
               </div>
               {checkingBalancePoints.length > 1 && (
                 <div className="flex-1 h-16 min-w-[140px]">

@@ -73,6 +73,8 @@ const ALLOWED_MIGRATION_TABLES = new Set([
   "profiles",
   "import_sessions",
   "holdings",
+  "investment_activity",
+  "investment_summaries",
   "recurring_rules",
 ]);
 
@@ -1219,6 +1221,67 @@ async function runMigrations(db: CompassDb): Promise<void> {
     }
     await db.execute("PRAGMA user_version = 28");
   }
+
+  // ── v29: Brokerage statements carry far more than a positions snapshot. `holdings` only
+  //         models "what you own on date X"; these two tables model "what happened during the
+  //         period" (trades, dividends, transfers) and the statement's own period totals. ──
+  if (version < 29) {
+    await db.executeBatch([
+      {
+        sql: `CREATE TABLE IF NOT EXISTS investment_activity (
+          id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+          account_id          INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          profile_id          INTEGER NOT NULL,
+          import_session_id   INTEGER REFERENCES import_sessions(id) ON DELETE CASCADE,
+          trade_date          TEXT    NOT NULL,
+          settle_date         TEXT,
+          activity_type       TEXT    NOT NULL, -- buy|sell|dividend|reinvest|interest|deposit|withdrawal|transfer|fee|tax|other
+          raw_activity_type   TEXT,
+          symbol              TEXT,
+          description         TEXT    NOT NULL DEFAULT '',
+          quantity            REAL,
+          price_cents         INTEGER,
+          amount_cents        INTEGER NOT NULL DEFAULT 0,
+          -- Only populated by statements that print per-lot cost basis next to the sale.
+          cost_basis_cents    INTEGER,
+          realized_gain_cents INTEGER,
+          acquired_date       TEXT,
+          term                TEXT,          -- short|long
+          import_hash         TEXT    NOT NULL,
+          created_at          TEXT    NOT NULL DEFAULT (datetime('now')),
+          UNIQUE(account_id, import_hash)
+        )`,
+      },
+      { sql: "CREATE INDEX IF NOT EXISTS idx_investment_activity_account_date ON investment_activity(account_id, trade_date)" },
+      {
+        sql: `CREATE TABLE IF NOT EXISTS investment_summaries (
+          id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+          account_id              INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          profile_id              INTEGER NOT NULL,
+          import_session_id       INTEGER REFERENCES import_sessions(id) ON DELETE CASCADE,
+          period_start            TEXT,
+          period_end              TEXT    NOT NULL,
+          beginning_value_cents   INTEGER,
+          ending_value_cents      INTEGER,
+          change_in_value_cents   INTEGER,
+          cash_balance_cents      INTEGER,
+          deposits_cents          INTEGER,
+          withdrawals_cents       INTEGER,
+          transfers_cents         INTEGER,
+          income_cents            INTEGER,
+          dividends_cents         INTEGER,
+          interest_cents          INTEGER,
+          fees_cents              INTEGER,
+          realized_gain_cents     INTEGER,
+          realized_gain_ytd_cents INTEGER,
+          unrealized_gain_cents   INTEGER,
+          created_at              TEXT    NOT NULL DEFAULT (datetime('now')),
+          UNIQUE(account_id, period_end)
+        )`,
+      },
+      { sql: "PRAGMA user_version = 29" },
+    ]);
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────
@@ -1441,8 +1504,9 @@ export async function deleteEmptyAccount(accountId: number): Promise<void> {
   const db = await getDb();
   const [row] = await db.select<{ txn_count: number; holdings_count: number }[]>(
     `SELECT (SELECT COUNT(*) FROM transactions WHERE account_id=?) as txn_count,
-            (SELECT COUNT(*) FROM holdings WHERE account_id=?) as holdings_count`,
-    [accountId, accountId]
+            (SELECT COUNT(*) FROM holdings WHERE account_id=?)
+            + (SELECT COUNT(*) FROM investment_activity WHERE account_id=?) as holdings_count`,
+    [accountId, accountId, accountId]
   );
   if ((row?.txn_count ?? 0) > 0 || (row?.holdings_count ?? 0) > 0) {
     throw new Error("This account still has transactions or holdings - remove those first.");
@@ -1467,6 +1531,8 @@ export async function deleteAccountWithData(accountId: number): Promise<void> {
   );
   await db.execute("DELETE FROM transactions WHERE account_id=?", [accountId]);
   await db.execute("DELETE FROM holdings WHERE account_id=?", [accountId]);
+  await db.execute("DELETE FROM investment_activity WHERE account_id=?", [accountId]);
+  await db.execute("DELETE FROM investment_summaries WHERE account_id=?", [accountId]);
   for (const { id } of sessions) {
     const [remaining] = await db.select<{ n: number }[]>(
       "SELECT COUNT(*) as n FROM transactions WHERE import_session_id=?",

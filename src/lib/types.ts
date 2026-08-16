@@ -68,6 +68,8 @@ export type InsightType =
   | "debt_payoff_priority"
   | "investment_performance"
   | "dividend_income_projected"
+  | "investment_income_received"
+  | "realized_gains_ytd"
   | "portfolio_concentration_risk";
 
 /** Category ID reserved for internal bank transfers — excluded from expense totals. */
@@ -193,6 +195,64 @@ export interface Holding {
   trade_date: string | null;
   dividend_per_share_cents: number | null;
   est_annual_income_cents: number | null;
+  created_at: string;
+}
+
+/** What a brokerage statement's activity line represents. */
+export type ActivityType =
+  | "buy" | "sell" | "dividend" | "reinvest" | "interest"
+  | "deposit" | "withdrawal" | "transfer" | "fee" | "tax" | "other";
+
+/**
+ * One line of a brokerage statement's transaction/activity table. Unlike `Holding` (a dated
+ * snapshot of what you own), this is the record of what actually happened during the period.
+ * The realized-gain fields are only populated by statements that print per-lot cost basis
+ * alongside the sale; account-level realized gain lives on `InvestmentSummary` instead.
+ */
+export interface InvestmentActivity {
+  id: number;
+  account_id: number;
+  profile_id: number;
+  import_session_id: number | null;
+  trade_date: string;
+  settle_date: string | null;
+  activity_type: ActivityType;
+  raw_activity_type: string | null;
+  symbol: string | null;
+  description: string;
+  quantity: number | null;
+  price_cents: number | null;
+  amount_cents: number;
+  cost_basis_cents: number | null;
+  realized_gain_cents: number | null;
+  acquired_date: string | null;
+  term: "short" | "long" | null;
+  import_hash: string;
+  created_at: string;
+}
+
+/** A statement period's account-level totals. One row per account per statement period. */
+export interface InvestmentSummary {
+  id: number;
+  account_id: number;
+  profile_id: number;
+  import_session_id: number | null;
+  period_start: string | null;
+  period_end: string;
+  beginning_value_cents: number | null;
+  ending_value_cents: number | null;
+  change_in_value_cents: number | null;
+  cash_balance_cents: number | null;
+  deposits_cents: number | null;
+  withdrawals_cents: number | null;
+  transfers_cents: number | null;
+  income_cents: number | null;
+  dividends_cents: number | null;
+  interest_cents: number | null;
+  fees_cents: number | null;
+  realized_gain_cents: number | null;
+  realized_gain_ytd_cents: number | null;
+  unrealized_gain_cents: number | null;
   created_at: string;
 }
 
