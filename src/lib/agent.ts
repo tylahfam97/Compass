@@ -44,6 +44,26 @@ export function aggregateSavingsRate(months: { income: number; expenses: number 
   return (income - months.reduce((s, m) => s + m.expenses, 0)) / income;
 }
 
+// The savings rate is "income that didn't go back out": every dollar earned, minus every dollar
+// spent, whatever it was spent on. Both halves are defined here once because four separate
+// queries (monthly summaries, spending profile, the 12-month chart and the health score) all
+// report the same number to the user, and any drift between them is visible as a mismatch.
+// Requires `FROM transactions t JOIN accounts a ON a.id=t.account_id`.
+
+/** Money arriving in a spending account. A positive amount on a credit or loan account is a
+ *  payment reducing debt, never income. */
+const INCOME_SUM_SQL =
+  `SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
+             AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END)`;
+
+/** Money going out, on ANY account type. A credit-card purchase is money spent even though the
+ *  cash leaves checking later - the card payment itself is a Transfer (category 20) and is
+ *  excluded here, so the same spending is never counted twice. Loan statement rows are also
+ *  written as category 20, so a balance snapshot can't register as spending either. */
+const EXPENSE_SUM_SQL =
+  `SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
+            THEN ABS(t.amount_cents) ELSE 0 END)`;
+
 /** Standard amortization payoff estimate in months, given a positive balance and monthly
  *  payment (both in dollars) and a monthly interest rate (decimal, e.g. 0.015 for 1.5%/mo).
  *  Returns null if the payment doesn't even cover the interest charge (balance would never
@@ -105,8 +125,8 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     expenses: number;
   }[]>(
     `SELECT strftime('%Y-%m', t.date) as month,
-            SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income,
-            SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+            ${INCOME_SUM_SQL} as income,
+            ${EXPENSE_SUM_SQL} as expenses
      FROM transactions t JOIN accounts a ON a.id=t.account_id
      WHERE t.profile_id=? AND a.excluded_from_insights=0 GROUP BY month ORDER BY month DESC LIMIT 12`,
     [profileId]
@@ -1384,16 +1404,24 @@ export async function getSpendingProfile(profileIds: number[]): Promise<Spending
     return d.toISOString().split("T")[0];
   })();
 
+  // Averages cover whole months only - the current month is partly elapsed, so folding it in
+  // would drag every average down and make the figures shift daily. A brand-new profile with
+  // nothing but this month's data still uses it, otherwise there'd be nothing to show.
+  const now = new Date();
+  const endDate = months >= 2
+    ? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`
+    : new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().split("T")[0];
+
   const [summary] = await db.select<{ avg_income: number; avg_expenses: number }[]>(
     `SELECT AVG(income) as avg_income, AVG(expenses) as avg_expenses
      FROM (
-       SELECT SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income,
-              SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+       SELECT ${INCOME_SUM_SQL} as income,
+              ${EXPENSE_SUM_SQL} as expenses
        FROM transactions t JOIN accounts a ON a.id=t.account_id
-       WHERE t.profile_id IN (${ph}) AND t.date>=? AND a.excluded_from_insights=0
+       WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<? AND a.excluded_from_insights=0
        GROUP BY strftime('%Y-%m', t.date)
      )`,
-    [...profileIds, startDate]
+    [...profileIds, startDate, endDate]
   );
 
   const [topCat] = await db.select<{ name: string; avg_spend: number }[]>(
@@ -1441,8 +1469,8 @@ export async function getSavingsHistory(
   })();
   const rows = await db.select<{ month: string; income: number; expenses: number }[]>(
     `SELECT strftime('%Y-%m', t.date) as month,
-            SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income,
-            SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+            ${INCOME_SUM_SQL} as income,
+            ${EXPENSE_SUM_SQL} as expenses
      FROM transactions t JOIN accounts a ON a.id=t.account_id
      WHERE t.profile_id IN (${ph}) AND t.date>=? AND a.excluded_from_insights=0
      GROUP BY month ORDER BY month`,
@@ -1473,21 +1501,19 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
   const msStart  = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
   const msEnd    = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().split("T")[0];
 
-  // ── 1. Savings Rate (40 pts) — 3-month avg — checking/investment only, credit
-  // card activity is excluded entirely (both income and expenses) since it's
-  // already covered by the separate Credit Card Health score ──────────────
-  const srRows = await db.select<{ income: number; expenses: number }[]>(
-    `SELECT
-       SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income,
-       SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+  // ── 1. Savings Rate (40 pts) — the last 3 COMPLETE months of income that didn't go back
+  // out. Credit-card purchases count as spending here (they are), while the card payment
+  // itself is a Transfer and excluded, so nothing is double-counted ──────────────
+  const srRows = await db.select<{ month: string; income: number; expenses: number }[]>(
+    `SELECT strftime('%Y-%m', t.date) as month,
+       ${INCOME_SUM_SQL} as income,
+       ${EXPENSE_SUM_SQL} as expenses
      FROM transactions t JOIN accounts a ON a.id=t.account_id
-     WHERE t.profile_id IN (${ph}) AND t.date>=? AND a.excluded_from_insights=0
-     GROUP BY strftime('%Y-%m', t.date) LIMIT 3`,
-    [...profileIds, threeAgo]
+     WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<? AND a.excluded_from_insights=0
+     GROUP BY month ORDER BY month DESC LIMIT 3`,
+    [...profileIds, threeAgo, msStart]
   );
-  const validSR = srRows.filter(r => r.income > 0);
-  const avgRate = validSR.length > 0
-    ? validSR.reduce((s, r) => s + (r.income - r.expenses) / r.income, 0) / validSR.length : 0;
+  const avgRate = aggregateSavingsRate(srRows) ?? 0;
   const savingsScore = avgRate >= 0.20 ? 40 : avgRate >= 0.15 ? 30 : avgRate >= 0.10 ? 20 : avgRate >= 0.05 ? 10 : 0;
 
   // ── 2. Budget Health (30 pts) — this month ──────────────────────────────
@@ -1497,13 +1523,14 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
   );
   let budgetScore = 15;
   if (budgets.length > 0) {
-    // Credit card purchases don't count against a category budget here, for the same
-    // reason they're excluded from Savings Rate above - credit standing is tracked by
-    // the separate Credit Card Health score, not folded into this one.
+    // Counts credit-card purchases against the budget, matching what the Budgets page itself
+    // reports - money spent is money spent whichever card it went on. Credits/refunds filed
+    // under a category net against it, floored at $0.
     const spendRows = await db.select<{ category_id: number; spent: number }[]>(
-      `SELECT t.category_id, SUM(ABS(t.amount_cents)) as spent
+      `SELECT t.category_id,
+              MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)) as spent
        FROM transactions t JOIN accounts a ON a.id=t.account_id
-       WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<? AND t.amount_cents<0 AND a.account_type NOT IN ('credit','loan') AND a.excluded_from_insights=0
+       WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<? AND a.excluded_from_insights=0
        GROUP BY t.category_id`,
       [...profileIds, msStart, msEnd]
     );
