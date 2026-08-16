@@ -5,7 +5,7 @@ import { Eye, EyeOff, ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { getDb, setAccountHiddenFromDashboard } from "@/lib/db";
 import { formatCurrency, formatDate, formatMonthLabel, separateAccountBalances, accountChartColor } from "@/lib/utils";
-import { computeNetWorth, type NetWorthSnapshot } from "@/lib/netWorth";
+import { computeNetWorth, latestHoldingPerAccount, type NetWorthSnapshot } from "@/lib/netWorth";
 import { useProfileStore } from "@/stores/profileStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import PinModal from "@/components/PinModal";
@@ -170,9 +170,9 @@ export default function OverviewPage() {
               [p.id]
             ),
             db.select<{ total: number | null }[]>(
-              `SELECT SUM(market_value_cents) as total FROM holdings
-               WHERE profile_id=? AND as_of_date=(SELECT MAX(as_of_date) FROM holdings WHERE profile_id=?)`,
-              [p.id, p.id]
+              `SELECT SUM(h.market_value_cents) as total FROM holdings h
+               WHERE h.profile_id=? AND ${latestHoldingPerAccount()}`,
+              [p.id]
             ),
             db.select<{ id: number; name: string }[]>(
               "SELECT id, name FROM accounts WHERE profile_id=? AND account_type IN ('checking','credit') AND hidden_from_dashboard=1 ORDER BY name",

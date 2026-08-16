@@ -7,7 +7,7 @@ import {
 import { TrendingUp, TrendingDown, ChevronRight, ChevronDown, Info } from "lucide-react";
 import { getDb } from "@/lib/db";
 import { formatCurrency, formatDate, formatAxisCurrency, accountChartColor } from "@/lib/utils";
-import { holdingRoiPct } from "@/lib/netWorth";
+import { holdingRoiPct, latestHoldingPerAccount } from "@/lib/netWorth";
 import { useProfileStore } from "@/stores/profileStore";
 import InfoTooltip from "@/components/InfoTooltip";
 import { Skeleton, TableSkeleton } from "@/components/Skeleton";
@@ -53,6 +53,48 @@ interface HoldingGroup {
 interface ValuePoint {
   as_of_date: string;
   total: number;
+}
+
+/** One investment account's own latest snapshot - accounts report on different schedules, so
+ *  each carries its own as-of date. */
+interface AccountSnapshot {
+  id: number;
+  name: string;
+  institution: string | null;
+  as_of_date: string;
+  total: number;
+  positions: number;
+}
+
+/**
+ * Combines per-account snapshot totals into one portfolio value series, carrying each account's
+ * most recent value forward across dates it has no statement for.
+ *
+ * Accounts report on different schedules (a 401(k) quarterly, a brokerage monthly), so plotting
+ * `SUM(market_value) GROUP BY as_of_date` makes the portfolio appear to crash on every date
+ * where only one account happened to file - the others contribute nothing rather than their
+ * last known value.
+ */
+export function buildPortfolioHistory(
+  rows: { account_id: number; as_of_date: string; total: number }[]
+): ValuePoint[] {
+  const dates = [...new Set(rows.map((r) => r.as_of_date))].sort();
+  const byAccount = new Map<number, { as_of_date: string; total: number }[]>();
+  for (const r of rows) {
+    const arr = byAccount.get(r.account_id) ?? [];
+    arr.push(r);
+    byAccount.set(r.account_id, arr);
+  }
+  return dates.map((date) => {
+    let total = 0;
+    for (const snapshots of byAccount.values()) {
+      // An account contributes nothing until its first snapshot, then its latest value at or
+      // before this date.
+      const latest = snapshots.filter((s) => s.as_of_date <= date).sort((a, b) => a.as_of_date.localeCompare(b.as_of_date)).pop();
+      if (latest) total += latest.total;
+    }
+    return { as_of_date: date, total };
+  });
 }
 
 function groupHoldings(rows: Holding[]): HoldingGroup[] {
@@ -105,6 +147,7 @@ export default function InvestmentsPage() {
   const [valueOverTime, setValueOverTime] = useState<ValuePoint[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [activity, setActivity] = useState<InvestmentActivity[]>([]);
+  const [accountSnapshots, setAccountSnapshots] = useState<AccountSnapshot[]>([]);
   const [latestSummary, setLatestSummary] = useState<InvestmentSummary | null>(null);
   const [tab, setTab] = useState<InvestmentTab>("holdings");
   const [activityFilter, setActivityFilter] = useState<ActivityType | "all">("all");
@@ -119,9 +162,10 @@ export default function InvestmentsPage() {
           "SELECT MAX(as_of_date) as d FROM holdings WHERE profile_id=?",
           [profileId]
         ),
-        db.select<{ as_of_date: string; total: number }[]>(
-          `SELECT as_of_date, SUM(COALESCE(market_value_cents, 0)) as total
-           FROM holdings WHERE profile_id=? GROUP BY as_of_date ORDER BY as_of_date`,
+        db.select<{ account_id: number; as_of_date: string; total: number }[]>(
+          `SELECT account_id, as_of_date, SUM(COALESCE(market_value_cents, 0)) as total
+           FROM holdings WHERE profile_id=?
+           GROUP BY account_id, as_of_date ORDER BY as_of_date`,
           [profileId]
         ),
         db.select<InvestmentActivity[]>(
@@ -138,15 +182,26 @@ export default function InvestmentsPage() {
       setAsOfDate(latest);
       setActivity(activityRows);
       setLatestSummary(summaryRows[0] ?? null);
-      setValueOverTime(historyRows.map((r) => ({ as_of_date: r.as_of_date, total: r.total })));
+      setValueOverTime(buildPortfolioHistory(historyRows));
       if (latest) {
         const rows = await db.select<Holding[]>(
-          "SELECT * FROM holdings WHERE profile_id=? AND as_of_date=? ORDER BY security_type, description",
-          [profileId, latest]
+          `SELECT h.* FROM holdings h
+           WHERE h.profile_id=? AND ${latestHoldingPerAccount()}
+           ORDER BY h.security_type, h.description`,
+          [profileId]
         );
-        if (!cancelled) setHoldings(rows);
+        const accts = await db.select<AccountSnapshot[]>(
+          `SELECT a.id, a.name, a.institution, h.as_of_date,
+                  SUM(COALESCE(h.market_value_cents, 0)) as total, COUNT(*) as positions
+           FROM holdings h JOIN accounts a ON a.id = h.account_id
+           WHERE h.profile_id=? AND ${latestHoldingPerAccount()}
+           GROUP BY a.id ORDER BY total DESC`,
+          [profileId]
+        );
+        if (!cancelled) { setHoldings(rows); setAccountSnapshots(accts); }
       } else {
         setHoldings([]);
+        setAccountSnapshots([]);
       }
       if (!cancelled) setLoading(false);
     })().catch(() => setLoading(false));
@@ -244,6 +299,13 @@ export default function InvestmentsPage() {
     [activity]
   );
 
+  /** True when accounts were last priced on different dates - normal (a 401(k) files quarterly,
+   *  a brokerage monthly), but it means there's no single "as of" date for the whole page. */
+  const mixedAsOfDates = useMemo(
+    () => new Set(accountSnapshots.map((a) => a.as_of_date)).size > 1,
+    [accountSnapshots]
+  );
+
   const chartData = valueOverTime.map((p) => ({ as_of_date: p.as_of_date, value: p.total }));
   const tooltipStyle = { backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" };
 
@@ -286,7 +348,11 @@ export default function InvestmentsPage() {
         <div>
           <h1 className="text-2xl font-semibold">Investments</h1>
           <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">
-            {asOfDate ? `Priced as of ${formatDate(asOfDate)}` : "No positions snapshot yet"}
+            {!asOfDate
+              ? "No positions snapshot yet"
+              : mixedAsOfDates
+                ? `${accountSnapshots.length} accounts, each priced as of its own latest statement`
+                : `Priced as of ${formatDate(asOfDate)}`}
           </p>
         </div>
         <Link to="/import" className="px-4 py-1.5 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
@@ -501,6 +567,47 @@ export default function InvestmentsPage() {
 
       {tab === "holdings" && holdings.length > 0 && (
       <>
+      {accountSnapshots.length > 1 && (
+        <div className="border rounded-xl overflow-hidden">
+          <div className="px-4 py-3 border-b flex items-center justify-between">
+            <span className="font-semibold text-sm">
+              Accounts <span className="text-[hsl(var(--muted-foreground))] font-normal">({accountSnapshots.length})</span>
+            </span>
+            <span className="font-semibold text-sm">{formatCurrency(kpis.marketValue)}</span>
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-left text-xs text-[hsl(var(--muted-foreground))]">
+                <th className="px-4 py-2 font-medium">Account</th>
+                <th className="px-4 py-2 font-medium">Priced As Of</th>
+                <th className="px-4 py-2 font-medium text-right">Positions</th>
+                <th className="px-4 py-2 font-medium text-right">Market Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {accountSnapshots.map((a) => (
+                <tr key={a.id} className="border-t">
+                  <td className="px-4 py-2 text-xs">
+                    {a.name}
+                    {a.institution && <span className="text-[hsl(var(--muted-foreground))]"> · {a.institution}</span>}
+                  </td>
+                  <td className="px-4 py-2 text-xs font-mono text-[hsl(var(--muted-foreground))]">{formatDate(a.as_of_date)}</td>
+                  <td className="px-4 py-2 text-right text-xs font-mono">{a.positions}</td>
+                  <td className="px-4 py-2 text-right text-xs font-mono">{formatCurrency(a.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {mixedAsOfDates && (
+            <p className="px-4 py-2 text-xs text-[hsl(var(--muted-foreground))] border-t flex items-start gap-1">
+              <Info size={12} className="shrink-0 mt-0.5" />
+              These accounts were last priced on different dates because they issue statements on
+              different schedules. Each one contributes its own most recent snapshot to the totals above.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* KPI tiles */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="border rounded-xl px-4 py-4 text-center">

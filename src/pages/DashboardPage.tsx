@@ -17,6 +17,7 @@ import { EXCLUSION_DISCLAIMER_TEXT } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
 import { generateInsights } from "@/lib/agent";
+import { latestHoldingPerAccount } from "@/lib/netWorth";
 import InsightCard from "@/components/InsightCard";
 import LoanUploaderModal from "@/components/LoanUploaderModal";
 import InfoTooltip from "@/components/InfoTooltip";
@@ -172,9 +173,9 @@ export default function DashboardPage() {
         [profileId, end]
       ),
       db.select<{ total: number | null }[]>(
-        `SELECT SUM(market_value_cents) as total FROM holdings
-         WHERE profile_id=? AND as_of_date=(SELECT MAX(as_of_date) FROM holdings WHERE profile_id=?)`,
-        [profileId, profileId]
+        `SELECT SUM(h.market_value_cents) as total FROM holdings h
+         WHERE h.profile_id=? AND ${latestHoldingPerAccount()}`,
+        [profileId]
       ),
       db.select<{ change: number | null; period_end: string }[]>(
         `SELECT change_in_value_cents as change, period_end FROM investment_summaries s

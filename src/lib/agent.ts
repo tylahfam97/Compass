@@ -1,6 +1,6 @@
 import { getDb, getLoanAccountsForProfile, getCreditAccountsForProfile } from "./db";
 import type { Insight, HealthScore, CreditCardHealthScore, DebtPayoffPlan, DebtPayoffSimDebt, DebtPayoffCustomResult, DebtPayoffCategoryBreakdown, RecurringCharge } from "./types";
-import { computeNetWorth, computeInvestmentReturn } from "./netWorth";
+import { computeNetWorth, computeInvestmentReturn, latestHoldingPerAccount } from "./netWorth";
 import { AVG_US_CREDIT_CARD_DEBT_CENTS, AVG_US_MARKET_RETURN_PCT, scoreGrade } from "./benchmarks";
 import { composeInsightText } from "./voice";
 import { getRemembered, remember } from "./voiceMemory";
@@ -1212,7 +1212,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   // ── INSIGHT: dividend_income_projected ─────────────────────────────────────
   const [dividendRow] = await db.select<{ total: number | null }[]>(
     `SELECT SUM(h.est_annual_income_cents) as total FROM holdings h
-     WHERE h.profile_id=? AND h.as_of_date = (SELECT MAX(as_of_date) FROM holdings h2 WHERE h2.profile_id=h.profile_id)`,
+     WHERE h.profile_id=? AND ${latestHoldingPerAccount()}`,
     [profileId]
   );
   if ((dividendRow?.total ?? 0) > 0) {
@@ -1275,7 +1275,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   // ── INSIGHT: portfolio_concentration_risk ──────────────────────────────────
   const holdingRows = await db.select<{ symbol: string | null; description: string; market_value_cents: number | null }[]>(
     `SELECT h.symbol, h.description, h.market_value_cents FROM holdings h
-     WHERE h.profile_id=? AND h.as_of_date = (SELECT MAX(as_of_date) FROM holdings h2 WHERE h2.profile_id=h.profile_id)`,
+     WHERE h.profile_id=? AND ${latestHoldingPerAccount()}`,
     [profileId]
   );
   const holdingGroups = new Map<string, { label: string; value: number }>();
