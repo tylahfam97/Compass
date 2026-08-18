@@ -26,6 +26,20 @@ Charges Compass inferred from your history are marked as detected rather than co
 are an educated guess about a pattern, not something you told us, and they're labelled that way.
 You can switch them off entirely if you'd rather only plan against what you've entered yourself.
 
+### New: What To Do Next
+Compass has always described your money. Plan adds a short list that *recommends* — the amount
+you'd need to find before a projected shortfall and what that works out to per day, a nudge to
+schedule your paycheck if nothing is scheduled, a heads-up when your cushion gets thin, and a
+prompt to put a surplus to work when you're comfortably ahead. Only what applies to you appears,
+ordered by how pressing it is, and the list is empty when there's genuinely nothing to do.
+
+### New: Last Month In Review
+The "Welcome to August" message that appeared when the calendar turned over now actually says
+something. It recaps the month that just ended: money in, money out, what you kept, how your
+spending compared to the month before, where most of it went, and how many budgets you held.
+It waits for you to dismiss it rather than disappearing on a timer, and falls back to the old
+welcome message when there's nothing to summarise.
+
 Some deliberate limits, so the number means something:
 
 - **Checking and debit accounts only.** "Will I make it to payday" is a question about spendable
@@ -98,9 +112,20 @@ sensible figures. Nothing is final — edit or delete any of them.
 
 ### Improved: Accessibility
 Compass now honours your system's "reduce motion" setting throughout — the confetti, the
-particle field, the glows and the page transitions all stand down. Dialogs now keep keyboard
-focus inside them while open and hand it back where it came from on close, and the remaining
-unlabelled icon buttons have been named for screen readers.
+particle field, the glows and the page transitions all stand down. There's also a **Reduce
+motion in Compass** switch in Settings, for calmer animation in this app without turning it on
+system-wide. Dialogs now keep keyboard focus inside them while open and hand it back where it
+came from on close, and the remaining unlabelled icon buttons have been named for screen readers.
+
+### New: Erase a Profile's Data
+Settings gains a way to permanently delete everything belonging to one profile — transactions,
+accounts, budgets, goals, scheduled items and custom categories — while leaving your other
+profiles untouched. It takes a typed confirmation, and it points you at Backup first, because it
+cannot be undone. An app that promises your data never leaves your machine should also be able to
+forget it on request.
+
+### Improved: The Guided Tour Is Easier To Find
+"Replay the guided tour" now also lives in Settings, not only tucked in the sidebar footer.
 
 ### Improved: Speed on Larger Histories
 Transactions were only indexed by date, while nearly every screen also filters by profile. On a

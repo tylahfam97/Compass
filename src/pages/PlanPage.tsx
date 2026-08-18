@@ -3,11 +3,11 @@ import { Link } from "react-router-dom";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot,
 } from "recharts";
-import { CalendarClock, TrendingDown, TrendingUp, Sparkles, AlertTriangle, Wand2 } from "lucide-react";
+import { CalendarClock, TrendingUp, Sparkles, AlertTriangle, Wand2 } from "lucide-react";
 import { formatCurrency, formatAxisCurrency, formatDate } from "@/lib/utils";
 import {
   projectCashFlow, expandOccurrences, deriveDailyBaselineCents, monthlyEquivalentCents,
-  toISODate, daysFromToday, type ForecastEvent,
+  deriveNextActions, toISODate, daysFromToday, type ForecastEvent, type NextActionTone,
 } from "@/lib/forecast";
 import { getForecastInputs, MIN_MONTHS_FOR_FORECAST, type ForecastInputs } from "@/lib/forecastData";
 import { useProfileStore } from "@/stores/profileStore";
@@ -19,6 +19,12 @@ const HORIZONS = [30, 60, 90] as const;
 type Horizon = (typeof HORIZONS)[number];
 
 const HORIZON_KEY = "compass_plan_horizon";
+
+const ACTION_TONE: Record<NextActionTone, { color: string; label: string }> = {
+  urgent:    { color: "hsl(var(--error))",   label: "Do this first" },
+  suggested: { color: "hsl(var(--warning))", label: "Worth doing" },
+  positive:  { color: "hsl(var(--success))", label: "Opportunity" },
+};
 
 function EmptyState({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
   return (
@@ -125,6 +131,15 @@ export default function PlanPage() {
     () => forecast?.result.days.map((d) => ({ date: d.date, balance: d.balanceCents / 100 })) ?? [],
     [forecast]
   );
+
+  const nextActions = useMemo(() => {
+    if (!forecast || !inputs) return [];
+    return deriveNextActions(forecast.result, {
+      hasIncomeRule: inputs.hasIncomeRule,
+      detectedCount: includeDetected ? inputs.detected.length : 0,
+      dailyBaselineCents: forecast.dailyBaselineCents,
+    });
+  }, [forecast, inputs, includeDetected]);
 
   if (loading) {
     return <div className="p-8 max-w-5xl mx-auto"><CardListSkeleton /></div>;
@@ -267,6 +282,33 @@ export default function PlanPage() {
         </div>
       </section>
 
+      {/* ── What to do next ──────────────────────────────────────────────── */}
+      {nextActions.length > 0 && (
+        <section className="border rounded-2xl p-5">
+          <h2 className="font-semibold text-sm mb-1">What to do next</h2>
+          <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">
+            The rest of Compass tells you what happened. This is what you could do about it.
+          </p>
+          <div className="space-y-2">
+            {nextActions.map((a) => (
+              <div key={a.key} className="border rounded-xl px-4 py-3 flex items-start gap-3">
+                <span
+                  className="w-1.5 h-1.5 rounded-full shrink-0 mt-2"
+                  style={{ backgroundColor: ACTION_TONE[a.tone].color }}
+                />
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: ACTION_TONE[a.tone].color }}>
+                    {ACTION_TONE[a.tone].label}
+                  </p>
+                  <p className="text-sm font-medium mt-0.5">{a.title}</p>
+                  <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1 leading-relaxed">{a.detail}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* ── Projection chart ─────────────────────────────────────────────── */}
       <section className="border rounded-2xl p-5">
         <h2 className="font-semibold text-sm mb-4">Projected checking balance</h2>
@@ -398,17 +440,6 @@ export default function PlanPage() {
           </div>
         )}
       </section>
-
-      {!inputs.hasIncomeRule && (
-        <div className="border rounded-2xl p-4 flex items-start gap-3" style={{ borderColor: "hsl(var(--warning))" }}>
-          <TrendingDown size={16} style={{ color: "hsl(var(--warning))" }} className="mt-0.5 shrink-0" />
-          <p className="text-sm text-[hsl(var(--muted-foreground))]">
-            <span className="font-medium text-[hsl(var(--foreground))]">No income is scheduled yet.</span>{" "}
-            Until you add your paycheck below, this forecast only ever goes down - which makes it
-            look far worse than reality.
-          </p>
-        </div>
-      )}
 
       <RecurringRulesPanel profileId={profileId} onChanged={() => setReloadTick((t) => t + 1)} />
     </div>

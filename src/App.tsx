@@ -76,6 +76,7 @@ function RoutedContent() {
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useProfileStore } from "@/stores/profileStore";
 import { useOnboardingStore } from "@/stores/onboardingStore";
+import { useSettingsStore } from "@/stores/settingsStore";
 import { getDb } from "@/lib/db";
 import { generateInsights } from "@/lib/agent";
 import type { Category, Profile } from "@/lib/types";
@@ -114,7 +115,12 @@ function App() {
   const setCategories = useCategoryStore((s) => s.setCategories);
   const { profiles, setProfiles, setActiveProfile } = useProfileStore();
   const restartOnboarding = useOnboardingStore((s) => s.restart);
+  const motionPref = useSettingsStore((s) => s.motionPref);
   const [insightWarnings, setInsightWarnings] = useState(0);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("reduce-motion", motionPref === "reduced");
+  }, [motionPref]);
 
   // Launch picker state
   const [launchReady, setLaunchReady] = useState(false);
@@ -168,7 +174,7 @@ function App() {
   }, []);
 
   return (
-    <MotionConfig reducedMotion="user">
+    <MotionConfig reducedMotion={motionPref === "reduced" ? "always" : "user"}>
     <BrowserRouter>
       {/* ── Launch profile picker ─────────────────────────────────── */}
       {launchReady && !profileSelected && (

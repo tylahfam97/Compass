@@ -1555,6 +1555,35 @@ export async function deleteAccountWithData(accountId: number): Promise<void> {
   await db.execute("DELETE FROM accounts WHERE id=?", [accountId]);
 }
 
+/**
+ * Erases everything belonging to one profile - transactions, accounts, holdings, budgets,
+ * goals, scheduled rules, categorization rules, saved import layouts and any custom categories -
+ * while keeping the profile itself. Runs as a single transaction so a failure part-way through
+ * can't leave a half-erased profile behind.
+ *
+ * A privacy-first app that can't forget you is a contradiction, but this is unrecoverable:
+ * callers MUST confirm explicitly, and should point the user at Backup first.
+ */
+export async function deleteAllProfileData(profileId: number): Promise<void> {
+  const db = await getDb();
+  await db.executeBatch([
+    { sql: "DELETE FROM holdings WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM investment_activity WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM investment_summaries WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM transactions WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM import_sessions WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM accounts WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM budgets WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM goals WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM recurring_rules WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM categorization_rules WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM column_profiles WHERE profile_id=?", params: [profileId] },
+    // System categories are shared across profiles and must survive - only this profile's own
+    // custom ones go.
+    { sql: "DELETE FROM categories WHERE profile_id=? AND is_system=0", params: [profileId] },
+  ]);
+}
+
 /** One group of accounts that share the same type + name (case/whitespace-insensitive) within
  *  a profile - candidates to merge into a single account. */
 export interface DuplicateAccountGroup {

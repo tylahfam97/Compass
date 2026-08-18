@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useReducedMotion } from "motion/react";
+import { useAppReducedMotion } from "@/hooks/useAppReducedMotion";
 
 /** Gold tones particles are randomly drawn from, for a bit of visual depth. */
 const GOLD_SHADES = ["201, 149, 43", "212, 168, 50", "230, 200, 105"];
@@ -82,7 +82,7 @@ function makeParticle(width: number, height: number): Particle {
  */
 export default function GoldParticleField() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const reducedMotion = useReducedMotion();
+  const reducedMotion = useAppReducedMotion();
 
   useEffect(() => {
     if (reducedMotion) return; // a perpetually drifting 420-particle field is the definition of what this setting turns off

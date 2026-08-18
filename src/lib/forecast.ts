@@ -249,3 +249,106 @@ export function daysFromToday(iso: string, from: Date = new Date()): number {
   const b = new Date(from.getFullYear(), from.getMonth(), from.getDate()).getTime();
   return Math.round((a - b) / MS_PER_DAY);
 }
+
+/** How pressing an action is - drives ordering and colour, nothing else. */
+export type NextActionTone = "urgent" | "suggested" | "positive";
+
+export interface NextAction {
+  key: string;
+  title: string;
+  detail: string;
+  tone: NextActionTone;
+}
+
+export interface NextActionContext {
+  hasIncomeRule: boolean;
+  detectedCount: number;
+  dailyBaselineCents: number;
+  /** Reference point for "how many days until the shortfall". */
+  today?: Date;
+}
+
+/** A cushion thinner than this many days of everyday spending is worth flagging. */
+const THIN_CUSHION_DAYS = 7;
+/** Above this many days of cushion, suggest putting the surplus to work instead. */
+const COMFORTABLE_CUSHION_DAYS = 45;
+
+/**
+ * Turns a projection into a short list of concrete things the user could do about it. The rest
+ * of the app observes; this is the one place that recommends. Kept pure and rule-based - see the
+ * offline-first rationale behind the rest of the insight engine.
+ */
+export function deriveNextActions(result: ForecastResult, context: NextActionContext): NextAction[] {
+  const actions: NextAction[] = [];
+  const { dailyBaselineCents, today = new Date() } = context;
+
+  if (result.firstShortfall) {
+    const daysAway = Math.max(1, daysFromToday(result.firstShortfall.date, today));
+    const gap = Math.abs(result.lowPoint?.balanceCents ?? result.firstShortfall.balanceCents);
+    const perDay = Math.ceil(gap / daysAway);
+    actions.push({
+      key: "cover_shortfall",
+      title: `Find ${formatPlainCurrency(gap)} before ${result.firstShortfall.date}`,
+      detail:
+        `That's about ${formatPlainCurrency(perDay)} a day for the next ${daysAway} ` +
+        `${daysAway === 1 ? "day" : "days"} - either trimmed from everyday spending or moved in from savings.`,
+      tone: "urgent",
+    });
+  }
+
+  if (!context.hasIncomeRule) {
+    actions.push({
+      key: "add_income",
+      title: "Schedule your paycheck",
+      detail:
+        "With no income scheduled, this forecast only ever slopes downward. Adding your pay " +
+        "makes every number here meaningful.",
+      tone: result.firstShortfall ? "suggested" : "urgent",
+    });
+  }
+
+  if (context.detectedCount > 0) {
+    actions.push({
+      key: "confirm_detected",
+      title: `Confirm ${context.detectedCount} detected charge${context.detectedCount === 1 ? "" : "s"}`,
+      detail:
+        "Compass spotted these repeating in your history and is guessing at their timing. " +
+        "Adding them as scheduled items pins them to the right date.",
+      tone: "suggested",
+    });
+  }
+
+  const cushionDays =
+    dailyBaselineCents > 0 && result.lowPoint
+      ? result.lowPoint.balanceCents / dailyBaselineCents
+      : null;
+
+  if (!result.firstShortfall && cushionDays !== null && cushionDays < THIN_CUSHION_DAYS) {
+    actions.push({
+      key: "thin_cushion",
+      title: "Your cushion gets thin",
+      detail:
+        `At the low point you're down to roughly ${Math.max(0, Math.floor(cushionDays))} days of ` +
+        "everyday spending. It holds, but there's little room for anything unexpected.",
+      tone: "suggested",
+    });
+  }
+
+  if (!result.firstShortfall && cushionDays !== null && cushionDays > COMFORTABLE_CUSHION_DAYS) {
+    actions.push({
+      key: "surplus",
+      title: `You have room to move ${formatPlainCurrency(result.safeToSpendCents)}`,
+      detail:
+        "Even at the lowest point in this window you stay well ahead. That surplus could go " +
+        "toward a goal or a debt instead of sitting still.",
+      tone: "positive",
+    });
+  }
+
+  return actions;
+}
+
+/** Whole-dollar formatting kept local so this module stays free of UI imports. */
+function formatPlainCurrency(cents: number): string {
+  return `$${Math.abs(Math.round(cents / 100)).toLocaleString("en-US")}`;
+}

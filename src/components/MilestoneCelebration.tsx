@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
-import { motion, AnimatePresence, useReducedMotion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
+import { useAppReducedMotion } from "@/hooks/useAppReducedMotion";
 import { Trophy, TrendingUp, Target, PiggyBank, Award } from "lucide-react";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import type { MilestoneEvent, MilestoneIcon } from "@/lib/milestones";
@@ -242,7 +243,7 @@ interface MilestoneCelebrationProps {
  *  centered dialog the user dismisses themselves; standard ones get an auto-dismissing banner. */
 export default function MilestoneCelebration({ event, onDismiss }: MilestoneCelebrationProps) {
   const major = event?.tier === "major";
-  const reducedMotion = useReducedMotion();
+  const reducedMotion = useAppReducedMotion();
 
   useEffect(() => {
     if (!event || major) return; // dialogs wait for an explicit dismissal

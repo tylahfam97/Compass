@@ -5,6 +5,7 @@ import {
   monthlyEquivalentCents,
   deriveDailyBaselineCents,
   projectCashFlow,
+  deriveNextActions,
   toISODate,
   daysFromToday,
   type ForecastRule,
@@ -242,5 +243,88 @@ describe("date helpers", () => {
     expect(daysFromToday("2026-08-24", today)).toBe(6);
     expect(daysFromToday("2026-08-18", today)).toBe(0);
     expect(daysFromToday("2026-08-11", today)).toBe(-7);
+  });
+});
+
+describe("deriveNextActions", () => {
+  const today = new Date(2026, 7, 1);
+  const ctx = { hasIncomeRule: true, detectedCount: 0, dailyBaselineCents: 2_000, today };
+
+  function forecastWith(events: ForecastEvent[], startingBalanceCents = 100_000) {
+    return projectCashFlow({
+      startingBalanceCents,
+      startDate: "2026-08-01",
+      days: 30,
+      events,
+      dailyBaselineCents: 2_000,
+    });
+  }
+
+  it("leads with covering a shortfall when one is projected", () => {
+    const actions = deriveNextActions(forecastWith([event("2026-08-05", -200_000)]), ctx);
+    expect(actions[0].key).toBe("cover_shortfall");
+    expect(actions[0].tone).toBe("urgent");
+  });
+
+  it("spells out the daily amount needed to close the gap", () => {
+    const actions = deriveNextActions(forecastWith([event("2026-08-11", -200_000)]), ctx);
+    expect(actions[0].detail).toMatch(/a day for the next \d+ days/);
+  });
+
+  it("urges scheduling income when none exists and nothing else is wrong", () => {
+    const actions = deriveNextActions(forecastWith([]), { ...ctx, hasIncomeRule: false });
+    const income = actions.find((a) => a.key === "add_income");
+    expect(income?.tone).toBe("urgent");
+  });
+
+  it("demotes the income prompt below an active shortfall", () => {
+    const actions = deriveNextActions(forecastWith([event("2026-08-05", -200_000)]), {
+      ...ctx,
+      hasIncomeRule: false,
+    });
+    expect(actions[0].key).toBe("cover_shortfall");
+    expect(actions.find((a) => a.key === "add_income")?.tone).toBe("suggested");
+  });
+
+  it("offers to confirm detected charges when there are any", () => {
+    const actions = deriveNextActions(forecastWith([]), { ...ctx, detectedCount: 3 });
+    expect(actions.find((a) => a.key === "confirm_detected")?.title).toContain("3 detected charges");
+  });
+
+  it("singularises a lone detected charge", () => {
+    const actions = deriveNextActions(forecastWith([]), { ...ctx, detectedCount: 1 });
+    expect(actions.find((a) => a.key === "confirm_detected")?.title).toContain("1 detected charge");
+  });
+
+  it("flags a thin cushion that still technically survives", () => {
+    // $700 against $20/day of baseline: ends at $100, so it holds - but only just.
+    const actions = deriveNextActions(forecastWith([], 70_000), ctx);
+    expect(actions.some((a) => a.key === "thin_cushion")).toBe(true);
+    expect(actions.some((a) => a.key === "cover_shortfall")).toBe(false);
+  });
+
+  it("suggests putting a large surplus to work", () => {
+    const actions = deriveNextActions(forecastWith([], 5_000_000), ctx);
+    expect(actions.some((a) => a.key === "surplus")).toBe(true);
+  });
+
+  it("never flags a thin cushion and a surplus at the same time", () => {
+    for (const balance of [50_000, 300_000, 5_000_000]) {
+      const actions = deriveNextActions(forecastWith([], balance), ctx);
+      const keys = actions.map((a) => a.key);
+      expect(keys.includes("thin_cushion") && keys.includes("surplus")).toBe(false);
+    }
+  });
+
+  it("returns nothing to do when the picture is healthy and complete", () => {
+    const actions = deriveNextActions(forecastWith([event("2026-08-15", 300_000)], 200_000), ctx);
+    expect(actions.filter((a) => a.tone === "urgent")).toEqual([]);
+  });
+
+  it("does not divide by zero when there is no baseline spending", () => {
+    const r = projectCashFlow({
+      startingBalanceCents: 100_000, startDate: "2026-08-01", days: 30, events: [], dailyBaselineCents: 0,
+    });
+    expect(() => deriveNextActions(r, { ...ctx, dailyBaselineCents: 0 })).not.toThrow();
   });
 });
