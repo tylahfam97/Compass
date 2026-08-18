@@ -7,7 +7,8 @@ import { CalendarClock, TrendingUp, Sparkles, AlertTriangle, Wand2, EyeOff } fro
 import { formatCurrency, formatAxisCurrency, formatDate } from "@/lib/utils";
 import {
   projectCashFlow, expandOccurrences, deriveDailyBaselineCents, monthlyEquivalentCents,
-  deriveNextActions, toISODate, daysFromToday, type ForecastEvent, type NextActionTone,
+  deriveNextActions, resolveForecastWindow, toISODate, daysFromToday,
+  type ForecastEvent, type NextActionTone, type ForecastWindowMode,
 } from "@/lib/forecast";
 import { getForecastInputs, MIN_MONTHS_FOR_FORECAST, type ForecastInputs } from "@/lib/forecastData";
 import { hideCharge, unhideCharge, listHiddenCharges, clearHiddenCharges } from "@/lib/hiddenCharges";
@@ -18,7 +19,7 @@ import { CardListSkeleton } from "@/components/Skeleton";
 
 /** The three questions people actually ask about their balance. Each resolves to a different
  *  number of days, so every figure on this page moves with the selection. */
-type PlanWindow = "month" | "paycheck" | "days30";
+type PlanWindow = ForecastWindowMode;
 
 const WINDOWS: { id: PlanWindow; label: string }[] = [
   { id: "month",    label: "Rest of month" },
@@ -37,11 +38,6 @@ const ACTION_TONE: Record<NextActionTone, { color: string; label: string }> = {
   suggested: { color: "hsl(var(--warning))", label: "Worth doing" },
   positive:  { color: "hsl(var(--success))", label: "Opportunity" },
 };
-
-function daysLeftInMonth(today: Date): number {
-  const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-  return lastDay - today.getDate() + 1;
-}
 
 function EmptyState({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
   return (
@@ -139,17 +135,7 @@ export default function PlanPage() {
     const activeRules = includeDetected ? [...inputs.rules, ...inputs.detected] : inputs.rules;
     const allEvents = expandOccurrences(activeRules, today, lookaheadEnd);
 
-    // Resolved after expanding, because "to next paycheck" can't know its own length until the
-    // paycheck has been found. Falls back to the rest of the month when no income is scheduled.
-    const nextPaycheck = allEvents.find((e) => e.amountCents > 0) ?? null;
-    const monthDays = daysLeftInMonth(today);
-    const days =
-      planWindow === "days30" ? 30
-      : planWindow === "paycheck" && nextPaycheck ? Math.max(1, daysFromToday(nextPaycheck.date) + 1)
-      : monthDays;
-    const usedFallback = planWindow === "paycheck" && !nextPaycheck;
-
-    const endDate = toISODate(new Date(today.getFullYear(), today.getMonth(), today.getDate() + days - 1));
+    const { days, endDate, usedFallback } = resolveForecastWindow(allEvents, today, planWindow);
     const events = allEvents.filter((e) => e.date <= endDate);
 
     // Only outgoing rules belong in the baseline adjustment - income doesn't inflate the
@@ -178,6 +164,8 @@ export default function PlanPage() {
       usedFallback,
       dailyBaselineCents,
       events,
+      /** Scheduled items falling just outside the window, so the UI can point at the next one. */
+      laterEvents: allEvents.filter((e) => e.date > endDate),
     };
   }, [inputs, planWindow, extraSpendCents, bufferCents, includeDetected]);
 
@@ -250,6 +238,8 @@ export default function PlanPage() {
   const low = result.lowPoint;
   const short = result.firstShortfall;
   const windowDays = forecast!.days;
+  const incomeCount = forecast!.events.filter((e) => e.amountCents > 0).length;
+  const billCount = forecast!.events.filter((e) => e.amountCents < 0).length;
   const windowLabel =
     planWindow === "days30" ? "the next 30 days"
     : planWindow === "paycheck" && !forecast!.usedFallback ? "your next paycheck"
@@ -329,9 +319,26 @@ export default function PlanPage() {
               <span className="text-[hsl(var(--muted-foreground))] text-base"> / </span>
               <span style={{ color: "hsl(var(--error))" }}>{formatCurrency(result.totalBillsCents)}</span>
             </p>
-            <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">Scheduled over {windowDays} day{windowDays === 1 ? "" : "s"}</p>
+            <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">
+              {incomeCount === 0 && billCount === 0
+                ? `Nothing scheduled in these ${windowDays} days`
+                : `${incomeCount} deposit${incomeCount === 1 ? "" : "s"} · ${billCount} bill${billCount === 1 ? "" : "s"} over ${windowDays} day${windowDays === 1 ? "" : "s"}`}
+            </p>
           </div>
         </div>
+
+        {billCount === 0 && forecast!.events.length > 0 && (
+          <p className="text-xs text-[hsl(var(--muted-foreground))] mt-4 pt-4 border-t">
+            No bills fall inside this window - your next one is{" "}
+            {(() => {
+              const nextBill = forecast!.laterEvents.find((e) => e.amountCents < 0);
+              return nextBill
+                ? <><span className="font-medium text-[hsl(var(--foreground))]">{nextBill.description}</span> on {formatDate(nextBill.date)}</>
+                : "further out";
+            })()}
+            . Widen the window to include it.
+          </p>
+        )}
       </section>
 
       {/* ── What to do next ──────────────────────────────────────────────── */}

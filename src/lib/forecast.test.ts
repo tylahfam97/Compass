@@ -7,6 +7,7 @@ import {
   projectCashFlow,
   deriveNextActions,
   chargeMatchesRule,
+  resolveForecastWindow,
   toISODate,
   daysFromToday,
   type ForecastRule,
@@ -284,6 +285,97 @@ describe("chargeMatchesRule", () => {
 
   it("handles descriptions that normalise to nothing", () => {
     expect(chargeMatchesRule({ description: "***", amount_cents: -5000 }, { description: "---", amount_cents: -5000 })).toBe(false);
+  });
+});
+
+describe("resolveForecastWindow", () => {
+  // Mirrors a real setup: biweekly Friday paycheck, rent on the 24th, a loan payment on the
+  // 25th. "Today" is Tue 18 Aug 2026.
+  const today = new Date(2026, 7, 18);
+  const rules: ForecastRule[] = [
+    { id: 1, description: "Paycheck", amount_cents: 233_100, source: "rule", cadence: "biweekly", day_of_month: null, day_of_week: 4, start_date: "2026-08-21" },
+    { id: 2, description: "Rent", amount_cents: -102_400, source: "rule", cadence: "monthly", day_of_month: 24, day_of_week: null, start_date: "2026-01-24" },
+    { id: 3, description: "SoFi", amount_cents: -60_127, source: "rule", cadence: "monthly", day_of_month: 25, day_of_week: null, start_date: "2026-01-25" },
+  ];
+  const allEvents = expandOccurrences(rules, today, new Date(2026, 10, 21));
+
+  it("covers today through the last day of the month for the month window", () => {
+    const w = resolveForecastWindow(allEvents, today, "month");
+    expect(w.days).toBe(14); // 18th-31st inclusive
+    expect(w.endDate).toBe("2026-08-31");
+    expect(w.usedFallback).toBe(false);
+  });
+
+  it("ends on the day the next paycheck lands", () => {
+    const w = resolveForecastWindow(allEvents, today, "paycheck");
+    expect(w.endDate).toBe("2026-08-21");
+    expect(w.days).toBe(4); // 18th, 19th, 20th, 21st
+  });
+
+  it("covers exactly 30 days, crossing the month boundary", () => {
+    const w = resolveForecastWindow(allEvents, today, "days30");
+    expect(w.days).toBe(30);
+    expect(w.endDate).toBe("2026-09-16");
+  });
+
+  it("falls back to the rest of the month when no income is scheduled", () => {
+    const noIncome = expandOccurrences(rules.filter((r) => r.amount_cents < 0), today, new Date(2026, 10, 21));
+    const w = resolveForecastWindow(noIncome, today, "paycheck");
+    expect(w.usedFallback).toBe(true);
+    expect(w.endDate).toBe("2026-08-31");
+  });
+
+  it("ignores a paycheck that already landed earlier today or before", () => {
+    const past = expandOccurrences(rules, new Date(2026, 7, 1), new Date(2026, 10, 21));
+    const w = resolveForecastWindow(past, today, "paycheck");
+    expect(w.endDate).toBe("2026-08-21");
+  });
+
+  it("handles the last day of the month without producing a zero-length window", () => {
+    const w = resolveForecastWindow(allEvents, new Date(2026, 7, 31), "month");
+    expect(w.days).toBe(1);
+    expect(w.endDate).toBe("2026-08-31");
+  });
+});
+
+describe("window projections include the right scheduled items", () => {
+  const today = new Date(2026, 7, 18);
+  const rules: ForecastRule[] = [
+    { id: 1, description: "Paycheck", amount_cents: 233_100, source: "rule", cadence: "biweekly", day_of_month: null, day_of_week: 4, start_date: "2026-08-21" },
+    { id: 2, description: "Rent", amount_cents: -102_400, source: "rule", cadence: "monthly", day_of_month: 24, day_of_week: null, start_date: "2026-01-24" },
+    { id: 3, description: "SoFi", amount_cents: -60_127, source: "rule", cadence: "monthly", day_of_month: 25, day_of_week: null, start_date: "2026-01-25" },
+  ];
+  const allEvents = expandOccurrences(rules, today, new Date(2026, 10, 21));
+
+  function projectFor(mode: "month" | "paycheck" | "days30") {
+    const w = resolveForecastWindow(allEvents, today, mode);
+    return projectCashFlow({
+      startingBalanceCents: 500_000,
+      startDate: "2026-08-18",
+      days: w.days,
+      events: allEvents.filter((e) => e.date <= w.endDate),
+      dailyBaselineCents: 0,
+    });
+  }
+
+  it("counts one paycheck, rent and the loan payment for the rest of the month", () => {
+    const r = projectFor("month");
+    expect(r.totalIncomeCents).toBe(233_100);
+    expect(r.totalBillsCents).toBe(102_400 + 60_127);
+  });
+
+  it("counts only the paycheck itself in the to-next-paycheck window", () => {
+    // Rent (24th) and SoFi (25th) both fall AFTER the 21st, so this window genuinely has no
+    // bills in it - that's the honest answer, not a missing calculation.
+    const r = projectFor("paycheck");
+    expect(r.totalIncomeCents).toBe(233_100);
+    expect(r.totalBillsCents).toBe(0);
+  });
+
+  it("counts two paychecks but only one rent over 30 days, because of where the window lands", () => {
+    const r = projectFor("days30");
+    expect(r.totalIncomeCents).toBe(233_100 * 2); // Aug 21 + Sep 4
+    expect(r.totalBillsCents).toBe(102_400 + 60_127); // Sep rent/SoFi fall past Sep 16
   });
 });
 

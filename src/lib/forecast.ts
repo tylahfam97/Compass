@@ -249,6 +249,51 @@ export function daysFromToday(iso: string, from: Date = new Date()): number {
   return Math.round((a - b) / MS_PER_DAY);
 }
 
+/** The three questions people ask about their balance. Each resolves to a different length. */
+export type ForecastWindowMode = "month" | "paycheck" | "days30";
+
+export interface ResolvedWindow {
+  /** Number of days to project, inclusive of today. */
+  days: number;
+  /** Last day covered, YYYY-MM-DD. */
+  endDate: string;
+  /** True when "to next paycheck" was asked for but no income is scheduled, so this fell back
+   *  to the rest of the month. */
+  usedFallback: boolean;
+}
+
+const DAYS_30 = 30;
+
+/**
+ * Works out how many days a window covers. "To next paycheck" can't know its own length until
+ * the paycheck has been located, so this takes the already-expanded event list.
+ *
+ * The paycheck window runs up to and including the day the money lands, so the user can see it
+ * arrive - the low point that matters still falls before it.
+ */
+export function resolveForecastWindow(
+  events: ForecastEvent[],
+  today: Date,
+  mode: ForecastWindowMode
+): ResolvedWindow {
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const todayIso = toISODate(startOfToday);
+
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const monthDays = daysInMonth - today.getDate() + 1;
+
+  const nextPaycheck = events.find((e) => e.amountCents > 0 && e.date >= todayIso) ?? null;
+  const usedFallback = mode === "paycheck" && !nextPaycheck;
+
+  const days =
+    mode === "days30" ? DAYS_30
+    : mode === "paycheck" && nextPaycheck
+      ? Math.max(1, daysFromToday(nextPaycheck.date, startOfToday) + 1)
+      : monthDays;
+
+  return { days, endDate: toISODate(addDays(startOfToday, days - 1)), usedFallback };
+}
+
 /** How pressing an action is - drives ordering and colour, nothing else. */
 export type NextActionTone = "urgent" | "suggested" | "positive";
 
