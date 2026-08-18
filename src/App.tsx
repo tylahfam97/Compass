@@ -3,7 +3,7 @@ import logoUrl from "@/assets/logo.svg";
 import { useState, useEffect, Suspense, lazy } from "react";
 import {
   LayoutDashboard, ArrowLeftRight, Upload, TrendingUp, LineChart,
-  Wallet, Target, BarChart2, Lightbulb, Globe, ChevronLeft, ChevronRight, MessageSquare, Sparkles, Settings as SettingsIcon,
+  Wallet, Target, BarChart2, Lightbulb, Globe, ChevronLeft, ChevronRight, MessageSquare, Sparkles, CalendarClock, Settings as SettingsIcon,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { MotionConfig } from "motion/react";
@@ -32,6 +32,7 @@ import { CardListSkeleton } from "@/components/Skeleton";
 const ImportPage = lazy(() => import("@/pages/ImportPage"));
 const ReportsPage = lazy(() => import("@/pages/ReportsPage"));
 const InvestmentsPage = lazy(() => import("@/pages/InvestmentsPage"));
+const PlanPage = lazy(() => import("@/pages/PlanPage"));
 
 function PageLoadingFallback() {
   return (
@@ -64,6 +65,7 @@ function RoutedContent() {
         <Route path="/investments" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><InvestmentsPage /></div></Suspense>} />
         <Route path="/budgets" element={<div className="py-6"><BudgetsPage /></div>} />
         <Route path="/goals" element={<div className="py-6"><GoalsPage /></div>} />
+        <Route path="/plan" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><PlanPage /></div></Suspense>} />
         <Route path="/reports" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><ReportsPage /></div></Suspense>} />
         <Route path="/agent" element={<div className="py-6"><AgentPage /></div>} />
         <Route path="/settings" element={<div className="py-6"><SettingsPage /></div>} />
@@ -88,6 +90,7 @@ const NAV_ITEMS = [
   { to: "/investments",  label: "Investments",   Icon: LineChart,        showBadge: false, tourId: undefined },
   { to: "/budgets",      label: "Budgets",       Icon: Wallet,           showBadge: false, tourId: undefined },
   { to: "/goals",        label: "Goals",         Icon: Target,           showBadge: false, tourId: undefined },
+  { to: "/plan",         label: "Plan",          Icon: CalendarClock,    showBadge: false, tourId: undefined },
   { to: "/reports",      label: "Reports",       Icon: BarChart2,        showBadge: false, tourId: undefined },
   { to: "/agent",        label: "Insights",      Icon: Lightbulb,        showBadge: true,  tourId: "nav-agent" },
   { to: "/settings",     label: "Settings",      Icon: SettingsIcon,     showBadge: false, tourId: undefined },
