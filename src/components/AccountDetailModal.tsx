@@ -108,7 +108,7 @@ function derivedCheckingNotes(account: AccountDetailAccount): DerivedNote[] {
 }
 
 export default function AccountDetailModal({ account, insights, onApply, onClose, onUpdated }: Props) {
-  const { onBackdropClick } = useModalDismiss(onClose);
+  const { onBackdropClick, containerRef } = useModalDismiss(onClose);
   const [txns, setTxns] = useState<Transaction[]>([]);
   const [loadingTxns, setLoadingTxns] = useState(account.accountType === "credit" || account.accountType === "checking");
   const [editingRates, setEditingRates] = useState(false);
@@ -181,7 +181,7 @@ export default function AccountDetailModal({ account, insights, onApply, onClose
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
-      onClick={onBackdropClick}
+      onClick={onBackdropClick} ref={containerRef}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
     >
       <motion.div
@@ -199,7 +199,7 @@ export default function AccountDetailModal({ account, insights, onApply, onClose
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] shrink-0">
+          <button onClick={onClose} aria-label="Close" className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] shrink-0">
             <X size={18} />
           </button>
         </div>

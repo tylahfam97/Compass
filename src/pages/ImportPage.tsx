@@ -23,6 +23,7 @@ import type { InvestmentRow, ParsedInvestment } from "@/lib/investmentParsing";
 import type { CategorizationRule, Account, ActivityType } from "@/lib/types";
 import { TRANSFER_CATEGORY_ID, EXCLUDED_CATEGORY_ID } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
+import { reportLoadError } from "@/stores/toastStore";
 import { takePendingImportFiles } from "@/lib/pendingImport";
 import { parsePdfStatement, extractPdfRows, parseLoanStatementFile } from "@/lib/pdfParse";
 import InfoTooltip from "@/components/InfoTooltip";
@@ -633,7 +634,7 @@ export default function ImportPage() {
     setImportHistory(rows);
   }, [profileId]);
 
-  useEffect(() => { loadHistory().catch(console.error); }, [loadHistory]);
+  useEffect(() => { loadHistory().catch(reportLoadError("your import history", () => void loadHistory())); }, [loadHistory]);
 
   // On mount: drain any files queued by other pages (e.g. CSV drop on Transactions tab)
   // eslint-disable-next-line react-hooks/exhaustive-deps

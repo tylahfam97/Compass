@@ -40,7 +40,7 @@ function institutionMatchesLoan(guess: string, loan: LoanAccount): boolean {
 }
 
 export default function LoanUploaderModal({ profileId, existingLoan, onClose, onSaved }: Props) {
-  const { onBackdropClick } = useModalDismiss(onClose);
+  const { onBackdropClick, containerRef } = useModalDismiss(onClose);
   const isAdd = !existingLoan;
 
   const [name, setName] = useState(existingLoan?.name ?? "");
@@ -204,7 +204,7 @@ export default function LoanUploaderModal({ profileId, existingLoan, onClose, on
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
-      onClick={onBackdropClick}
+      onClick={onBackdropClick} ref={containerRef}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
     >
       <motion.div

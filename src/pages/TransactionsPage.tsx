@@ -10,6 +10,7 @@ import { TRANSFER_CATEGORY_ID, EXCLUDED_CATEGORY_ID, EXCLUSION_DISCLAIMER_TEXT }
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import CategoryOptions from "@/components/CategoryOptions";
 import { useProfileStore } from "@/stores/profileStore";
+import { toast, reportLoadError } from "@/stores/toastStore";
 import CategoryModal from "@/components/CategoryModal";
 import CategorizationRulesModal from "@/components/CategorizationRulesModal";
 import EditTransactionModal from "@/components/EditTransactionModal";
@@ -136,9 +137,7 @@ export default function TransactionsPage() {
   const [catModalOpen, setCatModalOpen] = useState(false);
   const [rulesModalOpen, setRulesModalOpen] = useState(false);
   const [rulePrompt, setRulePrompt] = useState<{ txn: Transaction; newCatId: number } | null>(null);
-  const [autoCatResult, setAutoCatResult] = useState<{ updated: number; mode: string } | null>(null);
   const [autoCatRunning, setAutoCatRunning] = useState(false);
-  const [autoCatError, setAutoCatError] = useState<string | null>(null);
   const [editTxn, setEditTxn] = useState<Transaction | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [addingTxn, setAddingTxn] = useState(false);
@@ -229,7 +228,7 @@ export default function TransactionsPage() {
   }, [month, allTime, search, profileId, filterCategory, filterType, filterAmountMin, filterAmountMax, filterAccount, sortCol, sortDir]);
 
   useEffect(() => {
-    loadRows().catch(console.error);
+    loadRows().catch(reportLoadError("your transactions", () => void loadRows()));
   }, [loadRows]);
 
   const deleteTransaction = async (id: number) => {
@@ -405,13 +404,15 @@ export default function TransactionsPage() {
 
   const runAutoCategorize = async (mode: "uncategorized" | "all") => {
     setAutoCatRunning(true);
-    setAutoCatResult(null);
-    setAutoCatError(null);
     try {
       const updated = await reapplyCategorizationRules(profileId, mode);
-      setAutoCatResult({ updated, mode });
+      toast.success(
+        updated === 0
+          ? "No transactions matched any rule to recategorize."
+          : <><strong>{updated}</strong> transaction{updated !== 1 ? "s" : ""} recategorized using your current rules.</>
+      );
     } catch (e) {
-      setAutoCatError(String(e));
+      toast.error(`Couldn't recategorize transactions: ${String(e)}`);
     } finally {
       await loadRows();
       setAutoCatRunning(false);
@@ -964,39 +965,6 @@ export default function TransactionsPage() {
       <AnimatePresence>
         {viewTxn && (
           <TransactionDetailModal key="view-txn-modal" transaction={viewTxn} onClose={() => setViewTxn(null)} />
-        )}
-      </AnimatePresence>
-
-      {/* Auto-categorize result / error toast - border/rounded live on the inner div, not
-          this fixed-positioned one, since the global .border.rounded-xl decorative-ring
-          rule (index.css) outranks .fixed in specificity and would force position:relative. */}
-      <AnimatePresence>
-        {(autoCatResult || autoCatError) && (
-          <motion.div
-            key="autocat-toast"
-            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} transition={{ duration: 0.2 }}
-            className="fixed bottom-6 right-6 z-50 max-w-sm"
-          >
-            <div className={`border shadow-xl rounded-xl px-5 py-3
-                            flex items-center gap-4 text-sm
-                            bg-[hsl(var(--background))]
-                            ${autoCatError ? "border-[hsl(var(--error))]" : ""}`}>
-              <span className="flex-1 text-[hsl(var(--foreground))]">
-                {autoCatError
-                  ? <span className="text-[hsl(var(--error))]">Error: {autoCatError}</span>
-                  : autoCatResult!.updated === 0
-                    ? "No transactions matched any rule to recategorize."
-                    : <><strong>{autoCatResult!.updated}</strong> transaction{autoCatResult!.updated !== 1 ? "s" : ""} recategorized using your current rules.</>
-                }
-              </span>
-              <button
-                onClick={() => { setAutoCatResult(null); setAutoCatError(null); }}
-                className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] text-lg leading-none"
-              >
-                ✕
-              </button>
-            </div>
-          </motion.div>
         )}
       </AnimatePresence>
 

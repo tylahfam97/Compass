@@ -257,3 +257,29 @@ body {
   animation: insight-icon-glow-pulse 1.3s ease-in-out infinite;
 }
 
+/* ── Reduced motion ───────────────────────────────────────────────────────────
+   Honours the OS "reduce motion" setting. Decorative, looping effects (the
+   rotating card ring, icon glow pulse, chart shimmer, spotlight twinkle) are
+   switched off outright; everything else collapses to near-instant rather than
+   being removed, so state changes are still perceivable - just not animated.
+   Framer Motion is handled separately via <MotionConfig reducedMotion="user">
+   in App.tsx, and the canvas particle effects check the media query directly. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .spotlight-sparkle,
+  .insight-icon-glow,
+  .chart-clickable::after,
+  .border.rounded-xl:not(input):not(textarea):not(select):not(button)::before,
+  .border.rounded-2xl:not(input):not(textarea):not(select):not(button)::before {
+    animation: none !important;
+  }
+}
+

@@ -6,6 +6,7 @@ import {
   Wallet, Target, BarChart2, Lightbulb, Globe, ChevronLeft, ChevronRight, MessageSquare, Sparkles, Settings as SettingsIcon,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { MotionConfig } from "motion/react";
 import DashboardPage from "@/pages/DashboardPage";
 import TransactionsPage from "@/pages/TransactionsPage";
 import TrendsPage from "@/pages/TrendsPage";
@@ -22,6 +23,7 @@ import GoldParticleField from "@/components/GoldParticleField";
 import Spotlight from "@/components/Spotlight";
 import OnboardingChecklistWidget from "@/components/OnboardingChecklistWidget";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import ToastHost from "@/components/ToastHost";
 import { CardListSkeleton } from "@/components/Skeleton";
 
 // Lazy-loaded: these 3 pages pull in the heaviest deps (xlsx, pdfjs-dist,
@@ -163,6 +165,7 @@ function App() {
   }, []);
 
   return (
+    <MotionConfig reducedMotion="user">
     <BrowserRouter>
       {/* ── Launch profile picker ─────────────────────────────────── */}
       {launchReady && !profileSelected && (
@@ -213,6 +216,7 @@ function App() {
         />
       )}
       {profileSelected && <MonthRolloverModal />}
+      <ToastHost />
       <div className="flex h-screen overflow-hidden">
         {/* Sidebar */}
         <aside
@@ -325,6 +329,7 @@ function App() {
         </>
       )}
     </BrowserRouter>
+    </MotionConfig>
   );
 }
 

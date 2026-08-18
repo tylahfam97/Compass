@@ -15,7 +15,7 @@ export default function MonthRolloverModal() {
   const newMonth = useMonthRolloverStore((s) => s.newMonth);
   const dismissModal = useMonthRolloverStore((s) => s.dismissModal);
   const show = justRolledOver && !modalShown;
-  const { onBackdropClick } = useModalDismiss(dismissModal);
+  const { onBackdropClick, containerRef } = useModalDismiss(dismissModal);
 
   useEffect(() => {
     if (!show) return;
@@ -28,7 +28,7 @@ export default function MonthRolloverModal() {
       {show && (
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}
-          onClick={onBackdropClick}
+          onClick={onBackdropClick} ref={containerRef}
           className="fixed inset-0 z-[300] flex items-center justify-center bg-black/40 backdrop-blur-sm"
         >
           <motion.div

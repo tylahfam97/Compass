@@ -45,7 +45,7 @@ function isModestExtraCost(extraInterestCents: number, baseInterestCents: number
 }
 
 export default function DebtPayoffModal({ profileIds, debts, title, subtitle, onClose }: DebtPayoffModalProps) {
-  const { onBackdropClick } = useModalDismiss(onClose);
+  const { onBackdropClick, containerRef } = useModalDismiss(onClose);
   const [plan, setPlan] = useState<DebtPayoffPlan | null>(null);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<Set<number> | null>(null);
   const [redirectPct, setRedirectPct] = useState(50);
@@ -167,7 +167,7 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
     <>
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
-      onClick={onBackdropClick}
+      onClick={onBackdropClick} ref={containerRef}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
     >
       <motion.div
@@ -180,7 +180,7 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
             <h2 className="text-lg font-semibold">{title}</h2>
             {subtitle && <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">{subtitle}</p>}
           </div>
-          <button onClick={onClose} className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] shrink-0">
+          <button onClick={onClose} aria-label="Close" className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] shrink-0">
             <X size={18} />
           </button>
         </div>

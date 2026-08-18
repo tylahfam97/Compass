@@ -15,14 +15,14 @@ interface Props {
  * through the pencil icon's EditTransactionModal, this is just a quick "what was this?" view.
  */
 export default function TransactionDetailModal({ transaction: t, onClose }: Props) {
-  const { onBackdropClick } = useModalDismiss(onClose);
+  const { onBackdropClick, containerRef } = useModalDismiss(onClose);
   const isCredit = t.account_type === "credit";
   const AccountIcon = isCredit ? CreditCard : Wallet;
 
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
-      onClick={onBackdropClick}
+      onClick={onBackdropClick} ref={containerRef}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
     >
       <motion.div

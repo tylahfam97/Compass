@@ -9,6 +9,7 @@ import { getDb, getAccountsSummaryForProfile, setAccountExcludedFromInsights, ge
 import { categorySpendSql } from "@/lib/reportingSql";
 import { formatCurrency, formatMonthLabel } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
+import { reportLoadError } from "@/stores/toastStore";
 import {
   generateInsights, getSpendingProfile, getSavingsHistory, computeHealthScore, computeCreditCardHealthScore, detectRecurringCharges,
 } from "@/lib/agent";
@@ -661,7 +662,7 @@ function ScoreIntroModal({
 }) {
   const [tab, setTab] = useState<"global" | "profile">("global");
   const score = tab === "global" ? globalScore : (profileScore ?? globalScore);
-  const { onBackdropClick } = useModalDismiss(onClose);
+  const { onBackdropClick, containerRef } = useModalDismiss(onClose);
 
   const grades = [
     { g: "A", r: "85–100", l: "Excellent",       c: "#059669" },
@@ -682,7 +683,7 @@ function ScoreIntroModal({
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
       className="fixed inset-0 z-50 flex items-center justify-center p-6"
       style={{ backgroundColor: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
-      onClick={onBackdropClick}>
+      onClick={onBackdropClick} ref={containerRef}>
       <motion.div
         initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} transition={{ duration: 0.15 }}
         className="bg-[hsl(var(--background))] border rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
@@ -984,7 +985,7 @@ export default function AgentPage() {
       setRefreshedAt(new Date());
       setLoading(false);
     }
-    load().catch(console.error);
+    load().catch(reportLoadError("your insights", () => setReloadTick((t) => t + 1)));
     return () => { cancelled = true; };
   }, [profileId, activeProfile, viewMode, unlockedProfileIds, scopeIds, reloadTick, enqueueMilestones]);
 

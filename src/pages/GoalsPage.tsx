@@ -6,6 +6,7 @@ import { formatCurrency } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
+import { reportLoadError } from "@/stores/toastStore";
 import CategoryOptions from "@/components/CategoryOptions";
 import { CardListSkeleton } from "@/components/Skeleton";
 import WeeklyMiniBar from "@/components/WeeklyMiniBar";
@@ -424,7 +425,7 @@ export default function GoalsPage() {
     enqueueMilestones(newMilestones);
   }, [month, profileId, enqueueMilestones]);
 
-  useEffect(() => { loadGoals().catch(console.error); }, [loadGoals]);
+  useEffect(() => { loadGoals().catch(reportLoadError("your goals", () => void loadGoals())); }, [loadGoals]);
 
   useEffect(() => {
     if (categories.length === 0 || formCatId !== 0) return;
@@ -640,9 +641,23 @@ export default function GoalsPage() {
             &#127919;
           </div>
           <p className="font-semibold text-[hsl(var(--foreground))]">No goals yet</p>
-          <p className="text-sm text-[hsl(var(--muted-foreground))] max-w-xs">
-            Add one above to start tracking your progress toward a savings target, spending limit, or income goal.
+          <p className="text-sm text-[hsl(var(--muted-foreground))] max-w-md">
+            A budget caps what you spend in a category. A goal tracks something you're working
+            toward over time - and Compass checks your progress automatically as transactions
+            come in. There are {Object.keys(LABELS).length} kinds:
           </p>
+          <div className="grid sm:grid-cols-2 gap-2 mt-3 max-w-2xl w-full text-left">
+            {(Object.keys(LABELS) as GoalType[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => handleTypeChange(t)}
+                className="border rounded-xl px-3.5 py-2.5 hover:bg-[hsl(var(--muted))] transition-colors"
+              >
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${GOAL_TYPE_STYLE[t]}`}>{LABELS[t]}</span>
+                <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1.5 leading-snug">{DESCS[t]}</p>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

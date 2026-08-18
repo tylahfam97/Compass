@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { Trophy, TrendingUp, Target, PiggyBank, Award } from "lucide-react";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import type { MilestoneEvent, MilestoneIcon } from "@/lib/milestones";
@@ -33,10 +33,6 @@ const ICONS: Record<MilestoneIcon, typeof Trophy> = {
   piggy: PiggyBank,
   award: Award,
 };
-
-function prefersReducedMotion(): boolean {
-  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-}
 
 /** Full-screen canvas that fires a burst of confetti, then fades and unmounts itself - a
  *  one-time celebratory flourish for milestones, distinct from the always-on ambient
@@ -140,7 +136,7 @@ function ConfettiBurst({ major }: { major: boolean }) {
  *  six-figure net worth. Dismissible by button, backdrop click or Escape, but deliberately
  *  unmissable, unlike the banner used for smaller wins. */
 function CelebrationDialog({ event, onDismiss }: { event: MilestoneEvent; onDismiss: () => void }) {
-  const { onBackdropClick } = useModalDismiss(onDismiss);
+  const { onBackdropClick, containerRef } = useModalDismiss(onDismiss);
   const Icon = ICONS[event.icon];
 
   return (
@@ -149,7 +145,7 @@ function CelebrationDialog({ event, onDismiss }: { event: MilestoneEvent; onDism
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.2 }}
-      onClick={onBackdropClick}
+      onClick={onBackdropClick} ref={containerRef}
       className="fixed inset-0 z-[321] flex items-center justify-center bg-black/60 backdrop-blur-md"
     >
       <motion.div
@@ -246,6 +242,7 @@ interface MilestoneCelebrationProps {
  *  centered dialog the user dismisses themselves; standard ones get an auto-dismissing banner. */
 export default function MilestoneCelebration({ event, onDismiss }: MilestoneCelebrationProps) {
   const major = event?.tier === "major";
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
     if (!event || major) return; // dialogs wait for an explicit dismissal
@@ -257,7 +254,7 @@ export default function MilestoneCelebration({ event, onDismiss }: MilestoneCele
   return (
     <>
       <AnimatePresence>
-        {event && !prefersReducedMotion() && <ConfettiBurst key={event.key} major={major} />}
+        {event && !reducedMotion && <ConfettiBurst key={event.key} major={major} />}
       </AnimatePresence>
       <AnimatePresence>
         {event &&

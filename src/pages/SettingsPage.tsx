@@ -10,6 +10,7 @@ import { computeNextOccurrence, daysUntil, formatCadenceLabel } from "@/lib/recu
 import { exportBackup, restoreBackup, getLastBackupAt } from "@/lib/backup";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
+import { reportLoadError } from "@/stores/toastStore";
 import { useCategoryStore } from "@/stores/categoryStore";
 import CategoryOptions from "@/components/CategoryOptions";
 import type { RecurringRule, RecurringCadence } from "@/lib/types";
@@ -113,7 +114,7 @@ export default function SettingsPage() {
     setLoadingRules(false);
   }, [profileId]);
 
-  useEffect(() => { loadRules().catch(console.error); }, [loadRules]);
+  useEffect(() => { loadRules().catch(reportLoadError("your recurring transactions", () => void loadRules())); }, [loadRules]);
 
   const upcoming = rules
     .filter((r) => r.active)
