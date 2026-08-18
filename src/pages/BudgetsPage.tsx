@@ -3,14 +3,17 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { AlertTriangle, CheckCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import { getDb } from "@/lib/db";
 import { categorySpendSql } from "@/lib/reportingSql";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatMonthLabel } from "@/lib/utils";
 import { pickVariantIndex } from "@/lib/voice";
+import { detectNewMilestones } from "@/lib/milestones";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
+import { useMilestoneQueue } from "@/hooks/useMilestoneQueue";
 import { useProfileStore } from "@/stores/profileStore";
 import CategoryOptions from "@/components/CategoryOptions";
 import WeeklyMiniBar from "@/components/WeeklyMiniBar";
 import PinModal from "@/components/PinModal";
+import MilestoneCelebration from "@/components/MilestoneCelebration";
 import { CardListSkeleton } from "@/components/Skeleton";
 import type { Profile } from "@/lib/types";
 
@@ -54,6 +57,15 @@ function monthBounds(ym: string): [string, string] {
 function nextYM(ym: string): string {
   const [y, m] = ym.split("-").map(Number);
   const d = new Date(y, m, 1); // m is 1-indexed here, so this already advances one month
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** The most recent month that has actually finished - the only period a "you held your budget"
+ *  celebration can honestly be based on. */
+function lastCompletedYM(): string {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
@@ -230,6 +242,7 @@ export default function BudgetsPage() {
   const [pinQueue, setPinQueue] = useState<Profile[]>([]);
   const [pinQueueIdx, setPinQueueIdx] = useState(0);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const { active: activeMilestone, enqueue: enqueueMilestones, dismiss: dismissMilestone } = useMilestoneQueue();
 
   useEffect(() => {
     const saved = localStorage.getItem(viewModeKey(profileId));
@@ -352,6 +365,46 @@ export default function BudgetsPage() {
   }, [month, profileId, viewMode, unlockedProfileIds]);
 
   useEffect(() => { loadBudgets().catch(console.error); }, [loadBudgets]);
+
+  // Celebrate budgets held for the whole of the last completed month. Deliberately independent
+  // of the month being viewed: the win is a fact about a finished period, not about where the
+  // user happened to navigate. Only monthly, non-income budgets that already existed before
+  // that month started qualify - anything else didn't cover the full period.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const month = lastCompletedYM();
+      const [start, end] = monthBounds(month);
+      const db = await getDb();
+      const rows = await db.select<{ id: number; category_name: string; amount_cents: number; spent_cents: number }[]>(
+        `SELECT b.id, c.name as category_name, b.amount_cents,
+                COALESCE(${categorySpendSql("t", "acc")},0) as spent_cents
+         FROM budgets b
+         JOIN categories c ON b.category_id=c.id
+         LEFT JOIN transactions t ON t.category_id=b.category_id
+           AND t.date>=? AND t.date<? AND t.profile_id=?
+         LEFT JOIN accounts acc ON acc.id=t.account_id
+         WHERE b.profile_id=? AND b.period='monthly' AND b.start_date<=?
+           AND c.id!=1 AND (c.parent_id IS NULL OR c.parent_id!=1)
+         GROUP BY b.id`,
+        [start, end, profileId, profileId, start]
+      );
+      if (cancelled) return;
+      enqueueMilestones(
+        detectNewMilestones(profileId, {
+          budgets: rows.map((r) => ({
+            id: r.id,
+            name: r.category_name,
+            month,
+            monthLabel: formatMonthLabel(month),
+            spentCents: r.spent_cents,
+            limitCents: r.amount_cents,
+          })),
+        })
+      );
+    })().catch(console.error);
+    return () => { cancelled = true; };
+  }, [profileId, enqueueMilestones]);
 
   useEffect(() => {
     // Don't clobber a prefill that was just applied — only default-init when truly empty
@@ -478,6 +531,8 @@ export default function BudgetsPage() {
 
   return (
     <>
+      <MilestoneCelebration event={activeMilestone} onDismiss={dismissMilestone} />
+
       {pinTarget && (
         <PinModal
           profile={pinTarget}

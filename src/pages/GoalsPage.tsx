@@ -11,6 +11,7 @@ import { CardListSkeleton } from "@/components/Skeleton";
 import WeeklyMiniBar from "@/components/WeeklyMiniBar";
 import MilestoneCelebration from "@/components/MilestoneCelebration";
 import { detectNewMilestones } from "@/lib/milestones";
+import { useMilestoneQueue } from "@/hooks/useMilestoneQueue";
 
 type GoalType =
   | "net_savings"
@@ -144,16 +145,8 @@ export default function GoalsPage() {
   const [formMonths, setFormMonths] = useState("3");
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [milestoneQueue, setMilestoneQueue] = useState<string[]>([]);
-  const [activeMilestone, setActiveMilestone] = useState<string | null>(null);
+  const { active: activeMilestone, enqueue: enqueueMilestones, dismiss: dismissMilestone } = useMilestoneQueue();
   const [debtAccounts, setDebtAccounts] = useState<{ id: number; name: string; account_type: string }[]>([]);
-
-  useEffect(() => {
-    if (activeMilestone === null && milestoneQueue.length > 0) {
-      setActiveMilestone(milestoneQueue[0]);
-      setMilestoneQueue((q) => q.slice(1));
-    }
-  }, [activeMilestone, milestoneQueue]);
 
   useEffect(() => {
     let cancelled = false;
@@ -428,10 +421,8 @@ export default function GoalsPage() {
     const newMilestones = detectNewMilestones(profileId, {
       goals: withWeekly.map((g) => ({ id: g.id, name: g.name, pct: g.pct })),
     });
-    if (newMilestones.length > 0) {
-      setMilestoneQueue((q) => [...q, ...newMilestones.map((m) => m.message)]);
-    }
-  }, [month, profileId]);
+    enqueueMilestones(newMilestones);
+  }, [month, profileId, enqueueMilestones]);
 
   useEffect(() => { loadGoals().catch(console.error); }, [loadGoals]);
 
@@ -544,7 +535,7 @@ export default function GoalsPage() {
 
   return (
     <div className="p-8 max-w-3xl space-y-6 mx-auto w-full">
-      <MilestoneCelebration message={activeMilestone} onDismiss={() => setActiveMilestone(null)} />
+      <MilestoneCelebration event={activeMilestone} onDismiss={dismissMilestone} />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Goals</h1>

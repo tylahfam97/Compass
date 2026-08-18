@@ -26,6 +26,7 @@ import PinModal from "@/components/PinModal";
 import DebtPayoffModal from "@/components/DebtPayoffModal";
 import MilestoneCelebration from "@/components/MilestoneCelebration";
 import { detectNewMilestones } from "@/lib/milestones";
+import { useMilestoneQueue } from "@/hooks/useMilestoneQueue";
 import { CardListSkeleton } from "@/components/Skeleton";
 
 const ROI_SECTION_LABELS: Record<SecurityType, string> = {
@@ -800,15 +801,7 @@ export default function AgentPage() {
   const [topRoi, setTopRoi]                     = useState<Partial<Record<SecurityType, TopRoiHolding[]>>>({});
   const [loans, setLoans]                       = useState<DebtEntry[]>([]);
   const [payoffModal, setPayoffModal] = useState<{ debts: DebtEntry[]; title: string; subtitle?: string } | null>(null);
-  const [milestoneQueue, setMilestoneQueue] = useState<string[]>([]);
-  const [activeMilestone, setActiveMilestone] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (activeMilestone === null && milestoneQueue.length > 0) {
-      setActiveMilestone(milestoneQueue[0]);
-      setMilestoneQueue((q) => q.slice(1));
-    }
-  }, [activeMilestone, milestoneQueue]);
+  const { active: activeMilestone, enqueue: enqueueMilestones, dismiss: dismissMilestone } = useMilestoneQueue();
 
   const [sectExpanded, setSectExpanded] = useState<{ trends: boolean; subs: boolean; topRoi: boolean }>(() => {
     try { const s = localStorage.getItem("compass_insight_sections"); return s ? JSON.parse(s) : { trends: false, subs: false, topRoi: false }; }
@@ -948,10 +941,9 @@ export default function AgentPage() {
       const newMilestones = detectNewMilestones(profileId, {
         netWorthCents: nw.netWorthCents,
         debts: debtsWithTrend.map((d) => ({ id: d.id, name: d.name, balanceCents: d.balance_cents, firstKnownBalanceCents: d.firstKnownBalanceCents })),
+        healthGrade: profileScore.grade,
       });
-      if (newMilestones.length > 0) {
-        setMilestoneQueue((q) => [...q, ...newMilestones.map((m) => m.message)]);
-      }
+      enqueueMilestones(newMilestones);
 
       const thisMonth = currentYM();
       const lMonth = prevYM(thisMonth);
@@ -994,7 +986,7 @@ export default function AgentPage() {
     }
     load().catch(console.error);
     return () => { cancelled = true; };
-  }, [profileId, activeProfile, viewMode, unlockedProfileIds, scopeIds, reloadTick]);
+  }, [profileId, activeProfile, viewMode, unlockedProfileIds, scopeIds, reloadTick, enqueueMilestones]);
 
   const visibleInsights  = insights.filter((i) => !dismissedInsights.includes(i.dismissKey));
   const successInsights  = visibleInsights.filter((i) => i.severity === "success");
@@ -1098,7 +1090,7 @@ export default function AgentPage() {
 
   return (
     <>
-      <MilestoneCelebration message={activeMilestone} onDismiss={() => setActiveMilestone(null)} />
+      <MilestoneCelebration event={activeMilestone} onDismiss={dismissMilestone} />
       {pinTarget && <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />}
       <AnimatePresence>
         {showScoreIntro && globalHealthScore && (
