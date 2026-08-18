@@ -6,6 +6,34 @@
 
 A fast follow-up to v1.0 fixing the things real use turned up immediately.
 
+### Changed: Plan Now Asks You What Window To Use
+The forecast used to run over a fixed 30, 60 or 90 days — while the What-if slider said "this
+month", which wasn't the period it was actually calculating. Two different answers to the same
+question, which made the whole panel hard to trust.
+
+Plan now has three windows that match how people actually think about their balance:
+
+- **Rest of month** *(the new default)* — today through the last day of this month
+- **To next paycheck** — today through your next scheduled income
+- **Next 30 days**
+
+Every figure moves with it: safe to spend, the projected low point, money in versus out, the
+chart, the bill list and the suggested actions. The headline states the exact range it used
+(`Aug 18 – Aug 31 · 14 days`) so there's no ambiguity about what any number covers.
+
+"To next paycheck" needs a scheduled income to aim at. If you haven't added one yet, Compass
+falls back to the rest of the month and tells you why rather than quietly showing something else.
+
+### Improved: The What-if Panel Explains Itself
+The window picker now sits inside the What-if box alongside the sliders, since it's the same
+kind of question. Each control explains what it does and what it doesn't:
+
+- **Spend an extra…** is an amount across the whole window, spread evenly — and now shows the
+  per-day figure that works out to. Previously it always divided by 30 regardless of the window
+  being shown, so the arithmetic didn't match the label.
+- **Keep … untouched** makes clear it comes off "safe to spend" and doesn't move the projection.
+- The panel states up front that nothing here is saved or changes your data.
+
 ### Fixed: Cancelled Subscriptions Never Went Away
 A charge that recurred for a few months and then stopped kept its streak forever — so a
 subscription you cancelled in April was still listed under Subscriptions and still being billed

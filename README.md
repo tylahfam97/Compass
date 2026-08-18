@@ -21,7 +21,8 @@
 ## 🧭 $${\color{#2ea043}Compass \space 1.0 \space is \space here}$$
 
 Compass is out of pre-release. The headline of v1.0 is that **Compass now looks forward**: the new
-**[Plan](#-plan--cash-flow-forecast)** tab projects your checking balance 30, 60 or 90 days out
+**[Plan](#-plan--cash-flow-forecast)** tab projects your checking balance to the end of the month,
+to your next paycheck, or 30 days out
 and answers the question people actually have — *do I make it to payday?* It comes with
 what-if sliders, a bill calendar, and a short list of what you could actually do about it.
 
@@ -217,21 +218,26 @@ Insight wording also varies over time and references your recent history (e.g. "
 
 Every other view in Compass describes the past. **Plan** describes what's coming.
 
-It projects your checking balance forward 30, 60 or 90 days from the bills and income you've
+It projects your checking balance forward from the bills and income you've
 scheduled, the recurring charges Compass spots in your history, and an estimate of everyday
 spending drawn from your last 3 months — then answers the question people actually have: **do I
 make it to payday?**
 
+Pick the window that matches the question you're asking — **rest of month** (the default), **to
+your next paycheck**, or **the next 30 days**. Every figure on the page recalculates against it,
+and the headline states the exact date range it used so no number is ambiguous.
+
 - **Safe to spend** — what you can spend today without pushing your projected low point below your cushion
 - **Lowest point** — the smallest balance you're projected to hit, and the date you hit it
 - **What to do next** — the one part of Compass that recommends rather than observes: how much to find before a shortfall and what that is per day, a nudge to schedule your paycheck, a warning when your cushion is thin, or a prompt to put a surplus to work
-- **What if…** — drag a slider to see what extra spending, or setting a cushion aside, does to the whole projection instantly
-- **What's coming** — every scheduled bill and paycheck grouped by week, with charges Compass inferred from your history clearly marked as detected rather than confirmed
+- **What if…** — change the window, add unplanned spending, or set a cushion aside, and watch the whole projection respond instantly. Nothing is saved
+- **What's coming** — every scheduled bill and paycheck grouped by week, with charges Compass inferred from your history clearly marked as detected rather than confirmed. Hide any that aren't real bills and they drop out of the forecast, the subscription totals and the insights
 - **Scheduled Bills & Income** — add rent, your paycheck, subscriptions; monthly, weekly or every 2 weeks. Reminder-only: nothing ever auto-posts a real transaction
 
 Deliberate limits: checking/debit accounts only (spendable cash is the question being answered),
-at least 2 months of history required before a forecast appears, and scheduled bills are removed
-from the everyday-spending estimate so nothing is counted twice.
+at least 2 months of history required before a forecast appears, scheduled bills are removed
+from the everyday-spending estimate so nothing is counted twice, and a detected charge not seen
+for 2 months is treated as cancelled until it reappears.
 
 ### 💳 Debt Payoff Dashboard
 

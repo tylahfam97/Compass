@@ -208,22 +208,6 @@ export default function PlanPage() {
           whether you make it to the next paycheck.
         </p>
       </div>
-      <div className="flex gap-1 border rounded-lg p-1 shrink-0">
-        {WINDOWS.map((w) => (
-          <button
-            key={w.id}
-            onClick={() => setWindowPersisted(w.id)}
-            aria-pressed={planWindow === w.id}
-            className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-              planWindow === w.id
-                ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
-                : "hover:bg-[hsl(var(--muted))]"
-            }`}
-          >
-            {w.label}
-          </button>
-        ))}
-      </div>
     </div>
   );
 
@@ -422,9 +406,33 @@ export default function PlanPage() {
         <div>
           <h2 className="font-semibold text-sm flex items-center gap-1.5"><Wand2 size={14} /> What if…</h2>
           <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1 max-w-lg">
-            Try a change against {windowLabel} and watch every figure above update. Nothing here is
-            saved or changes your data - let go of the slider and it's just a preview.
+            Try a change and watch every figure above update. Nothing here is saved or changes
+            your data - let go of the slider and it's just a preview.
           </p>
+        </div>
+
+        <div>
+          <span className="text-xs font-medium">…I look at</span>
+          <div className="flex gap-1 border rounded-lg p-1 mt-2 w-fit">
+            {WINDOWS.map((w) => (
+              <button
+                key={w.id}
+                onClick={() => setWindowPersisted(w.id)}
+                aria-pressed={planWindow === w.id}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                  planWindow === w.id
+                    ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
+                    : "hover:bg-[hsl(var(--muted))]"
+                }`}
+              >
+                {w.label}
+              </button>
+            ))}
+          </div>
+          <span className="block text-[11px] text-[hsl(var(--muted-foreground))] mt-1.5">
+            Sets the window every number on this page is calculated over - currently{" "}
+            {formatDate(toISODate(new Date()))} to {formatDate(forecast!.endDate)}.
+          </span>
         </div>
 
         <label className="block">
