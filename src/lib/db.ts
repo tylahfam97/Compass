@@ -1285,12 +1285,15 @@ async function runMigrations(db: CompassDb): Promise<void> {
 
   // Almost every query in the app filters transactions by profile_id (and usually a date
   // range on top), but the only index was on date alone - so those all degraded to a full
-  // scan. Composite indices matter most for users with years of history.
+  // scan. Composite indices matter most for users with years of history. Batched so a large
+  // database builds all three in one transaction rather than three sequential ones.
   if (version < 30) {
-    await db.execute("CREATE INDEX IF NOT EXISTS idx_transactions_profile_date ON transactions(profile_id, date)");
-    await db.execute("CREATE INDEX IF NOT EXISTS idx_transactions_account_date ON transactions(account_id, date)");
-    await db.execute("CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category_id)");
-    await db.execute("PRAGMA user_version = 30");
+    await db.executeBatch([
+      { sql: "CREATE INDEX IF NOT EXISTS idx_transactions_profile_date ON transactions(profile_id, date)" },
+      { sql: "CREATE INDEX IF NOT EXISTS idx_transactions_account_date ON transactions(account_id, date)" },
+      { sql: "CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category_id)" },
+      { sql: "PRAGMA user_version = 30" },
+    ]);
   }
 }
 

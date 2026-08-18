@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ChevronDown, ChevronRight, CheckCircle, Target, Info, HelpCircle, TrendingUp, TrendingDown, SlidersHorizontal } from "lucide-react";
+import { ChevronDown, ChevronRight, CheckCircle, Target, Info, HelpCircle, TrendingUp, TrendingDown, SlidersHorizontal, EyeOff } from "lucide-react";
 import { motion, AnimatePresence, animate, useMotionValue } from "motion/react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
@@ -9,7 +9,8 @@ import { getDb, getAccountsSummaryForProfile, setAccountExcludedFromInsights, ge
 import { categorySpendSql } from "@/lib/reportingSql";
 import { formatCurrency, formatMonthLabel } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
-import { reportLoadError } from "@/stores/toastStore";
+import { handleLoadFailure, toast } from "@/stores/toastStore";
+import { hideCharge, unhideCharge, listHiddenCharges, clearHiddenCharges } from "@/lib/hiddenCharges";
 import {
   generateInsights, getSpendingProfile, getSavingsHistory, computeHealthScore, computeCreditCardHealthScore, detectRecurringCharges,
 } from "@/lib/agent";
@@ -804,6 +805,25 @@ export default function AgentPage() {
   const [payoffModal, setPayoffModal] = useState<{ debts: DebtEntry[]; title: string; subtitle?: string } | null>(null);
   const { active: activeMilestone, enqueue: enqueueMilestones, dismiss: dismissMilestone } = useMilestoneQueue();
 
+  const hiddenChargeCount = listHiddenCharges(profileId).length;
+
+  const hideSubscription = (description: string) => {
+    hideCharge(profileId, description);
+    setReloadTick((t) => t + 1);
+    toast.info("Hidden from subscriptions and the Plan forecast.", {
+      action: {
+        label: "Undo",
+        onClick: () => { unhideCharge(profileId, description); setReloadTick((t) => t + 1); },
+      },
+    });
+  };
+
+  const restoreHiddenSubscriptions = () => {
+    clearHiddenCharges(profileId);
+    setReloadTick((t) => t + 1);
+    toast.success("Restored every hidden charge.");
+  };
+
   const [sectExpanded, setSectExpanded] = useState<{ trends: boolean; subs: boolean; topRoi: boolean }>(() => {
     try { const s = localStorage.getItem("compass_insight_sections"); return s ? JSON.parse(s) : { trends: false, subs: false, topRoi: false }; }
     catch { return { trends: false, subs: false, topRoi: false }; }
@@ -985,7 +1005,7 @@ export default function AgentPage() {
       setRefreshedAt(new Date());
       setLoading(false);
     }
-    load().catch(reportLoadError("your insights", () => setReloadTick((t) => t + 1)));
+    load().catch(handleLoadFailure("your insights", setLoading, () => setReloadTick((t) => t + 1)));
     return () => { cancelled = true; };
   }, [profileId, activeProfile, viewMode, unlockedProfileIds, scopeIds, reloadTick, enqueueMilestones]);
 
@@ -1431,7 +1451,7 @@ export default function AgentPage() {
               <tbody>
                 {subscriptions.map((s) => (
                   <tr key={`${s.description}_${s.amount_cents}_${s.last_seen}`}
-                    className="border-b last:border-0 hover:bg-[hsl(var(--muted))]">
+                    className="border-b last:border-0 hover:bg-[hsl(var(--muted))] group">
                     <td className="px-5 py-2.5 max-w-xs truncate">{s.description}</td>
                     <td className="px-5 py-2.5">
                       <span className="text-xs px-2 py-0.5 rounded-full text-white"
@@ -1445,12 +1465,28 @@ export default function AgentPage() {
                     <td className="px-5 py-2.5 text-right font-mono text-[hsl(var(--error))]">
                       {formatCurrency(Math.abs(s.amount_cents))}/mo
                     </td>
+                    <td className="pr-4 py-2.5 text-right">
+                      <button
+                        onClick={() => hideSubscription(s.description)}
+                        aria-label={`Hide ${s.description}`}
+                        title="Not a subscription - hide it from here and from the Plan forecast"
+                        className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))]
+                                   opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                      >
+                        <EyeOff size={14} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            <div className="px-5 py-3 border-t text-xs text-[hsl(var(--muted-foreground))]">
-              {formatCurrency(totalSubCost)}/month · {formatCurrency(annualSubCost)}/year
+            <div className="px-5 py-3 border-t text-xs text-[hsl(var(--muted-foreground))] flex items-center justify-between gap-3">
+              <span>{formatCurrency(totalSubCost)}/month · {formatCurrency(annualSubCost)}/year</span>
+              {hiddenChargeCount > 0 && (
+                <button onClick={restoreHiddenSubscriptions} className="underline hover:text-[hsl(var(--foreground))]">
+                  Restore {hiddenChargeCount} hidden
+                </button>
+              )}
             </div>
           </CollapsibleSection>
         )}

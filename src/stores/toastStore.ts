@@ -81,3 +81,17 @@ export function reportLoadError(what: string, retry?: () => void) {
     );
   };
 }
+
+/** `.catch()` handler for a page loader that shows a skeleton. Clears the loading flag first -
+ *  page loaders set it at the top and clear it at the bottom, so a throw in between would
+ *  otherwise leave the skeleton spinning forever behind the error toast. */
+export function handleLoadFailure(
+  what: string,
+  setLoading: (loading: boolean) => void,
+  retry?: () => void
+) {
+  return (err: unknown) => {
+    setLoading(false);
+    reportLoadError(what, retry)(err);
+  };
+}

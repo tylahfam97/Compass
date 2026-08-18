@@ -2,6 +2,54 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.0.1 — Forecast Accuracy & Loading Feedback 🔧
+
+A fast follow-up to v1.0 fixing the things real use turned up immediately.
+
+### Fixed: Cancelled Subscriptions Never Went Away
+A charge that recurred for a few months and then stopped kept its streak forever — so a
+subscription you cancelled in April was still listed under Subscriptions and still being billed
+against you in the Plan forecast months later. Anything not seen for **2 months** is now treated
+as cancelled and drops out of both. If it ever reappears in an import, it comes straight back.
+
+### Fixed: Your Own Bills Counted Twice in the Forecast
+Compass only skipped a detected charge if its description matched a scheduled bill *exactly*.
+In practice nobody types `SOFI BANK PL DES:PL PYMT ID:T86083200 INDN:...WEB` — they type "SoFi".
+So the bill you entered and the charge Compass detected were both projected, doubling it. Matching
+is now based on the amount plus a recognisable overlap in the description, so a hand-typed name
+lines up with whatever your bank actually writes.
+
+### New: Hide a Detected Charge
+Detected charges are guesses, and sometimes the guess is wrong — a one-off that looked like a
+pattern, or a transfer that isn't a bill. Hover any detected item on **Plan → What's coming**, or
+any row under **Insights → Subscriptions**, and hide it. It's removed from the forecast, the
+subscription totals and the insights, with an Undo and a "Restore hidden" link if you change your
+mind. Bills you scheduled yourself are never hidden this way — they're facts, not guesses.
+
+### Fixed: The App Looked Frozen While Importing
+Two separate causes. The import step showed a **static** icon while it wrote transactions to the
+database, so a large file looked like a hang. It now shows a moving spinner. Separately, the
+reduce-motion support added in v1.0 was too aggressive and stopped loading spinners and skeletons
+animating at all — for anyone with reduce-motion enabled, every loading state in the app appeared
+frozen. Loading indicators now keep moving (just slowly) because they're feedback, not decoration.
+
+### Fixed: Pages Could Get Stuck Loading Forever
+v1.0 made failed page loads show an error, but the loading skeleton underneath never cleared — so
+you'd get an error message floating over a page that span forever. The skeleton now clears and you
+get the page, the explanation and a Retry button.
+
+### Fixed: Transactions Silently Stopped at 500
+A month with more than 500 transactions quietly dropped the rest with no indication. It now tells
+you how many are shown and suggests narrowing the search.
+
+### Fixed: Erasing a Profile Left Traces
+Erasing a profile's data removed everything from the database but left behind app memory tied to
+it — celebrated milestones, dismissed insights, hidden charges. A fresh start now really is one.
+
+### Improved: Faster First Launch After Updating
+The new database indexes are created in a single operation rather than three, which matters if
+you have years of history.
+
 ## Compass 1.0.0 — Version One 🧭
 
 Compass is out of pre-release. Version one is the same app you've been using, finished: nothing

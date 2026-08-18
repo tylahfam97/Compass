@@ -10,7 +10,7 @@ import { formatCurrency, formatDate, formatMonthLabel, formatAxisCurrency, combi
 import type { Transaction, RecurringCharge } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
-import { reportLoadError } from "@/stores/toastStore";
+import { handleLoadFailure } from "@/stores/toastStore";
 import { Skeleton } from "@/components/Skeleton";
 
 interface BalanceTrendPoint {
@@ -217,7 +217,7 @@ export default function ReportsPage() {
       );
       setLoading(false);
     }
-    load().catch(reportLoadError("this report"));
+    load().catch(handleLoadFailure("this report", setLoading));
     return () => { cancelled = true; };
   }, [month, rangeMode, customStart, customEnd, profileId]);
 

@@ -168,7 +168,6 @@ const OCCURRENCES_PER_MONTH: Record<RecurringCadence, number> = {
   weekly: 52 / 12,
   biweekly: 26 / 12,
 };
-
 /** A rule's cost normalised to "per month", so cadences can be compared and summed. */
 export function monthlyEquivalentCents(rule: { cadence: RecurringCadence; amount_cents: number }): number {
   return Math.round(rule.amount_cents * OCCURRENCES_PER_MONTH[rule.cadence]);
@@ -351,4 +350,50 @@ export function deriveNextActions(result: ForecastResult, context: NextActionCon
 /** Whole-dollar formatting kept local so this module stays free of UI imports. */
 function formatPlainCurrency(cents: number): string {
   return `$${Math.abs(Math.round(cents / 100)).toLocaleString("en-US")}`;
+}
+
+/** Strips punctuation and case so a hand-typed "SoFi" can be compared against a bank's
+ *  "SOFI BANK PL DES:PL PYMT ID:T860... WEB". */
+function normalizeDescription(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/** Shortest normalized description that's distinctive enough to substring-match on - below
+ *  this, "a" or "co" would match half the statement. */
+const MIN_MATCHABLE_LENGTH = 3;
+
+/** Amounts this close are treated as the same charge - covers a payment that drifts by a few
+ *  cents of interest between months. */
+function amountsAreClose(a: number, b: number): boolean {
+  const x = Math.abs(a);
+  const y = Math.abs(b);
+  return Math.abs(x - y) <= Math.max(100, Math.max(x, y) * 0.02);
+}
+
+/**
+ * Whether a charge inferred from history is really the same thing as a bill the user already
+ * scheduled, in which case projecting both would double-count it.
+ *
+ * Exact description equality alone isn't enough: people name their rule "SoFi" while the bank
+ * writes "SOFI BANK PL DES:PL PYMT ID:T86083200 INDN:Tyler Fameli CO ID:3452499527 WEB". So a
+ * near-identical amount plus a recognisable description overlap counts as a match.
+ */
+export function chargeMatchesRule(
+  charge: { description: string; amount_cents: number },
+  rule: { description: string; amount_cents: number }
+): boolean {
+  const a = normalizeDescription(charge.description);
+  const b = normalizeDescription(rule.description);
+  if (a.length === 0 || b.length === 0) return false;
+  if (a === b) return true;
+
+  if (!amountsAreClose(charge.amount_cents, rule.amount_cents)) return false;
+
+  const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
+  if (shorter.length >= MIN_MATCHABLE_LENGTH && longer.includes(shorter)) return true;
+
+  // "SoFi Loan" vs "SoFi Bank PL…" share no containment but obviously refer to the same payee.
+  const firstA = a.split(" ")[0];
+  const firstB = b.split(" ")[0];
+  return firstA.length >= MIN_MATCHABLE_LENGTH && firstA === firstB;
 }

@@ -3,15 +3,16 @@ import { Link } from "react-router-dom";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot,
 } from "recharts";
-import { CalendarClock, TrendingUp, Sparkles, AlertTriangle, Wand2 } from "lucide-react";
+import { CalendarClock, TrendingUp, Sparkles, AlertTriangle, Wand2, EyeOff } from "lucide-react";
 import { formatCurrency, formatAxisCurrency, formatDate } from "@/lib/utils";
 import {
   projectCashFlow, expandOccurrences, deriveDailyBaselineCents, monthlyEquivalentCents,
   deriveNextActions, toISODate, daysFromToday, type ForecastEvent, type NextActionTone,
 } from "@/lib/forecast";
 import { getForecastInputs, MIN_MONTHS_FOR_FORECAST, type ForecastInputs } from "@/lib/forecastData";
+import { hideCharge, unhideCharge, listHiddenCharges, clearHiddenCharges } from "@/lib/hiddenCharges";
 import { useProfileStore } from "@/stores/profileStore";
-import { reportLoadError } from "@/stores/toastStore";
+import { reportLoadError, toast } from "@/stores/toastStore";
 import RecurringRulesPanel from "@/components/RecurringRulesPanel";
 import { CardListSkeleton } from "@/components/Skeleton";
 
@@ -91,6 +92,25 @@ export default function PlanPage() {
   const setHorizonPersisted = (h: Horizon) => {
     setHorizon(h);
     localStorage.setItem(HORIZON_KEY, String(h));
+  };
+
+  const hiddenCount = listHiddenCharges(profileId).length;
+
+  const handleHide = (description: string) => {
+    hideCharge(profileId, description);
+    setReloadTick((t) => t + 1);
+    toast.info(<>Hidden from your forecast and subscriptions.</>, {
+      action: {
+        label: "Undo",
+        onClick: () => { unhideCharge(profileId, description); setReloadTick((t) => t + 1); },
+      },
+    });
+  };
+
+  const handleRestoreHidden = () => {
+    clearHiddenCharges(profileId);
+    setReloadTick((t) => t + 1);
+    toast.success("Restored every hidden charge.");
   };
 
   const forecast = useMemo(() => {
@@ -413,7 +433,7 @@ export default function PlanPage() {
                 </p>
                 <div className="space-y-1.5">
                   {group.events.map((e) => (
-                    <div key={e.key} className="flex items-center gap-3 border rounded-lg px-3 py-2">
+                    <div key={e.key} className="flex items-center gap-3 border rounded-lg px-3 py-2 group">
                       <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: e.categoryColor ?? "hsl(var(--neutral))" }} />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate">{e.description}</p>
@@ -432,12 +452,32 @@ export default function PlanPage() {
                       >
                         {formatCurrency(e.amountCents)}
                       </span>
+                      {e.source === "detected" && (
+                        <button
+                          onClick={() => handleHide(e.description)}
+                          aria-label={`Hide ${e.description}`}
+                          title="Not a real bill - hide it from the forecast and subscriptions"
+                          className="shrink-0 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))]
+                                     opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                        >
+                          <EyeOff size={14} />
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
               </div>
             ))}
           </div>
+        )}
+
+        {hiddenCount > 0 && (
+          <p className="text-xs text-[hsl(var(--muted-foreground))] mt-4 pt-3 border-t">
+            {hiddenCount} charge{hiddenCount === 1 ? " is" : "s are"} hidden from this forecast.{" "}
+            <button onClick={handleRestoreHidden} className="underline hover:text-[hsl(var(--foreground))]">
+              Restore {hiddenCount === 1 ? "it" : "them"}
+            </button>
+          </p>
         )}
       </section>
 

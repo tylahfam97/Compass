@@ -1,7 +1,7 @@
 import { getDb, getRecurringRulesForProfile } from "./db";
 import { detectRecurringCharges } from "./agent";
 import { expenseSumSql, latestBalancePerAccountSql } from "./reportingSql";
-import { detectedChargeToRule, type ForecastRule } from "./forecast";
+import { detectedChargeToRule, chargeMatchesRule, type ForecastRule } from "./forecast";
 
 /**
  * Gathers everything `projectCashFlow` needs from the database. Kept apart from `forecast.ts`
@@ -91,10 +91,10 @@ export async function getForecastInputs(profileId: number): Promise<ForecastInpu
     category_color: r.category_color ?? null,
   }));
 
-  // A charge the user has already written a rule for would otherwise be projected twice.
-  const ruleDescriptions = new Set(activeRules.map((r) => r.description.trim().toLowerCase()));
+  // A charge the user has already scheduled would otherwise be projected twice - matched
+  // loosely, since a hand-typed "SoFi" and the bank's full ACH descriptor are the same bill.
   const detected: ForecastRule[] = detectedCharges
-    .filter((c) => !ruleDescriptions.has(c.description.trim().toLowerCase()))
+    .filter((c) => !activeRules.some((r) => chargeMatchesRule(c, r)))
     .map(detectedChargeToRule);
 
   return {

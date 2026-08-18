@@ -282,6 +282,15 @@ body {
   .border.rounded-2xl:not(input):not(textarea):not(select):not(button)::before {
     animation: none !important;
   }
+
+  /* Loading indicators are feedback, not decoration - killing them makes a busy app look
+     frozen. Slowed right down rather than stopped. Only the timing is overridden so this
+     doesn't depend on Tailwind's internal keyframe names. */
+  .animate-spin,
+  .animate-pulse {
+    animation-duration: 2.4s !important;
+    animation-iteration-count: infinite !important;
+  }
 }
 
 .reduce-motion *,
@@ -299,5 +308,11 @@ body {
 .reduce-motion .border.rounded-xl:not(input):not(textarea):not(select):not(button)::before,
 .reduce-motion .border.rounded-2xl:not(input):not(textarea):not(select):not(button)::before {
   animation: none !important;
+}
+
+.reduce-motion .animate-spin,
+.reduce-motion .animate-pulse {
+  animation-duration: 2.4s !important;
+  animation-iteration-count: infinite !important;
 }
 

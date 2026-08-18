@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Download, Upload, CalendarClock, ShieldAlert, AlertTriangle, CheckCircle2, Sparkles, Eye, Trash2 } from "lucide-react";
 import { getBalanceAnchorRiskReport, deleteAllProfileData, type BalanceAnchorRiskEntry } from "@/lib/db";
+import { clearProfileLocalState } from "@/lib/profileReset";
 import { exportBackup, restoreBackup, getLastBackupAt } from "@/lib/backup";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
@@ -47,6 +48,7 @@ export default function SettingsPage() {
     setErasing(true);
     try {
       await deleteAllProfileData(profileId);
+      clearProfileLocalState(profileId);
       setEraseOpen(false);
       setEraseConfirmText("");
       toast.success("This profile's data has been erased. Reloading…");

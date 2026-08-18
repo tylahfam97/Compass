@@ -10,7 +10,7 @@ import { useCategoryStore } from "@/stores/categoryStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useMilestoneQueue } from "@/hooks/useMilestoneQueue";
 import { useProfileStore } from "@/stores/profileStore";
-import { reportLoadError, toast } from "@/stores/toastStore";
+import { handleLoadFailure, toast } from "@/stores/toastStore";
 import CategoryOptions from "@/components/CategoryOptions";
 import WeeklyMiniBar from "@/components/WeeklyMiniBar";
 import PinModal from "@/components/PinModal";
@@ -366,7 +366,7 @@ export default function BudgetsPage() {
     setLoading(false);
   }, [month, profileId, viewMode, unlockedProfileIds]);
 
-  useEffect(() => { loadBudgets().catch(reportLoadError("your budgets", () => void loadBudgets())); }, [loadBudgets]);
+  useEffect(() => { loadBudgets().catch(handleLoadFailure("your budgets", setLoading, () => void loadBudgets())); }, [loadBudgets]);
 
   // Celebrate budgets held for the whole of the last completed month. Deliberately independent
   // of the month being viewed: the win is a fact about a finished period, not about where the

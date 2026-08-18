@@ -6,6 +6,7 @@ import {
   deriveDailyBaselineCents,
   projectCashFlow,
   deriveNextActions,
+  chargeMatchesRule,
   toISODate,
   daysFromToday,
   type ForecastRule,
@@ -243,6 +244,46 @@ describe("date helpers", () => {
     expect(daysFromToday("2026-08-24", today)).toBe(6);
     expect(daysFromToday("2026-08-18", today)).toBe(0);
     expect(daysFromToday("2026-08-11", today)).toBe(-7);
+  });
+});
+
+describe("chargeMatchesRule", () => {
+  const rule = { description: "SoFi", amount_cents: -60127 };
+
+  it("matches a hand-typed name against the bank's full ACH descriptor", () => {
+    const charge = {
+      description: "SoFi Bank PL DES:PL PYMT ID:T86083200 INDN:Tyler Fameli CO ID:3452499527 WEB",
+      amount_cents: -60127,
+    };
+    expect(chargeMatchesRule(charge, rule)).toBe(true);
+  });
+
+  it("matches on a shared payee even when neither description contains the other", () => {
+    expect(chargeMatchesRule({ description: "SoFi Bank PL PYMT", amount_cents: -60127 }, { description: "SoFi Loan", amount_cents: -60127 })).toBe(true);
+  });
+
+  it("tolerates a few cents of drift between months", () => {
+    expect(chargeMatchesRule({ description: "SoFi Bank PL", amount_cents: -60180 }, rule)).toBe(true);
+  });
+
+  it("does not match a different payee that happens to cost the same", () => {
+    expect(chargeMatchesRule({ description: "MOHELA DES:QDR", amount_cents: -60127 }, rule)).toBe(false);
+  });
+
+  it("does not match the same payee at a clearly different amount", () => {
+    expect(chargeMatchesRule({ description: "SoFi Bank PL", amount_cents: -1200 }, rule)).toBe(false);
+  });
+
+  it("still matches identical descriptions regardless of amount", () => {
+    expect(chargeMatchesRule({ description: "Rent", amount_cents: -120000 }, { description: "rent", amount_cents: -100000 })).toBe(true);
+  });
+
+  it("refuses to match on a payee fragment too short to be distinctive", () => {
+    expect(chargeMatchesRule({ description: "PG Electric", amount_cents: -5000 }, { description: "PG", amount_cents: -5000 })).toBe(false);
+  });
+
+  it("handles descriptions that normalise to nothing", () => {
+    expect(chargeMatchesRule({ description: "***", amount_cents: -5000 }, { description: "---", amount_cents: -5000 })).toBe(false);
   });
 });
 
