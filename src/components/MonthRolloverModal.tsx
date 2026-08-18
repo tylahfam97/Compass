@@ -41,7 +41,7 @@ export default function MonthRolloverModal() {
             role="status"
           >
             <img src={calendarFlipGif} alt="" className="w-40 h-40 object-contain" />
-            <h2 className="text-xl font-semibold text-gradient-gold">Welcome to {monthLabel(newMonth)}</h2>
+            <h2 className="text-xl font-semibold" style={{ color: "var(--gold)" }}>Welcome to {monthLabel(newMonth)}</h2>
             <p className="text-sm text-[hsl(var(--muted-foreground))]">
               Compass has moved your views to the new month - fresh start, clean slate.
             </p>

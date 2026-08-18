@@ -107,7 +107,7 @@ export function combineAccountBalances(
 
 /** A date with each account's forward-filled balance kept separate (keyed by account_id),
  *  instead of summed into one combined total. */
-export interface SeparatedBalancePoint {
+interface SeparatedBalancePoint {
   date: string;
   byAccount: Record<number, number>;
 }
