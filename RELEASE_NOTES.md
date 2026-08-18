@@ -17,9 +17,10 @@ of what's coming in is genuinely free once your bills are paid.
 - A one-line breakdown spells out the whole picture —
   `$3,834 now + $2,331 coming in − $2,374 bills − $2,449 everyday = $1,342 left on Aug 31` —
   so where the projection lands is arithmetic you can follow rather than a number to trust
-- The chart now shades **money already committed** at each point (bills still due, plus everyday
-  spending for the days left), so the gap between your balance and that band *is* your free
-  money, and you can watch it narrow as bills approach
+- The chart now shades **bills still due** at each point, so the gap between your balance and
+  that band is what's left for everyday life and saving. It steps down only when a bill is
+  actually due — everyday spending is deliberately left out of it, since an estimate of your own
+  choices isn't an obligation
 - Setting money aside draws a line on the chart, so it's something you can see the balance
   approach rather than just a number
 

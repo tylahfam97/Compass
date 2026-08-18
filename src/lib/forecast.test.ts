@@ -433,22 +433,25 @@ describe("discretionary and committed money", () => {
     expect(r.days[r.days.length - 1].committedCents).toBe(0);
   });
 
-  it("counts every remaining bill and day of spending as committed on day one", () => {
+  it("counts only bills still to come, not the everyday spending estimate", () => {
     const r = projectCashFlow({ ...base, events: [event("2026-08-05", -30_000)] });
-    // After day 1 there are 9 days of $10 baseline left, plus the $300 bill.
-    expect(r.days[0].committedCents).toBe(9_000 + 30_000);
+    expect(r.days[0].committedCents).toBe(30_000);
   });
 
-  it("counts down commitments as bills are paid", () => {
+  it("stays flat on days with no bill, so the band only steps at real obligations", () => {
     const r = projectCashFlow({ ...base, events: [event("2026-08-05", -30_000)] });
-    const beforeBill = r.days[3].committedCents;
-    const afterBill = r.days[4].committedCents;
-    expect(beforeBill - afterBill).toBe(30_000 + 1_000);
+    expect(r.days[0].committedCents).toBe(r.days[1].committedCents);
+    expect(r.days[1].committedCents).toBe(r.days[2].committedCents);
+  });
+
+  it("drops by exactly the bill amount once it's paid", () => {
+    const r = projectCashFlow({ ...base, events: [event("2026-08-05", -30_000)] });
+    expect(r.days[3].committedCents - r.days[4].committedCents).toBe(30_000);
   });
 
   it("ignores incoming money when working out what is committed", () => {
     const r = projectCashFlow({ ...base, events: [event("2026-08-05", 500_000)] });
-    expect(r.days[0].committedCents).toBe(9_000);
+    expect(r.days[0].committedCents).toBe(0);
   });
 });
 

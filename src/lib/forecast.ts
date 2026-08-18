@@ -50,9 +50,9 @@ export interface ForecastDay {
   events: ForecastEvent[];
   /** Everyday spending assumed on this day, as a positive number. */
   baselineCents: number;
-  /** Money already spoken for after this day - every remaining bill and day of everyday
-   *  spending left in the window. The gap between `balanceCents` and this is what's genuinely
-   *  free to spend or save. */
+  /** Scheduled bills still to be paid after this day. Deliberately excludes the everyday
+   *  spending estimate - that's a projection of the user's own choices, not an obligation, and
+   *  folding it in made the band slide down continuously with nothing real behind the movement. */
   committedCents: number;
 }
 
@@ -239,11 +239,10 @@ export function projectCashFlow(input: ProjectCashFlowInput): ForecastResult {
   let stillOwed = 0;
   for (let i = out.length - 1; i >= 0; i--) {
     out[i].committedCents = stillOwed;
-    const billsThatDay = out[i].events.reduce(
+    stillOwed += out[i].events.reduce(
       (sum, e) => sum + (e.amountCents < 0 ? Math.abs(e.amountCents) : 0),
       0
     );
-    stillOwed += billsThatDay + out[i].baselineCents;
   }
 
   let lowPoint: ForecastDay | null = null;

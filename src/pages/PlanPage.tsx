@@ -482,8 +482,8 @@ export default function PlanPage() {
       <section className="border rounded-2xl p-5" id="plan-chart">
         <h2 className="font-semibold text-sm mb-1">Projected checking balance</h2>
         <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">
-          Each step down is everyday spending; the cliffs are bills and the jumps are income. The
-          shaded band is money already spoken for - the gap above it is what's free.
+          The blue line drifts down with everyday spending, drops at bills and jumps at income.
+          The red band is the bills still ahead of you - it only steps when one is actually due.
         </p>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
@@ -505,7 +505,7 @@ export default function PlanPage() {
               />
               <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" width={60} />
               <Tooltip
-                formatter={(v, name) => [formatCurrency(v as number), name === "committed" ? "Committed" : "Balance"]}
+                formatter={(v, name) => [formatCurrency(v as number), name === "committed" ? "Bills still due" : "Balance"]}
                 labelFormatter={(l) => formatDate(String(l))}
                 contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
               />
@@ -537,8 +537,8 @@ export default function PlanPage() {
           </span>
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-0.5 rounded" style={{ backgroundColor: "hsl(var(--error))" }} />
-            Already committed
-            <InfoTooltip text="At any point on the chart, this is everything still due before the window ends - remaining bills plus the everyday spending estimate for the days left. Where your balance sits above it, that gap is money you could spend or save; where it dips below, something won't be covered." />
+            Bills still due
+            <InfoTooltip text="At any point on the chart, the total of scheduled bills still to be paid before the window ends. It steps down only when a bill is actually due. Everyday spending is deliberately left out - that's an estimate of your own choices, not an obligation. Where the blue line sits above this band, the gap is what's left for everyday life and saving." />
           </span>
           {bufferCents > 0 && (
             <span className="flex items-center gap-1.5">
