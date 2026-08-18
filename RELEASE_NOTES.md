@@ -2,6 +2,53 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.0.0 — Version One 🧭
+
+Compass is out of pre-release. Version one is the same app you've been using, finished: nothing
+here changes how your money is counted, and nothing needs to be re-imported.
+
+### New: Compass Now Celebrates When You Hit Something
+Progress with money is slow and mostly invisible. A card balance drops a little each month, a
+goal creeps toward its target, and the moment it actually lands passes without anything marking
+it. Compass now notices those moments and says something.
+
+Celebrations come in two sizes. The big ones — a debt reaching zero, a goal completed, net worth
+crossing into positive territory — get a full congratulations dialog and a confetti burst, and
+wait for you to dismiss them. The smaller ones appear as a banner at the top of the screen and
+clear themselves after a few seconds.
+
+What Compass watches for:
+
+- **Debt paid off** — a loan or credit card reaching a zero balance
+- **Debt paid down** — passing 25%, 50% and 75% of the way to zero, measured against the
+  earliest balance on record for that account
+- **Net worth turning positive** — the first month you own more than you owe
+- **Net worth milestones** — passing $1K, $5K, $10K, $25K, $50K, $100K, $250K, $500K and $1M
+- **Goals reached** — any goal hitting 100%
+- **Budgets held** — finishing a full calendar month inside your monthly budgets
+- **Health Score grade up** — your Financial Health Score moving up a letter grade
+
+Each milestone celebrates once, per profile, and is remembered across restarts — so reopening
+the Insights page doesn't replay it. The exception is the Health Score grade, which celebrates
+again if you lose a grade and earn it back, because that's a real accomplishment the second time
+too. If you've turned on your system's "reduce motion" setting, the confetti is skipped and you
+still get the message.
+
+A few deliberate details, so nothing feels random:
+
+- Only the highest milestone you've newly passed is announced. Importing years of history at
+  once gives you a single "$100K net worth" moment rather than nine banners counting up to it.
+- Budget celebrations only ever refer to a month that has actually finished — a budget you're
+  still in the middle of can still be blown, and congratulating you early would be dishonest.
+- Multiple budgets held in the same month are announced together ("3 budgets held"), not one
+  after another.
+- The first time you open Compass after updating, your current Health Score grade is recorded
+  quietly as a starting point. You won't be congratulated for a grade you already had — only for
+  the next one you earn.
+
+Because net worth milestones are new, one may fire shortly after updating if you're already past
+one of those marks. That's a one-time catch-up, not a bug.
+
 ## Compass 0.9.9 — Brokerage Statements & Honest Numbers 📊
 
 Full E\*TRADE statement support, plus a round of accuracy fixes to how your savings rate and
