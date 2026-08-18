@@ -20,7 +20,7 @@ interface Props {
 
 export default function CategoryModal({ category, onClose, profileId }: Props) {
   const { categories, addCategory, updateCategory, removeCategory } = useCategoryStore();
-  const { onBackdropClick } = useModalDismiss(onClose);
+  const { onBackdropClick, containerRef } = useModalDismiss(onClose);
   const [name, setName] = useState(category?.name ?? "");
   const [color, setColor] = useState(category?.color ?? "#3b82f6");
   const [parentId, setParentId] = useState<number | "">(category?.parent_id ?? "");
@@ -81,7 +81,7 @@ export default function CategoryModal({ category, onClose, profileId }: Props) {
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
-      onClick={onBackdropClick}
+      onClick={onBackdropClick} ref={containerRef}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
     >
       <motion.div

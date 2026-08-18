@@ -3,9 +3,10 @@ import logoUrl from "@/assets/logo.svg";
 import { useState, useEffect, Suspense, lazy } from "react";
 import {
   LayoutDashboard, ArrowLeftRight, Upload, TrendingUp, LineChart,
-  Wallet, Target, BarChart2, Lightbulb, Globe, ChevronLeft, ChevronRight, MessageSquare, Sparkles, Settings as SettingsIcon,
+  Wallet, Target, BarChart2, Lightbulb, Globe, ChevronLeft, ChevronRight, MessageSquare, Sparkles, CalendarClock, Settings as SettingsIcon,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { MotionConfig } from "motion/react";
 import DashboardPage from "@/pages/DashboardPage";
 import TransactionsPage from "@/pages/TransactionsPage";
 import TrendsPage from "@/pages/TrendsPage";
@@ -22,6 +23,7 @@ import GoldParticleField from "@/components/GoldParticleField";
 import Spotlight from "@/components/Spotlight";
 import OnboardingChecklistWidget from "@/components/OnboardingChecklistWidget";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import ToastHost from "@/components/ToastHost";
 import { CardListSkeleton } from "@/components/Skeleton";
 
 // Lazy-loaded: these 3 pages pull in the heaviest deps (xlsx, pdfjs-dist,
@@ -30,6 +32,7 @@ import { CardListSkeleton } from "@/components/Skeleton";
 const ImportPage = lazy(() => import("@/pages/ImportPage"));
 const ReportsPage = lazy(() => import("@/pages/ReportsPage"));
 const InvestmentsPage = lazy(() => import("@/pages/InvestmentsPage"));
+const PlanPage = lazy(() => import("@/pages/PlanPage"));
 
 function PageLoadingFallback() {
   return (
@@ -62,6 +65,7 @@ function RoutedContent() {
         <Route path="/investments" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><InvestmentsPage /></div></Suspense>} />
         <Route path="/budgets" element={<div className="py-6"><BudgetsPage /></div>} />
         <Route path="/goals" element={<div className="py-6"><GoalsPage /></div>} />
+        <Route path="/plan" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><PlanPage /></div></Suspense>} />
         <Route path="/reports" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><ReportsPage /></div></Suspense>} />
         <Route path="/agent" element={<div className="py-6"><AgentPage /></div>} />
         <Route path="/settings" element={<div className="py-6"><SettingsPage /></div>} />
@@ -72,6 +76,7 @@ function RoutedContent() {
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useProfileStore } from "@/stores/profileStore";
 import { useOnboardingStore } from "@/stores/onboardingStore";
+import { useSettingsStore } from "@/stores/settingsStore";
 import { getDb } from "@/lib/db";
 import { generateInsights } from "@/lib/agent";
 import type { Category, Profile } from "@/lib/types";
@@ -86,6 +91,7 @@ const NAV_ITEMS = [
   { to: "/investments",  label: "Investments",   Icon: LineChart,        showBadge: false, tourId: undefined },
   { to: "/budgets",      label: "Budgets",       Icon: Wallet,           showBadge: false, tourId: undefined },
   { to: "/goals",        label: "Goals",         Icon: Target,           showBadge: false, tourId: undefined },
+  { to: "/plan",         label: "Plan",          Icon: CalendarClock,    showBadge: false, tourId: undefined },
   { to: "/reports",      label: "Reports",       Icon: BarChart2,        showBadge: false, tourId: undefined },
   { to: "/agent",        label: "Insights",      Icon: Lightbulb,        showBadge: true,  tourId: "nav-agent" },
   { to: "/settings",     label: "Settings",      Icon: SettingsIcon,     showBadge: false, tourId: undefined },
@@ -109,7 +115,12 @@ function App() {
   const setCategories = useCategoryStore((s) => s.setCategories);
   const { profiles, setProfiles, setActiveProfile } = useProfileStore();
   const restartOnboarding = useOnboardingStore((s) => s.restart);
+  const motionPref = useSettingsStore((s) => s.motionPref);
   const [insightWarnings, setInsightWarnings] = useState(0);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("reduce-motion", motionPref === "reduced");
+  }, [motionPref]);
 
   // Launch picker state
   const [launchReady, setLaunchReady] = useState(false);
@@ -163,6 +174,7 @@ function App() {
   }, []);
 
   return (
+    <MotionConfig reducedMotion={motionPref === "reduced" ? "always" : "user"}>
     <BrowserRouter>
       {/* ── Launch profile picker ─────────────────────────────────── */}
       {launchReady && !profileSelected && (
@@ -213,6 +225,7 @@ function App() {
         />
       )}
       {profileSelected && <MonthRolloverModal />}
+      <ToastHost />
       <div className="flex h-screen overflow-hidden">
         {/* Sidebar */}
         <aside
@@ -325,6 +338,7 @@ function App() {
         </>
       )}
     </BrowserRouter>
+    </MotionConfig>
   );
 }
 

@@ -2,12 +2,12 @@ import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { LineChart, Line, XAxis, ResponsiveContainer, Tooltip } from "recharts";
 import { Eye, EyeOff, ChevronLeft, ChevronRight } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
 import { getDb, setAccountHiddenFromDashboard } from "@/lib/db";
 import { incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
 import { formatCurrency, formatDate, formatMonthLabel, separateAccountBalances, accountChartColor } from "@/lib/utils";
 import { computeNetWorth, latestHoldingPerAccount, type NetWorthSnapshot } from "@/lib/netWorth";
 import { useProfileStore } from "@/stores/profileStore";
+import { toast, reportLoadError } from "@/stores/toastStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import PinModal from "@/components/PinModal";
 import ManageAccountsPanel from "@/components/ManageAccountsPanel";
@@ -80,7 +80,6 @@ export default function OverviewPage() {
   const [loading, setLoading] = useState(true);
   const [netWorth, setNetWorth] = useState<NetWorthSnapshot | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
-  const [hideToast, setHideToast] = useState<{ id: number; name: string } | null>(null);
 
   const [viewMode, setViewMode] = useState<"profile" | "global">(() => {
     const saved = localStorage.getItem(viewModeKey(profileId));
@@ -201,7 +200,7 @@ export default function OverviewPage() {
       );
       setData(new Map(entries));
       setLoading(false);
-    })().catch(console.error);
+    })().catch(reportLoadError("your account overview", () => setReloadTick((t) => t + 1)));
   }, [visibleProfiles, month, reloadTick]);
 
   useEffect(() => {
@@ -224,13 +223,14 @@ export default function OverviewPage() {
    *  by the eye-off icon next to each credit-card legend chip. */
   const hideAccount = async (id: number, name: string) => {
     await setAccountHiddenFromDashboard(id, true);
-    setHideToast({ id, name });
+    toast.info(<><strong>{name}</strong> hidden from the dashboard/overview.</>, {
+      action: { label: "Undo", onClick: () => void restoreAccount(id).catch(console.error) },
+    });
     setReloadTick((t) => t + 1);
   };
 
   const restoreAccount = async (id: number) => {
     await setAccountHiddenFromDashboard(id, false);
-    setHideToast(null);
     setReloadTick((t) => t + 1);
   };
 
@@ -510,36 +510,6 @@ export default function OverviewPage() {
           ))}
         </div>
       )}
-
-      {/* Hide-account undo toast - border/rounded live on the inner div, not this
-          fixed-positioned one (see CSS specificity note in TransactionsPage). */}
-      <AnimatePresence>
-        {hideToast && (
-          <motion.div
-            key="hide-account-toast"
-            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} transition={{ duration: 0.2 }}
-            className="fixed bottom-6 right-6 z-50 max-w-sm"
-          >
-            <div className="border shadow-xl rounded-xl px-5 py-3 flex items-center gap-4 text-sm bg-[hsl(var(--background))]">
-              <span className="flex-1 text-[hsl(var(--foreground))]">
-                <strong>{hideToast.name}</strong> hidden from the dashboard/overview.
-              </span>
-              <button
-                onClick={() => restoreAccount(hideToast.id)}
-                className="px-3 py-1.5 border rounded-lg font-medium hover:bg-[hsl(var(--muted))] transition-colors shrink-0"
-              >
-                Undo
-              </button>
-              <button
-                onClick={() => setHideToast(null)}
-                className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] text-lg leading-none"
-              >
-                ?
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

@@ -18,6 +18,20 @@
 
 ---
 
+## 🧭 $${\color{#2ea043}Compass \space 1.0 \space is \space here}$$
+
+Compass is out of pre-release. The headline of v1.0 is that **Compass now looks forward**: the new
+**[Plan](#-plan--cash-flow-forecast)** tab projects your checking balance 30, 60 or 90 days out
+and answers the question people actually have — *do I make it to payday?* It comes with
+what-if sliders, a bill calendar, and a short list of what you could actually do about it.
+
+Alongside it: celebrations when you pay off a debt or hit a net worth milestone, a real recap of
+the month that just ended, full reduce-motion and keyboard-focus support, a way to erase a
+profile's data on request, and errors that no longer fail silently. Full details in
+[RELEASE_NOTES.md](RELEASE_NOTES.md).
+
+---
+
 ## 🎉 $${\color{#2ea043}macOS \space is \space HERE!}$$ (Beta)
 
 **Huge one:** Compass now runs on **macOS** — Intel and Apple Silicon, one universal build! 🍎✨
@@ -34,8 +48,8 @@ Grab it from the [Downloads section below](#installation) or the [website](https
 
 1. [Download and install Compass](#installation) (< 5 MB installer)
 2. Open the app → click **✦ Try Demo Mode** on the dashboard
-3. ~50 realistic sample transactions load instantly across 2 months
-4. Every feature is fully explorable — no real data, no risk, no commitment
+3. ~55 realistic sample transactions load instantly across ~3 months, on a demo checking and credit card account
+4. Every feature is fully explorable — including the Plan forecast — with no real data, no risk, no commitment
 
 > *"Try Compass safely with demo data. No account. No import. No commitment."*
 
@@ -73,6 +87,7 @@ If you've been avoiding finance apps because you don't trust them with your bank
 | **Modern UI** | ✅ | ✅ | ✅ | ⚠️ | ❌ |
 | **Guided 6-step import** | ✅ | N/A | ⚠️ | ⚠️ | ⚠️ |
 | **Ghost subscription detection** | ✅ | ⚠️ | ❌ | ❌ | ❌ |
+| **Cash flow forecast** | ✅ | ✅ | ⚠️ | ❌ | ❌ |
 | **Demo mode** | ✅ | ❌ | ❌ | ❌ | ❌ |
 
 **The lane Compass owns:** Simpler than Firefly. Less budgeting-dogmatic than Actual. More modern than HomeBank. More private than Monarch.
@@ -198,6 +213,26 @@ Each spotlight card includes a forward-looking **“↗ potential” callout** c
 
 Insight wording also varies over time and references your recent history (e.g. "up from $1,200 last month") instead of repeating the exact same sentence every time the same insight fires.
 
+### 🧭 Plan — Cash Flow Forecast
+
+Every other view in Compass describes the past. **Plan** describes what's coming.
+
+It projects your checking balance forward 30, 60 or 90 days from the bills and income you've
+scheduled, the recurring charges Compass spots in your history, and an estimate of everyday
+spending drawn from your last 3 months — then answers the question people actually have: **do I
+make it to payday?**
+
+- **Safe to spend** — what you can spend today without pushing your projected low point below your cushion
+- **Lowest point** — the smallest balance you're projected to hit, and the date you hit it
+- **What to do next** — the one part of Compass that recommends rather than observes: how much to find before a shortfall and what that is per day, a nudge to schedule your paycheck, a warning when your cushion is thin, or a prompt to put a surplus to work
+- **What if…** — drag a slider to see what extra spending, or setting a cushion aside, does to the whole projection instantly
+- **What's coming** — every scheduled bill and paycheck grouped by week, with charges Compass inferred from your history clearly marked as detected rather than confirmed
+- **Scheduled Bills & Income** — add rent, your paycheck, subscriptions; monthly, weekly or every 2 weeks. Reminder-only: nothing ever auto-posts a real transaction
+
+Deliberate limits: checking/debit accounts only (spendable cash is the question being answered),
+at least 2 months of history required before a forecast appears, and scheduled bills are removed
+from the everyday-spending estimate so nothing is counted twice.
+
 ### 💳 Debt Payoff Dashboard
 
 For any loan or credit card with a balance, Compass builds a full payoff plan instead of just tracking the number. Rank every debt by **Avalanche** (highest interest rate first — saves the most money), **Snowball** (smallest balance first — the fastest visible win), or **Cash-flow First** (highest minimum payment first — frees up monthly cash soonest), then click any account to open its interactive plan:
@@ -314,7 +349,11 @@ The installer removes the application files. Your data file at `%APPDATA%\com.co
 
 ### How do I export all my data?
 
-From the **Transactions** page, toggle **All time** and click **↓ Export CSV**. This exports every transaction across all months in the current profile. Run this for each profile if you have multiple.
+From the **Transactions** page, toggle **All time** and click **↓ Export CSV**. This exports every transaction across all months in the current profile. Run this for each profile if you have multiple. For a complete, restorable copy (not just transactions), use **Settings → Backup & Restore → Export Backup** instead.
+
+### How do I delete all my data?
+
+**Settings → Erase this profile's data** permanently deletes every transaction, account, budget, goal, scheduled item and custom category for the active profile, leaving your other profiles untouched. It requires a typed confirmation and cannot be undone. To remove everything including the profiles themselves, delete the app's data folder (see above).
 
 ### Can the developer see my data?
 
@@ -381,14 +420,25 @@ Go to **Transactions** → click any colored category badge → select the corre
 
 ### 6 — Set Budgets and Goals
 
-- **Budgets:** Go to Budgets → pick a category → set a monthly limit. The progress bar fills as you spend, with an on-pace projection.
-- **Goals:** Go to Goals → pick a goal type (net savings, spending limit, or income target) → set a target. Status updates automatically each month.
+- **Budgets:** Go to Budgets → pick a category → set a monthly limit. The progress bar fills as you spend, with an on-pace projection. On an empty Budgets page, **Suggest budgets from my spending** builds a starter set from your last 3 months.
+- **Goals:** Go to Goals → pick one of eight goal types (net savings, spending limit, income target, savings target, balance floor, under-budget streak, savings rate habit, or debt paydown) → set a target. Status updates automatically each month.
 
-### 7 — Clear Data
+### 7 — Look ahead with Plan
+
+Go to **Plan** and add your rent, your paycheck and any bill you know is coming under
+*Scheduled Bills & Income*. The forecast above updates immediately, showing your projected
+checking balance, what's safe to spend, and whether you make it to your next payday. Adding your
+income matters most — without it the projection only ever slopes downward.
+
+### 8 — Clear Data
 
 On the **Dashboard**, scroll to the *Manage Data* section:
 - **Clear [month]** — removes all transactions for the selected month only
 - **Clear all transactions** — removes everything (confirmation required)
+
+To erase a profile completely — accounts, budgets, goals, scheduled items and custom categories,
+not just transactions — use **Settings → Erase this profile's data**. It requires a typed
+confirmation and cannot be undone, so export a backup first.
 
 ---
 
@@ -404,7 +454,8 @@ Being transparent about what Compass does not do helps you decide if it's the ri
 | **Single currency** | Multi-currency not supported |
 | **No shared accounts** | No collaborative or family access features |
 | **Manual cash entries** | Cash transactions must be added individually |
-| **Recurring transactions are reminder-only** | Scheduling a bill/income ahead of time (Settings → Recurring Transactions) never auto-posts a real transaction - you still add/edit it yourself |
+| **Recurring transactions are reminder-only** | Scheduling a bill/income ahead of time (Plan → Scheduled Bills & Income) feeds the forecast but never auto-posts a real transaction - you still add/edit it yourself |
+| **The forecast covers checking/debit only** | Credit card balances aren't projected - Plan answers "will I make it to payday", which is a question about spendable cash |
 
 If a limitation is blocking you, [open an issue](../../issues) — user feedback directly shapes the roadmap.
 
@@ -436,32 +487,42 @@ Statement import · Import history + undo · Auto-categorization · Edit/add/del
 ### ✅ Phase 2 — AI Insights *(complete)*
 Automatic insight generation (budget gaps, unusual spending, savings rate, overspend streaks, low balance alerts) with varied, history-aware phrasing · Categorization rules engine with priority ordering · Interactive Debt Payoff Dashboard with Avalanche/Snowball/Cash-flow ranking, a live redirect slider, payoff timeline, and quick-win snowball/avalanche comparisons · Budget rollover · Investment allocation & category spending donut charts · Milestone celebrations, including partial debt-payoff progress
 
-### � Phase 3 — Path to v1.0 *(in progress)*
-The goal: round out the app's remaining rough edges before calling it a full release.
+### ✅ Phase 3 — v1.0 *(complete)*
+The goal was to round out the app's remaining rough edges and make it a financial companion rather than a budgeting tool.
 
-**Shipped this release:**
+**The headline: Compass looks forward.**
+- **Plan** — a cash flow forecast projecting your checking balance 30/60/90 days out, with safe-to-spend, your projected low point, what-if sliders, a bill calendar, and a "what to do next" list that recommends rather than just observes
+- **Last month in review** — the new-month greeting now recaps the month that ended: in, out, what you kept, how spending compared, where it went, and how many budgets you held
+- **Milestone celebrations** — debts paid off, net worth milestones from $1K to $1M, goals reached, budgets held for a full month, and Health Score grade improvements, each celebrated once
+
+**Trust and polish:**
+- **Failures are no longer silent** — a page that fails to load now says so and offers to retry, instead of showing an empty screen
+- **Accessibility** — full reduce-motion support (system setting plus an in-app override), keyboard focus trapped in dialogs and restored on close, and labelled icon buttons
+- **Erase a profile's data** — permanently delete everything belonging to one profile, with a typed confirmation
+- **Faster on long histories** — added the database indexes that were missing for profile-scoped queries
+- **Suggested budgets** — build a starter set from your last 3 months instead of facing a blank page
+
+**Earlier in the v1.0 cycle:**
 - **E\*TRADE / Morgan Stanley statement import** — reads a full client statement PDF: holdings, the period's trade/dividend/transfer activity, and the statement's own period totals, dated by the statement rather than by today
-- **Investment activity & income tracking** — new Activity and Income & Gains views showing what actually happened in an account, including dividends and interest genuinely received rather than only the brokerage's projection
+- **Investment activity & income tracking** — Activity and Income & Gains views showing what actually happened in an account, including dividends and interest genuinely received rather than only the brokerage's projection
 - **Multi-account investment fix** — accounts on different statement schedules (a quarterly 401(k) alongside a monthly brokerage) no longer hide one another from the Investments page, portfolio value, or net worth
 - **Savings rate accuracy** — credit card spending now counts toward the savings rate, the figure is calculated from actual dollars rather than an average of monthly percentages, and it no longer blends in the current half-finished month
 - **One definition per number** — income, expense, category-spend and account-balance totals now come from a single shared definition, fixing several places where two pages showed different values for the same thing
 - **Statement re-import protection** — re-importing a statement you already have prompts before replacing it instead of silently double-counting every position
-- **Automated test suite** — unit tests (Vitest) covering the core formatting/balance-combining, recurring-schedule, statement-parsing and savings-rate math, so these calculations have a regression safety net
-- **In-app backup & restore** — one-click encrypted export/import of the full database as a single `.compassbackup` file, instead of manually copying `compass.db` + `compass.key`
-- **User-defined recurring transactions** — schedule a bill or income ahead of time (monthly/weekly/biweekly) instead of only detecting it after it's already happened a few times
+- **Automated test suite** — unit tests (Vitest) covering the core formatting/balance-combining, recurring-schedule, statement-parsing, forecast and savings-rate math
+- **In-app backup & restore** — one-click encrypted export/import of the full database as a single `.compassbackup` file
 - **Bulk transaction operations** — multi-select rows on the Transactions page for bulk delete/recategorize
-- **Settings page** — a dedicated home for backup/restore and recurring transactions (currency stays USD-only for now)
-- **Visual refresh** — a calmer, more professional look: gold now marks specifically clickable/interactive elements, blue carries navigation and everything else, and the tiled background texture was replaced with a subtle gradient
-- **Balance integrity fixes** — several edge cases where manually adding a transaction (or importing right after one) could throw off an account's running balance are now fixed, plus a Settings diagnostic to flag any account worth double-checking
-- **Import duplicate detection** — the import wizard now catches likely duplicates of manually-added transactions before they're saved, letting you choose which one to keep instead of silently double-counting
+- **Visual refresh** — gold now marks specifically clickable/interactive elements, blue carries navigation and everything else, and the tiled background texture was replaced with a subtle gradient
+- **Balance integrity fixes** — several edge cases where manually adding a transaction (or importing right after one) could throw off an account's running balance, plus a Settings diagnostic to flag any account worth double-checking
+- **Import duplicate detection** — the import wizard catches likely duplicates of manually-added transactions before they're saved
 - **Editable interest rate & minimum payment** — no longer write-once during import; update either anytime from an account's detail view
-- **Backup reminder** — Settings now shows how long it's been since your last backup, with a nudge if it's gotten stale
+- **Backup reminder** — Settings shows how long it's been since your last backup, with a nudge if it's gotten stale
 
-**Still planned:**
+### 🔭 Beyond v1.0 *(planned)*
 - **Bank-specific import presets** — one-click setup for more banks beyond the current Chase, Capital One, Wells Fargo, Bank of America, Navy Federal, Discover, Amex, Venmo, Cash App, and PayPal
 - **Emergency fund tracker widget** — a dedicated view built on the existing runway insight and Balance Floor goal, rather than only surfacing as an insight card
+- **Forecast beyond checking** — an optional full net-cash-position view including credit card balances
 - **Spending habit analysis** — natural-language answers to questions like *"Where did most of my money go last quarter?"*
-- **Smart nudges** — proactive alerts when patterns suggest risk (spending creep, missing savings months, unusually high recurring charges)
 - **Wider bank format coverage** — edge case handling, better error messages, and import reliability improvements
 
 ---

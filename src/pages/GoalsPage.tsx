@@ -6,11 +6,13 @@ import { formatCurrency } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
+import { reportLoadError } from "@/stores/toastStore";
 import CategoryOptions from "@/components/CategoryOptions";
 import { CardListSkeleton } from "@/components/Skeleton";
 import WeeklyMiniBar from "@/components/WeeklyMiniBar";
 import MilestoneCelebration from "@/components/MilestoneCelebration";
 import { detectNewMilestones } from "@/lib/milestones";
+import { useMilestoneQueue } from "@/hooks/useMilestoneQueue";
 
 type GoalType =
   | "net_savings"
@@ -144,16 +146,8 @@ export default function GoalsPage() {
   const [formMonths, setFormMonths] = useState("3");
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [milestoneQueue, setMilestoneQueue] = useState<string[]>([]);
-  const [activeMilestone, setActiveMilestone] = useState<string | null>(null);
+  const { active: activeMilestone, enqueue: enqueueMilestones, dismiss: dismissMilestone } = useMilestoneQueue();
   const [debtAccounts, setDebtAccounts] = useState<{ id: number; name: string; account_type: string }[]>([]);
-
-  useEffect(() => {
-    if (activeMilestone === null && milestoneQueue.length > 0) {
-      setActiveMilestone(milestoneQueue[0]);
-      setMilestoneQueue((q) => q.slice(1));
-    }
-  }, [activeMilestone, milestoneQueue]);
 
   useEffect(() => {
     let cancelled = false;
@@ -428,12 +422,10 @@ export default function GoalsPage() {
     const newMilestones = detectNewMilestones(profileId, {
       goals: withWeekly.map((g) => ({ id: g.id, name: g.name, pct: g.pct })),
     });
-    if (newMilestones.length > 0) {
-      setMilestoneQueue((q) => [...q, ...newMilestones.map((m) => m.message)]);
-    }
-  }, [month, profileId]);
+    enqueueMilestones(newMilestones);
+  }, [month, profileId, enqueueMilestones]);
 
-  useEffect(() => { loadGoals().catch(console.error); }, [loadGoals]);
+  useEffect(() => { loadGoals().catch(reportLoadError("your goals", () => void loadGoals())); }, [loadGoals]);
 
   useEffect(() => {
     if (categories.length === 0 || formCatId !== 0) return;
@@ -544,7 +536,7 @@ export default function GoalsPage() {
 
   return (
     <div className="p-8 max-w-3xl space-y-6 mx-auto w-full">
-      <MilestoneCelebration message={activeMilestone} onDismiss={() => setActiveMilestone(null)} />
+      <MilestoneCelebration event={activeMilestone} onDismiss={dismissMilestone} />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Goals</h1>
@@ -649,9 +641,23 @@ export default function GoalsPage() {
             &#127919;
           </div>
           <p className="font-semibold text-[hsl(var(--foreground))]">No goals yet</p>
-          <p className="text-sm text-[hsl(var(--muted-foreground))] max-w-xs">
-            Add one above to start tracking your progress toward a savings target, spending limit, or income goal.
+          <p className="text-sm text-[hsl(var(--muted-foreground))] max-w-md">
+            A budget caps what you spend in a category. A goal tracks something you're working
+            toward over time - and Compass checks your progress automatically as transactions
+            come in. There are {Object.keys(LABELS).length} kinds:
           </p>
+          <div className="grid sm:grid-cols-2 gap-2 mt-3 max-w-2xl w-full text-left">
+            {(Object.keys(LABELS) as GoalType[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => handleTypeChange(t)}
+                className="border rounded-xl px-3.5 py-2.5 hover:bg-[hsl(var(--muted))] transition-colors"
+              >
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${GOAL_TYPE_STYLE[t]}`}>{LABELS[t]}</span>
+                <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1.5 leading-snug">{DESCS[t]}</p>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

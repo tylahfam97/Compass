@@ -3,14 +3,18 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { AlertTriangle, CheckCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import { getDb } from "@/lib/db";
 import { categorySpendSql } from "@/lib/reportingSql";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatMonthLabel } from "@/lib/utils";
 import { pickVariantIndex } from "@/lib/voice";
+import { detectNewMilestones } from "@/lib/milestones";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
+import { useMilestoneQueue } from "@/hooks/useMilestoneQueue";
 import { useProfileStore } from "@/stores/profileStore";
+import { reportLoadError, toast } from "@/stores/toastStore";
 import CategoryOptions from "@/components/CategoryOptions";
 import WeeklyMiniBar from "@/components/WeeklyMiniBar";
 import PinModal from "@/components/PinModal";
+import MilestoneCelebration from "@/components/MilestoneCelebration";
 import { CardListSkeleton } from "@/components/Skeleton";
 import type { Profile } from "@/lib/types";
 
@@ -54,6 +58,15 @@ function monthBounds(ym: string): [string, string] {
 function nextYM(ym: string): string {
   const [y, m] = ym.split("-").map(Number);
   const d = new Date(y, m, 1); // m is 1-indexed here, so this already advances one month
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** The most recent month that has actually finished - the only period a "you held your budget"
+ *  celebration can honestly be based on. */
+function lastCompletedYM(): string {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
@@ -230,6 +243,8 @@ export default function BudgetsPage() {
   const [pinQueue, setPinQueue] = useState<Profile[]>([]);
   const [pinQueueIdx, setPinQueueIdx] = useState(0);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [suggesting, setSuggesting] = useState(false);
+  const { active: activeMilestone, enqueue: enqueueMilestones, dismiss: dismissMilestone } = useMilestoneQueue();
 
   useEffect(() => {
     const saved = localStorage.getItem(viewModeKey(profileId));
@@ -351,7 +366,47 @@ export default function BudgetsPage() {
     setLoading(false);
   }, [month, profileId, viewMode, unlockedProfileIds]);
 
-  useEffect(() => { loadBudgets().catch(console.error); }, [loadBudgets]);
+  useEffect(() => { loadBudgets().catch(reportLoadError("your budgets", () => void loadBudgets())); }, [loadBudgets]);
+
+  // Celebrate budgets held for the whole of the last completed month. Deliberately independent
+  // of the month being viewed: the win is a fact about a finished period, not about where the
+  // user happened to navigate. Only monthly, non-income budgets that already existed before
+  // that month started qualify - anything else didn't cover the full period.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const month = lastCompletedYM();
+      const [start, end] = monthBounds(month);
+      const db = await getDb();
+      const rows = await db.select<{ id: number; category_name: string; amount_cents: number; spent_cents: number }[]>(
+        `SELECT b.id, c.name as category_name, b.amount_cents,
+                COALESCE(${categorySpendSql("t", "acc")},0) as spent_cents
+         FROM budgets b
+         JOIN categories c ON b.category_id=c.id
+         LEFT JOIN transactions t ON t.category_id=b.category_id
+           AND t.date>=? AND t.date<? AND t.profile_id=?
+         LEFT JOIN accounts acc ON acc.id=t.account_id
+         WHERE b.profile_id=? AND b.period='monthly' AND b.start_date<=?
+           AND c.id!=1 AND (c.parent_id IS NULL OR c.parent_id!=1)
+         GROUP BY b.id`,
+        [start, end, profileId, profileId, start]
+      );
+      if (cancelled) return;
+      enqueueMilestones(
+        detectNewMilestones(profileId, {
+          budgets: rows.map((r) => ({
+            id: r.id,
+            name: r.category_name,
+            month,
+            monthLabel: formatMonthLabel(month),
+            spentCents: r.spent_cents,
+            limitCents: r.amount_cents,
+          })),
+        })
+      );
+    })().catch(console.error);
+    return () => { cancelled = true; };
+  }, [profileId, enqueueMilestones]);
 
   useEffect(() => {
     // Don't clobber a prefill that was just applied — only default-init when truly empty
@@ -377,6 +432,60 @@ export default function BudgetsPage() {
   const handleSwitchToProfile = () => {
     localStorage.setItem(viewModeKey(profileId), "profile");
     setViewMode("profile");
+  };
+
+  /** Creates a starter set of monthly budgets from the last 3 completed months of spending.
+   *  A blank Budgets page asks the user to invent numbers they don't have, which is where most
+   *  people give up - this turns it into a list they can adjust. */
+  const suggestBudgets = async () => {
+    setSuggesting(true);
+    try {
+      const db = await getDb();
+      const [y, m] = month.split("-").map(Number);
+      const from = new Date(y, m - 1 - 3, 1);
+      const start = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, "0")}-01`;
+      const [end] = monthBounds(month);
+
+      const rows = await db.select<{ category_id: number; total: number; months: number }[]>(
+        `SELECT t.category_id,
+                ${categorySpendSql("t", "a")} as total,
+                COUNT(DISTINCT substr(t.date,1,7)) as months
+         FROM transactions t
+         JOIN categories c ON c.id=t.category_id
+         JOIN accounts a ON a.id=t.account_id
+         WHERE t.profile_id=? AND t.date>=? AND t.date<?
+           AND t.category_id!=1 AND (c.parent_id IS NULL OR c.parent_id!=1)
+         GROUP BY t.category_id
+         HAVING total > 0
+         ORDER BY total DESC
+         LIMIT 6`,
+        [profileId, start, end]
+      );
+
+      if (rows.length === 0) {
+        toast.info("Not enough spending history yet to suggest budgets. Import a statement first.");
+        return;
+      }
+
+      const [budgetStart] = monthBounds(month);
+      for (const r of rows) {
+        // Round the monthly average up to the nearest $10 so suggestions read as deliberate
+        // round numbers rather than an oddly precise average.
+        const avg = r.total / Math.max(1, r.months);
+        const limit = Math.max(1000, Math.ceil(avg / 1000) * 1000);
+        await db.execute(
+          "INSERT INTO budgets (category_id, amount_cents, period, start_date, profile_id, is_global, rollover) VALUES (?,?,?,?,?,0,0)",
+          [r.category_id, limit, "monthly", budgetStart, profileId]
+        );
+      }
+      await loadBudgets();
+      toast.success(`Created ${rows.length} starter budgets from your recent spending. Adjust any of them below.`);
+    } catch (e) {
+      console.error(e);
+      toast.error(`Couldn't suggest budgets: ${String(e)}`);
+    } finally {
+      setSuggesting(false);
+    }
   };
 
   const advancePinQueue = (unlockedId?: number) => {
@@ -478,6 +587,8 @@ export default function BudgetsPage() {
 
   return (
     <>
+      <MilestoneCelebration event={activeMilestone} onDismiss={dismissMilestone} />
+
       {pinTarget && (
         <PinModal
           profile={pinTarget}
@@ -723,11 +834,30 @@ export default function BudgetsPage() {
             <p className="font-semibold text-[hsl(var(--foreground))]">
               {isGlobalActive ? "No global budgets yet" : "No budgets yet"}
             </p>
-            <p className="text-sm text-[hsl(var(--muted-foreground))] max-w-xs">
-              {isGlobalActive
-                ? "Create a budget above and toggle it to Global to track spending across all profiles."
-                : "Set your first spending limit above to start tracking your progress."}
-            </p>
+            {isGlobalActive ? (
+              <p className="text-sm text-[hsl(var(--muted-foreground))] max-w-xs">
+                Create a budget above and toggle it to Global to track spending across all profiles.
+              </p>
+            ) : (
+              <>
+                <p className="text-sm text-[hsl(var(--muted-foreground))] max-w-md">
+                  A budget is a monthly spending limit for one category. Compass tracks every
+                  imported transaction against it and warns you when you're pacing to go over.
+                </p>
+                <button
+                  onClick={suggestBudgets}
+                  disabled={suggesting}
+                  className="mt-2 px-5 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-40 transition-opacity hover:opacity-90"
+                  style={{ backgroundColor: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))" }}
+                >
+                  {suggesting ? "Working…" : "Suggest budgets from my spending"}
+                </button>
+                <p className="text-xs text-[hsl(var(--muted-foreground))] max-w-xs">
+                  Builds a starter set from your last 3 months, rounded to the nearest $10.
+                  Nothing is final - edit or delete any of them afterwards.
+                </p>
+              </>
+            )}
           </div>
         )}
 

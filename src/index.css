@@ -257,3 +257,47 @@ body {
   animation: insight-icon-glow-pulse 1.3s ease-in-out infinite;
 }
 
+/* ── Reduced motion ───────────────────────────────────────────────────────────
+   Honours the OS "reduce motion" setting, and the in-app override in Settings
+   (which toggles `.reduce-motion` on <html> - some people want this in one app
+   without turning it on system-wide). Decorative, looping effects are switched
+   off outright; everything else collapses to near-instant rather than being
+   removed, so state changes are still perceivable - just not animated.
+   Framer Motion is handled separately via <MotionConfig> in App.tsx, and the
+   canvas particle effects check via the useAppReducedMotion hook. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .spotlight-sparkle,
+  .insight-icon-glow,
+  .chart-clickable::after,
+  .border.rounded-xl:not(input):not(textarea):not(select):not(button)::before,
+  .border.rounded-2xl:not(input):not(textarea):not(select):not(button)::before {
+    animation: none !important;
+  }
+}
+
+.reduce-motion *,
+.reduce-motion *::before,
+.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+.reduce-motion .spotlight-sparkle,
+.reduce-motion .insight-icon-glow,
+.reduce-motion .chart-clickable::after,
+.reduce-motion .border.rounded-xl:not(input):not(textarea):not(select):not(button)::before,
+.reduce-motion .border.rounded-2xl:not(input):not(textarea):not(select):not(button)::before {
+  animation: none !important;
+}
+

@@ -1282,6 +1282,16 @@ async function runMigrations(db: CompassDb): Promise<void> {
       { sql: "PRAGMA user_version = 29" },
     ]);
   }
+
+  // Almost every query in the app filters transactions by profile_id (and usually a date
+  // range on top), but the only index was on date alone - so those all degraded to a full
+  // scan. Composite indices matter most for users with years of history.
+  if (version < 30) {
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_transactions_profile_date ON transactions(profile_id, date)");
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_transactions_account_date ON transactions(account_id, date)");
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category_id)");
+    await db.execute("PRAGMA user_version = 30");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────
@@ -1543,6 +1553,35 @@ export async function deleteAccountWithData(accountId: number): Promise<void> {
     }
   }
   await db.execute("DELETE FROM accounts WHERE id=?", [accountId]);
+}
+
+/**
+ * Erases everything belonging to one profile - transactions, accounts, holdings, budgets,
+ * goals, scheduled rules, categorization rules, saved import layouts and any custom categories -
+ * while keeping the profile itself. Runs as a single transaction so a failure part-way through
+ * can't leave a half-erased profile behind.
+ *
+ * A privacy-first app that can't forget you is a contradiction, but this is unrecoverable:
+ * callers MUST confirm explicitly, and should point the user at Backup first.
+ */
+export async function deleteAllProfileData(profileId: number): Promise<void> {
+  const db = await getDb();
+  await db.executeBatch([
+    { sql: "DELETE FROM holdings WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM investment_activity WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM investment_summaries WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM transactions WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM import_sessions WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM accounts WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM budgets WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM goals WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM recurring_rules WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM categorization_rules WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM column_profiles WHERE profile_id=?", params: [profileId] },
+    // System categories are shared across profiles and must survive - only this profile's own
+    // custom ones go.
+    { sql: "DELETE FROM categories WHERE profile_id=? AND is_system=0", params: [profileId] },
+  ]);
 }
 
 /** One group of accounts that share the same type + name (case/whitespace-insensitive) within

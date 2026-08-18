@@ -11,6 +11,7 @@ import { incomeSumSql, expenseSumSql, categorySpendSql } from "@/lib/reportingSq
 import { formatCurrency, formatMonthLabel, formatAxisCurrency, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
 import { pickVariantIndex } from "@/lib/voice";
 import { useProfileStore } from "@/stores/profileStore";
+import { reportLoadError } from "@/stores/toastStore";
 import type { Profile } from "@/lib/types";
 import PinModal from "@/components/PinModal";
 import { Skeleton } from "@/components/Skeleton";
@@ -271,7 +272,7 @@ export default function TrendsPage() {
       setStacked(Object.values(byMonth).sort((a,b) => String(a.month).localeCompare(String(b.month))));
       setLoading(false);
     }
-    load().catch(console.error);
+    load().catch(reportLoadError("your trends"));
     return () => { cancelled = true; };
   }, [range, profileId, viewMode, unlockedProfileIds]);
 

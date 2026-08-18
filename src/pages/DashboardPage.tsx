@@ -16,6 +16,7 @@ import type { Transaction, Insight } from "@/lib/types";
 import { EXCLUSION_DISCLAIMER_TEXT } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
+import { reportLoadError } from "@/stores/toastStore";
 import { generateInsights } from "@/lib/agent";
 import { latestHoldingPerAccount } from "@/lib/netWorth";
 import { incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
@@ -325,11 +326,11 @@ export default function DashboardPage() {
       for (const { account_id } of affectedAccounts) await recomputeCalculatedBalances(account_id);
     }
     setConfirmClear(null);
-    loadData().catch(console.error);
+    loadData().catch(reportLoadError("your dashboard", () => void loadData()));
   };
 
   useEffect(() => {
-    loadData().catch(console.error);
+    loadData().catch(reportLoadError("your dashboard", () => void loadData()));
   }, [loadData]);
 
   // Load insights separately (not tied to month selection)

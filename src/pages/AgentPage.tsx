@@ -9,6 +9,7 @@ import { getDb, getAccountsSummaryForProfile, setAccountExcludedFromInsights, ge
 import { categorySpendSql } from "@/lib/reportingSql";
 import { formatCurrency, formatMonthLabel } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
+import { reportLoadError } from "@/stores/toastStore";
 import {
   generateInsights, getSpendingProfile, getSavingsHistory, computeHealthScore, computeCreditCardHealthScore, detectRecurringCharges,
 } from "@/lib/agent";
@@ -26,6 +27,7 @@ import PinModal from "@/components/PinModal";
 import DebtPayoffModal from "@/components/DebtPayoffModal";
 import MilestoneCelebration from "@/components/MilestoneCelebration";
 import { detectNewMilestones } from "@/lib/milestones";
+import { useMilestoneQueue } from "@/hooks/useMilestoneQueue";
 import { CardListSkeleton } from "@/components/Skeleton";
 
 const ROI_SECTION_LABELS: Record<SecurityType, string> = {
@@ -660,7 +662,7 @@ function ScoreIntroModal({
 }) {
   const [tab, setTab] = useState<"global" | "profile">("global");
   const score = tab === "global" ? globalScore : (profileScore ?? globalScore);
-  const { onBackdropClick } = useModalDismiss(onClose);
+  const { onBackdropClick, containerRef } = useModalDismiss(onClose);
 
   const grades = [
     { g: "A", r: "85–100", l: "Excellent",       c: "#059669" },
@@ -681,7 +683,7 @@ function ScoreIntroModal({
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
       className="fixed inset-0 z-50 flex items-center justify-center p-6"
       style={{ backgroundColor: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
-      onClick={onBackdropClick}>
+      onClick={onBackdropClick} ref={containerRef}>
       <motion.div
         initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} transition={{ duration: 0.15 }}
         className="bg-[hsl(var(--background))] border rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
@@ -800,15 +802,7 @@ export default function AgentPage() {
   const [topRoi, setTopRoi]                     = useState<Partial<Record<SecurityType, TopRoiHolding[]>>>({});
   const [loans, setLoans]                       = useState<DebtEntry[]>([]);
   const [payoffModal, setPayoffModal] = useState<{ debts: DebtEntry[]; title: string; subtitle?: string } | null>(null);
-  const [milestoneQueue, setMilestoneQueue] = useState<string[]>([]);
-  const [activeMilestone, setActiveMilestone] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (activeMilestone === null && milestoneQueue.length > 0) {
-      setActiveMilestone(milestoneQueue[0]);
-      setMilestoneQueue((q) => q.slice(1));
-    }
-  }, [activeMilestone, milestoneQueue]);
+  const { active: activeMilestone, enqueue: enqueueMilestones, dismiss: dismissMilestone } = useMilestoneQueue();
 
   const [sectExpanded, setSectExpanded] = useState<{ trends: boolean; subs: boolean; topRoi: boolean }>(() => {
     try { const s = localStorage.getItem("compass_insight_sections"); return s ? JSON.parse(s) : { trends: false, subs: false, topRoi: false }; }
@@ -948,10 +942,9 @@ export default function AgentPage() {
       const newMilestones = detectNewMilestones(profileId, {
         netWorthCents: nw.netWorthCents,
         debts: debtsWithTrend.map((d) => ({ id: d.id, name: d.name, balanceCents: d.balance_cents, firstKnownBalanceCents: d.firstKnownBalanceCents })),
+        healthGrade: profileScore.grade,
       });
-      if (newMilestones.length > 0) {
-        setMilestoneQueue((q) => [...q, ...newMilestones.map((m) => m.message)]);
-      }
+      enqueueMilestones(newMilestones);
 
       const thisMonth = currentYM();
       const lMonth = prevYM(thisMonth);
@@ -992,9 +985,9 @@ export default function AgentPage() {
       setRefreshedAt(new Date());
       setLoading(false);
     }
-    load().catch(console.error);
+    load().catch(reportLoadError("your insights", () => setReloadTick((t) => t + 1)));
     return () => { cancelled = true; };
-  }, [profileId, activeProfile, viewMode, unlockedProfileIds, scopeIds, reloadTick]);
+  }, [profileId, activeProfile, viewMode, unlockedProfileIds, scopeIds, reloadTick, enqueueMilestones]);
 
   const visibleInsights  = insights.filter((i) => !dismissedInsights.includes(i.dismissKey));
   const successInsights  = visibleInsights.filter((i) => i.severity === "success");
@@ -1098,7 +1091,7 @@ export default function AgentPage() {
 
   return (
     <>
-      <MilestoneCelebration message={activeMilestone} onDismiss={() => setActiveMilestone(null)} />
+      <MilestoneCelebration event={activeMilestone} onDismiss={dismissMilestone} />
       {pinTarget && <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />}
       <AnimatePresence>
         {showScoreIntro && globalHealthScore && (

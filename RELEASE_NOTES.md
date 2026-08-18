@@ -2,6 +2,140 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.0.0 — Version One 🧭
+
+Compass is out of pre-release. Version one is the same app you've been using, finished: nothing
+here changes how your money is counted, and nothing needs to be re-imported.
+
+### New: Plan — Compass Now Looks Forward
+Every screen in Compass has described the past. The new **Plan** tab describes what's coming.
+
+It projects your checking balance forward 30, 60 or 90 days using the bills and income you've
+scheduled, the recurring charges Compass spots in your history, and an estimate of everyday
+spending drawn from your last 3 months. The headline answers the question people actually have:
+**do I make it to payday?** Underneath it are three numbers — what's safe to spend today, the
+lowest point your balance is projected to reach and when, and total money in versus out over the
+window.
+
+Below the chart, **What if…** lets you drag a slider to see what an extra few hundred dollars of
+spending does to that low point, or set aside a cushion you don't want to dip into, and watch
+the whole projection respond instantly.
+
+**What's coming** lists every bill and paycheck the forecast is counting on, grouped by week.
+Charges Compass inferred from your history are marked as detected rather than confirmed — they
+are an educated guess about a pattern, not something you told us, and they're labelled that way.
+You can switch them off entirely if you'd rather only plan against what you've entered yourself.
+
+### New: What To Do Next
+Compass has always described your money. Plan adds a short list that *recommends* — the amount
+you'd need to find before a projected shortfall and what that works out to per day, a nudge to
+schedule your paycheck if nothing is scheduled, a heads-up when your cushion gets thin, and a
+prompt to put a surplus to work when you're comfortably ahead. Only what applies to you appears,
+ordered by how pressing it is, and the list is empty when there's genuinely nothing to do.
+
+### New: Last Month In Review
+The "Welcome to August" message that appeared when the calendar turned over now actually says
+something. It recaps the month that just ended: money in, money out, what you kept, how your
+spending compared to the month before, where most of it went, and how many budgets you held.
+It waits for you to dismiss it rather than disappearing on a timer, and falls back to the old
+welcome message when there's nothing to summarise.
+
+Some deliberate limits, so the number means something:
+
+- **Checking and debit accounts only.** "Will I make it to payday" is a question about spendable
+  cash. Folding revolving credit balances in would make the figure harder to explain than it is
+  useful.
+- **At least 2 months of history required.** With less than that, a spending estimate is noise,
+  and a forecast you might actually rely on shouldn't be built from noise. Compass tells you how
+  much history you have instead of guessing.
+- **Bills you've scheduled are never double-counted.** The everyday-spending estimate has your
+  known bills removed from it first, so rent doesn't get charged twice.
+- **If you haven't scheduled any income, Compass says so** — without a paycheck in the picture a
+  forecast only ever slopes downward, which looks far worse than reality.
+
+### Moved: Scheduled Bills & Income
+Recurring bills and paychecks now live on the Plan page, directly beneath the forecast they
+drive, rather than at the bottom of Settings. Settings links across to it. They're still
+reminder-only: nothing ever posts a real transaction on your behalf.
+
+### New: Compass Now Celebrates When You Hit Something
+Progress with money is slow and mostly invisible. A card balance drops a little each month, a
+goal creeps toward its target, and the moment it actually lands passes without anything marking
+it. Compass now notices those moments and says something.
+
+Celebrations come in two sizes. The big ones — a debt reaching zero, a goal completed, net worth
+crossing into positive territory — get a full congratulations dialog and a confetti burst, and
+wait for you to dismiss them. The smaller ones appear as a banner at the top of the screen and
+clear themselves after a few seconds.
+
+What Compass watches for:
+
+- **Debt paid off** — a loan or credit card reaching a zero balance
+- **Debt paid down** — passing 25%, 50% and 75% of the way to zero, measured against the
+  earliest balance on record for that account
+- **Net worth turning positive** — the first month you own more than you owe
+- **Net worth milestones** — passing $1K, $5K, $10K, $25K, $50K, $100K, $250K, $500K and $1M
+- **Goals reached** — any goal hitting 100%
+- **Budgets held** — finishing a full calendar month inside your monthly budgets
+- **Health Score grade up** — your Financial Health Score moving up a letter grade
+
+Each milestone celebrates once, per profile, and is remembered across restarts — so reopening
+the Insights page doesn't replay it. The exception is the Health Score grade, which celebrates
+again if you lose a grade and earn it back, because that's a real accomplishment the second time
+too. If you've turned on your system's "reduce motion" setting, the confetti is skipped and you
+still get the message.
+
+A few deliberate details, so nothing feels random:
+
+- Only the highest milestone you've newly passed is announced. Importing years of history at
+  once gives you a single "$100K net worth" moment rather than nine banners counting up to it.
+- Budget celebrations only ever refer to a month that has actually finished — a budget you're
+  still in the middle of can still be blown, and congratulating you early would be dishonest.
+- Multiple budgets held in the same month are announced together ("3 budgets held"), not one
+  after another.
+- The first time you open Compass after updating, your current Health Score grade is recorded
+  quietly as a starting point. You won't be congratulated for a grade you already had — only for
+  the next one you earn.
+
+Because net worth milestones are new, one may fire shortly after updating if you're already past
+one of those marks. That's a one-time catch-up, not a bug.
+
+### Fixed: Failures No Longer Happen in Silence
+If loading a page failed — a database problem, a permissions issue — Compass showed you an empty
+page and said nothing. In an app about your money, an empty page reads like lost data. Every page
+now tells you when something went wrong and offers to try again.
+
+### New: Suggested Budgets
+A blank Budgets page asks you to invent numbers you don't have, which is where most people give
+up. Compass can now propose a starter set from your last 3 months of spending, rounded to
+sensible figures. Nothing is final — edit or delete any of them.
+
+### Improved: Accessibility
+Compass now honours your system's "reduce motion" setting throughout — the confetti, the
+particle field, the glows and the page transitions all stand down. There's also a **Reduce
+motion in Compass** switch in Settings, for calmer animation in this app without turning it on
+system-wide. Dialogs now keep keyboard focus inside them while open and hand it back where it
+came from on close, and the remaining unlabelled icon buttons have been named for screen readers.
+
+### New: Erase a Profile's Data
+Settings gains a way to permanently delete everything belonging to one profile — transactions,
+accounts, budgets, goals, scheduled items and custom categories — while leaving your other
+profiles untouched. It takes a typed confirmation, and it points you at Backup first, because it
+cannot be undone. An app that promises your data never leaves your machine should also be able to
+forget it on request.
+
+### Improved: The Guided Tour Is Easier To Find
+"Replay the guided tour" now also lives in Settings, not only tucked in the sidebar footer.
+
+### Improved: Speed on Larger Histories
+Transactions were only indexed by date, while nearly every screen also filters by profile. On a
+few years of data that meant scanning the whole table repeatedly. Added the indexes that were
+missing — the difference grows with the size of your history.
+
+### Improved: Empty Goals Page
+The Goals page now shows all eight goal types with a one-line explanation of each, and clicking
+one sets up the form for it, instead of an empty list and a sentence.
+
 ## Compass 0.9.9 — Brokerage Statements & Honest Numbers 📊
 
 Full E\*TRADE statement support, plus a round of accuracy fixes to how your savings rate and
