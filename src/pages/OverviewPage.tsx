@@ -7,7 +7,7 @@ import { incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
 import { formatCurrency, formatDate, formatMonthLabel, separateAccountBalances, accountChartColor } from "@/lib/utils";
 import { computeNetWorth, latestHoldingPerAccount, type NetWorthSnapshot } from "@/lib/netWorth";
 import { useProfileStore } from "@/stores/profileStore";
-import { toast, reportLoadError } from "@/stores/toastStore";
+import { toast, handleLoadFailure } from "@/stores/toastStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import PinModal from "@/components/PinModal";
 import ManageAccountsPanel from "@/components/ManageAccountsPanel";
@@ -200,7 +200,7 @@ export default function OverviewPage() {
       );
       setData(new Map(entries));
       setLoading(false);
-    })().catch(reportLoadError("your account overview", () => setReloadTick((t) => t + 1)));
+    })().catch(handleLoadFailure("your account overview", setLoading, () => setReloadTick((t) => t + 1)));
   }, [visibleProfiles, month, reloadTick]);
 
   useEffect(() => {

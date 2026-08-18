@@ -2,6 +2,131 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.0.1 — Forecast Accuracy & Loading Feedback 🔧
+
+A fast follow-up to v1.0 fixing the things real use turned up immediately.
+
+### New: Plan Connects Your Spare Money To Your Debt
+Plan knew what was coming in and going out, but nothing about what you owe — so a surplus just
+sat there being described as a surplus.
+
+**Put your spare money to work** now takes the gap between your scheduled income and your
+scheduled bills, and shows what redirecting it at your cards and loans would actually do: the
+date they'd clear under minimum payments, the date they'd clear with your surplus behind them,
+and the interest that difference saves. One click opens the full payoff planner already in
+Compass, pre-loaded with those accounts.
+
+The suggested actions know about your debt too — instead of "that surplus could go toward a
+goal or a debt", it now names the account and the balance still costing you interest.
+
+### New: Plan Now Shows What's Actually Yours To Decide
+Plan could tell you your balance over time, but never the number people actually want: how much
+of what's coming in is genuinely free once your bills are paid.
+
+- An **After bills** figure sits alongside safe-to-spend and the low point — the income arriving
+  in this window minus the bills scheduled against it. When it's negative, your bills for the
+  period exceed the pay arriving and the difference is coming out of savings, which is worth
+  knowing.
+- A one-line breakdown spells out the whole picture —
+  `$3,834 now + $2,331 coming in − $2,374 bills − $2,449 everyday = $1,342 left on Aug 31` —
+  so where the projection lands is arithmetic you can follow rather than a number to trust
+- The chart now shades **bills still due** at each point, so the gap between your balance and
+  that band is what's left for everyday life and saving. It steps down only when a bill is
+  actually due — everyday spending is deliberately left out of it, since an estimate of your own
+  choices isn't an obligation
+- Setting money aside draws a line on the chart, so it's something you can see the balance
+  approach rather than just a number
+
+### Fixed: Chart Amounts Were 100× Too Small
+The projection chart's vertical axis showed `$15` where it meant `$1,500` — the axis was reading
+dollars as cents. Hovering a point gave the right figure, which made the mismatch easy to miss.
+
+### Changed: Plan Layout
+The green summary is followed by the sliders, then the chart, then what to do next — so a change
+to a slider and its effect on both the numbers and the chart are visible together instead of
+needing a scroll between them.
+
+### Changed: Plan Now Asks You What Window To Use
+The forecast used to run over a fixed 30, 60 or 90 days — while the What-if slider said "this
+month", which wasn't the period it was actually calculating. Two different answers to the same
+question, which made the whole panel hard to trust.
+
+Plan now has three windows that match how people actually think about their balance:
+
+- **Rest of month** *(the new default)* — today through the last day of this month
+- **To next paycheck** — today through your next scheduled income
+- **Through next month** — today through the last day of the following month
+
+That third one deliberately ends on a month boundary rather than counting a flat 30 days. A
+rolling 30-day window starting mid-month stops before the *next* month's rent is due, so a bill
+you definitely owe simply vanished from the list. Ending on the last day of next month means
+every bill in both months is accounted for.
+
+Bills more than a fortnight out are now grouped under their real month name too — a window
+spanning two months used to label September's bills "later this month", which made them look
+like duplicates of August's.
+
+Every figure moves with the window: safe to spend, the projected low point, money in versus out,
+the chart, the bill list and the suggested actions. The headline states the exact range it used
+(`Aug 18 – Aug 31 · 14 days`) so there's no ambiguity about what any number covers.
+
+"To next paycheck" needs a scheduled income to aim at. If you haven't added one yet, Compass
+falls back to the rest of the month and tells you why rather than quietly showing something else.
+
+### Improved: The What-if Panel Explains Itself
+The window picker now sits inside the What-if box alongside the sliders, since it's the same
+kind of question. Each control explains what it does and what it doesn't:
+
+- **Spend an extra…** is an amount across the whole window, spread evenly — and now shows the
+  per-day figure that works out to. Previously it always divided by 30 regardless of the window
+  being shown, so the arithmetic didn't match the label.
+- **Keep … untouched** makes clear it comes off "safe to spend" and doesn't move the projection.
+- The panel states up front that nothing here is saved or changes your data.
+
+### Fixed: Cancelled Subscriptions Never Went Away
+A charge that recurred for a few months and then stopped kept its streak forever — so a
+subscription you cancelled in April was still listed under Subscriptions and still being billed
+against you in the Plan forecast months later. Anything not seen for **2 months** is now treated
+as cancelled and drops out of both. If it ever reappears in an import, it comes straight back.
+
+### Fixed: Your Own Bills Counted Twice in the Forecast
+Compass only skipped a detected charge if its description matched a scheduled bill *exactly*.
+In practice nobody types `SOFI BANK PL DES:PL PYMT ID:T86083200 INDN:...WEB` — they type "SoFi".
+So the bill you entered and the charge Compass detected were both projected, doubling it. Matching
+is now based on the amount plus a recognisable overlap in the description, so a hand-typed name
+lines up with whatever your bank actually writes.
+
+### New: Hide a Detected Charge
+Detected charges are guesses, and sometimes the guess is wrong — a one-off that looked like a
+pattern, or a transfer that isn't a bill. Hover any detected item on **Plan → What's coming**, or
+any row under **Insights → Subscriptions**, and hide it. It's removed from the forecast, the
+subscription totals and the insights, with an Undo and a "Restore hidden" link if you change your
+mind. Bills you scheduled yourself are never hidden this way — they're facts, not guesses.
+
+### Fixed: The App Looked Frozen While Importing
+Two separate causes. The import step showed a **static** icon while it wrote transactions to the
+database, so a large file looked like a hang. It now shows a moving spinner. Separately, the
+reduce-motion support added in v1.0 was too aggressive and stopped loading spinners and skeletons
+animating at all — for anyone with reduce-motion enabled, every loading state in the app appeared
+frozen. Loading indicators now keep moving (just slowly) because they're feedback, not decoration.
+
+### Fixed: Pages Could Get Stuck Loading Forever
+v1.0 made failed page loads show an error, but the loading skeleton underneath never cleared — so
+you'd get an error message floating over a page that span forever. The skeleton now clears and you
+get the page, the explanation and a Retry button.
+
+### Fixed: Transactions Silently Stopped at 500
+A month with more than 500 transactions quietly dropped the rest with no indication. It now tells
+you how many are shown and suggests narrowing the search.
+
+### Fixed: Erasing a Profile Left Traces
+Erasing a profile's data removed everything from the database but left behind app memory tied to
+it — celebrated milestones, dismissed insights, hidden charges. A fresh start now really is one.
+
+### Improved: Faster First Launch After Updating
+The new database indexes are created in a single operation rather than three, which matters if
+you have years of history.
+
 ## Compass 1.0.0 — Version One 🧭
 
 Compass is out of pre-release. Version one is the same app you've been using, finished: nothing

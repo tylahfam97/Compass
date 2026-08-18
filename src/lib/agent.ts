@@ -5,6 +5,7 @@ import { incomeSumSql, expenseSumSql, categorySpendSql, latestBalancePerAccountS
 import { AVG_US_CREDIT_CARD_DEBT_CENTS, AVG_US_MARKET_RETURN_PCT, scoreGrade } from "./benchmarks";
 import { composeInsightText } from "./voice";
 import { getRemembered, remember } from "./voiceMemory";
+import { getHiddenChargeKeys, chargeKey } from "./hiddenCharges";
 import { formatCurrencyWhole as formatCents } from "./utils";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -1984,15 +1985,28 @@ function patternLabelFor(anchor: RecurringRow, mode: "day" | "weekday"): string 
   return `${ordinal(nth)} ${RECURRING_WEEKDAY_NAMES[weekday]} of the month`;
 }
 
+/** A charge that hasn't been seen for this long is treated as cancelled rather than recurring.
+ *  Without this, a subscription that ran for a few months and stopped keeps its old streak
+ *  forever and goes on being billed in the forecast and listed as a live subscription. It comes
+ *  back on its own the moment a new transaction matching it is imported. */
+const RECURRING_STALE_AFTER_MONTHS = 2;
+
 /** Detects recurring charges (subscriptions, bills) across the given profiles - grouped by
  *  exact description, then matched on a day-of-month or "Nth weekday of month" cadence with a
- *  currently-active streak of 2+ consecutive months (see findRecurringStreak above). Returns
- *  every match sorted by amount descending - the caller decides how much of the list to show
- *  (the Agent and Reports pages both show the full list, uncapped). */
+ *  currently-active streak of 2+ consecutive months (see findRecurringStreak above). Charges
+ *  last seen more than RECURRING_STALE_AFTER_MONTHS ago, and any the user has explicitly
+ *  hidden, are left out. Returns every match sorted by amount descending - the caller decides
+ *  how much of the list to show (the Agent and Reports pages both show the full list). */
 export async function detectRecurringCharges(profileIds: number[], monthsBack = 12): Promise<RecurringCharge[]> {
   const db = await getDb();
   const ph = profileIds.map(() => "?").join(",");
   const start = (() => { const d = new Date(); d.setMonth(d.getMonth() - monthsBack); d.setDate(1); return d.toISOString().split("T")[0]; })();
+  const staleBefore = (() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - RECURRING_STALE_AFTER_MONTHS);
+    return d.toISOString().split("T")[0];
+  })();
+  const hidden = getHiddenChargeKeys(profileIds);
 
   const rows = await db.select<RecurringRow[]>(
     `SELECT t.description, t.amount_cents, t.date, c.name as category_name, c.color as category_color
@@ -2015,6 +2029,8 @@ export async function detectRecurringCharges(profileIds: number[], monthsBack = 
     const streak = findRecurringStreak(groupRows);
     if (!streak) continue;
     const anchor = streak.txns[streak.txns.length - 1];
+    if (anchor.date < staleBefore) continue;
+    if (hidden.has(chargeKey(anchor.description))) continue;
     const first = streak.txns[0];
     results.push({
       description: anchor.description,

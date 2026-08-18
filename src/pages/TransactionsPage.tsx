@@ -10,7 +10,7 @@ import { TRANSFER_CATEGORY_ID, EXCLUDED_CATEGORY_ID, EXCLUSION_DISCLAIMER_TEXT }
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import CategoryOptions from "@/components/CategoryOptions";
 import { useProfileStore } from "@/stores/profileStore";
-import { toast, reportLoadError } from "@/stores/toastStore";
+import { toast, handleLoadFailure } from "@/stores/toastStore";
 import CategoryModal from "@/components/CategoryModal";
 import CategorizationRulesModal from "@/components/CategorizationRulesModal";
 import EditTransactionModal from "@/components/EditTransactionModal";
@@ -228,7 +228,7 @@ export default function TransactionsPage() {
   }, [month, allTime, search, profileId, filterCategory, filterType, filterAmountMin, filterAmountMax, filterAccount, sortCol, sortDir]);
 
   useEffect(() => {
-    loadRows().catch(reportLoadError("your transactions", () => void loadRows()));
+    loadRows().catch(handleLoadFailure("your transactions", setLoading, () => void loadRows()));
   }, [loadRows]);
 
   const deleteTransaction = async (id: number) => {
@@ -924,6 +924,14 @@ export default function TransactionsPage() {
               ))}
             </tbody>
           </table>
+          {rows.length > (allTime ? ALL_TIME_LIMIT : MAX_ROWS) && (
+            <p className="px-4 py-3 border-t text-xs text-[hsl(var(--muted-foreground))]">
+              Showing the first {(allTime ? ALL_TIME_LIMIT : MAX_ROWS).toLocaleString()} transactions.
+              {allTime
+                ? " Narrow the search or filters to see the rest."
+                : " Use search or filters to narrow this month down."}
+            </p>
+          )}
         </div>
       )}
 

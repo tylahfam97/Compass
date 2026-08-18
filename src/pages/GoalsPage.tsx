@@ -6,7 +6,7 @@ import { formatCurrency } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
-import { reportLoadError } from "@/stores/toastStore";
+import { handleLoadFailure } from "@/stores/toastStore";
 import CategoryOptions from "@/components/CategoryOptions";
 import { CardListSkeleton } from "@/components/Skeleton";
 import WeeklyMiniBar from "@/components/WeeklyMiniBar";
@@ -425,7 +425,7 @@ export default function GoalsPage() {
     enqueueMilestones(newMilestones);
   }, [month, profileId, enqueueMilestones]);
 
-  useEffect(() => { loadGoals().catch(reportLoadError("your goals", () => void loadGoals())); }, [loadGoals]);
+  useEffect(() => { loadGoals().catch(handleLoadFailure("your goals", setLoading, () => void loadGoals())); }, [loadGoals]);
 
   useEffect(() => {
     if (categories.length === 0 || formCatId !== 0) return;

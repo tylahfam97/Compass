@@ -2695,7 +2695,7 @@ export default function ImportPage() {
 
       {step === "importing" && (
         <div className="text-center py-16">
-              <div className="flex justify-center mb-4 text-[hsl(var(--primary))]"><Info size={48} /></div>
+              <div className="flex justify-center mb-4 text-[hsl(var(--primary))]"><Loader2 size={48} className="animate-spin" /></div>
           {batchAutoMode && totalBatchCount > 1 ? (
             <>
               <p className="font-medium mb-1">

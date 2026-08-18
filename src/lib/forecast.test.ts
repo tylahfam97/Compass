@@ -3,9 +3,11 @@ import {
   expandOccurrences,
   detectedChargeToRule,
   monthlyEquivalentCents,
-  deriveDailyBaselineCents,
   projectCashFlow,
   deriveNextActions,
+  chargeMatchesRule,
+  resolveForecastWindow,
+  groupUpcomingEvents,
   toISODate,
   daysFromToday,
   type ForecastRule,
@@ -77,6 +79,35 @@ describe("expandOccurrences", () => {
   it("handles an empty rule list", () => {
     expect(expandOccurrences([], new Date(2026, 0, 1), new Date(2026, 2, 1))).toEqual([]);
   });
+
+  it("emits a monthly bill exactly once per calendar month, never compounding", () => {
+    const events = expandOccurrences(
+      [rule({ description: "Rent", day_of_month: 24 })],
+      new Date(2026, 7, 18),
+      new Date(2026, 10, 21)
+    );
+    expect(events.map((e) => e.date)).toEqual(["2026-08-24", "2026-09-24", "2026-10-24"]);
+    const months = events.map((e) => e.date.slice(0, 7));
+    expect(new Set(months).size).toBe(months.length);
+  });
+
+  it("still emits this month's bill when today is the day it's due", () => {
+    const events = expandOccurrences(
+      [rule({ description: "Rent", day_of_month: 24 })],
+      new Date(2026, 7, 24),
+      new Date(2026, 8, 30)
+    );
+    expect(events.map((e) => e.date)).toEqual(["2026-08-24", "2026-09-24"]);
+  });
+
+  it("moves to next month's bill once this month's date has passed", () => {
+    const events = expandOccurrences(
+      [rule({ description: "Rent", day_of_month: 24 })],
+      new Date(2026, 7, 25),
+      new Date(2026, 8, 30)
+    );
+    expect(events.map((e) => e.date)).toEqual(["2026-09-24"]);
+  });
 });
 
 describe("detectedChargeToRule", () => {
@@ -112,23 +143,12 @@ describe("monthlyEquivalentCents", () => {
   });
 });
 
-describe("deriveDailyBaselineCents", () => {
-  it("removes known bills so they are not counted twice", () => {
-    // $3000/mo total spend, $1500/mo of it already projected as individual bills.
-    expect(deriveDailyBaselineCents(300_000, 150_000)).toBe(5_000);
-  });
-
-  it("never goes negative when bills exceed average spend", () => {
-    expect(deriveDailyBaselineCents(100_000, 400_000)).toBe(0);
-  });
-});
-
 describe("projectCashFlow", () => {
   const base = {
     startingBalanceCents: 100_000,
     startDate: "2026-08-01",
     days: 30,
-    dailyBaselineCents: 0,
+    dailySpendCents: 0,
   };
 
   it("produces one day per requested day", () => {
@@ -145,7 +165,7 @@ describe("projectCashFlow", () => {
   });
 
   it("subtracts the daily baseline every day", () => {
-    const r = projectCashFlow({ ...base, events: [], dailyBaselineCents: 1_000 });
+    const r = projectCashFlow({ ...base, events: [], dailySpendCents: 1_000 });
     expect(r.days[0].balanceCents).toBe(99_000);
     expect(r.days[9].balanceCents).toBe(90_000);
   });
@@ -246,9 +266,262 @@ describe("date helpers", () => {
   });
 });
 
+describe("chargeMatchesRule", () => {
+  const rule = { description: "SoFi", amount_cents: -60127 };
+
+  it("matches a hand-typed name against the bank's full ACH descriptor", () => {
+    const charge = {
+      description: "SoFi Bank PL DES:PL PYMT ID:T86083200 INDN:Tyler Fameli CO ID:3452499527 WEB",
+      amount_cents: -60127,
+    };
+    expect(chargeMatchesRule(charge, rule)).toBe(true);
+  });
+
+  it("matches on a shared payee even when neither description contains the other", () => {
+    expect(chargeMatchesRule({ description: "SoFi Bank PL PYMT", amount_cents: -60127 }, { description: "SoFi Loan", amount_cents: -60127 })).toBe(true);
+  });
+
+  it("tolerates a few cents of drift between months", () => {
+    expect(chargeMatchesRule({ description: "SoFi Bank PL", amount_cents: -60180 }, rule)).toBe(true);
+  });
+
+  it("does not match a different payee that happens to cost the same", () => {
+    expect(chargeMatchesRule({ description: "MOHELA DES:QDR", amount_cents: -60127 }, rule)).toBe(false);
+  });
+
+  it("does not match the same payee at a clearly different amount", () => {
+    expect(chargeMatchesRule({ description: "SoFi Bank PL", amount_cents: -1200 }, rule)).toBe(false);
+  });
+
+  it("still matches identical descriptions regardless of amount", () => {
+    expect(chargeMatchesRule({ description: "Rent", amount_cents: -120000 }, { description: "rent", amount_cents: -100000 })).toBe(true);
+  });
+
+  it("refuses to match on a payee fragment too short to be distinctive", () => {
+    expect(chargeMatchesRule({ description: "PG Electric", amount_cents: -5000 }, { description: "PG", amount_cents: -5000 })).toBe(false);
+  });
+
+  it("handles descriptions that normalise to nothing", () => {
+    expect(chargeMatchesRule({ description: "***", amount_cents: -5000 }, { description: "---", amount_cents: -5000 })).toBe(false);
+  });
+});
+
+describe("resolveForecastWindow", () => {
+  // Mirrors a real setup: biweekly Friday paycheck, rent on the 24th, a loan payment on the
+  // 25th. "Today" is Tue 18 Aug 2026.
+  const today = new Date(2026, 7, 18);
+  const rules: ForecastRule[] = [
+    { id: 1, description: "Paycheck", amount_cents: 233_100, source: "rule", cadence: "biweekly", day_of_month: null, day_of_week: 4, start_date: "2026-08-21" },
+    { id: 2, description: "Rent", amount_cents: -102_400, source: "rule", cadence: "monthly", day_of_month: 24, day_of_week: null, start_date: "2026-01-24" },
+    { id: 3, description: "SoFi", amount_cents: -60_127, source: "rule", cadence: "monthly", day_of_month: 25, day_of_week: null, start_date: "2026-01-25" },
+  ];
+  const allEvents = expandOccurrences(rules, today, new Date(2026, 10, 21));
+
+  it("covers today through the last day of the month for the month window", () => {
+    const w = resolveForecastWindow(allEvents, today, "month");
+    expect(w.days).toBe(14); // 18th-31st inclusive
+    expect(w.endDate).toBe("2026-08-31");
+    expect(w.usedFallback).toBe(false);
+  });
+
+  it("ends on the day the next paycheck lands", () => {
+    const w = resolveForecastWindow(allEvents, today, "paycheck");
+    expect(w.endDate).toBe("2026-08-21");
+    expect(w.days).toBe(4); // 18th, 19th, 20th, 21st
+  });
+
+  it("runs to the last day of next month so month-end bills aren't cut off", () => {
+    const w = resolveForecastWindow(allEvents, today, "nextMonth");
+    expect(w.endDate).toBe("2026-09-30");
+    expect(w.days).toBe(44); // 14 days left in Aug + all 30 of Sep
+  });
+
+  it("falls back to the rest of the month when no income is scheduled", () => {
+    const noIncome = expandOccurrences(rules.filter((r) => r.amount_cents < 0), today, new Date(2026, 10, 21));
+    const w = resolveForecastWindow(noIncome, today, "paycheck");
+    expect(w.usedFallback).toBe(true);
+    expect(w.endDate).toBe("2026-08-31");
+  });
+
+  it("ignores a paycheck that already landed earlier today or before", () => {
+    const past = expandOccurrences(rules, new Date(2026, 7, 1), new Date(2026, 10, 21));
+    const w = resolveForecastWindow(past, today, "paycheck");
+    expect(w.endDate).toBe("2026-08-21");
+  });
+
+  it("handles the last day of the month without producing a zero-length window", () => {
+    const w = resolveForecastWindow(allEvents, new Date(2026, 7, 31), "month");
+    expect(w.days).toBe(1);
+    expect(w.endDate).toBe("2026-08-31");
+  });
+});
+
+describe("window projections include the right scheduled items", () => {
+  const today = new Date(2026, 7, 18);
+  const rules: ForecastRule[] = [
+    { id: 1, description: "Paycheck", amount_cents: 233_100, source: "rule", cadence: "biweekly", day_of_month: null, day_of_week: 4, start_date: "2026-08-21" },
+    { id: 2, description: "Rent", amount_cents: -102_400, source: "rule", cadence: "monthly", day_of_month: 24, day_of_week: null, start_date: "2026-01-24" },
+    { id: 3, description: "SoFi", amount_cents: -60_127, source: "rule", cadence: "monthly", day_of_month: 25, day_of_week: null, start_date: "2026-01-25" },
+  ];
+  const allEvents = expandOccurrences(rules, today, new Date(2026, 10, 21));
+
+  function projectFor(mode: "month" | "paycheck" | "nextMonth") {
+    const w = resolveForecastWindow(allEvents, today, mode);
+    return projectCashFlow({
+      startingBalanceCents: 500_000,
+      startDate: "2026-08-18",
+      days: w.days,
+      events: allEvents.filter((e) => e.date <= w.endDate),
+      dailySpendCents: 0,
+    });
+  }
+
+  it("counts one paycheck, rent and the loan payment for the rest of the month", () => {
+    const r = projectFor("month");
+    expect(r.totalIncomeCents).toBe(233_100);
+    expect(r.totalBillsCents).toBe(102_400 + 60_127);
+  });
+
+  it("counts only the paycheck itself in the to-next-paycheck window", () => {
+    // Rent (24th) and SoFi (25th) both fall AFTER the 21st, so this window genuinely has no
+    // bills in it - that's the honest answer, not a missing calculation.
+    const r = projectFor("paycheck");
+    expect(r.totalIncomeCents).toBe(233_100);
+    expect(r.totalBillsCents).toBe(0);
+  });
+
+  it("includes next month's rent and loan payment, not just this month's", () => {
+    const r = projectFor("nextMonth");
+    expect(r.totalIncomeCents).toBe(233_100 * 3); // Aug 21, Sep 4, Sep 18
+    expect(r.totalBillsCents).toBe((102_400 + 60_127) * 2); // Aug and Sep instances of each
+  });
+});
+
+describe("groupUpcomingEvents", () => {
+  const today = new Date(2026, 7, 18); // Tue 18 Aug 2026
+
+  function ev(date: string): ForecastEvent {
+    return { key: date, date, description: "x", amountCents: -1000, source: "rule", categoryName: null, categoryColor: null };
+  }
+
+  it("groups near-term items by how soon they are", () => {
+    const groups = groupUpcomingEvents([ev("2026-08-18"), ev("2026-08-21"), ev("2026-08-29")], today);
+    expect(groups.map((g) => g.label)).toEqual(["Today", "This week", "Next week"]);
+  });
+
+  it("keeps later items in the current month under 'Later this month'", () => {
+    // From the 1st, the 20th is far enough out to fall past the by-week buckets.
+    const groups = groupUpcomingEvents([ev("2026-08-20")], new Date(2026, 7, 1));
+    expect(groups[0].label).toBe("Later this month");
+  });
+
+  it("labels next month's items with the actual month, not 'later this month'", () => {
+    const groups = groupUpcomingEvents([ev("2026-09-24")], today);
+    expect(groups[0].label).toBe("September");
+  });
+
+  it("separates this month's rent from next month's", () => {
+    const groups = groupUpcomingEvents([ev("2026-08-24"), ev("2026-09-24")], today);
+    expect(groups.map((g) => g.label)).toEqual(["This week", "September"]);
+    expect(groups[0].events).toHaveLength(1);
+    expect(groups[1].events).toHaveLength(1);
+  });
+
+  it("includes the year once a window reaches into the next one", () => {
+    const groups = groupUpcomingEvents([ev("2027-01-05")], new Date(2026, 11, 20));
+    expect(groups[0].label).toMatch(/January.*2027/);
+  });
+
+  it("returns nothing for an empty list", () => {
+    expect(groupUpcomingEvents([], today)).toEqual([]);
+  });
+});
+
+describe("discretionary and committed money", () => {
+  const base = {
+    startingBalanceCents: 100_000,
+    startDate: "2026-08-01",
+    days: 10,
+    dailySpendCents: 1_000,
+  };
+
+  it("totals only the spending the caller asked to simulate", () => {
+    const r = projectCashFlow({ ...base, events: [] });
+    expect(r.assumedSpendCents).toBe(10_000);
+  });
+
+  it("assumes no spending at all when none is requested", () => {
+    const r = projectCashFlow({ startingBalanceCents: 100_000, startDate: "2026-08-01", days: 10, events: [] });
+    expect(r.assumedSpendCents).toBe(0);
+    expect(r.endingBalanceCents).toBe(100_000);
+  });
+
+  it("leaves income minus scheduled bills as what's free after bills", () => {
+    const r = projectCashFlow({
+      ...base,
+      events: [event("2026-08-02", 200_000, "pay"), event("2026-08-04", -50_000, "rent")],
+    });
+    expect(r.afterBillsCents).toBe(150_000);
+  });
+
+  it("does not net off the everyday baseline, which already contains discretionary spending", () => {
+    const r = projectCashFlow({
+      ...base,
+      events: [event("2026-08-02", 200_000, "pay")],
+      dailySpendCents: 5_000,
+    });
+    expect(r.afterBillsCents).toBe(200_000);
+  });
+
+  it("goes negative when scheduled bills outrun the income in the window", () => {
+    const r = projectCashFlow({
+      ...base,
+      events: [event("2026-08-02", 100_000, "pay"), event("2026-08-04", -150_000, "rent")],
+    });
+    expect(r.afterBillsCents).toBe(-50_000);
+  });
+
+  it("reports the balance projected for the final day", () => {
+    const r = projectCashFlow({ ...base, events: [event("2026-08-02", 50_000)] });
+    // $1000 start + $500 in - 10 days of $10 everyday spending
+    expect(r.endingBalanceCents).toBe(100_000 + 50_000 - 10_000);
+  });
+
+  it("falls back to the opening balance when the window is empty", () => {
+    const r = projectCashFlow({ ...base, days: 0, events: [] });
+    expect(r.endingBalanceCents).toBe(100_000);
+  });
+
+  it("commits nothing on the final day of the window", () => {
+    const r = projectCashFlow({ ...base, events: [] });
+    expect(r.days[r.days.length - 1].committedCents).toBe(0);
+  });
+
+  it("counts only bills still to come, not the everyday spending estimate", () => {
+    const r = projectCashFlow({ ...base, events: [event("2026-08-05", -30_000)] });
+    expect(r.days[0].committedCents).toBe(30_000);
+  });
+
+  it("stays flat on days with no bill, so the band only steps at real obligations", () => {
+    const r = projectCashFlow({ ...base, events: [event("2026-08-05", -30_000)] });
+    expect(r.days[0].committedCents).toBe(r.days[1].committedCents);
+    expect(r.days[1].committedCents).toBe(r.days[2].committedCents);
+  });
+
+  it("drops by exactly the bill amount once it's paid", () => {
+    const r = projectCashFlow({ ...base, events: [event("2026-08-05", -30_000)] });
+    expect(r.days[3].committedCents - r.days[4].committedCents).toBe(30_000);
+  });
+
+  it("ignores incoming money when working out what is committed", () => {
+    const r = projectCashFlow({ ...base, events: [event("2026-08-05", 500_000)] });
+    expect(r.days[0].committedCents).toBe(0);
+  });
+});
+
 describe("deriveNextActions", () => {
   const today = new Date(2026, 7, 1);
-  const ctx = { hasIncomeRule: true, detectedCount: 0, dailyBaselineCents: 2_000, today };
+  const ctx = { hasIncomeRule: true, detectedCount: 0, dailyOutflowCents: 2_000, today };
 
   function forecastWith(events: ForecastEvent[], startingBalanceCents = 100_000) {
     return projectCashFlow({
@@ -256,7 +529,7 @@ describe("deriveNextActions", () => {
       startDate: "2026-08-01",
       days: 30,
       events,
-      dailyBaselineCents: 2_000,
+      dailySpendCents: 2_000,
     });
   }
 
@@ -308,6 +581,19 @@ describe("deriveNextActions", () => {
     expect(actions.some((a) => a.key === "surplus")).toBe(true);
   });
 
+  it("names the debt a surplus could go to when there is one", () => {
+    const actions = deriveNextActions(forecastWith([], 5_000_000), {
+      ...ctx,
+      topDebt: { name: "Chase Visa", balanceCents: 250_000 },
+    });
+    expect(actions.find((a) => a.key === "surplus")?.detail).toContain("Chase Visa");
+  });
+
+  it("stays generic about a surplus when no debt is carried", () => {
+    const actions = deriveNextActions(forecastWith([], 5_000_000), { ...ctx, topDebt: null });
+    expect(actions.find((a) => a.key === "surplus")?.detail).toContain("goal");
+  });
+
   it("never flags a thin cushion and a surplus at the same time", () => {
     for (const balance of [50_000, 300_000, 5_000_000]) {
       const actions = deriveNextActions(forecastWith([], balance), ctx);
@@ -321,10 +607,10 @@ describe("deriveNextActions", () => {
     expect(actions.filter((a) => a.tone === "urgent")).toEqual([]);
   });
 
-  it("does not divide by zero when there is no baseline spending", () => {
+  it("does not divide by zero when nothing is going out", () => {
     const r = projectCashFlow({
-      startingBalanceCents: 100_000, startDate: "2026-08-01", days: 30, events: [], dailyBaselineCents: 0,
+      startingBalanceCents: 100_000, startDate: "2026-08-01", days: 30, events: [], dailySpendCents: 0,
     });
-    expect(() => deriveNextActions(r, { ...ctx, dailyBaselineCents: 0 })).not.toThrow();
+    expect(() => deriveNextActions(r, { ...ctx, dailyOutflowCents: 0 })).not.toThrow();
   });
 });

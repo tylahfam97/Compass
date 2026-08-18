@@ -48,8 +48,10 @@ export interface ForecastDay {
   /** Projected balance at the end of this day. */
   balanceCents: number;
   events: ForecastEvent[];
-  /** Everyday spending assumed on this day, as a positive number. */
-  baselineCents: number;
+  /** Scheduled bills still to be paid after this day. Deliberately excludes any assumed
+   *  spending - that's a projection of the user's own choices, not an obligation, and folding
+   *  it in made the band slide down continuously with nothing real behind the movement. */
+  committedCents: number;
 }
 
 export interface ForecastResult {
@@ -66,6 +68,15 @@ export interface ForecastResult {
   makesItToPayday: boolean;
   totalIncomeCents: number;
   totalBillsCents: number;
+  /** Extra day-to-day spending the user asked to simulate, across the whole window. Zero unless
+   *  a what-if is running - the projection never invents spending on its own. */
+  assumedSpendCents: number;
+  /**
+   * Income in this window minus the bills scheduled against it - what's left over to live on.
+   */
+  afterBillsCents: number;
+  /** Projected balance on the final day of the window. */
+  endingBalanceCents: number;
   /** What can be spent today without driving the projected low point below `bufferCents`. */
   safeToSpendCents: number;
 }
@@ -76,8 +87,9 @@ export interface ProjectCashFlowInput {
   startDate: string;
   days: number;
   events: ForecastEvent[];
-  /** Everyday non-bill spending per day, as a positive number. */
-  dailyBaselineCents: number;
+  /** Extra spending per day to simulate, as a positive number. Defaults to 0 - the forecast is
+   *  built from scheduled bills and income only, never from an inferred spending rate. */
+  dailySpendCents?: number;
   /** Cash the user wants to keep untouched; subtracted from safe-to-spend. */
   bufferCents?: number;
 }
@@ -168,26 +180,14 @@ const OCCURRENCES_PER_MONTH: Record<RecurringCadence, number> = {
   weekly: 52 / 12,
   biweekly: 26 / 12,
 };
-
 /** A rule's cost normalised to "per month", so cadences can be compared and summed. */
 export function monthlyEquivalentCents(rule: { cadence: RecurringCadence; amount_cents: number }): number {
   return Math.round(rule.amount_cents * OCCURRENCES_PER_MONTH[rule.cadence]);
 }
 
-/**
- * Everyday spending per day, derived by taking average monthly expenses and removing the bills
- * we're already projecting individually - otherwise every known bill would be counted twice,
- * once as an event and again inside the average it contributed to.
- */
-export function deriveDailyBaselineCents(
-  avgMonthlyExpenseCents: number,
-  knownMonthlyBillsCents: number
-): number {
-  return Math.max(0, Math.round((avgMonthlyExpenseCents - knownMonthlyBillsCents) / 30));
-}
-
 export function projectCashFlow(input: ProjectCashFlowInput): ForecastResult {
-  const { startingBalanceCents, startDate, days, events, dailyBaselineCents } = input;
+  const { startingBalanceCents, startDate, days, events } = input;
+  const dailySpendCents = input.dailySpendCents ?? 0;
   const buffer = input.bufferCents ?? 0;
 
   const byDate = new Map<string, ForecastEvent[]>();
@@ -212,9 +212,20 @@ export function projectCashFlow(input: ProjectCashFlowInput): ForecastResult {
       if (e.amountCents > 0) totalIncome += e.amountCents;
       else totalBills += Math.abs(e.amountCents);
     }
-    balance -= dailyBaselineCents;
+    balance -= dailySpendCents;
 
-    out.push({ date, balanceCents: balance, events: dayEvents, baselineCents: dailyBaselineCents });
+    out.push({ date, balanceCents: balance, events: dayEvents, committedCents: 0 });
+  }
+
+  // Reverse pass: what's still owed after each day. Has to run backwards because a day's
+  // commitment depends on everything that comes after it.
+  let stillOwed = 0;
+  for (let i = out.length - 1; i >= 0; i--) {
+    out[i].committedCents = stillOwed;
+    stillOwed += out[i].events.reduce(
+      (sum, e) => sum + (e.amountCents < 0 ? Math.abs(e.amountCents) : 0),
+      0
+    );
   }
 
   let lowPoint: ForecastDay | null = null;
@@ -239,6 +250,9 @@ export function projectCashFlow(input: ProjectCashFlowInput): ForecastResult {
     makesItToPayday,
     totalIncomeCents: totalIncome,
     totalBillsCents: totalBills,
+    assumedSpendCents: dailySpendCents * days,
+    afterBillsCents: totalIncome - totalBills,
+    endingBalanceCents: out.length > 0 ? out[out.length - 1].balanceCents : startingBalanceCents,
     safeToSpendCents: Math.max(0, (lowPoint?.balanceCents ?? startingBalanceCents) - buffer),
   };
 }
@@ -248,6 +262,95 @@ export function daysFromToday(iso: string, from: Date = new Date()): number {
   const a = toLocalDate(iso).getTime();
   const b = new Date(from.getFullYear(), from.getMonth(), from.getDate()).getTime();
   return Math.round((a - b) / MS_PER_DAY);
+}
+
+export interface EventGroup {
+  label: string;
+  events: ForecastEvent[];
+}
+
+function monthHeading(iso: string, today: Date): string {
+  const d = toLocalDate(iso);
+  const sameYear = d.getFullYear() === today.getFullYear();
+  return d.toLocaleDateString(undefined, sameYear ? { month: "long" } : { month: "long", year: "numeric" });
+}
+
+/**
+ * Buckets upcoming events for the bill list. Near-term items are grouped by how soon they are,
+ * but anything past a fortnight is grouped by its ACTUAL calendar month - a 30-day window spans
+ * two months, and labelling September's bills "later this month" made them look like duplicates
+ * of August's.
+ */
+export function groupUpcomingEvents(events: ForecastEvent[], today: Date = new Date()): EventGroup[] {
+  const currentMonth = toISODate(today).slice(0, 7);
+  const groups: EventGroup[] = [];
+
+  for (const e of events) {
+    const days = daysFromToday(e.date, today);
+    const label =
+      days <= 0 ? "Today"
+      : days <= 7 ? "This week"
+      : days <= 14 ? "Next week"
+      : e.date.slice(0, 7) === currentMonth ? "Later this month"
+      : monthHeading(e.date, today);
+
+    const existing = groups.find((g) => g.label === label);
+    if (existing) existing.events.push(e);
+    else groups.push({ label, events: [e] });
+  }
+
+  return groups;
+}
+
+/** The three questions people ask about their balance. Each resolves to a different length. */
+export type ForecastWindowMode = "month" | "paycheck" | "nextMonth";
+
+export interface ResolvedWindow {
+  /** Number of days to project, inclusive of today. */
+  days: number;
+  /** Last day covered, YYYY-MM-DD. */
+  endDate: string;
+  /** True when "to next paycheck" was asked for but no income is scheduled, so this fell back
+   *  to the rest of the month. */
+  usedFallback: boolean;
+}
+
+/**
+ * Works out how many days a window covers. "To next paycheck" can't know its own length until
+ * the paycheck has been located, so this takes the already-expanded event list.
+ *
+ * The paycheck window runs up to and including the day the money lands, so the user can see it
+ * arrive - the low point that matters still falls before it.
+ *
+ * "Through next month" deliberately ends on the last day of the following month rather than a
+ * flat 30 days: a rolling 30-day window from mid-month stops before the next month's rent is
+ * due, so a bill you certainly owe simply vanishes from the list.
+ */
+export function resolveForecastWindow(
+  events: ForecastEvent[],
+  today: Date,
+  mode: ForecastWindowMode
+): ResolvedWindow {
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const todayIso = toISODate(startOfToday);
+
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const monthDays = daysInMonth - today.getDate() + 1;
+
+  // Day 0 of month+2 is the last day of month+1.
+  const endOfNextMonth = new Date(today.getFullYear(), today.getMonth() + 2, 0);
+  const throughNextMonthDays = daysFromToday(toISODate(endOfNextMonth), startOfToday) + 1;
+
+  const nextPaycheck = events.find((e) => e.amountCents > 0 && e.date >= todayIso) ?? null;
+  const usedFallback = mode === "paycheck" && !nextPaycheck;
+
+  const days =
+    mode === "nextMonth" ? throughNextMonthDays
+    : mode === "paycheck" && nextPaycheck
+      ? Math.max(1, daysFromToday(nextPaycheck.date, startOfToday) + 1)
+      : monthDays;
+
+  return { days, endDate: toISODate(addDays(startOfToday, days - 1)), usedFallback };
 }
 
 /** How pressing an action is - drives ordering and colour, nothing else. */
@@ -263,12 +366,16 @@ export interface NextAction {
 export interface NextActionContext {
   hasIncomeRule: boolean;
   detectedCount: number;
-  dailyBaselineCents: number;
+  /** Average money going out per day across the window, used to express the cushion in days. */
+  dailyOutflowCents: number;
+  /** The debt this profile is carrying, so a surplus can be pointed at something real rather
+   *  than described in the abstract. */
+  topDebt?: { name: string; balanceCents: number } | null;
   /** Reference point for "how many days until the shortfall". */
   today?: Date;
 }
 
-/** A cushion thinner than this many days of everyday spending is worth flagging. */
+/** A cushion thinner than this many days of outgoings is worth flagging. */
 const THIN_CUSHION_DAYS = 7;
 /** Above this many days of cushion, suggest putting the surplus to work instead. */
 const COMFORTABLE_CUSHION_DAYS = 45;
@@ -280,7 +387,7 @@ const COMFORTABLE_CUSHION_DAYS = 45;
  */
 export function deriveNextActions(result: ForecastResult, context: NextActionContext): NextAction[] {
   const actions: NextAction[] = [];
-  const { dailyBaselineCents, today = new Date() } = context;
+  const { dailyOutflowCents, today = new Date() } = context;
 
   if (result.firstShortfall) {
     const daysAway = Math.max(1, daysFromToday(result.firstShortfall.date, today));
@@ -291,7 +398,7 @@ export function deriveNextActions(result: ForecastResult, context: NextActionCon
       title: `Find ${formatPlainCurrency(gap)} before ${result.firstShortfall.date}`,
       detail:
         `That's about ${formatPlainCurrency(perDay)} a day for the next ${daysAway} ` +
-        `${daysAway === 1 ? "day" : "days"} - either trimmed from everyday spending or moved in from savings.`,
+        `${daysAway === 1 ? "day" : "days"} - either trimmed from spending or moved in from savings.`,
       tone: "urgent",
     });
   }
@@ -319,8 +426,8 @@ export function deriveNextActions(result: ForecastResult, context: NextActionCon
   }
 
   const cushionDays =
-    dailyBaselineCents > 0 && result.lowPoint
-      ? result.lowPoint.balanceCents / dailyBaselineCents
+    dailyOutflowCents > 0 && result.lowPoint
+      ? result.lowPoint.balanceCents / dailyOutflowCents
       : null;
 
   if (!result.firstShortfall && cushionDays !== null && cushionDays < THIN_CUSHION_DAYS) {
@@ -329,18 +436,22 @@ export function deriveNextActions(result: ForecastResult, context: NextActionCon
       title: "Your cushion gets thin",
       detail:
         `At the low point you're down to roughly ${Math.max(0, Math.floor(cushionDays))} days of ` +
-        "everyday spending. It holds, but there's little room for anything unexpected.",
+        "your usual outgoings. It holds, but there's little room for anything unexpected.",
       tone: "suggested",
     });
   }
 
   if (!result.firstShortfall && cushionDays !== null && cushionDays > COMFORTABLE_CUSHION_DAYS) {
+    const debt = context.topDebt;
     actions.push({
       key: "surplus",
       title: `You have room to move ${formatPlainCurrency(result.safeToSpendCents)}`,
-      detail:
-        "Even at the lowest point in this window you stay well ahead. That surplus could go " +
-        "toward a goal or a debt instead of sitting still.",
+      detail: debt
+        ? `Even at the lowest point in this window you stay well ahead, while ${debt.name} is ` +
+          `still costing you interest on ${formatPlainCurrency(debt.balanceCents)}. Sending some ` +
+          "of that spare money there beats leaving it still."
+        : "Even at the lowest point in this window you stay well ahead. That surplus could go " +
+          "toward a goal instead of sitting still.",
       tone: "positive",
     });
   }
@@ -351,4 +462,50 @@ export function deriveNextActions(result: ForecastResult, context: NextActionCon
 /** Whole-dollar formatting kept local so this module stays free of UI imports. */
 function formatPlainCurrency(cents: number): string {
   return `$${Math.abs(Math.round(cents / 100)).toLocaleString("en-US")}`;
+}
+
+/** Strips punctuation and case so a hand-typed "SoFi" can be compared against a bank's
+ *  "SOFI BANK PL DES:PL PYMT ID:T860... WEB". */
+function normalizeDescription(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/** Shortest normalized description that's distinctive enough to substring-match on - below
+ *  this, "a" or "co" would match half the statement. */
+const MIN_MATCHABLE_LENGTH = 3;
+
+/** Amounts this close are treated as the same charge - covers a payment that drifts by a few
+ *  cents of interest between months. */
+function amountsAreClose(a: number, b: number): boolean {
+  const x = Math.abs(a);
+  const y = Math.abs(b);
+  return Math.abs(x - y) <= Math.max(100, Math.max(x, y) * 0.02);
+}
+
+/**
+ * Whether a charge inferred from history is really the same thing as a bill the user already
+ * scheduled, in which case projecting both would double-count it.
+ *
+ * Exact description equality alone isn't enough: people name their rule "SoFi" while the bank
+ * writes "SOFI BANK PL DES:PL PYMT ID:T86083200 INDN:Tyler Fameli CO ID:3452499527 WEB". So a
+ * near-identical amount plus a recognisable description overlap counts as a match.
+ */
+export function chargeMatchesRule(
+  charge: { description: string; amount_cents: number },
+  rule: { description: string; amount_cents: number }
+): boolean {
+  const a = normalizeDescription(charge.description);
+  const b = normalizeDescription(rule.description);
+  if (a.length === 0 || b.length === 0) return false;
+  if (a === b) return true;
+
+  if (!amountsAreClose(charge.amount_cents, rule.amount_cents)) return false;
+
+  const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
+  if (shorter.length >= MIN_MATCHABLE_LENGTH && longer.includes(shorter)) return true;
+
+  // "SoFi Loan" vs "SoFi Bank PL…" share no containment but obviously refer to the same payee.
+  const firstA = a.split(" ")[0];
+  const firstB = b.split(" ")[0];
+  return firstA.length >= MIN_MATCHABLE_LENGTH && firstA === firstB;
 }
