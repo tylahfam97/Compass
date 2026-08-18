@@ -169,8 +169,10 @@ export default function PlanPage() {
     };
   }, [inputs, planWindow, extraSpendCents, bufferCents, includeDetected]);
 
+  // Kept in cents: formatAxisCurrency and formatCurrency both expect cents, and converting to
+  // dollars here made the axis render $1,500 as "$15".
   const chartData = useMemo(
-    () => forecast?.result.days.map((d) => ({ date: d.date, balance: d.balanceCents / 100 })) ?? [],
+    () => forecast?.result.days.map((d) => ({ date: d.date, balance: d.balanceCents })) ?? [],
     [forecast]
   );
 
@@ -341,80 +343,13 @@ export default function PlanPage() {
         )}
       </section>
 
-      {/* ── What to do next ──────────────────────────────────────────────── */}
-      {nextActions.length > 0 && (
-        <section className="border rounded-2xl p-5">
-          <h2 className="font-semibold text-sm mb-1">What to do next</h2>
-          <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">
-            The rest of Compass tells you what happened. This is what you could do about it.
-          </p>
-          <div className="space-y-2">
-            {nextActions.map((a) => (
-              <div key={a.key} className="border rounded-xl px-4 py-3 flex items-start gap-3">
-                <span
-                  className="w-1.5 h-1.5 rounded-full shrink-0 mt-2"
-                  style={{ backgroundColor: ACTION_TONE[a.tone].color }}
-                />
-                <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: ACTION_TONE[a.tone].color }}>
-                    {ACTION_TONE[a.tone].label}
-                  </p>
-                  <p className="text-sm font-medium mt-0.5">{a.title}</p>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1 leading-relaxed">{a.detail}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* ── Projection chart ─────────────────────────────────────────────── */}
-      <section className="border rounded-2xl p-5">
-        <h2 className="font-semibold text-sm mb-4">Projected checking balance</h2>
-        <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData} margin={{ top: 5, right: 8, left: 4, bottom: 0 }}>
-              <defs>
-                <linearGradient id="planFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.28} />
-                  <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0.02} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-              <XAxis
-                dataKey="date" tickFormatter={(d: string) => formatDate(d)}
-                tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" minTickGap={28}
-              />
-              <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" width={60} />
-              <Tooltip
-                formatter={(v) => formatCurrency(Math.round((v as number) * 100))}
-                labelFormatter={(l) => formatDate(String(l))}
-                contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
-              />
-              <ReferenceLine y={0} stroke="hsl(var(--error))" strokeDasharray="4 4" />
-              <Area type="monotone" dataKey="balance" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#planFill)" />
-              {low && (
-                <ReferenceDot
-                  x={low.date} y={low.balanceCents / 100} r={4}
-                  fill={low.balanceCents < 0 ? "hsl(var(--error))" : "hsl(var(--warning))"} stroke="none"
-                />
-              )}
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-        <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-3">
-          Everyday spending is estimated at {formatCurrency(forecast!.dailyBaselineCents)}/day from your
-          last 3 months, on top of the scheduled items below. This is an estimate, not a promise.
-        </p>
-      </section>
-
       {/* ── What-if ──────────────────────────────────────────────────────── */}
       <section className="border rounded-2xl p-5 space-y-5">
         <div>
           <h2 className="font-semibold text-sm flex items-center gap-1.5"><Wand2 size={14} /> What if…</h2>
           <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1 max-w-lg">
-            Try a change and watch every figure above update. Nothing here is saved or changes
-            your data - let go of the slider and it's just a preview.
+            Change the window or try a scenario - the numbers above and the chart below both
+            react. Nothing here is saved or touches your data.
           </p>
         </div>
 
@@ -442,39 +377,41 @@ export default function PlanPage() {
           </span>
         </div>
 
-        <label className="block">
-          <span className="text-xs font-medium">
-            …I spend an extra{" "}
-            <span className="tabular-nums" style={{ color: "var(--gold)" }}>{formatCurrency(extraSpendCents)}</span>
-          </span>
-          <input
-            type="range" min={0} max={200_000} step={5_000}
-            value={extraSpendCents}
-            onChange={(e) => setExtraSpendCents(Number(e.target.value))}
-            className="w-full mt-2 accent-[hsl(var(--primary))]"
-          />
-          <span className="text-[11px] text-[hsl(var(--muted-foreground))]">
-            Unplanned spending across the whole {windowDays}-day window, spread evenly
-            {extraSpendCents > 0 && <> - about {formatCurrency(Math.round(extraSpendCents / windowDays))} a day on top of your usual</>}.
-          </span>
-        </label>
+        <div className="grid sm:grid-cols-2 gap-5">
+          <label className="block">
+            <span className="text-xs font-medium">
+              …I spend an extra{" "}
+              <span className="tabular-nums" style={{ color: "var(--gold)" }}>{formatCurrency(extraSpendCents)}</span>
+            </span>
+            <input
+              type="range" min={0} max={200_000} step={5_000}
+              value={extraSpendCents}
+              onChange={(e) => setExtraSpendCents(Number(e.target.value))}
+              className="w-full mt-2 accent-[hsl(var(--primary))]"
+            />
+            <span className="text-[11px] text-[hsl(var(--muted-foreground))]">
+              Discretionary spending across the whole {windowDays}-day window, spread evenly
+              {extraSpendCents > 0 && <> - about {formatCurrency(Math.round(extraSpendCents / windowDays))} a day on top of your usual</>}.
+            </span>
+          </label>
 
-        <label className="block">
-          <span className="text-xs font-medium">
-            …I keep{" "}
-            <span className="tabular-nums" style={{ color: "var(--gold)" }}>{formatCurrency(bufferCents)}</span> untouched
-          </span>
-          <input
-            type="range" min={0} max={200_000} step={5_000}
-            value={bufferCents}
-            onChange={(e) => setBufferCents(Number(e.target.value))}
-            className="w-full mt-2 accent-[hsl(var(--primary))]"
-          />
-          <span className="text-[11px] text-[hsl(var(--muted-foreground))]">
-            A cushion you don't want to dip into. Comes straight off "safe to spend"; it doesn't
-            change the projection itself.
-          </span>
-        </label>
+          <label className="block">
+            <span className="text-xs font-medium">
+              …I set aside{" "}
+              <span className="tabular-nums" style={{ color: "var(--gold)" }}>{formatCurrency(bufferCents)}</span>
+            </span>
+            <input
+              type="range" min={0} max={200_000} step={5_000}
+              value={bufferCents}
+              onChange={(e) => setBufferCents(Number(e.target.value))}
+              className="w-full mt-2 accent-[hsl(var(--primary))]"
+            />
+            <span className="text-[11px] text-[hsl(var(--muted-foreground))]">
+              Money you're saving rather than spending. Comes off "safe to spend" and shows as a
+              line on the chart; it doesn't change the projection itself.
+            </span>
+          </label>
+        </div>
 
         <div className="flex items-center justify-between gap-3 border-t pt-4">
           <label className="flex items-center gap-2 text-xs font-medium cursor-pointer select-none">
@@ -492,6 +429,82 @@ export default function PlanPage() {
           )}
         </div>
       </section>
+
+      {/* ── Projection chart ─────────────────────────────────────────────── */}
+      <section className="border rounded-2xl p-5" id="plan-chart">
+        <h2 className="font-semibold text-sm mb-1">Projected checking balance</h2>
+        <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">
+          Each step down is everyday spending; the cliffs are bills and the jumps are income.
+        </p>
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={chartData} margin={{ top: 5, right: 8, left: 4, bottom: 0 }}>
+              <defs>
+                <linearGradient id="planFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.28} />
+                  <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+              <XAxis
+                dataKey="date" tickFormatter={(d: string) => formatDate(d)}
+                tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" minTickGap={28}
+              />
+              <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" width={60} />
+              <Tooltip
+                formatter={(v) => formatCurrency(v as number)}
+                labelFormatter={(l) => formatDate(String(l))}
+                contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
+              />
+              <ReferenceLine y={0} stroke="hsl(var(--error))" strokeDasharray="4 4" />
+              {bufferCents > 0 && (
+                <ReferenceLine
+                  y={bufferCents} stroke="var(--gold)" strokeDasharray="4 4"
+                  label={{ value: "cushion", position: "insideTopRight", fontSize: 10, fill: "var(--gold)" }}
+                />
+              )}
+              <Area type="monotone" dataKey="balance" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#planFill)" />
+              {low && (
+                <ReferenceDot
+                  x={low.date} y={low.balanceCents} r={4}
+                  fill={low.balanceCents < 0 ? "hsl(var(--error))" : "hsl(var(--warning))"} stroke="none"
+                />
+              )}
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+        <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-3">
+          Everyday spending is estimated at {formatCurrency(forecast!.dailyBaselineCents)}/day from your
+          last 3 months, on top of the scheduled items below. This is an estimate, not a promise.
+        </p>
+      </section>
+
+      {/* ── What to do next ──────────────────────────────────────────────── */}
+      {nextActions.length > 0 && (
+        <section className="border rounded-2xl p-5">
+          <h2 className="font-semibold text-sm mb-1">What to do next</h2>
+          <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">
+            The rest of Compass tells you what happened. This is what you could do about it.
+          </p>
+          <div className="space-y-2">
+            {nextActions.map((a) => (
+              <div key={a.key} className="border rounded-xl px-4 py-3 flex items-start gap-3">
+                <span
+                  className="w-1.5 h-1.5 rounded-full shrink-0 mt-2"
+                  style={{ backgroundColor: ACTION_TONE[a.tone].color }}
+                />
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: ACTION_TONE[a.tone].color }}>
+                    {ACTION_TONE[a.tone].label}
+                  </p>
+                  <p className="text-sm font-medium mt-0.5">{a.title}</p>
+                  <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1 leading-relaxed">{a.detail}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* ── Bill calendar ────────────────────────────────────────────────── */}
       <section className="border rounded-2xl p-5">
