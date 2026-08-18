@@ -16,16 +16,32 @@ import { reportLoadError, toast } from "@/stores/toastStore";
 import RecurringRulesPanel from "@/components/RecurringRulesPanel";
 import { CardListSkeleton } from "@/components/Skeleton";
 
-const HORIZONS = [30, 60, 90] as const;
-type Horizon = (typeof HORIZONS)[number];
+/** The three questions people actually ask about their balance. Each resolves to a different
+ *  number of days, so every figure on this page moves with the selection. */
+type PlanWindow = "month" | "paycheck" | "days30";
 
-const HORIZON_KEY = "compass_plan_horizon";
+const WINDOWS: { id: PlanWindow; label: string }[] = [
+  { id: "month",    label: "Rest of month" },
+  { id: "paycheck", label: "To next paycheck" },
+  { id: "days30",   label: "Next 30 days" },
+];
+
+const WINDOW_KEY = "compass_plan_window";
+
+/** Events are expanded this far ahead regardless of window, so "to next paycheck" can find a
+ *  paycheck that's further out than the window currently being shown. */
+const MAX_LOOKAHEAD_DAYS = 95;
 
 const ACTION_TONE: Record<NextActionTone, { color: string; label: string }> = {
   urgent:    { color: "hsl(var(--error))",   label: "Do this first" },
   suggested: { color: "hsl(var(--warning))", label: "Worth doing" },
   positive:  { color: "hsl(var(--success))", label: "Opportunity" },
 };
+
+function daysLeftInMonth(today: Date): number {
+  const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  return lastDay - today.getDate() + 1;
+}
 
 function EmptyState({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
   return (
@@ -65,9 +81,9 @@ export default function PlanPage() {
   const [loading, setLoading] = useState(true);
   const [reloadTick, setReloadTick] = useState(0);
 
-  const [horizon, setHorizon] = useState<Horizon>(() => {
-    const saved = Number(localStorage.getItem(HORIZON_KEY));
-    return (HORIZONS as readonly number[]).includes(saved) ? (saved as Horizon) : 30;
+  const [planWindow, setPlanWindow] = useState<PlanWindow>(() => {
+    const saved = localStorage.getItem(WINDOW_KEY) as PlanWindow | null;
+    return WINDOWS.some((w) => w.id === saved) ? saved! : "month";
   });
   // What-if controls. Both feed straight back into the pure projection, which is why it has to
   // stay synchronous - these recompute on every drag with no DB round trip.
@@ -89,9 +105,9 @@ export default function PlanPage() {
     });
   }, [load, reloadTick]);
 
-  const setHorizonPersisted = (h: Horizon) => {
-    setHorizon(h);
-    localStorage.setItem(HORIZON_KEY, String(h));
+  const setWindowPersisted = (w: PlanWindow) => {
+    setPlanWindow(w);
+    localStorage.setItem(WINDOW_KEY, w);
   };
 
   const hiddenCount = listHiddenCharges(profileId).length;
@@ -117,11 +133,24 @@ export default function PlanPage() {
     if (!inputs) return null;
     const today = new Date();
     const start = toISODate(today);
-    const end = new Date(today);
-    end.setDate(end.getDate() + horizon);
+    const lookaheadEnd = new Date(today);
+    lookaheadEnd.setDate(lookaheadEnd.getDate() + MAX_LOOKAHEAD_DAYS);
 
     const activeRules = includeDetected ? [...inputs.rules, ...inputs.detected] : inputs.rules;
-    const events = expandOccurrences(activeRules, today, end);
+    const allEvents = expandOccurrences(activeRules, today, lookaheadEnd);
+
+    // Resolved after expanding, because "to next paycheck" can't know its own length until the
+    // paycheck has been found. Falls back to the rest of the month when no income is scheduled.
+    const nextPaycheck = allEvents.find((e) => e.amountCents > 0) ?? null;
+    const monthDays = daysLeftInMonth(today);
+    const days =
+      planWindow === "days30" ? 30
+      : planWindow === "paycheck" && nextPaycheck ? Math.max(1, daysFromToday(nextPaycheck.date) + 1)
+      : monthDays;
+    const usedFallback = planWindow === "paycheck" && !nextPaycheck;
+
+    const endDate = toISODate(new Date(today.getFullYear(), today.getMonth(), today.getDate() + days - 1));
+    const events = allEvents.filter((e) => e.date <= endDate);
 
     // Only outgoing rules belong in the baseline adjustment - income doesn't inflate the
     // average expense figure the baseline is derived from.
@@ -129,23 +158,28 @@ export default function PlanPage() {
       .filter((r) => r.amount_cents < 0)
       .reduce((sum, r) => sum + Math.abs(monthlyEquivalentCents(r)), 0);
 
+    // The extra-spend slider is an amount for the WHOLE window, spread evenly across it - so the
+    // same $200 hits harder over a 6-day window than a 30-day one, which is the point.
     const dailyBaselineCents =
       deriveDailyBaselineCents(inputs.avgMonthlyExpenseCents, knownMonthlyBills) +
-      Math.round(extraSpendCents / 30);
+      Math.round(extraSpendCents / days);
 
     return {
       result: projectCashFlow({
         startingBalanceCents: inputs.startingBalanceCents,
         startDate: start,
-        days: horizon,
+        days,
         events,
         dailyBaselineCents,
         bufferCents,
       }),
+      days,
+      endDate,
+      usedFallback,
       dailyBaselineCents,
       events,
     };
-  }, [inputs, horizon, extraSpendCents, bufferCents, includeDetected]);
+  }, [inputs, planWindow, extraSpendCents, bufferCents, includeDetected]);
 
   const chartData = useMemo(
     () => forecast?.result.days.map((d) => ({ date: d.date, balance: d.balanceCents / 100 })) ?? [],
@@ -175,17 +209,18 @@ export default function PlanPage() {
         </p>
       </div>
       <div className="flex gap-1 border rounded-lg p-1 shrink-0">
-        {HORIZONS.map((h) => (
+        {WINDOWS.map((w) => (
           <button
-            key={h}
-            onClick={() => setHorizonPersisted(h)}
+            key={w.id}
+            onClick={() => setWindowPersisted(w.id)}
+            aria-pressed={planWindow === w.id}
             className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-              horizon === h
+              planWindow === w.id
                 ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
                 : "hover:bg-[hsl(var(--muted))]"
             }`}
           >
-            {h} days
+            {w.label}
           </button>
         ))}
       </div>
@@ -230,6 +265,11 @@ export default function PlanPage() {
   const result = forecast!.result;
   const low = result.lowPoint;
   const short = result.firstShortfall;
+  const windowDays = forecast!.days;
+  const windowLabel =
+    planWindow === "days30" ? "the next 30 days"
+    : planWindow === "paycheck" && !forecast!.usedFallback ? "your next paycheck"
+    : "the rest of this month";
 
   return (
     <div className="p-8 max-w-5xl mx-auto space-y-6">
@@ -250,11 +290,19 @@ export default function PlanPage() {
               : <TrendingUp size={22} style={{ color: "hsl(var(--success))" }} />}
           </span>
           <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1">
+              {formatDate(toISODate(new Date()))} – {formatDate(forecast!.endDate)} · {windowDays} day{windowDays === 1 ? "" : "s"}
+            </p>
             <h2 className="text-xl font-semibold">
               {short
                 ? `You're projected to run short on ${formatDate(short.date)}`
-                : `You stay above zero for the next ${horizon} days`}
+                : `You stay above zero through ${windowLabel}`}
             </h2>
+            {forecast!.usedFallback && (
+              <p className="text-xs mt-1" style={{ color: "hsl(var(--warning))" }}>
+                No income is scheduled yet, so this is showing the rest of the month instead.
+              </p>
+            )}
             <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">
               {short ? (
                 <>
@@ -297,7 +345,7 @@ export default function PlanPage() {
               <span className="text-[hsl(var(--muted-foreground))] text-base"> / </span>
               <span style={{ color: "hsl(var(--error))" }}>{formatCurrency(result.totalBillsCents)}</span>
             </p>
-            <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">Scheduled over {horizon} days</p>
+            <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">Scheduled over {windowDays} day{windowDays === 1 ? "" : "s"}</p>
           </div>
         </div>
       </section>
@@ -370,12 +418,19 @@ export default function PlanPage() {
       </section>
 
       {/* ── What-if ──────────────────────────────────────────────────────── */}
-      <section className="border rounded-2xl p-5 space-y-4">
-        <h2 className="font-semibold text-sm flex items-center gap-1.5"><Wand2 size={14} /> What if…</h2>
+      <section className="border rounded-2xl p-5 space-y-5">
+        <div>
+          <h2 className="font-semibold text-sm flex items-center gap-1.5"><Wand2 size={14} /> What if…</h2>
+          <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1 max-w-lg">
+            Try a change against {windowLabel} and watch every figure above update. Nothing here is
+            saved or changes your data - let go of the slider and it's just a preview.
+          </p>
+        </div>
 
         <label className="block">
           <span className="text-xs font-medium">
-            I spend an extra {formatCurrency(extraSpendCents)} this month
+            …I spend an extra{" "}
+            <span className="tabular-nums" style={{ color: "var(--gold)" }}>{formatCurrency(extraSpendCents)}</span>
           </span>
           <input
             type="range" min={0} max={200_000} step={5_000}
@@ -383,11 +438,16 @@ export default function PlanPage() {
             onChange={(e) => setExtraSpendCents(Number(e.target.value))}
             className="w-full mt-2 accent-[hsl(var(--primary))]"
           />
+          <span className="text-[11px] text-[hsl(var(--muted-foreground))]">
+            Unplanned spending across the whole {windowDays}-day window, spread evenly
+            {extraSpendCents > 0 && <> - about {formatCurrency(Math.round(extraSpendCents / windowDays))} a day on top of your usual</>}.
+          </span>
         </label>
 
         <label className="block">
           <span className="text-xs font-medium">
-            I keep a {formatCurrency(bufferCents)} cushion untouched
+            …I keep{" "}
+            <span className="tabular-nums" style={{ color: "var(--gold)" }}>{formatCurrency(bufferCents)}</span> untouched
           </span>
           <input
             type="range" min={0} max={200_000} step={5_000}
@@ -395,9 +455,13 @@ export default function PlanPage() {
             onChange={(e) => setBufferCents(Number(e.target.value))}
             className="w-full mt-2 accent-[hsl(var(--primary))]"
           />
+          <span className="text-[11px] text-[hsl(var(--muted-foreground))]">
+            A cushion you don't want to dip into. Comes straight off "safe to spend"; it doesn't
+            change the projection itself.
+          </span>
         </label>
 
-        <div className="flex items-center justify-between gap-3 pt-1">
+        <div className="flex items-center justify-between gap-3 border-t pt-4">
           <label className="flex items-center gap-2 text-xs font-medium cursor-pointer select-none">
             <input type="checkbox" checked={includeDetected} onChange={(e) => setIncludeDetected(e.target.checked)} />
             Include {inputs.detected.length} charge{inputs.detected.length === 1 ? "" : "s"} detected from my history
@@ -405,7 +469,8 @@ export default function PlanPage() {
           {(extraSpendCents > 0 || bufferCents > 0) && (
             <button
               onClick={() => { setExtraSpendCents(0); setBufferCents(0); }}
-              className="text-xs px-2.5 py-1 border rounded-lg hover:bg-[hsl(var(--muted))]"
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg text-black transition-opacity hover:opacity-90 shrink-0"
+              style={{ backgroundColor: "var(--gold)" }}
             >
               Reset
             </button>
@@ -422,7 +487,7 @@ export default function PlanPage() {
 
         {forecast!.events.length === 0 ? (
           <p className="text-sm text-[hsl(var(--muted-foreground))] italic">
-            Nothing scheduled in the next {horizon} days. Add your bills and paycheck below.
+            Nothing scheduled between now and {formatDate(forecast!.endDate)}. Add your bills and paycheck below.
           </p>
         ) : (
           <div className="space-y-5">
