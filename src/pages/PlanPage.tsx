@@ -452,17 +452,21 @@ export default function PlanPage() {
                       >
                         {formatCurrency(e.amountCents)}
                       </span>
-                      {e.source === "detected" && (
-                        <button
-                          onClick={() => handleHide(e.description)}
-                          aria-label={`Hide ${e.description}`}
-                          title="Not a real bill - hide it from the forecast and subscriptions"
-                          className="shrink-0 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))]
-                                     opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
-                        >
-                          <EyeOff size={14} />
-                        </button>
-                      )}
+                      {/* Space is reserved on every row, not just hideable ones, so amounts stay
+                          aligned down the column. */}
+                      <span className="w-4 shrink-0 flex justify-end">
+                        {e.source === "detected" && (
+                          <button
+                            onClick={() => handleHide(e.description)}
+                            aria-label={`Hide ${e.description}`}
+                            title="Not a real bill - hide it from the forecast and subscriptions"
+                            className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))]
+                                       opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                          >
+                            <EyeOff size={14} />
+                          </button>
+                        )}
+                      </span>
                     </div>
                   ))}
                 </div>
