@@ -72,9 +72,15 @@ export interface ForecastResult {
   totalBillsCents: number;
   /** Everyday spending assumed across the whole window. */
   baselineTotalCents: number;
-  /** Of the money arriving in this window, what's left once bills and everyday spending are
-   *  paid - the amount that's actually a choice between spending and saving. */
-  discretionaryCents: number;
+  /**
+   * Income in this window minus the bills scheduled against it. Deliberately does NOT subtract
+   * the everyday baseline: that figure is average total spending, which already contains the
+   * user's discretionary purchases - netting it off too would subtract discretionary spending
+   * and then call the remainder discretionary.
+   */
+  afterBillsCents: number;
+  /** Projected balance on the final day of the window. */
+  endingBalanceCents: number;
   /** What can be spent today without driving the projected low point below `bufferCents`. */
   safeToSpendCents: number;
 }
@@ -265,7 +271,8 @@ export function projectCashFlow(input: ProjectCashFlowInput): ForecastResult {
     totalIncomeCents: totalIncome,
     totalBillsCents: totalBills,
     baselineTotalCents,
-    discretionaryCents: totalIncome - totalBills - baselineTotalCents,
+    afterBillsCents: totalIncome - totalBills,
+    endingBalanceCents: out.length > 0 ? out[out.length - 1].balanceCents : startingBalanceCents,
     safeToSpendCents: Math.max(0, (lowPoint?.balanceCents ?? startingBalanceCents) - buffer),
   };
 }

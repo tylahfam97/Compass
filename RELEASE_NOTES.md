@@ -8,14 +8,18 @@ A fast follow-up to v1.0 fixing the things real use turned up immediately.
 
 ### New: Plan Now Shows What's Actually Yours To Decide
 Plan could tell you your balance over time, but never the number people actually want: how much
-of what's coming in is genuinely free, once the bills and everyday spending are accounted for.
+of what's coming in is genuinely free once your bills are paid.
 
-- A **Discretionary** figure sits alongside safe-to-spend and the low point
-- A one-line breakdown spells out the arithmetic behind it —
-  `$2,331 coming in − $1,625 bills − $420 everyday = $286 free` — so the relationship between
-  those numbers is visible rather than implied
-- The chart now shades **money already committed**, so the gap between the balance line and that
-  band *is* your free money, and you can watch it narrow as bills approach
+- An **After bills** figure sits alongside safe-to-spend and the low point — the income arriving
+  in this window minus the bills scheduled against it. When it's negative, your bills for the
+  period exceed the pay arriving and the difference is coming out of savings, which is worth
+  knowing.
+- A one-line breakdown spells out the whole picture —
+  `$3,834 now + $2,331 coming in − $2,374 bills − $2,449 everyday = $1,342 left on Aug 31` —
+  so where the projection lands is arithmetic you can follow rather than a number to trust
+- The chart now shades **money already committed** at each point (bills still due, plus everyday
+  spending for the days left), so the gap between your balance and that band *is* your free
+  money, and you can watch it narrow as bills approach
 - Setting money aside draws a line on the chart, so it's something you can see the balance
   approach rather than just a number
 

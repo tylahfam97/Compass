@@ -15,6 +15,7 @@ import { hideCharge, unhideCharge, listHiddenCharges, clearHiddenCharges } from 
 import { useProfileStore } from "@/stores/profileStore";
 import { reportLoadError, toast } from "@/stores/toastStore";
 import RecurringRulesPanel from "@/components/RecurringRulesPanel";
+import InfoTooltip from "@/components/InfoTooltip";
 import { CardListSkeleton } from "@/components/Skeleton";
 
 /** The three questions people actually ask about their balance. Each resolves to a different
@@ -310,15 +311,20 @@ export default function PlanPage() {
             </p>
           </div>
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">Discretionary</p>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] flex items-center gap-1">
+              After bills
+              <InfoTooltip text="The income arriving in this window minus the bills scheduled against it. Everyday spending isn't subtracted here - that estimate already includes your day-to-day choices." />
+            </p>
             <p
               className="text-2xl font-bold tabular-nums mt-1"
-              style={{ color: result.discretionaryCents < 0 ? "hsl(var(--error))" : "hsl(var(--success))" }}
+              style={{ color: result.afterBillsCents < 0 ? "hsl(var(--error))" : "hsl(var(--success))" }}
             >
-              {formatCurrency(result.discretionaryCents)}
+              {formatCurrency(result.afterBillsCents)}
             </p>
             <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">
-              {result.discretionaryCents < 0 ? "Short of covering this window" : "Yours to spend or save"}
+              {result.afterBillsCents < 0
+                ? "Bills exceed the income arriving"
+                : "Income left over for everyday life"}
             </p>
           </div>
           <div>
@@ -345,9 +351,12 @@ export default function PlanPage() {
           </div>
         </div>
 
-        {/* Spells the discretionary figure out as arithmetic - the relationship between these
-            four numbers is the whole model, and it isn't obvious from the tiles alone. */}
+        {/* Starts from the real balance so it lands on the projected end figure - a flow-only
+            version reads as a huge deficit even when the account never goes near zero. */}
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 mt-5 pt-4 border-t text-sm tabular-nums">
+          <span>{formatCurrency(inputs.startingBalanceCents)}</span>
+          <span className="text-[hsl(var(--muted-foreground))] text-xs">now</span>
+          <span className="text-[hsl(var(--muted-foreground))]">+</span>
           <span style={{ color: "hsl(var(--success))" }}>{formatCurrency(result.totalIncomeCents)}</span>
           <span className="text-[hsl(var(--muted-foreground))] text-xs">coming in</span>
           <span className="text-[hsl(var(--muted-foreground))]">−</span>
@@ -359,11 +368,13 @@ export default function PlanPage() {
           <span className="text-[hsl(var(--muted-foreground))]">=</span>
           <span
             className="font-semibold"
-            style={{ color: result.discretionaryCents < 0 ? "hsl(var(--error))" : "hsl(var(--success))" }}
+            style={{ color: result.endingBalanceCents < 0 ? "hsl(var(--error))" : "hsl(var(--success))" }}
           >
-            {formatCurrency(result.discretionaryCents)}
+            {formatCurrency(result.endingBalanceCents)}
           </span>
-          <span className="text-[hsl(var(--muted-foreground))] text-xs">free</span>
+          <span className="text-[hsl(var(--muted-foreground))] text-xs">
+            left on {formatDate(forecast!.endDate)}
+          </span>
         </div>
 
         {billCount === 0 && forecast!.events.length > 0 && (
@@ -527,6 +538,7 @@ export default function PlanPage() {
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-0.5 rounded" style={{ backgroundColor: "hsl(var(--error))" }} />
             Already committed
+            <InfoTooltip text="At any point on the chart, this is everything still due before the window ends - remaining bills plus the everyday spending estimate for the days left. Where your balance sits above it, that gap is money you could spend or save; where it dips below, something won't be covered." />
           </span>
           {bufferCents > 0 && (
             <span className="flex items-center gap-1.5">

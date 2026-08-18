@@ -392,17 +392,40 @@ describe("discretionary and committed money", () => {
     expect(r.baselineTotalCents).toBe(10_000);
   });
 
-  it("leaves income minus bills minus everyday spending as discretionary", () => {
+  it("leaves income minus scheduled bills as what's free after bills", () => {
     const r = projectCashFlow({
       ...base,
       events: [event("2026-08-02", 200_000, "pay"), event("2026-08-04", -50_000, "rent")],
     });
-    expect(r.discretionaryCents).toBe(200_000 - 50_000 - 10_000);
+    expect(r.afterBillsCents).toBe(150_000);
   });
 
-  it("reports negative discretionary when commitments outrun income", () => {
-    const r = projectCashFlow({ ...base, events: [event("2026-08-02", -50_000)] });
-    expect(r.discretionaryCents).toBe(-60_000);
+  it("does not net off the everyday baseline, which already contains discretionary spending", () => {
+    const r = projectCashFlow({
+      ...base,
+      events: [event("2026-08-02", 200_000, "pay")],
+      dailyBaselineCents: 5_000,
+    });
+    expect(r.afterBillsCents).toBe(200_000);
+  });
+
+  it("goes negative when scheduled bills outrun the income in the window", () => {
+    const r = projectCashFlow({
+      ...base,
+      events: [event("2026-08-02", 100_000, "pay"), event("2026-08-04", -150_000, "rent")],
+    });
+    expect(r.afterBillsCents).toBe(-50_000);
+  });
+
+  it("reports the balance projected for the final day", () => {
+    const r = projectCashFlow({ ...base, events: [event("2026-08-02", 50_000)] });
+    // $1000 start + $500 in - 10 days of $10 everyday spending
+    expect(r.endingBalanceCents).toBe(100_000 + 50_000 - 10_000);
+  });
+
+  it("falls back to the opening balance when the window is empty", () => {
+    const r = projectCashFlow({ ...base, days: 0, events: [] });
+    expect(r.endingBalanceCents).toBe(100_000);
   });
 
   it("commits nothing on the final day of the window", () => {
