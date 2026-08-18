@@ -379,6 +379,56 @@ describe("window projections include the right scheduled items", () => {
   });
 });
 
+describe("discretionary and committed money", () => {
+  const base = {
+    startingBalanceCents: 100_000,
+    startDate: "2026-08-01",
+    days: 10,
+    dailyBaselineCents: 1_000,
+  };
+
+  it("totals everyday spending across the window", () => {
+    const r = projectCashFlow({ ...base, events: [] });
+    expect(r.baselineTotalCents).toBe(10_000);
+  });
+
+  it("leaves income minus bills minus everyday spending as discretionary", () => {
+    const r = projectCashFlow({
+      ...base,
+      events: [event("2026-08-02", 200_000, "pay"), event("2026-08-04", -50_000, "rent")],
+    });
+    expect(r.discretionaryCents).toBe(200_000 - 50_000 - 10_000);
+  });
+
+  it("reports negative discretionary when commitments outrun income", () => {
+    const r = projectCashFlow({ ...base, events: [event("2026-08-02", -50_000)] });
+    expect(r.discretionaryCents).toBe(-60_000);
+  });
+
+  it("commits nothing on the final day of the window", () => {
+    const r = projectCashFlow({ ...base, events: [] });
+    expect(r.days[r.days.length - 1].committedCents).toBe(0);
+  });
+
+  it("counts every remaining bill and day of spending as committed on day one", () => {
+    const r = projectCashFlow({ ...base, events: [event("2026-08-05", -30_000)] });
+    // After day 1 there are 9 days of $10 baseline left, plus the $300 bill.
+    expect(r.days[0].committedCents).toBe(9_000 + 30_000);
+  });
+
+  it("counts down commitments as bills are paid", () => {
+    const r = projectCashFlow({ ...base, events: [event("2026-08-05", -30_000)] });
+    const beforeBill = r.days[3].committedCents;
+    const afterBill = r.days[4].committedCents;
+    expect(beforeBill - afterBill).toBe(30_000 + 1_000);
+  });
+
+  it("ignores incoming money when working out what is committed", () => {
+    const r = projectCashFlow({ ...base, events: [event("2026-08-05", 500_000)] });
+    expect(r.days[0].committedCents).toBe(9_000);
+  });
+});
+
 describe("deriveNextActions", () => {
   const today = new Date(2026, 7, 1);
   const ctx = { hasIncomeRule: true, detectedCount: 0, dailyBaselineCents: 2_000, today };

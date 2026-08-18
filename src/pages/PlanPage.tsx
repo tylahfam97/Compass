@@ -172,7 +172,11 @@ export default function PlanPage() {
   // Kept in cents: formatAxisCurrency and formatCurrency both expect cents, and converting to
   // dollars here made the axis render $1,500 as "$15".
   const chartData = useMemo(
-    () => forecast?.result.days.map((d) => ({ date: d.date, balance: d.balanceCents })) ?? [],
+    () => forecast?.result.days.map((d) => ({
+      date: d.date,
+      balance: d.balanceCents,
+      committed: d.committedCents,
+    })) ?? [],
     [forecast]
   );
 
@@ -297,12 +301,24 @@ export default function PlanPage() {
           </div>
         </div>
 
-        <div className="grid sm:grid-cols-3 gap-4 mt-6">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">Safe to spend</p>
             <p className="text-2xl font-bold tabular-nums mt-1">{formatCurrency(result.safeToSpendCents)}</p>
             <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">
-              Without pushing your low point below your buffer
+              Today, without dipping below your cushion
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">Discretionary</p>
+            <p
+              className="text-2xl font-bold tabular-nums mt-1"
+              style={{ color: result.discretionaryCents < 0 ? "hsl(var(--error))" : "hsl(var(--success))" }}
+            >
+              {formatCurrency(result.discretionaryCents)}
+            </p>
+            <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">
+              {result.discretionaryCents < 0 ? "Short of covering this window" : "Yours to spend or save"}
             </p>
           </div>
           <div>
@@ -327,6 +343,27 @@ export default function PlanPage() {
                 : `${incomeCount} deposit${incomeCount === 1 ? "" : "s"} · ${billCount} bill${billCount === 1 ? "" : "s"} over ${windowDays} day${windowDays === 1 ? "" : "s"}`}
             </p>
           </div>
+        </div>
+
+        {/* Spells the discretionary figure out as arithmetic - the relationship between these
+            four numbers is the whole model, and it isn't obvious from the tiles alone. */}
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 mt-5 pt-4 border-t text-sm tabular-nums">
+          <span style={{ color: "hsl(var(--success))" }}>{formatCurrency(result.totalIncomeCents)}</span>
+          <span className="text-[hsl(var(--muted-foreground))] text-xs">coming in</span>
+          <span className="text-[hsl(var(--muted-foreground))]">−</span>
+          <span style={{ color: "hsl(var(--error))" }}>{formatCurrency(result.totalBillsCents)}</span>
+          <span className="text-[hsl(var(--muted-foreground))] text-xs">bills</span>
+          <span className="text-[hsl(var(--muted-foreground))]">−</span>
+          <span style={{ color: "hsl(var(--error))" }}>{formatCurrency(result.baselineTotalCents)}</span>
+          <span className="text-[hsl(var(--muted-foreground))] text-xs">everyday</span>
+          <span className="text-[hsl(var(--muted-foreground))]">=</span>
+          <span
+            className="font-semibold"
+            style={{ color: result.discretionaryCents < 0 ? "hsl(var(--error))" : "hsl(var(--success))" }}
+          >
+            {formatCurrency(result.discretionaryCents)}
+          </span>
+          <span className="text-[hsl(var(--muted-foreground))] text-xs">free</span>
         </div>
 
         {billCount === 0 && forecast!.events.length > 0 && (
@@ -434,7 +471,8 @@ export default function PlanPage() {
       <section className="border rounded-2xl p-5" id="plan-chart">
         <h2 className="font-semibold text-sm mb-1">Projected checking balance</h2>
         <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">
-          Each step down is everyday spending; the cliffs are bills and the jumps are income.
+          Each step down is everyday spending; the cliffs are bills and the jumps are income. The
+          shaded band is money already spoken for - the gap above it is what's free.
         </p>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
@@ -444,6 +482,10 @@ export default function PlanPage() {
                   <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.28} />
                   <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0.02} />
                 </linearGradient>
+                <linearGradient id="committedFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="hsl(var(--error))" stopOpacity={0.22} />
+                  <stop offset="100%" stopColor="hsl(var(--error))" stopOpacity={0.04} />
+                </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
               <XAxis
@@ -452,7 +494,7 @@ export default function PlanPage() {
               />
               <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" width={60} />
               <Tooltip
-                formatter={(v) => formatCurrency(v as number)}
+                formatter={(v, name) => [formatCurrency(v as number), name === "committed" ? "Committed" : "Balance"]}
                 labelFormatter={(l) => formatDate(String(l))}
                 contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
               />
@@ -460,10 +502,14 @@ export default function PlanPage() {
               {bufferCents > 0 && (
                 <ReferenceLine
                   y={bufferCents} stroke="var(--gold)" strokeDasharray="4 4"
-                  label={{ value: "cushion", position: "insideTopRight", fontSize: 10, fill: "var(--gold)" }}
+                  label={{ value: "set aside", position: "insideTopRight", fontSize: 10, fill: "var(--gold)" }}
                 />
               )}
-              <Area type="monotone" dataKey="balance" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#planFill)" />
+              <Area
+                type="stepAfter" dataKey="committed" stroke="hsl(var(--error))" strokeWidth={1}
+                strokeDasharray="3 3" fill="url(#committedFill)"
+              />
+              <Area type="monotone" dataKey="balance" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#planFill)" fillOpacity={0.35} />
               {low && (
                 <ReferenceDot
                   x={low.date} y={low.balanceCents} r={4}
@@ -473,7 +519,23 @@ export default function PlanPage() {
             </AreaChart>
           </ResponsiveContainer>
         </div>
-        <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-3">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-[11px] text-[hsl(var(--muted-foreground))]">
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-0.5 rounded" style={{ backgroundColor: "hsl(var(--primary))" }} />
+            Projected balance
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-0.5 rounded" style={{ backgroundColor: "hsl(var(--error))" }} />
+            Already committed
+          </span>
+          {bufferCents > 0 && (
+            <span className="flex items-center gap-1.5">
+              <span className="w-3 h-0.5 rounded" style={{ backgroundColor: "var(--gold)" }} />
+              Set aside
+            </span>
+          )}
+        </div>
+        <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-2">
           Everyday spending is estimated at {formatCurrency(forecast!.dailyBaselineCents)}/day from your
           last 3 months, on top of the scheduled items below. This is an estimate, not a promise.
         </p>

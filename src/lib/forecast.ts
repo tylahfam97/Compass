@@ -50,6 +50,10 @@ export interface ForecastDay {
   events: ForecastEvent[];
   /** Everyday spending assumed on this day, as a positive number. */
   baselineCents: number;
+  /** Money already spoken for after this day - every remaining bill and day of everyday
+   *  spending left in the window. The gap between `balanceCents` and this is what's genuinely
+   *  free to spend or save. */
+  committedCents: number;
 }
 
 export interface ForecastResult {
@@ -66,6 +70,11 @@ export interface ForecastResult {
   makesItToPayday: boolean;
   totalIncomeCents: number;
   totalBillsCents: number;
+  /** Everyday spending assumed across the whole window. */
+  baselineTotalCents: number;
+  /** Of the money arriving in this window, what's left once bills and everyday spending are
+   *  paid - the amount that's actually a choice between spending and saving. */
+  discretionaryCents: number;
   /** What can be spent today without driving the projected low point below `bufferCents`. */
   safeToSpendCents: number;
 }
@@ -213,7 +222,22 @@ export function projectCashFlow(input: ProjectCashFlowInput): ForecastResult {
     }
     balance -= dailyBaselineCents;
 
-    out.push({ date, balanceCents: balance, events: dayEvents, baselineCents: dailyBaselineCents });
+    out.push({
+      date, balanceCents: balance, events: dayEvents,
+      baselineCents: dailyBaselineCents, committedCents: 0,
+    });
+  }
+
+  // Reverse pass: what's still owed after each day. Has to run backwards because a day's
+  // commitment depends on everything that comes after it.
+  let stillOwed = 0;
+  for (let i = out.length - 1; i >= 0; i--) {
+    out[i].committedCents = stillOwed;
+    const billsThatDay = out[i].events.reduce(
+      (sum, e) => sum + (e.amountCents < 0 ? Math.abs(e.amountCents) : 0),
+      0
+    );
+    stillOwed += billsThatDay + out[i].baselineCents;
   }
 
   let lowPoint: ForecastDay | null = null;
@@ -229,6 +253,8 @@ export function projectCashFlow(input: ProjectCashFlowInput): ForecastResult {
     ? !out.some((d) => d.date <= nextIncome.date && d.balanceCents < 0)
     : !firstShortfall;
 
+  const baselineTotalCents = dailyBaselineCents * days;
+
   return {
     days: out,
     lowPoint,
@@ -238,6 +264,8 @@ export function projectCashFlow(input: ProjectCashFlowInput): ForecastResult {
     makesItToPayday,
     totalIncomeCents: totalIncome,
     totalBillsCents: totalBills,
+    baselineTotalCents,
+    discretionaryCents: totalIncome - totalBills - baselineTotalCents,
     safeToSpendCents: Math.max(0, (lowPoint?.balanceCents ?? startingBalanceCents) - buffer),
   };
 }

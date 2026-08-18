@@ -6,6 +6,28 @@
 
 A fast follow-up to v1.0 fixing the things real use turned up immediately.
 
+### New: Plan Now Shows What's Actually Yours To Decide
+Plan could tell you your balance over time, but never the number people actually want: how much
+of what's coming in is genuinely free, once the bills and everyday spending are accounted for.
+
+- A **Discretionary** figure sits alongside safe-to-spend and the low point
+- A one-line breakdown spells out the arithmetic behind it —
+  `$2,331 coming in − $1,625 bills − $420 everyday = $286 free` — so the relationship between
+  those numbers is visible rather than implied
+- The chart now shades **money already committed**, so the gap between the balance line and that
+  band *is* your free money, and you can watch it narrow as bills approach
+- Setting money aside draws a line on the chart, so it's something you can see the balance
+  approach rather than just a number
+
+### Fixed: Chart Amounts Were 100× Too Small
+The projection chart's vertical axis showed `$15` where it meant `$1,500` — the axis was reading
+dollars as cents. Hovering a point gave the right figure, which made the mismatch easy to miss.
+
+### Changed: Plan Layout
+The green summary is followed by the sliders, then the chart, then what to do next — so a change
+to a slider and its effect on both the numbers and the chart are visible together instead of
+needing a scroll between them.
+
 ### Changed: Plan Now Asks You What Window To Use
 The forecast used to run over a fixed 30, 60 or 90 days — while the What-if slider said "this
 month", which wasn't the period it was actually calculating. Two different answers to the same
