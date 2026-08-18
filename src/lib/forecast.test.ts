@@ -3,7 +3,6 @@ import {
   expandOccurrences,
   detectedChargeToRule,
   monthlyEquivalentCents,
-  deriveDailyBaselineCents,
   projectCashFlow,
   deriveNextActions,
   chargeMatchesRule,
@@ -114,23 +113,12 @@ describe("monthlyEquivalentCents", () => {
   });
 });
 
-describe("deriveDailyBaselineCents", () => {
-  it("removes known bills so they are not counted twice", () => {
-    // $3000/mo total spend, $1500/mo of it already projected as individual bills.
-    expect(deriveDailyBaselineCents(300_000, 150_000)).toBe(5_000);
-  });
-
-  it("never goes negative when bills exceed average spend", () => {
-    expect(deriveDailyBaselineCents(100_000, 400_000)).toBe(0);
-  });
-});
-
 describe("projectCashFlow", () => {
   const base = {
     startingBalanceCents: 100_000,
     startDate: "2026-08-01",
     days: 30,
-    dailyBaselineCents: 0,
+    dailySpendCents: 0,
   };
 
   it("produces one day per requested day", () => {
@@ -147,7 +135,7 @@ describe("projectCashFlow", () => {
   });
 
   it("subtracts the daily baseline every day", () => {
-    const r = projectCashFlow({ ...base, events: [], dailyBaselineCents: 1_000 });
+    const r = projectCashFlow({ ...base, events: [], dailySpendCents: 1_000 });
     expect(r.days[0].balanceCents).toBe(99_000);
     expect(r.days[9].balanceCents).toBe(90_000);
   });
@@ -354,7 +342,7 @@ describe("window projections include the right scheduled items", () => {
       startDate: "2026-08-18",
       days: w.days,
       events: allEvents.filter((e) => e.date <= w.endDate),
-      dailyBaselineCents: 0,
+      dailySpendCents: 0,
     });
   }
 
@@ -384,12 +372,18 @@ describe("discretionary and committed money", () => {
     startingBalanceCents: 100_000,
     startDate: "2026-08-01",
     days: 10,
-    dailyBaselineCents: 1_000,
+    dailySpendCents: 1_000,
   };
 
-  it("totals everyday spending across the window", () => {
+  it("totals only the spending the caller asked to simulate", () => {
     const r = projectCashFlow({ ...base, events: [] });
-    expect(r.baselineTotalCents).toBe(10_000);
+    expect(r.assumedSpendCents).toBe(10_000);
+  });
+
+  it("assumes no spending at all when none is requested", () => {
+    const r = projectCashFlow({ startingBalanceCents: 100_000, startDate: "2026-08-01", days: 10, events: [] });
+    expect(r.assumedSpendCents).toBe(0);
+    expect(r.endingBalanceCents).toBe(100_000);
   });
 
   it("leaves income minus scheduled bills as what's free after bills", () => {
@@ -404,7 +398,7 @@ describe("discretionary and committed money", () => {
     const r = projectCashFlow({
       ...base,
       events: [event("2026-08-02", 200_000, "pay")],
-      dailyBaselineCents: 5_000,
+      dailySpendCents: 5_000,
     });
     expect(r.afterBillsCents).toBe(200_000);
   });
@@ -457,7 +451,7 @@ describe("discretionary and committed money", () => {
 
 describe("deriveNextActions", () => {
   const today = new Date(2026, 7, 1);
-  const ctx = { hasIncomeRule: true, detectedCount: 0, dailyBaselineCents: 2_000, today };
+  const ctx = { hasIncomeRule: true, detectedCount: 0, dailyOutflowCents: 2_000, today };
 
   function forecastWith(events: ForecastEvent[], startingBalanceCents = 100_000) {
     return projectCashFlow({
@@ -465,7 +459,7 @@ describe("deriveNextActions", () => {
       startDate: "2026-08-01",
       days: 30,
       events,
-      dailyBaselineCents: 2_000,
+      dailySpendCents: 2_000,
     });
   }
 
@@ -530,10 +524,10 @@ describe("deriveNextActions", () => {
     expect(actions.filter((a) => a.tone === "urgent")).toEqual([]);
   });
 
-  it("does not divide by zero when there is no baseline spending", () => {
+  it("does not divide by zero when nothing is going out", () => {
     const r = projectCashFlow({
-      startingBalanceCents: 100_000, startDate: "2026-08-01", days: 30, events: [], dailyBaselineCents: 0,
+      startingBalanceCents: 100_000, startDate: "2026-08-01", days: 30, events: [], dailySpendCents: 0,
     });
-    expect(() => deriveNextActions(r, { ...ctx, dailyBaselineCents: 0 })).not.toThrow();
+    expect(() => deriveNextActions(r, { ...ctx, dailyOutflowCents: 0 })).not.toThrow();
   });
 });

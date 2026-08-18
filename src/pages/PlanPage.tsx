@@ -6,11 +6,11 @@ import {
 import { CalendarClock, TrendingUp, Sparkles, AlertTriangle, Wand2, EyeOff } from "lucide-react";
 import { formatCurrency, formatAxisCurrency, formatDate } from "@/lib/utils";
 import {
-  projectCashFlow, expandOccurrences, deriveDailyBaselineCents, monthlyEquivalentCents,
-  deriveNextActions, resolveForecastWindow, toISODate, daysFromToday,
+  projectCashFlow, expandOccurrences, deriveNextActions, resolveForecastWindow,
+  toISODate, daysFromToday,
   type ForecastEvent, type NextActionTone, type ForecastWindowMode,
 } from "@/lib/forecast";
-import { getForecastInputs, MIN_MONTHS_FOR_FORECAST, type ForecastInputs } from "@/lib/forecastData";
+import { getForecastInputs, type ForecastInputs } from "@/lib/forecastData";
 import { hideCharge, unhideCharge, listHiddenCharges, clearHiddenCharges } from "@/lib/hiddenCharges";
 import { useProfileStore } from "@/stores/profileStore";
 import { reportLoadError, toast } from "@/stores/toastStore";
@@ -139,17 +139,9 @@ export default function PlanPage() {
     const { days, endDate, usedFallback } = resolveForecastWindow(allEvents, today, planWindow);
     const events = allEvents.filter((e) => e.date <= endDate);
 
-    // Only outgoing rules belong in the baseline adjustment - income doesn't inflate the
-    // average expense figure the baseline is derived from.
-    const knownMonthlyBills = activeRules
-      .filter((r) => r.amount_cents < 0)
-      .reduce((sum, r) => sum + Math.abs(monthlyEquivalentCents(r)), 0);
-
-    // The extra-spend slider is an amount for the WHOLE window, spread evenly across it - so the
-    // same $200 hits harder over a 6-day window than a 30-day one, which is the point.
-    const dailyBaselineCents =
-      deriveDailyBaselineCents(inputs.avgMonthlyExpenseCents, knownMonthlyBills) +
-      Math.round(extraSpendCents / days);
+    // The only per-day outflow is whatever the user is explicitly simulating - the forecast
+    // never invents a spending rate of its own.
+    const dailySpendCents = Math.round(extraSpendCents / days);
 
     return {
       result: projectCashFlow({
@@ -157,13 +149,12 @@ export default function PlanPage() {
         startDate: start,
         days,
         events,
-        dailyBaselineCents,
+        dailySpendCents,
         bufferCents,
       }),
       days,
       endDate,
       usedFallback,
-      dailyBaselineCents,
       events,
       /** Scheduled items falling just outside the window, so the UI can point at the next one. */
       laterEvents: allEvents.filter((e) => e.date > endDate),
@@ -186,7 +177,9 @@ export default function PlanPage() {
     return deriveNextActions(forecast.result, {
       hasIncomeRule: inputs.hasIncomeRule,
       detectedCount: includeDetected ? inputs.detected.length : 0,
-      dailyBaselineCents: forecast.dailyBaselineCents,
+      dailyOutflowCents: Math.round(
+        (forecast.result.totalBillsCents + forecast.result.assumedSpendCents) / forecast.days
+      ),
     });
   }, [forecast, inputs, includeDetected]);
 
@@ -219,24 +212,6 @@ export default function PlanPage() {
             Import a statement
           </Link>
         </EmptyState>
-      </div>
-    );
-  }
-
-  if (inputs.monthsOfData < MIN_MONTHS_FOR_FORECAST) {
-    return (
-      <div className="p-8 max-w-5xl mx-auto space-y-6">
-        {header}
-        <EmptyState icon={<CalendarClock size={24} className="text-[hsl(var(--muted-foreground))]" />} title="Not enough history yet">
-          <p>
-            Compass needs at least {MIN_MONTHS_FOR_FORECAST} months of transactions before it can
-            project your spending honestly - with less than that it would be guessing at a number
-            you might actually rely on. You have {inputs.monthsOfData}{" "}
-            {inputs.monthsOfData === 1 ? "month" : "months"} so far.
-          </p>
-          <p>You can still schedule bills and income below - they'll be waiting when the forecast unlocks.</p>
-        </EmptyState>
-        <RecurringRulesPanel profileId={profileId} onChanged={() => setReloadTick((t) => t + 1)} />
       </div>
     );
   }
@@ -288,7 +263,7 @@ export default function PlanPage() {
               {short ? (
                 <>
                   That's {daysFromToday(short.date)} days out, at about {formatCurrency(short.balanceCents)}.
-                  Scheduling more of your income below, or trimming everyday spending, moves this.
+                  Scheduling more of your income below, or moving a bill, changes this.
                 </>
               ) : result.nextIncome ? (
                 <>
@@ -313,7 +288,7 @@ export default function PlanPage() {
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] flex items-center gap-1">
               After bills
-              <InfoTooltip text="The income arriving in this window minus the bills scheduled against it. Everyday spending isn't subtracted here - that estimate already includes your day-to-day choices." />
+              <InfoTooltip text="The income arriving in this window minus the bills scheduled against it - what's left over to live on and save. Compass doesn't guess at your day-to-day spending, so nothing else is subtracted here." />
             </p>
             <p
               className="text-2xl font-bold tabular-nums mt-1"
@@ -324,7 +299,7 @@ export default function PlanPage() {
             <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">
               {result.afterBillsCents < 0
                 ? "Bills exceed the income arriving"
-                : "Income left over for everyday life"}
+                : "Income left over to live on and save"}
             </p>
           </div>
           <div>
@@ -362,9 +337,13 @@ export default function PlanPage() {
           <span className="text-[hsl(var(--muted-foreground))]">−</span>
           <span style={{ color: "hsl(var(--error))" }}>{formatCurrency(result.totalBillsCents)}</span>
           <span className="text-[hsl(var(--muted-foreground))] text-xs">bills</span>
-          <span className="text-[hsl(var(--muted-foreground))]">−</span>
-          <span style={{ color: "hsl(var(--error))" }}>{formatCurrency(result.baselineTotalCents)}</span>
-          <span className="text-[hsl(var(--muted-foreground))] text-xs">everyday</span>
+          {result.assumedSpendCents > 0 && (
+            <>
+              <span className="text-[hsl(var(--muted-foreground))]">−</span>
+              <span style={{ color: "var(--gold)" }}>{formatCurrency(result.assumedSpendCents)}</span>
+              <span className="text-[hsl(var(--muted-foreground))] text-xs">what-if spending</span>
+            </>
+          )}
           <span className="text-[hsl(var(--muted-foreground))]">=</span>
           <span
             className="font-semibold"
@@ -438,8 +417,10 @@ export default function PlanPage() {
               className="w-full mt-2 accent-[hsl(var(--primary))]"
             />
             <span className="text-[11px] text-[hsl(var(--muted-foreground))]">
-              Discretionary spending across the whole {windowDays}-day window, spread evenly
-              {extraSpendCents > 0 && <> - about {formatCurrency(Math.round(extraSpendCents / windowDays))} a day on top of your usual</>}.
+              Day-to-day spending isn't in the forecast at all, so use this to try some
+              {extraSpendCents > 0
+                ? <> - {formatCurrency(Math.round(extraSpendCents / windowDays))} a day across the {windowDays}-day window</>
+                : <> across the whole {windowDays}-day window</>}.
             </span>
           </label>
 
@@ -482,8 +463,8 @@ export default function PlanPage() {
       <section className="border rounded-2xl p-5" id="plan-chart">
         <h2 className="font-semibold text-sm mb-1">Projected checking balance</h2>
         <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">
-          The blue line drifts down with everyday spending, drops at bills and jumps at income.
-          The red band is the bills still ahead of you - it only steps when one is actually due.
+          The blue line drops at bills and jumps at income. The red band is the bills still ahead
+          of you - it only steps when one is actually due.
         </p>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
@@ -538,7 +519,7 @@ export default function PlanPage() {
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-0.5 rounded" style={{ backgroundColor: "hsl(var(--error))" }} />
             Bills still due
-            <InfoTooltip text="At any point on the chart, the total of scheduled bills still to be paid before the window ends. It steps down only when a bill is actually due. Everyday spending is deliberately left out - that's an estimate of your own choices, not an obligation. Where the blue line sits above this band, the gap is what's left for everyday life and saving." />
+            <InfoTooltip text="At any point on the chart, the total of scheduled bills still to be paid before the window ends. It steps down only when a bill is actually due. Where the blue line sits above this band, the gap is what's left to live on and save." />
           </span>
           {bufferCents > 0 && (
             <span className="flex items-center gap-1.5">
@@ -548,8 +529,8 @@ export default function PlanPage() {
           )}
         </div>
         <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-2">
-          Everyday spending is estimated at {formatCurrency(forecast!.dailyBaselineCents)}/day from your
-          last 3 months, on top of the scheduled items below. This is an estimate, not a promise.
+          Built only from the scheduled bills and income below - Compass never assumes spending
+          you haven't told it about. Add anything missing under What's coming.
         </p>
       </section>
 

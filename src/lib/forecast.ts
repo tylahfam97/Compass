@@ -48,11 +48,9 @@ export interface ForecastDay {
   /** Projected balance at the end of this day. */
   balanceCents: number;
   events: ForecastEvent[];
-  /** Everyday spending assumed on this day, as a positive number. */
-  baselineCents: number;
-  /** Scheduled bills still to be paid after this day. Deliberately excludes the everyday
-   *  spending estimate - that's a projection of the user's own choices, not an obligation, and
-   *  folding it in made the band slide down continuously with nothing real behind the movement. */
+  /** Scheduled bills still to be paid after this day. Deliberately excludes any assumed
+   *  spending - that's a projection of the user's own choices, not an obligation, and folding
+   *  it in made the band slide down continuously with nothing real behind the movement. */
   committedCents: number;
 }
 
@@ -70,13 +68,11 @@ export interface ForecastResult {
   makesItToPayday: boolean;
   totalIncomeCents: number;
   totalBillsCents: number;
-  /** Everyday spending assumed across the whole window. */
-  baselineTotalCents: number;
+  /** Extra day-to-day spending the user asked to simulate, across the whole window. Zero unless
+   *  a what-if is running - the projection never invents spending on its own. */
+  assumedSpendCents: number;
   /**
-   * Income in this window minus the bills scheduled against it. Deliberately does NOT subtract
-   * the everyday baseline: that figure is average total spending, which already contains the
-   * user's discretionary purchases - netting it off too would subtract discretionary spending
-   * and then call the remainder discretionary.
+   * Income in this window minus the bills scheduled against it - what's left over to live on.
    */
   afterBillsCents: number;
   /** Projected balance on the final day of the window. */
@@ -91,8 +87,9 @@ export interface ProjectCashFlowInput {
   startDate: string;
   days: number;
   events: ForecastEvent[];
-  /** Everyday non-bill spending per day, as a positive number. */
-  dailyBaselineCents: number;
+  /** Extra spending per day to simulate, as a positive number. Defaults to 0 - the forecast is
+   *  built from scheduled bills and income only, never from an inferred spending rate. */
+  dailySpendCents?: number;
   /** Cash the user wants to keep untouched; subtracted from safe-to-spend. */
   bufferCents?: number;
 }
@@ -188,20 +185,9 @@ export function monthlyEquivalentCents(rule: { cadence: RecurringCadence; amount
   return Math.round(rule.amount_cents * OCCURRENCES_PER_MONTH[rule.cadence]);
 }
 
-/**
- * Everyday spending per day, derived by taking average monthly expenses and removing the bills
- * we're already projecting individually - otherwise every known bill would be counted twice,
- * once as an event and again inside the average it contributed to.
- */
-export function deriveDailyBaselineCents(
-  avgMonthlyExpenseCents: number,
-  knownMonthlyBillsCents: number
-): number {
-  return Math.max(0, Math.round((avgMonthlyExpenseCents - knownMonthlyBillsCents) / 30));
-}
-
 export function projectCashFlow(input: ProjectCashFlowInput): ForecastResult {
-  const { startingBalanceCents, startDate, days, events, dailyBaselineCents } = input;
+  const { startingBalanceCents, startDate, days, events } = input;
+  const dailySpendCents = input.dailySpendCents ?? 0;
   const buffer = input.bufferCents ?? 0;
 
   const byDate = new Map<string, ForecastEvent[]>();
@@ -226,12 +212,9 @@ export function projectCashFlow(input: ProjectCashFlowInput): ForecastResult {
       if (e.amountCents > 0) totalIncome += e.amountCents;
       else totalBills += Math.abs(e.amountCents);
     }
-    balance -= dailyBaselineCents;
+    balance -= dailySpendCents;
 
-    out.push({
-      date, balanceCents: balance, events: dayEvents,
-      baselineCents: dailyBaselineCents, committedCents: 0,
-    });
+    out.push({ date, balanceCents: balance, events: dayEvents, committedCents: 0 });
   }
 
   // Reverse pass: what's still owed after each day. Has to run backwards because a day's
@@ -258,8 +241,6 @@ export function projectCashFlow(input: ProjectCashFlowInput): ForecastResult {
     ? !out.some((d) => d.date <= nextIncome.date && d.balanceCents < 0)
     : !firstShortfall;
 
-  const baselineTotalCents = dailyBaselineCents * days;
-
   return {
     days: out,
     lowPoint,
@@ -269,7 +250,7 @@ export function projectCashFlow(input: ProjectCashFlowInput): ForecastResult {
     makesItToPayday,
     totalIncomeCents: totalIncome,
     totalBillsCents: totalBills,
-    baselineTotalCents,
+    assumedSpendCents: dailySpendCents * days,
     afterBillsCents: totalIncome - totalBills,
     endingBalanceCents: out.length > 0 ? out[out.length - 1].balanceCents : startingBalanceCents,
     safeToSpendCents: Math.max(0, (lowPoint?.balanceCents ?? startingBalanceCents) - buffer),
@@ -341,12 +322,13 @@ export interface NextAction {
 export interface NextActionContext {
   hasIncomeRule: boolean;
   detectedCount: number;
-  dailyBaselineCents: number;
+  /** Average money going out per day across the window, used to express the cushion in days. */
+  dailyOutflowCents: number;
   /** Reference point for "how many days until the shortfall". */
   today?: Date;
 }
 
-/** A cushion thinner than this many days of everyday spending is worth flagging. */
+/** A cushion thinner than this many days of outgoings is worth flagging. */
 const THIN_CUSHION_DAYS = 7;
 /** Above this many days of cushion, suggest putting the surplus to work instead. */
 const COMFORTABLE_CUSHION_DAYS = 45;
@@ -358,7 +340,7 @@ const COMFORTABLE_CUSHION_DAYS = 45;
  */
 export function deriveNextActions(result: ForecastResult, context: NextActionContext): NextAction[] {
   const actions: NextAction[] = [];
-  const { dailyBaselineCents, today = new Date() } = context;
+  const { dailyOutflowCents, today = new Date() } = context;
 
   if (result.firstShortfall) {
     const daysAway = Math.max(1, daysFromToday(result.firstShortfall.date, today));
@@ -369,7 +351,7 @@ export function deriveNextActions(result: ForecastResult, context: NextActionCon
       title: `Find ${formatPlainCurrency(gap)} before ${result.firstShortfall.date}`,
       detail:
         `That's about ${formatPlainCurrency(perDay)} a day for the next ${daysAway} ` +
-        `${daysAway === 1 ? "day" : "days"} - either trimmed from everyday spending or moved in from savings.`,
+        `${daysAway === 1 ? "day" : "days"} - either trimmed from spending or moved in from savings.`,
       tone: "urgent",
     });
   }
@@ -397,8 +379,8 @@ export function deriveNextActions(result: ForecastResult, context: NextActionCon
   }
 
   const cushionDays =
-    dailyBaselineCents > 0 && result.lowPoint
-      ? result.lowPoint.balanceCents / dailyBaselineCents
+    dailyOutflowCents > 0 && result.lowPoint
+      ? result.lowPoint.balanceCents / dailyOutflowCents
       : null;
 
   if (!result.firstShortfall && cushionDays !== null && cushionDays < THIN_CUSHION_DAYS) {
@@ -407,7 +389,7 @@ export function deriveNextActions(result: ForecastResult, context: NextActionCon
       title: "Your cushion gets thin",
       detail:
         `At the low point you're down to roughly ${Math.max(0, Math.floor(cushionDays))} days of ` +
-        "everyday spending. It holds, but there's little room for anything unexpected.",
+        "your usual outgoings. It holds, but there's little room for anything unexpected.",
       tone: "suggested",
     });
   }
