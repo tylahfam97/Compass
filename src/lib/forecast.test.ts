@@ -7,6 +7,7 @@ import {
   deriveNextActions,
   chargeMatchesRule,
   resolveForecastWindow,
+  groupUpcomingEvents,
   toISODate,
   daysFromToday,
   type ForecastRule,
@@ -77,6 +78,35 @@ describe("expandOccurrences", () => {
 
   it("handles an empty rule list", () => {
     expect(expandOccurrences([], new Date(2026, 0, 1), new Date(2026, 2, 1))).toEqual([]);
+  });
+
+  it("emits a monthly bill exactly once per calendar month, never compounding", () => {
+    const events = expandOccurrences(
+      [rule({ description: "Rent", day_of_month: 24 })],
+      new Date(2026, 7, 18),
+      new Date(2026, 10, 21)
+    );
+    expect(events.map((e) => e.date)).toEqual(["2026-08-24", "2026-09-24", "2026-10-24"]);
+    const months = events.map((e) => e.date.slice(0, 7));
+    expect(new Set(months).size).toBe(months.length);
+  });
+
+  it("still emits this month's bill when today is the day it's due", () => {
+    const events = expandOccurrences(
+      [rule({ description: "Rent", day_of_month: 24 })],
+      new Date(2026, 7, 24),
+      new Date(2026, 8, 30)
+    );
+    expect(events.map((e) => e.date)).toEqual(["2026-08-24", "2026-09-24"]);
+  });
+
+  it("moves to next month's bill once this month's date has passed", () => {
+    const events = expandOccurrences(
+      [rule({ description: "Rent", day_of_month: 24 })],
+      new Date(2026, 7, 25),
+      new Date(2026, 8, 30)
+    );
+    expect(events.map((e) => e.date)).toEqual(["2026-09-24"]);
   });
 });
 
@@ -300,10 +330,10 @@ describe("resolveForecastWindow", () => {
     expect(w.days).toBe(4); // 18th, 19th, 20th, 21st
   });
 
-  it("covers exactly 30 days, crossing the month boundary", () => {
-    const w = resolveForecastWindow(allEvents, today, "days30");
-    expect(w.days).toBe(30);
-    expect(w.endDate).toBe("2026-09-16");
+  it("runs to the last day of next month so month-end bills aren't cut off", () => {
+    const w = resolveForecastWindow(allEvents, today, "nextMonth");
+    expect(w.endDate).toBe("2026-09-30");
+    expect(w.days).toBe(44); // 14 days left in Aug + all 30 of Sep
   });
 
   it("falls back to the rest of the month when no income is scheduled", () => {
@@ -335,7 +365,7 @@ describe("window projections include the right scheduled items", () => {
   ];
   const allEvents = expandOccurrences(rules, today, new Date(2026, 10, 21));
 
-  function projectFor(mode: "month" | "paycheck" | "days30") {
+  function projectFor(mode: "month" | "paycheck" | "nextMonth") {
     const w = resolveForecastWindow(allEvents, today, mode);
     return projectCashFlow({
       startingBalanceCents: 500_000,
@@ -360,10 +390,50 @@ describe("window projections include the right scheduled items", () => {
     expect(r.totalBillsCents).toBe(0);
   });
 
-  it("counts two paychecks but only one rent over 30 days, because of where the window lands", () => {
-    const r = projectFor("days30");
-    expect(r.totalIncomeCents).toBe(233_100 * 2); // Aug 21 + Sep 4
-    expect(r.totalBillsCents).toBe(102_400 + 60_127); // Sep rent/SoFi fall past Sep 16
+  it("includes next month's rent and loan payment, not just this month's", () => {
+    const r = projectFor("nextMonth");
+    expect(r.totalIncomeCents).toBe(233_100 * 3); // Aug 21, Sep 4, Sep 18
+    expect(r.totalBillsCents).toBe((102_400 + 60_127) * 2); // Aug and Sep instances of each
+  });
+});
+
+describe("groupUpcomingEvents", () => {
+  const today = new Date(2026, 7, 18); // Tue 18 Aug 2026
+
+  function ev(date: string): ForecastEvent {
+    return { key: date, date, description: "x", amountCents: -1000, source: "rule", categoryName: null, categoryColor: null };
+  }
+
+  it("groups near-term items by how soon they are", () => {
+    const groups = groupUpcomingEvents([ev("2026-08-18"), ev("2026-08-21"), ev("2026-08-29")], today);
+    expect(groups.map((g) => g.label)).toEqual(["Today", "This week", "Next week"]);
+  });
+
+  it("keeps later items in the current month under 'Later this month'", () => {
+    // From the 1st, the 20th is far enough out to fall past the by-week buckets.
+    const groups = groupUpcomingEvents([ev("2026-08-20")], new Date(2026, 7, 1));
+    expect(groups[0].label).toBe("Later this month");
+  });
+
+  it("labels next month's items with the actual month, not 'later this month'", () => {
+    const groups = groupUpcomingEvents([ev("2026-09-24")], today);
+    expect(groups[0].label).toBe("September");
+  });
+
+  it("separates this month's rent from next month's", () => {
+    const groups = groupUpcomingEvents([ev("2026-08-24"), ev("2026-09-24")], today);
+    expect(groups.map((g) => g.label)).toEqual(["This week", "September"]);
+    expect(groups[0].events).toHaveLength(1);
+    expect(groups[1].events).toHaveLength(1);
+  });
+
+  it("includes the year once a window reaches into the next one", () => {
+    const groups = groupUpcomingEvents([ev("2027-01-05")], new Date(2026, 11, 20));
+    expect(groups[0].label).toMatch(/January.*2027/);
+  });
+
+  it("returns nothing for an empty list", () => {
+    expect(groupUpcomingEvents([], today)).toEqual([]);
   });
 });
 
@@ -509,6 +579,19 @@ describe("deriveNextActions", () => {
   it("suggests putting a large surplus to work", () => {
     const actions = deriveNextActions(forecastWith([], 5_000_000), ctx);
     expect(actions.some((a) => a.key === "surplus")).toBe(true);
+  });
+
+  it("names the debt a surplus could go to when there is one", () => {
+    const actions = deriveNextActions(forecastWith([], 5_000_000), {
+      ...ctx,
+      topDebt: { name: "Chase Visa", balanceCents: 250_000 },
+    });
+    expect(actions.find((a) => a.key === "surplus")?.detail).toContain("Chase Visa");
+  });
+
+  it("stays generic about a surplus when no debt is carried", () => {
+    const actions = deriveNextActions(forecastWith([], 5_000_000), { ...ctx, topDebt: null });
+    expect(actions.find((a) => a.key === "surplus")?.detail).toContain("goal");
   });
 
   it("never flags a thin cushion and a surplus at the same time", () => {

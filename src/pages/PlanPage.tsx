@@ -3,18 +3,20 @@ import { Link } from "react-router-dom";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot,
 } from "recharts";
-import { CalendarClock, TrendingUp, Sparkles, AlertTriangle, Wand2, EyeOff } from "lucide-react";
+import { CalendarClock, TrendingUp, Sparkles, AlertTriangle, Wand2, EyeOff, Landmark } from "lucide-react";
 import { formatCurrency, formatAxisCurrency, formatDate } from "@/lib/utils";
 import {
   projectCashFlow, expandOccurrences, deriveNextActions, resolveForecastWindow,
-  toISODate, daysFromToday,
-  type ForecastEvent, type NextActionTone, type ForecastWindowMode,
+  groupUpcomingEvents, monthlyEquivalentCents, toISODate, daysFromToday,
+  type NextActionTone, type ForecastWindowMode,
 } from "@/lib/forecast";
-import { getForecastInputs, type ForecastInputs } from "@/lib/forecastData";
+import { simulateCustomDebtPayoff } from "@/lib/agent";
+import { getForecastInputs, getDebtContext, type ForecastInputs, type DebtContext } from "@/lib/forecastData";
 import { hideCharge, unhideCharge, listHiddenCharges, clearHiddenCharges } from "@/lib/hiddenCharges";
 import { useProfileStore } from "@/stores/profileStore";
 import { reportLoadError, toast } from "@/stores/toastStore";
 import RecurringRulesPanel from "@/components/RecurringRulesPanel";
+import DebtPayoffModal from "@/components/DebtPayoffModal";
 import InfoTooltip from "@/components/InfoTooltip";
 import { CardListSkeleton } from "@/components/Skeleton";
 
@@ -23,15 +25,16 @@ import { CardListSkeleton } from "@/components/Skeleton";
 type PlanWindow = ForecastWindowMode;
 
 const WINDOWS: { id: PlanWindow; label: string }[] = [
-  { id: "month",    label: "Rest of month" },
-  { id: "paycheck", label: "To next paycheck" },
-  { id: "days30",   label: "Next 30 days" },
+  { id: "month",      label: "Rest of month" },
+  { id: "paycheck",   label: "To next paycheck" },
+  { id: "nextMonth",  label: "Through next month" },
 ];
 
 const WINDOW_KEY = "compass_plan_window";
 
 /** Events are expanded this far ahead regardless of window, so "to next paycheck" can find a
- *  paycheck that's further out than the window currently being shown. */
+ *  paycheck further out than the window being shown, and "through next month" always reaches
+ *  the end of a 31-day month. */
 const MAX_LOOKAHEAD_DAYS = 95;
 
 const ACTION_TONE: Record<NextActionTone, { color: string; label: string }> = {
@@ -52,29 +55,13 @@ function EmptyState({ icon, title, children }: { icon: React.ReactNode; title: s
   );
 }
 
-/** Groups upcoming events into calendar weeks for the bill calendar. */
-function groupByWeek(events: ForecastEvent[]): { label: string; events: ForecastEvent[] }[] {
-  const groups: { label: string; events: ForecastEvent[] }[] = [];
-  for (const e of events) {
-    const days = daysFromToday(e.date);
-    const label =
-      days <= 0 ? "Today"
-      : days <= 7 ? "This week"
-      : days <= 14 ? "Next week"
-      : days <= 30 ? "Later this month"
-      : "Beyond a month";
-    const existing = groups.find((g) => g.label === label);
-    if (existing) existing.events.push(e);
-    else groups.push({ label, events: [e] });
-  }
-  return groups;
-}
-
 export default function PlanPage() {
   const activeProfile = useProfileStore((s) => s.activeProfile);
   const profileId = activeProfile?.id ?? 1;
 
   const [inputs, setInputs] = useState<ForecastInputs | null>(null);
+  const [debtContext, setDebtContext] = useState<DebtContext | null>(null);
+  const [payoffOpen, setPayoffOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [reloadTick, setReloadTick] = useState(0);
 
@@ -90,8 +77,12 @@ export default function PlanPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const data = await getForecastInputs(profileId);
+    const [data, debts] = await Promise.all([
+      getForecastInputs(profileId),
+      getDebtContext(profileId),
+    ]);
     setInputs(data);
+    setDebtContext(debts);
     setLoading(false);
   }, [profileId]);
 
@@ -174,14 +165,41 @@ export default function PlanPage() {
 
   const nextActions = useMemo(() => {
     if (!forecast || !inputs) return [];
+    const biggestDebt = debtContext?.debts
+      .slice()
+      .sort((a, b) => Math.abs(b.balance_cents ?? 0) - Math.abs(a.balance_cents ?? 0))[0];
     return deriveNextActions(forecast.result, {
       hasIncomeRule: inputs.hasIncomeRule,
       detectedCount: includeDetected ? inputs.detected.length : 0,
       dailyOutflowCents: Math.round(
         (forecast.result.totalBillsCents + forecast.result.assumedSpendCents) / forecast.days
       ),
+      topDebt: biggestDebt
+        ? { name: biggestDebt.name, balanceCents: Math.abs(biggestDebt.balance_cents ?? 0) }
+        : null,
     });
-  }, [forecast, inputs, includeDetected]);
+  }, [forecast, inputs, includeDetected, debtContext]);
+
+  /** Monthly income minus monthly bills from the scheduled rules. Deliberately independent of
+   *  the selected window - scaling a 4-day paycheck window up to a month produces nonsense. */
+  const monthlySurplusCents = useMemo(() => {
+    if (!inputs) return 0;
+    const rules = includeDetected ? [...inputs.rules, ...inputs.detected] : inputs.rules;
+    return rules.reduce((sum, r) => sum + monthlyEquivalentCents(r), 0);
+  }, [inputs, includeDetected]);
+
+  /** What redirecting that surplus would do, against the minimum-payments-only baseline. */
+  const payoff = useMemo(() => {
+    if (!debtContext || monthlySurplusCents <= 0) return null;
+    const withSurplus = simulateCustomDebtPayoff(debtContext.plan.simDebts, monthlySurplusCents);
+    const baseline = debtContext.plan.baseline;
+    const interestSaved = baseline.totalInterestCents - withSurplus.totalInterestCents;
+    const monthsSaved =
+      baseline.monthsToPayoff != null && withSurplus.monthsToPayoff != null
+        ? baseline.monthsToPayoff - withSurplus.monthsToPayoff
+        : null;
+    return { baseline, withSurplus, interestSaved, monthsSaved };
+  }, [debtContext, monthlySurplusCents]);
 
   if (loading) {
     return <div className="p-8 max-w-5xl mx-auto"><CardListSkeleton /></div>;
@@ -223,7 +241,7 @@ export default function PlanPage() {
   const incomeCount = forecast!.events.filter((e) => e.amountCents > 0).length;
   const billCount = forecast!.events.filter((e) => e.amountCents < 0).length;
   const windowLabel =
-    planWindow === "days30" ? "the next 30 days"
+    planWindow === "nextMonth" ? "the end of next month"
     : planWindow === "paycheck" && !forecast!.usedFallback ? "your next paycheck"
     : "the rest of this month";
 
@@ -561,6 +579,64 @@ export default function PlanPage() {
         </section>
       )}
 
+      {/* ── Put the surplus to work ──────────────────────────────────────── */}
+      {payoff && debtContext && (
+        <section className="border rounded-2xl p-5" style={{ borderColor: "var(--gold)" }}>
+          <h2 className="font-semibold text-sm flex items-center gap-1.5">
+            <Landmark size={14} style={{ color: "var(--gold)" }} /> Put your spare money to work
+          </h2>
+          <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1 max-w-xl">
+            Your scheduled income and bills leave about{" "}
+            <span className="font-semibold" style={{ color: "var(--gold)" }}>
+              {formatCurrency(monthlySurplusCents)}
+            </span>{" "}
+            a month spare. You owe {formatCurrency(debtContext.plan.totalDebtCents)} across{" "}
+            {debtContext.debts.length} account{debtContext.debts.length === 1 ? "" : "s"} - here's what
+            happens if that spare money goes there instead.
+          </p>
+
+          <div className="grid sm:grid-cols-3 gap-4 mt-5">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">Minimums only</p>
+              <p className="text-xl font-bold tabular-nums mt-1">{payoff.baseline.payoffDate ?? "Never"}</p>
+              <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">
+                {formatCurrency(payoff.baseline.totalInterestCents)} interest
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--gold)" }}>
+                Adding your surplus
+              </p>
+              <p className="text-xl font-bold tabular-nums mt-1" style={{ color: "var(--gold)" }}>
+                {payoff.withSurplus.payoffDate ?? "Never"}
+              </p>
+              <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">
+                {formatCurrency(payoff.withSurplus.totalInterestCents)} interest
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">You'd save</p>
+              <p className="text-xl font-bold tabular-nums mt-1" style={{ color: "hsl(var(--success))" }}>
+                {formatCurrency(Math.max(0, payoff.interestSaved))}
+              </p>
+              <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">
+                {payoff.monthsSaved && payoff.monthsSaved > 0
+                  ? `${payoff.monthsSaved} month${payoff.monthsSaved === 1 ? "" : "s"} sooner`
+                  : "in interest"}
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setPayoffOpen(true)}
+            className="mt-5 text-sm font-semibold px-4 py-2 rounded-lg text-black transition-opacity hover:opacity-90"
+            style={{ backgroundColor: "var(--gold)" }}
+          >
+            Build a payoff plan
+          </button>
+        </section>
+      )}
+
       {/* ── Bill calendar ────────────────────────────────────────────────── */}
       <section className="border rounded-2xl p-5">
         <h2 className="font-semibold text-sm mb-1">What's coming</h2>
@@ -574,7 +650,7 @@ export default function PlanPage() {
           </p>
         ) : (
           <div className="space-y-5">
-            {groupByWeek(forecast!.events).map((group) => (
+            {groupUpcomingEvents(forecast!.events).map((group) => (
               <div key={group.label}>
                 <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2">
                   {group.label}
@@ -634,6 +710,16 @@ export default function PlanPage() {
       </section>
 
       <RecurringRulesPanel profileId={profileId} onChanged={() => setReloadTick((t) => t + 1)} />
+
+      {payoffOpen && debtContext && (
+        <DebtPayoffModal
+          profileIds={[profileId]}
+          debts={debtContext.debts}
+          title="Put your surplus to work"
+          subtitle={`Based on the ${formatCurrency(monthlySurplusCents)} a month your schedule leaves spare`}
+          onClose={() => setPayoffOpen(false)}
+        />
+      )}
     </div>
   );
 }

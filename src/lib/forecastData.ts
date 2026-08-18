@@ -1,7 +1,8 @@
-import { getDb, getRecurringRulesForProfile } from "./db";
-import { detectRecurringCharges } from "./agent";
+import { getDb, getRecurringRulesForProfile, getLoanAccountsForProfile, getCreditAccountsForProfile } from "./db";
+import { detectRecurringCharges, computeDebtPayoffPlan } from "./agent";
 import { latestBalancePerAccountSql } from "./reportingSql";
 import { detectedChargeToRule, chargeMatchesRule, type ForecastRule } from "./forecast";
+import type { DebtPayoffPlan } from "./types";
 
 /**
  * Gathers everything `projectCashFlow` needs from the database. Kept apart from `forecast.ts`
@@ -61,4 +62,40 @@ export async function getForecastInputs(profileId: number): Promise<ForecastInpu
     detected,
     hasIncomeRule: activeRules.some((r) => r.amount_cents > 0),
   };
+}
+
+/** The debts a spare-money surplus could be aimed at, plus the "minimum payments only" plan to
+ *  compare any redirect against. Null when there's nothing outstanding to pay down. */
+export interface DebtContext {
+  plan: DebtPayoffPlan;
+  debts: DebtInput[];
+}
+
+export interface DebtInput {
+  id: number;
+  name: string;
+  balance_cents: number | null;
+  interest_rate_bps: number | null;
+  minimum_payment_cents: number | null;
+}
+
+export async function getDebtContext(profileId: number): Promise<DebtContext | null> {
+  const [loans, credits] = await Promise.all([
+    getLoanAccountsForProfile(profileId),
+    getCreditAccountsForProfile(profileId),
+  ]);
+
+  // Debt balances are stored negative; a zero or positive one is already cleared.
+  const debts: DebtInput[] = [...loans, ...credits]
+    .filter((d) => (d.balance_cents ?? 0) < 0)
+    .map((d) => ({
+      id: d.id,
+      name: d.name,
+      balance_cents: d.balance_cents,
+      interest_rate_bps: d.interest_rate_bps,
+      minimum_payment_cents: d.minimum_payment_cents,
+    }));
+
+  if (debts.length === 0) return null;
+  return { plan: await computeDebtPayoffPlan([profileId], debts), debts };
 }

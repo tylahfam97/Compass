@@ -264,8 +264,46 @@ export function daysFromToday(iso: string, from: Date = new Date()): number {
   return Math.round((a - b) / MS_PER_DAY);
 }
 
+export interface EventGroup {
+  label: string;
+  events: ForecastEvent[];
+}
+
+function monthHeading(iso: string, today: Date): string {
+  const d = toLocalDate(iso);
+  const sameYear = d.getFullYear() === today.getFullYear();
+  return d.toLocaleDateString(undefined, sameYear ? { month: "long" } : { month: "long", year: "numeric" });
+}
+
+/**
+ * Buckets upcoming events for the bill list. Near-term items are grouped by how soon they are,
+ * but anything past a fortnight is grouped by its ACTUAL calendar month - a 30-day window spans
+ * two months, and labelling September's bills "later this month" made them look like duplicates
+ * of August's.
+ */
+export function groupUpcomingEvents(events: ForecastEvent[], today: Date = new Date()): EventGroup[] {
+  const currentMonth = toISODate(today).slice(0, 7);
+  const groups: EventGroup[] = [];
+
+  for (const e of events) {
+    const days = daysFromToday(e.date, today);
+    const label =
+      days <= 0 ? "Today"
+      : days <= 7 ? "This week"
+      : days <= 14 ? "Next week"
+      : e.date.slice(0, 7) === currentMonth ? "Later this month"
+      : monthHeading(e.date, today);
+
+    const existing = groups.find((g) => g.label === label);
+    if (existing) existing.events.push(e);
+    else groups.push({ label, events: [e] });
+  }
+
+  return groups;
+}
+
 /** The three questions people ask about their balance. Each resolves to a different length. */
-export type ForecastWindowMode = "month" | "paycheck" | "days30";
+export type ForecastWindowMode = "month" | "paycheck" | "nextMonth";
 
 export interface ResolvedWindow {
   /** Number of days to project, inclusive of today. */
@@ -277,14 +315,16 @@ export interface ResolvedWindow {
   usedFallback: boolean;
 }
 
-const DAYS_30 = 30;
-
 /**
  * Works out how many days a window covers. "To next paycheck" can't know its own length until
  * the paycheck has been located, so this takes the already-expanded event list.
  *
  * The paycheck window runs up to and including the day the money lands, so the user can see it
  * arrive - the low point that matters still falls before it.
+ *
+ * "Through next month" deliberately ends on the last day of the following month rather than a
+ * flat 30 days: a rolling 30-day window from mid-month stops before the next month's rent is
+ * due, so a bill you certainly owe simply vanishes from the list.
  */
 export function resolveForecastWindow(
   events: ForecastEvent[],
@@ -297,11 +337,15 @@ export function resolveForecastWindow(
   const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
   const monthDays = daysInMonth - today.getDate() + 1;
 
+  // Day 0 of month+2 is the last day of month+1.
+  const endOfNextMonth = new Date(today.getFullYear(), today.getMonth() + 2, 0);
+  const throughNextMonthDays = daysFromToday(toISODate(endOfNextMonth), startOfToday) + 1;
+
   const nextPaycheck = events.find((e) => e.amountCents > 0 && e.date >= todayIso) ?? null;
   const usedFallback = mode === "paycheck" && !nextPaycheck;
 
   const days =
-    mode === "days30" ? DAYS_30
+    mode === "nextMonth" ? throughNextMonthDays
     : mode === "paycheck" && nextPaycheck
       ? Math.max(1, daysFromToday(nextPaycheck.date, startOfToday) + 1)
       : monthDays;
@@ -324,6 +368,9 @@ export interface NextActionContext {
   detectedCount: number;
   /** Average money going out per day across the window, used to express the cushion in days. */
   dailyOutflowCents: number;
+  /** The debt this profile is carrying, so a surplus can be pointed at something real rather
+   *  than described in the abstract. */
+  topDebt?: { name: string; balanceCents: number } | null;
   /** Reference point for "how many days until the shortfall". */
   today?: Date;
 }
@@ -395,12 +442,16 @@ export function deriveNextActions(result: ForecastResult, context: NextActionCon
   }
 
   if (!result.firstShortfall && cushionDays !== null && cushionDays > COMFORTABLE_CUSHION_DAYS) {
+    const debt = context.topDebt;
     actions.push({
       key: "surplus",
       title: `You have room to move ${formatPlainCurrency(result.safeToSpendCents)}`,
-      detail:
-        "Even at the lowest point in this window you stay well ahead. That surplus could go " +
-        "toward a goal or a debt instead of sitting still.",
+      detail: debt
+        ? `Even at the lowest point in this window you stay well ahead, while ${debt.name} is ` +
+          `still costing you interest on ${formatPlainCurrency(debt.balanceCents)}. Sending some ` +
+          "of that spare money there beats leaving it still."
+        : "Even at the lowest point in this window you stay well ahead. That surplus could go " +
+          "toward a goal instead of sitting still.",
       tone: "positive",
     });
   }

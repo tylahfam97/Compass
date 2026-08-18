@@ -6,6 +6,19 @@
 
 A fast follow-up to v1.0 fixing the things real use turned up immediately.
 
+### New: Plan Connects Your Spare Money To Your Debt
+Plan knew what was coming in and going out, but nothing about what you owe — so a surplus just
+sat there being described as a surplus.
+
+**Put your spare money to work** now takes the gap between your scheduled income and your
+scheduled bills, and shows what redirecting it at your cards and loans would actually do: the
+date they'd clear under minimum payments, the date they'd clear with your surplus behind them,
+and the interest that difference saves. One click opens the full payoff planner already in
+Compass, pre-loaded with those accounts.
+
+The suggested actions know about your debt too — instead of "that surplus could go toward a
+goal or a debt", it now names the account and the balance still costing you interest.
+
 ### New: Plan Now Shows What's Actually Yours To Decide
 Plan could tell you your balance over time, but never the number people actually want: how much
 of what's coming in is genuinely free once your bills are paid.
@@ -42,10 +55,19 @@ Plan now has three windows that match how people actually think about their bala
 
 - **Rest of month** *(the new default)* — today through the last day of this month
 - **To next paycheck** — today through your next scheduled income
-- **Next 30 days**
+- **Through next month** — today through the last day of the following month
 
-Every figure moves with it: safe to spend, the projected low point, money in versus out, the
-chart, the bill list and the suggested actions. The headline states the exact range it used
+That third one deliberately ends on a month boundary rather than counting a flat 30 days. A
+rolling 30-day window starting mid-month stops before the *next* month's rent is due, so a bill
+you definitely owe simply vanished from the list. Ending on the last day of next month means
+every bill in both months is accounted for.
+
+Bills more than a fortnight out are now grouped under their real month name too — a window
+spanning two months used to label September's bills "later this month", which made them look
+like duplicates of August's.
+
+Every figure moves with the window: safe to spend, the projected low point, money in versus out,
+the chart, the bill list and the suggested actions. The headline states the exact range it used
 (`Aug 18 – Aug 31 · 14 days`) so there's no ambiguity about what any number covers.
 
 "To next paycheck" needs a scheduled income to aim at. If you haven't added one yet, Compass
