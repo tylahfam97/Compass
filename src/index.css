@@ -2,56 +2,452 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-:root {
-  --background: 0 0% 100%;
-  --foreground: 222.2 84% 4.9%;
-  --muted: 210 40% 96.1%;
-  --muted-foreground: 215.4 16.3% 46.9%;
-  --border: 214.3 31.8% 91.4%;
-  --ring: 221.2 83.2% 53.3%;
-  --primary: 221.2 83.2% 53.3%;
-  --primary-foreground: 210 40% 98%;
-  --gold: #c9952b;
+/* ── Theme: type, radii, shadows ─────────────────────────────────────────────
+   Fonts are self-hosted variable files (Fontsource, imported in App.tsx before this
+   sheet) because the Tauri CSP is `font-src 'self' data:`. Radii collapse onto three
+   steps so the existing rounded-* utilities land on the system without touching TSX:
+   4px controls/chips, 8px buttons/rows/inner panels, 12px cards/modals. Shadows are
+   navy ink (see --shadow-ink below) rather than Tailwind's neutral black. */
+@theme {
+  --font-sans: "Source Sans 3 Variable", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --font-serif: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
+  --font-mono: "Cascadia Code", "Cascadia Mono", Consolas, ui-monospace, monospace;
 
-  /* Status colors - shared tokens so success/warning/error/neutral language stays
-     consistent across Budgets/Goals/Reports/Dashboard/Trends/Agent instead of each
-     page picking its own hardcoded hex. */
-  --success: 142 71% 45%;
-  --warning: 38 92% 50%;
-  --error: 0 84% 60%;
+  --radius-xs: 4px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 12px;
+  --radius-3xl: 12px;
+  --radius-4xl: 12px;
+
+  --shadow-panel: 0 1px 2px hsl(var(--shadow-ink) / 0.10), 0 4px 16px -8px hsl(var(--shadow-ink) / 0.18);
+  --shadow-raised: 0 2px 6px hsl(var(--shadow-ink) / 0.14), 0 14px 32px -12px hsl(var(--shadow-ink) / 0.28);
+  --shadow-modal: 0 8px 24px hsl(var(--shadow-ink) / 0.22), 0 32px 72px -16px hsl(var(--shadow-ink) / 0.42);
+  --shadow-2xs: var(--shadow-panel);
+  --shadow-xs: var(--shadow-panel);
+  --shadow-sm: var(--shadow-panel);
+  --shadow-md: var(--shadow-raised);
+  --shadow-lg: var(--shadow-raised);
+  --shadow-xl: var(--shadow-modal);
+  --shadow-2xl: var(--shadow-modal);
+}
+
+/* ── Palette ─────────────────────────────────────────────────────────────────
+   Every color token is an HSL triplet consumed as hsl(var(--x)) (Playwright asserts the
+   computed color of the Plan headline equals hsl(var(--error))). Light mode is a cool
+   "chart paper"; dark mode is the night sky the compass mark sits in.
+
+   Roles: --primary is gold and means "your hand is on the instrument" (controls, active
+   states, and the values your adjustments produce). --sea is the recorded-data blue
+   (balances, income series, informational states). Status colors stay semantic; warning
+   is shifted toward orange so it never reads as gold. Light-mode text tokens are deepened
+   so they pass WCAG AA as small text on white (success/error/warning/gold-ink are used as
+   text-xs amounts and notes app-wide). */
+:root {
+  --background: 220 33% 97%;
+  --surface: 0 0% 100%;
+  --surface-raised: 220 30% 95%;
+  --sidebar: 224 60% 7%;
+  --foreground: 224 55% 15%;
+  --muted: 220 28% 93%;
+  --muted-foreground: 222 20% 42%;
+  --border: 220 25% 86%;
+  --primary: 40 65% 48%;
+  --primary-foreground: 224 55% 12%;
+  --gold-ink: 38 88% 26%;
+  --ring: var(--gold-ink);
+  /* Back-compat: TSX and CSS consume var(--gold) as a whole color (color-mix, accent-color,
+     stopColor, backgroundColor). Never hsl(var(--gold)). */
+  --gold: hsl(var(--primary));
+  --sea: 220 60% 42%;
+
+  --success: 152 62% 29%;
+  --warning: 24 85% 35%;
+  --error: 4 62% 44%;
   --neutral: 220 9% 64%;
+
+  --shadow-ink: 224 45% 25%;
+  --scrim: 224 55% 12%;
+  --graticule: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1400 1000' fill='none' stroke='%23111c3b' stroke-opacity='0.07' stroke-width='1'%3E%3Cellipse cx='700' cy='1180' rx='1500' ry='980'/%3E%3Cellipse cx='700' cy='1180' rx='1240' ry='800'/%3E%3Cellipse cx='700' cy='1180' rx='980' ry='620'/%3E%3Cellipse cx='700' cy='1180' rx='720' ry='440'/%3E%3Cellipse cx='700' cy='-260' rx='1500' ry='900'/%3E%3Cellipse cx='700' cy='-260' rx='1200' ry='700'/%3E%3Cpath d='M-100 120 C 300 60 1100 60 1500 120'/%3E%3Cpath d='M-100 880 C 300 940 1100 940 1500 880'/%3E%3C/svg%3E");
 }
 
 .dark {
-  --background: 222.2 84% 4.9%;
-  --foreground: 210 40% 98%;
-  --muted: 217.2 32.6% 17.5%;
-  --muted-foreground: 215 20.2% 65.1%;
-  --border: 217.2 32.6% 17.5%;
-  --ring: 224.3 76.3% 48%;
-  --primary: 217.2 91.2% 59.8%;
-  --primary-foreground: 222.2 47.4% 11.2%;
-  --gold: #d4a832;
+  --background: 224 58% 9%;
+  --surface: 222 52% 14%;
+  --surface-raised: 222 48% 19%;
+  --sidebar: 224 60% 7%;
+  --foreground: 220 50% 94%;
+  --muted: 222 45% 16%;
+  --muted-foreground: 220 28% 68%;
+  --border: 222 40% 22%;
+  --primary: 44 66% 51%;
+  --primary-foreground: 224 55% 12%;
+  --gold-ink: 44 70% 62%;
+  --ring: var(--gold-ink);
+  --gold: hsl(var(--primary));
+  --sea: 217 72% 64%;
 
-  --success: 142 71% 50%;
-  --warning: 38 92% 58%;
-  --error: 0 91% 71%;
+  --success: 152 52% 52%;
+  --warning: 24 88% 62%;
+  --error: 6 76% 68%;
   --neutral: 220 9% 55%;
+
+  --shadow-ink: 226 80% 3%;
+  --scrim: 226 80% 3%;
+  --graticule: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1400 1000' fill='none' stroke='%23ffffff' stroke-opacity='0.045' stroke-width='1'%3E%3Cellipse cx='700' cy='1180' rx='1500' ry='980'/%3E%3Cellipse cx='700' cy='1180' rx='1240' ry='800'/%3E%3Cellipse cx='700' cy='1180' rx='980' ry='620'/%3E%3Cellipse cx='700' cy='1180' rx='720' ry='440'/%3E%3Cellipse cx='700' cy='-260' rx='1500' ry='900'/%3E%3Cellipse cx='700' cy='-260' rx='1200' ry='700'/%3E%3Cpath d='M-100 120 C 300 60 1100 60 1500 120'/%3E%3Cpath d='M-100 880 C 300 940 1100 940 1500 880'/%3E%3C/svg%3E");
+}
+
+/* The sidebar is the instrument panel and stays night navy in both themes. Re-scoping the
+   tokens here means every descendant (profile switcher, theme button, update checker)
+   inherits the night palette without knowing about it. */
+.app-sidebar {
+  --background: 224 60% 7%;
+  --surface: 222 52% 14%;
+  --surface-raised: 222 48% 19%;
+  --foreground: 220 50% 94%;
+  --muted: 222 45% 16%;
+  --muted-foreground: 220 28% 68%;
+  --border: 222 40% 22%;
+  --primary: 44 66% 51%;
+  --gold-ink: 44 70% 62%;
+  --sea: 217 72% 64%;
+  --shadow-ink: 226 80% 3%;
+  color: hsl(var(--foreground));
 }
 
 * {
   border-color: hsl(var(--border));
 }
 
+/* ── Interaction polish (v1.0.2) ───────────────────────────────────────────── */
+
+/* Tactile press feedback on every enabled button. Tailwind active:scale-* utilities
+   still override this where a page wants its own value. */
+button:not(:disabled):active {
+  transform: scale(0.985);
+}
+
+/* Keyboard focus is always visible; mouse focus stays clean. Charts keep their own
+   suppression (see .recharts-wrapper below) since they have no keyboard interaction. */
+:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* No single-word orphans on headings. */
+h1, h2, h3 {
+  text-wrap: balance;
+}
+
+.workspace-page {
+  width: 100%;
+  max-width: none;
+  margin-inline: auto;
+  padding: 28px 32px 48px;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.app-main { container-type: inline-size; }
+.mobile-nav-backdrop { display: none; }
+@media (max-width: 719px) {
+  .app-sidebar[data-expanded="true"] { position: fixed; inset: 0 auto 0 0; z-index: 45; }
+  .app-sidebar[data-expanded="true"] ~ .app-main { margin-left: 56px; }
+  .mobile-nav-backdrop { display: block; position: fixed; inset: 0; z-index: 40; background: hsl(var(--scrim) / 0.35); }
+}
+.app-workspace { min-width: 0; }
+.app-workspace > div > .py-6 { padding-block: 0; }
+.workspace-page > *, .workspace-page .grid > * { min-width: 0; }
+.dashboard-workspace > div:first-child { flex-wrap: wrap; gap: 16px; }
+.dashboard-workspace div:has(> table) { overflow-x: auto; max-width: 100%; }
+.settings-workspace > section, .settings-workspace > details { border: 0; border-top: 1px solid hsl(var(--border)); border-radius: 0; padding-inline: 0; background: none; box-shadow: none; }
+.settings-workspace { align-items: start; }
+.insights-workspace > *, .insights-context-content > * { min-width: 0; }
+.settings-workspace p { max-width: 65ch; }
+.settings-workspace { display: flex; flex-direction: column; }
+.settings-workspace > div:first-child { order: 0; }
+.settings-backup { order: 1; }
+.settings-appearance { order: 2; }
+.settings-schedule { order: 3; }
+.settings-diagnostics { order: 4; }
+.settings-danger { order: 5; }
+@container (min-width: 1100px) {
+  .settings-workspace { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 40px; }
+  .settings-workspace > * { margin-block: 0; }
+  .settings-workspace > div:first-child { grid-column: 1 / -1; }
+}
+@container (min-width: 1600px) {
+  .app-workspace .goal-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .overview-workspace > .grid, .overview-workspace > .grid.grid-cols-2 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@container (max-width: 1099px) {
+  .workspace-page { padding-inline: 24px; }
+  .app-workspace .plan-workspace { grid-template-columns: minmax(0, 1fr); grid-template-areas: "heading" "summary" "chart" "scenarios" "actions" "upcoming" "payoff" "rules"; }
+  .app-workspace .plan-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container (max-width: 719px) {
+  .workspace-page { padding: 20px 16px 32px; }
+  .dashboard-workspace > .grid, .trends-workspace .grid-cols-3, .overview-workspace > .grid { grid-template-columns: minmax(0, 1fr); }
+  .app-workspace .goal-grid { grid-template-columns: minmax(0, 1fr); }
+  .insights-heading { padding-inline: 16px; }
+  .insights-context-content .grid-cols-2 { grid-template-columns: minmax(0, 1fr); }
+  .insights-workspace table { min-width: 540px; }
+  .insights-workspace .overflow-hidden:has(> table) { overflow-x: auto; }
+}
+.workspace-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+/* ── Type roles ──────────────────────────────────────────────────────────────
+   The serif appears in exactly three places: the page title, one hero figure per page,
+   and empty-state headlines. Everything dense stays in the sans with tabular numerals. */
+.workspace-page h1 {
+  font-family: var(--font-serif);
+  font-size: 26px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+.workspace-page h2 { letter-spacing: 0; }
+.workspace-page .uppercase { text-transform: none; letter-spacing: 0; font-size: 12px; }
+.hero-figure {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  font-size: 34px;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums lining-nums;
+  overflow-wrap: anywhere;
+}
+.hero-figure[data-size="xl"] { font-size: 44px; }
+@container (max-width: 1099px) {
+  .hero-figure[data-size="xl"] { font-size: 34px; }
+}
+.workspace-disclosure > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+  padding-block: 10px;
+}
+.workspace-disclosure > summary:hover { color: hsl(var(--foreground)); }
+.workspace-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 4px;
+}
+.workspace-icon:hover { background: hsl(var(--muted)); }
+.workspace-segments {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  background: hsl(var(--muted));
+  border-radius: 8px;
+}
+.workspace-segments button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: 4px;
+}
+.workspace-segments button[aria-pressed="true"] {
+  background: hsl(var(--surface));
+  color: hsl(var(--gold-ink));
+  box-shadow: var(--shadow-panel);
+}
+
+/* Default surface for the remaining card-style boxes: a quiet raised panel instead of a
+   bare hairline. Lives in the components layer so bg-[…] utilities on a card still win. */
+@layer components {
+  .workspace-page .border.rounded-xl:not(input):not(textarea):not(select):not(button),
+  .workspace-page .border.rounded-2xl:not(input):not(textarea):not(select):not(button) {
+    background: hsl(var(--surface));
+    box-shadow: var(--shadow-panel);
+  }
+}
+
+/* Sidebar active item: a 2px gold bearing mark on the leading edge. */
+.nav-active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 1px;
+  background: hsl(var(--primary));
+}
+
+.plan-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-areas: "heading heading" "summary summary" "chart scenarios" "upcoming actions" "payoff payoff" "rules rules";
+  gap: 28px 32px;
+  align-items: start;
+}
+.plan-heading { grid-area: heading; }
+.plan-summary { grid-area: summary; border-block: 1px solid hsl(var(--border)); padding-block: 24px 12px; }
+.plan-summary > details:not([open]) { display: inline-block; margin-right: 28px; margin-top: 12px; }
+.plan-metrics { display: grid; grid-template-columns: 1.5fr 1fr 1fr 1.2fr; gap: 24px; margin-top: 24px; }
+.plan-metrics > div { min-width: 0; }
+.plan-available { font-family: var(--font-serif); font-size: 40px; line-height: 1.15; font-weight: 500; letter-spacing: -0.02em; margin-block: 6px; overflow-wrap: anywhere; }
+.plan-metrics .text-2xl { font-size: 22px; overflow-wrap: anywhere; }
+.plan-chart { grid-area: chart; min-width: 0; }
+.cash-horizon { min-width: 0; }
+.horizon-legend { display: flex; flex-wrap: wrap; gap: 12px 24px; font-size: 12px; color: hsl(var(--muted-foreground)); }
+.horizon-legend span { display: flex; align-items: center; gap: 8px; }
+.horizon-legend i { width: 20px; height: 2px; }
+.horizon-plot { height: 380px; margin-top: 12px; background: linear-gradient(180deg, hsl(var(--primary) / 0.035), transparent); }
+.horizon-transport { display: flex; gap: 8px; align-items: center; border-block: 1px solid hsl(var(--border)); padding: 8px 0; }
+.horizon-transport input { min-width: 0; flex: 1; accent-color: var(--gold); }
+.horizon-transport time { width: 90px; text-align: right; font-size: 12px; }
+.horizon-inspector { padding-top: 20px; }
+.horizon-day-values { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.horizon-day-values p { font-size: 12px; color: hsl(var(--muted-foreground)); margin-bottom: 6px; }
+.horizon-day-values strong { font-size: 20px; font-weight: 600; overflow-wrap: anywhere; }
+.horizon-events { margin-top: 12px; min-height: 56px; }
+.horizon-event { display: flex; align-items: center; gap: 10px; padding-block: 10px; border-bottom: 1px solid hsl(var(--border) / 0.5); font-size: 13px; }
+.horizon-event > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.horizon-event small { display: block; color: hsl(var(--muted-foreground)); margin-top: 3px; }
+.horizon-event strong { font-weight: 500; }
+@container (max-width: 719px) {
+  .horizon-plot { height: 280px; }
+  .horizon-day-values { grid-template-columns: 1fr; gap: 8px; }
+  .horizon-day-values > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+}
+.plan-scenarios { grid-area: scenarios; padding: 20px; background: hsl(var(--surface-raised)); border-radius: 8px; }
+.plan-actions { grid-area: actions; min-width: 0; }
+.plan-action-row { border-bottom: 1px solid hsl(var(--border)); padding-bottom: 8px; }
+.plan-upcoming { grid-area: upcoming; min-width: 0; }
+.plan-payoff { grid-area: payoff; border-top: 1px solid hsl(var(--border)); padding-top: 24px; }
+.plan-rules { grid-area: rules; border-top: 1px solid hsl(var(--border)); }
+.plan-rules > section { border: 0; padding-inline: 0; }
+.transaction-tools { position: relative; }
+.transaction-tools > summary { list-style: none; cursor: pointer; }
+.transaction-tools > summary::-webkit-details-marker { display: none; }
+.transaction-tools-menu { position: absolute; right: 0; top: 38px; width: 240px; padding: 6px; background: hsl(var(--surface-raised)); border: 1px solid hsl(var(--border)); border-radius: 8px; box-shadow: var(--shadow-raised); z-index: 30; }
+.transaction-tools-menu button { width: 100%; padding: 10px 12px; border: 0; border-radius: 4px; font-size: 13px; font-weight: 400; }
+.transaction-tools-menu button:hover { background: hsl(var(--muted)); }
+.transaction-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; border-block: 1px solid hsl(var(--border)); padding-block: 20px; margin-bottom: 16px; }
+.transaction-summary p { justify-content: flex-start; overflow-wrap: anywhere; }
+.transaction-viewbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding-block: 8px; }
+.activity-date { font-size: 12px; color: hsl(var(--muted-foreground)); padding: 24px 0 8px; }
+.activity-row { display: grid; grid-template-columns: 16px 36px minmax(0, 1fr) 160px minmax(90px, 120px) 32px; gap: 12px; align-items: center; padding: 14px 8px; border-bottom: 1px solid hsl(var(--border) / 0.6); }
+.category-wash {
+  --category-strength: 9%;
+  background-image: linear-gradient(108deg, color-mix(in srgb, var(--category-color) var(--category-strength), transparent), transparent 48%, color-mix(in srgb, var(--category-color) 4%, transparent));
+  box-shadow: inset 2px 0 color-mix(in srgb, var(--category-color) 40%, transparent);
+  transition: background-color 160ms ease;
+}
+.category-wash:hover { --category-strength: 16%; background-color: hsl(var(--muted) / 0.3); }
+.category-wash[data-selected="true"] { --category-strength: 18%; outline: 1px solid hsl(var(--primary) / 0.45); outline-offset: -1px; }
+.activity-direction { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 8px; background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); }
+.activity-description { display: flex; flex-direction: column; gap: 4px; text-align: left; min-width: 0; font-size: 14px; }
+.activity-description span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.activity-category { font-size: 12px; width: 100%; color: hsl(var(--muted-foreground)); background: transparent; padding: 6px; border-radius: 4px; }
+select.activity-category { background: hsl(var(--surface)); }
+.activity-amount { font-size: 14px; font-weight: 600; text-align: right; overflow-wrap: anywhere; }
+.goal-editor { border-bottom: 1px solid hsl(var(--border)); }
+.goal-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; padding-bottom: 24px; border-bottom: 1px solid hsl(var(--border)); }
+.goal-summary p { font-size: 12px; color: hsl(var(--muted-foreground)); margin-bottom: 6px; }
+.goal-summary strong { font-size: 30px; font-weight: 600; }
+.goal-summary strong span { font-size: 16px; font-weight: 400; color: hsl(var(--muted-foreground)); }
+.goal-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.goal-item { min-width: 0; border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 24px; background: hsl(var(--surface)); box-shadow: var(--shadow-panel); }
+.goal-progress { display: flex; flex-direction: column; }
+.goal-progress-track { order: 2; }
+.goal-progress-values { display: flex; align-items: end; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.goal-current { display: block; font-size: 28px; line-height: 1.4; font-weight: 600; overflow-wrap: anywhere; }
+.budget-item { border-bottom: 1px solid hsl(var(--border)); }
+.budget-summary strong { font-size: 26px; overflow-wrap: anywhere; }
+.report-summary strong { font-size: 28px; overflow-wrap: anywhere; }
+.reports-workspace > section { border-bottom: 1px solid hsl(var(--border)); padding-bottom: 24px; }
+.report-category-row { padding-block: 10px; }
+.report-category-row > div:first-child { font-size: 13px; margin-bottom: 8px; }
+.report-table { overflow-x: auto; max-width: 100%; }
+.report-table table { min-width: 550px; }
+@media (max-width: 640px) {
+  .report-summary { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .report-summary > div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .report-summary strong { font-size: 22px; }
+}
+@media (max-width: 640px) {
+  .budget-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .budget-summary strong { font-size: 22px; }
+}
+@media (max-width: 1000px) { .goal-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 1100px) {
+  .activity-row { grid-template-columns: 16px 36px minmax(0, 1fr) 110px 32px; }
+  .activity-category { grid-column: 3; grid-row: 2; }
+  .activity-description { grid-column: 3; }
+  .activity-amount { grid-column: 4; grid-row: 1; }
+  .activity-row > .workspace-icon { grid-column: 5; grid-row: 1; }
+}
+@media (max-width: 640px) {
+  .activity-row { grid-template-columns: 16px minmax(0, 1fr) 96px 32px; gap: 8px; padding-inline: 0; }
+  .activity-direction { display: none; }
+  .activity-description, .activity-category { grid-column: 2; }
+  .activity-amount { grid-column: 3; }
+  .activity-row > .workspace-icon { grid-column: 4; }
+  .transaction-summary { gap: 10px; }
+  .transaction-summary .text-xl, .transaction-summary .text-lg { font-size: 17px; }
+}
+@media (max-width: 1000px) {
+  .plan-workspace { grid-template-columns: minmax(0, 1fr); grid-template-areas: "heading" "summary" "chart" "scenarios" "actions" "upcoming" "payoff" "rules"; }
+  .plan-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .workspace-page { padding: 20px 16px 32px; }
+  .plan-heading > div { min-width: 0; max-width: 100%; }
+  .plan-heading [role="group"] { width: 100%; flex-wrap: wrap; }
+  .plan-available { font-size: 28px; }
+  .plan-metrics { gap: 20px 12px; }
+}
+
+/* ── Atmosphere ──────────────────────────────────────────────────────────────
+   The chart room: a soft moonlight gradient from the top-left, a faint graticule of
+   great-circle lines, and a fine grain so the navy never reads as a flat digital fill.
+   Everything here is static and lives on body pseudo-elements (no DOM nodes, so the
+   workspace width assertions are unaffected). Data-URI images fall under img-src. */
 body {
   background-color: hsl(var(--background));
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='60'%3E%3Cpath d='M0 20 Q100 8 200 20 Q300 32 400 20' fill='none' stroke='rgba(201%2C149%2C43%2C0.055)' stroke-width='1.5'/%3E%3Cpath d='M0 42 Q100 30 200 42 Q300 54 400 42' fill='none' stroke='rgba(201%2C149%2C43%2C0.03)' stroke-width='1'/%3E%3C/svg%3E");
-  background-repeat: repeat;
+  background-image:
+    radial-gradient(1200px 800px at 0% 0%, hsl(var(--surface-raised) / 0.9), transparent 70%),
+    radial-gradient(900px 700px at 100% 100%, hsl(var(--shadow-ink) / 0.10), transparent 60%);
+  background-attachment: fixed;
   color: hsl(var(--foreground));
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
 }
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--graticule) center / cover no-repeat;
+}
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.035;
+  background: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E") 0 0 / 220px 220px repeat;
+}
+.dark body::after { opacity: 0.05; }
 
 /* ── Wizard transition animations ──────────────────────────────────────────── */
 
@@ -90,14 +486,29 @@ body {
 .spotlight-sparkle {
   position: absolute;
   border-radius: 9999px;
-  background: var(--gold);
-  box-shadow: 0 0 6px 1px var(--gold);
+  background: hsl(var(--primary));
+  box-shadow: 0 0 6px 1px hsl(var(--primary) / 0.6);
   animation: spotlight-twinkle 2.6s ease-in-out infinite;
   pointer-events: none;
 }
 
 .wizard-enter-done {
   animation: wizard-done 300ms cubic-bezier(0.34, 1.2, 0.64, 1);
+}
+
+/* ── Brand loading indicator ─────────────────────────────────────────────────
+   A compass needle that swings past north and settles, then seeks again. Honest
+   feedback for in-flight work; the reduced-motion blocks below slow it rather than
+   stop it, the same way they treat Tailwind's animate-spin. */
+@keyframes needle-seek {
+  0%   { rotate: 0deg; }
+  55%  { rotate: 385deg; }
+  75%  { rotate: 350deg; }
+  100% { rotate: 360deg; }
+}
+.needle-spinner {
+  animation: needle-seek 1.4s cubic-bezier(0.3, 0.7, 0.3, 1) infinite;
+  transform-origin: 50% 50%;
 }
 
 /* ── Chart interaction polish ──────────────────────────────────────────────── */
@@ -115,43 +526,34 @@ body {
   outline: none !important;
 }
 
-/* Subtle blue -> gold shimmer to signal "this box can be clicked for detail". */
-@keyframes chart-shimmer-glow {
-  0%, 100% { box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.30), 0 0 14px -4px rgba(59, 130, 246, 0.35); }
-  50%      { box-shadow: 0 0 0 1px rgba(201, 149, 43, 0.35), 0 0 14px -4px rgba(201, 149, 43, 0.40); }
-}
+/* A gold hairline along the top edge marks "this box can be clicked for detail": gold is
+   the app's agency color, so its presence alone reads as an affordance. Static at rest;
+   the border warms on hover and the halo below confirms. */
 .chart-clickable {
   position: relative;
-  will-change: box-shadow;
-  animation: chart-shimmer-glow 3.2s ease-in-out infinite !important;
+  box-shadow: inset 0 1px 0 hsl(var(--primary) / 0.4);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
-/* Charts already signal "clickable" with the glow above - skip the ambient
-   rotating ring on top of it so the two animations don't stack. */
-.chart-clickable::before {
-  display: none;
+.chart-clickable:hover {
+  border-color: hsl(var(--primary) / 0.6);
 }
-/* Soft ambient halo, layered on ::after (::before is already claimed above) since the
-   shimmer's animated box-shadow can't be blended with a second, independently-timed glow on
-   the same property. Faintly present at rest so a clickable card reads as interactive at a
-   glance without requiring a hover first, then blooms noticeably brighter on hover as direct
-   confirmation - tuned low-opacity/heavily-blurred to stay a "premium detail" rather than a
-   neon effect. Sits behind the card's own background (negative z-index within the stacking
-   context .chart-clickable's own `position: relative` establishes) so only the blurred edges
-   peek out as a halo instead of washing out the card's content. */
+/* Soft ambient halo behind the card, faintly present at rest so a clickable card reads as
+   interactive at a glance, dimming up slightly on hover as confirmation. `inset: 0` keeps
+   it clipped to the card's own footprint. */
 .chart-clickable::after {
   content: "";
   position: absolute;
-  inset: -8px;
+  inset: 0;
   z-index: -1;
   border-radius: inherit;
-  background: radial-gradient(circle, rgba(201, 149, 43, 0.38) 0%, rgba(59, 130, 246, 0.26) 55%, transparent 78%);
-  filter: blur(14px);
-  opacity: 0.5;
+  background: radial-gradient(circle, color-mix(in srgb, var(--gold) 20%, transparent) 0%, color-mix(in srgb, var(--gold) 8%, transparent) 55%, transparent 78%);
+  filter: blur(6px);
+  opacity: 0.35;
   pointer-events: none;
   transition: opacity 0.3s ease;
 }
 .chart-clickable:hover::after {
-  opacity: 1;
+  opacity: 0.65;
 }
 
 /* Delayed "click for details" hint - pure CSS (no JS/state needed): stays invisible until
@@ -167,70 +569,26 @@ body {
   transition: opacity 0.2s ease 1s;
 }
 
-/* Ambient premium border ring applied to every card-style box app-wide - a thin
-   gold light chases slowly around the border via an animated conic-gradient
-   angle, masked so only the border itself paints (not the whole card interior).
-   This replaces a previous always-on pulsing box-shadow: animating a 1px-thick
-   masked ring composites far cheaper than a page full of blurred box-shadows
-   repainting every frame, while still reading as a deliberate, premium touch
-   instead of ambient noise. Excludes form controls (input/textarea/select/
-   button) that happen to share the same rounded-xl/2xl utility. */
-@property --ring-angle {
-  syntax: '<angle>';
-  initial-value: 0deg;
-  inherits: false;
-}
-@keyframes ring-rotate {
-  to { --ring-angle: 360deg; }
-}
-.border.rounded-xl:not(input):not(textarea):not(select):not(button),
-.border.rounded-2xl:not(input):not(textarea):not(select):not(button) {
-  position: relative;
-}
-.border.rounded-xl:not(input):not(textarea):not(select):not(button)::before,
-.border.rounded-2xl:not(input):not(textarea):not(select):not(button)::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1px;
-  background: conic-gradient(
-    from var(--ring-angle),
-    transparent 0%,
-    rgba(201, 149, 43, 0.6) 6%,
-    transparent 18%,
-    transparent 100%
-  );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  animation: ring-rotate 7s linear infinite;
-  pointer-events: none;
-}
-
 /* ── Launch / profile-picker gold particles ──────────────────────────────────
    The launch screen's gold-particle-swarm effect is implemented in JS/canvas
    (src/components/GoldParticleField.tsx) since it needs per-particle physics
    (spring-back-to-rest + cursor repulsion) that CSS alone can't express. */
 
 /* ── Minimal gradient utilities ───────────────────────────────────────────────
-   Used sparingly (headline numbers, key branding) - not meant to be applied
-   broadly. Text gradient reads as foreground fading to the gold accent. */
-.text-gradient-gold {
-  background: linear-gradient(100deg, hsl(var(--foreground)) 25%, var(--gold) 100%);
+   Used sparingly (key branding only). Text gradient reads as foreground fading to gold. */
+.text-gradient-primary {
+  background: linear-gradient(100deg, hsl(var(--foreground)) 25%, hsl(var(--primary)) 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 
 /* ── Insight card icon glow ───────────────────────────────────────────────────
-   Orange -> blue radial glow that blooms in behind an insight card's icon
-   whenever the card is hovered, plus a gentle pulse for as long as the hover
-   lasts - shares the same blue/gold accent pairing as .chart-clickable's
-   shimmer so it reads as consistent with the rest of the app's "premium" glow
-   language, but only appears on hover rather than running ambiently. Plain CSS
-   (not a Tailwind arbitrary value) so it can't be silently dropped by a JIT
-   parsing edge case. */
+   Gold radial glow that blooms in behind an insight card's icon whenever the
+   card is hovered, plus a gentle pulse for as long as the hover lasts - insight
+   cards are clickable (expand on click), so gold here matches the app-wide rule
+   that gold marks interactive content. Plain CSS (not a Tailwind arbitrary value)
+   so it can't be silently dropped by a JIT parsing edge case. */
 @keyframes insight-icon-glow-pulse {
   0%, 100% { opacity: 0.6;  transform: scale(0.92); }
   50%      { opacity: 0.95; transform: scale(1.1); }
@@ -241,7 +599,7 @@ body {
   border-radius: 9999px;
   opacity: 0;
   pointer-events: none;
-  background: radial-gradient(circle, rgba(251, 146, 60, 0.7) 0%, rgba(59, 130, 246, 0.55) 60%, transparent 100%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--gold) 65%, transparent) 0%, color-mix(in srgb, var(--gold) 38%, transparent) 60%, transparent 100%);
   filter: blur(7px);
   transition: opacity 0.2s ease;
 }
@@ -251,3 +609,59 @@ body {
   animation: insight-icon-glow-pulse 1.3s ease-in-out infinite;
 }
 
+/* ── Reduced motion ───────────────────────────────────────────────────────────
+   Honours the OS "reduce motion" setting, and the in-app override in Settings
+   (which toggles `.reduce-motion` on <html> - some people want this in one app
+   without turning it on system-wide). Decorative, looping effects are switched
+   off outright; everything else collapses to near-instant rather than being
+   removed, so state changes are still perceivable - just not animated.
+   Framer Motion is handled separately via <MotionConfig> in App.tsx, and the
+   canvas particle effects check via the useAppReducedMotion hook. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .spotlight-sparkle,
+  .insight-icon-glow,
+  .chart-clickable::after {
+    animation: none !important;
+  }
+
+  /* Loading indicators are feedback, not decoration - killing them makes a busy app look
+     frozen. Slowed right down rather than stopped. Only the timing is overridden so this
+     doesn't depend on Tailwind's internal keyframe names. */
+  .animate-spin,
+  .animate-pulse,
+  .needle-spinner {
+    animation-duration: 2.4s !important;
+    animation-iteration-count: infinite !important;
+  }
+}
+
+.reduce-motion *,
+.reduce-motion *::before,
+.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+.reduce-motion .spotlight-sparkle,
+.reduce-motion .insight-icon-glow,
+.reduce-motion .chart-clickable::after {
+  animation: none !important;
+}
+
+.reduce-motion .animate-spin,
+.reduce-motion .animate-pulse,
+.reduce-motion .needle-spinner {
+  animation-duration: 2.4s !important;
+  animation-iteration-count: infinite !important;
+}

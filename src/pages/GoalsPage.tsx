@@ -1,15 +1,19 @@
-import { useState, useEffect, useCallback } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { ChevronLeft, ChevronRight, Plus, Pencil, Trash2, Target, Check, AlertCircle } from "lucide-react";
 import { getDb } from "@/lib/db";
+import { categorySpendSql, incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
+import { evaluateBudgetPeriod, completedBudgetMonths, type BudgetDefinition } from "@/lib/budgetMetrics";
 import { formatCurrency } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
+import { handleLoadFailure } from "@/stores/toastStore";
 import CategoryOptions from "@/components/CategoryOptions";
 import { CardListSkeleton } from "@/components/Skeleton";
 import WeeklyMiniBar from "@/components/WeeklyMiniBar";
 import MilestoneCelebration from "@/components/MilestoneCelebration";
 import { detectNewMilestones } from "@/lib/milestones";
+import { useMilestoneQueue } from "@/hooks/useMilestoneQueue";
 
 type GoalType =
   | "net_savings"
@@ -72,19 +76,6 @@ const DESCS: Record<GoalType, string> = {
 const STREAK_TYPES = new Set<GoalType>(["budget_streak", "savings_rate_habit"]);
 const CLASSIC_TYPES = new Set<GoalType>(["net_savings", "reduce_spend", "increase_income"]);
 
-// Goal-type badge colors, grouped by meaning rather than one hue per type - 7 nearly
-// indistinguishable pastels read as visual noise; 3 clear groups read as intentional.
-const GOAL_TYPE_STYLE: Record<GoalType, string> = {
-  net_savings:        "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
-  savings_target:     "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
-  balance_floor:      "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
-  savings_rate_habit: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
-  reduce_spend:       "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
-  budget_streak:      "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
-  debt_paydown:       "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
-  increase_income:    "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
-};
-
 function monthBounds(ym: string): [string, string] {
   const [y, m] = ym.split("-").map(Number);
   return [
@@ -143,16 +134,11 @@ export default function GoalsPage() {
   const [formMonths, setFormMonths] = useState("3");
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [milestoneQueue, setMilestoneQueue] = useState<string[]>([]);
-  const [activeMilestone, setActiveMilestone] = useState<string | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [goalFilter, setGoalFilter] = useState<"all" | "attention" | "onTrack">("all");
+  const formRef = useRef<HTMLDetailsElement>(null);
+  const { active: activeMilestone, enqueue: enqueueMilestones, dismiss: dismissMilestone } = useMilestoneQueue();
   const [debtAccounts, setDebtAccounts] = useState<{ id: number; name: string; account_type: string }[]>([]);
-
-  useEffect(() => {
-    if (activeMilestone === null && milestoneQueue.length > 0) {
-      setActiveMilestone(milestoneQueue[0]);
-      setMilestoneQueue((q) => q.slice(1));
-    }
-  }, [activeMilestone, milestoneQueue]);
 
   useEffect(() => {
     let cancelled = false;
@@ -211,7 +197,7 @@ export default function GoalsPage() {
             ? [start, end, profileId, g.category_id]
             : [start, end, profileId];
           const [r] = await db.select<{ v: number }[]>(
-            `SELECT COALESCE(MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)),0) as v
+            `SELECT COALESCE(${categorySpendSql()},0) as v
              FROM transactions t JOIN accounts a ON a.id=t.account_id
              WHERE t.date>=? AND t.date<? AND t.profile_id=? AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))${extra}`,
             params
@@ -235,8 +221,7 @@ export default function GoalsPage() {
           const [r] = await db.select<{ v: number }[]>(
             `SELECT COALESCE(SUM(net),0) as v FROM (
                SELECT strftime('%Y-%m',t.date) as mo,
-                 SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END)
-                 - SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) THEN ABS(t.amount_cents) ELSE 0 END) as net
+                 ${incomeSumSql()} - ${expenseSumSql()} as net
                FROM transactions t JOIN accounts a ON a.id=t.account_id
                WHERE t.profile_id=? AND t.date>=?
                GROUP BY mo
@@ -323,21 +308,20 @@ export default function GoalsPage() {
           // Count consecutive months (newest first) where spend <= budget
           if (!g.category_id) { noBudgetData = true; }
           else {
-            const [budgetRow] = await db.select<{ amount_cents: number }[]>(
-              "SELECT amount_cents FROM budgets WHERE profile_id=? AND category_id=? AND is_global=0 ORDER BY created_at DESC LIMIT 1",
+            const [budgetRow] = await db.select<BudgetDefinition[]>(
+              "SELECT b.*,c.name as category_name,c.parent_id as category_parent_id FROM budgets b JOIN categories c ON c.id=b.category_id WHERE b.profile_id=? AND b.category_id=? AND b.is_global=0 AND b.period='monthly' ORDER BY b.created_at DESC LIMIT 1",
               [profileId, g.category_id]
             );
             if (!budgetRow) { noBudgetData = true; }
             else {
-              const months12 = recentMonths(12);
+              const months12 = completedBudgetMonths(12);
               let s = 0;
               for (const mo of months12) {
                 const [ms, me] = monthBounds(mo);
-                const [r] = await db.select<{ spent: number }[]>(
-                  "SELECT COALESCE(SUM(ABS(amount_cents)),0) as spent FROM transactions WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0 AND category_id=?",
-                  [profileId, ms, me, g.category_id]
-                );
-                if ((r?.spent ?? 0) > budgetRow.amount_cents) break;
+                if (ms < budgetRow.start_date) { if (s === 0) noBudgetData = true; break; }
+                const evaluation = await evaluateBudgetPeriod(db, budgetRow, [profileId], ms, me);
+                if (!evaluation.covered) { if (s === 0) noBudgetData = true; break; }
+                if (!evaluation.onTrack) break;
                 s++;
               }
               streak = s;
@@ -353,8 +337,8 @@ export default function GoalsPage() {
             const [ms, me] = monthBounds(mo);
             const [r] = await db.select<{ income: number; expenses: number }[]>(
               `SELECT
-                 COALESCE(SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END),0) as income,
-                 COALESCE(SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) THEN ABS(t.amount_cents) ELSE 0 END),0) as expenses
+                 ${incomeSumSql()} as income,
+                 ${expenseSumSql()} as expenses
                FROM transactions t JOIN accounts a ON a.id=t.account_id
                WHERE t.profile_id=? AND t.date>=? AND t.date<?`,
               [profileId, ms, me]
@@ -426,12 +410,10 @@ export default function GoalsPage() {
     const newMilestones = detectNewMilestones(profileId, {
       goals: withWeekly.map((g) => ({ id: g.id, name: g.name, pct: g.pct })),
     });
-    if (newMilestones.length > 0) {
-      setMilestoneQueue((q) => [...q, ...newMilestones.map((m) => m.message)]);
-    }
-  }, [month, profileId]);
+    enqueueMilestones(newMilestones);
+  }, [month, profileId, enqueueMilestones]);
 
-  useEffect(() => { loadGoals().catch(console.error); }, [loadGoals]);
+  useEffect(() => { loadGoals().catch(handleLoadFailure("your goals", setLoading, () => void loadGoals())); }, [loadGoals]);
 
   useEffect(() => {
     if (categories.length === 0 || formCatId !== 0) return;
@@ -491,10 +473,12 @@ export default function GoalsPage() {
     }
     setFormTarget("");
     setSaving(false);
+    setFormOpen(false);
     await loadGoals();
   };
 
   const startEdit = (g: GoalWithProgress) => {
+    setFormOpen(true);
     setEditingId(g.id);
     setFormType(g.type);
     setFormName(g.name);
@@ -502,10 +486,11 @@ export default function GoalsPage() {
     setFormAccountId(g.account_id ?? 0);
     setFormTarget((g.target_cents / 100).toString());
     setFormMonths((g.target_months ?? 3).toString());
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    formRef.current?.scrollIntoView({ block: "start" });
   };
 
   const cancelEdit = () => {
+    setFormOpen(false);
     setEditingId(null);
     setFormType("net_savings");
     setFormName("Save each month");
@@ -534,67 +519,61 @@ export default function GoalsPage() {
   const showMonthsPicker = STREAK_TYPES.has(formType);
   const isRatePct = formType === "savings_rate_habit";
 
-  const typeGroups: GoalType[][] = [
-    ["net_savings", "reduce_spend", "increase_income"],
-    ["savings_target", "balance_floor", "debt_paydown"],
-    ["budget_streak", "savings_rate_habit"],
-  ];
+  const hasData = (goal: GoalWithProgress) => !goal.noBalanceData && !goal.noBudgetData;
+  const onTrackCount = goals.filter((goal) => hasData(goal) && goal.on_track).length;
+  const attentionCount = goals.filter((goal) => hasData(goal) && !goal.on_track).length;
+  const missingDataCount = goals.filter((goal) => !hasData(goal)).length;
+  const visibleGoals = goals.filter((goal) => goalFilter === "all" ||
+    (goalFilter === "attention" ? !hasData(goal) || !goal.on_track : hasData(goal) && goal.on_track));
 
   return (
-    <div className="p-8 max-w-3xl space-y-6 mx-auto w-full">
-      <MilestoneCelebration message={activeMilestone} onDismiss={() => setActiveMilestone(null)} />
-      <div className="flex items-center justify-between">
+    <div className="workspace-page goals-workspace space-y-6">
+      <MilestoneCelebration event={activeMilestone} onDismiss={dismissMilestone} />
+      <div className="workspace-heading">
         <div>
           <h1 className="text-2xl font-semibold">Goals</h1>
           <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">
-            Track intentions across time -- no pressure, just direction.
+            Progress for {new Date(`${month}-01T12:00:00`).toLocaleDateString(undefined, { month: "long", year: "numeric" })}
           </p>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 flex-wrap">
           <button onClick={() => navMonth(-1)} aria-label="Previous month"
             className="p-1.5 border rounded-lg leading-none hover:bg-[hsl(var(--muted))] transition-colors"><ChevronLeft size={16} /></button>
           <input type="month" value={month} onChange={(e) => setMonth(e.target.value)}
             className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]" />
           <button onClick={() => navMonth(1)} aria-label="Next month"
             className="p-1.5 border rounded-lg leading-none hover:bg-[hsl(var(--muted))] transition-colors"><ChevronRight size={16} /></button>
+          <button onClick={() => { cancelEdit(); setFormOpen(true); }} className="ml-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] text-sm"><Plus size={15} /> New goal</button>
         </div>
       </div>
 
       {/* Add goal form */}
-      <div className="border rounded-xl p-5 space-y-4">
-        <h2 className="font-semibold">{editingId ? "Edit Goal" : "Add Goal"}</h2>
+      <details ref={formRef} hidden={!formOpen} open={formOpen} onToggle={(event) => setFormOpen(event.currentTarget.open)} className="workspace-disclosure goal-editor">
+        <summary>{editingId ? "Edit goal" : "Create a goal"}</summary>
+        <div className="space-y-4 pt-3 pb-5">
 
         {/* Type selector -- two rows */}
-        {typeGroups.map((row, ri) => (
-          <div key={ri} className={`grid gap-2`} style={{ gridTemplateColumns: `repeat(${row.length}, 1fr)` }}>
-            {row.map((t) => (
-              <button key={t} onClick={() => handleTypeChange(t)}
-                className={`border rounded-xl p-3 text-left transition-colors
-                  ${formType === t
-                    ? "border-[hsl(var(--primary))] bg-[hsl(var(--primary))]/10"
-                    : "hover:bg-[hsl(var(--muted))]"}`}>
-                <p className="text-sm font-medium">{LABELS[t]}</p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5 leading-snug">{DESCS[t]}</p>
-              </button>
-            ))}
-          </div>
-        ))}
+        <label className="flex items-center gap-3 text-sm">Goal type
+          <select value={formType} onChange={(event) => handleTypeChange(event.target.value as GoalType)} title={DESCS[formType]} className="border rounded-lg px-3 py-2 bg-[hsl(var(--background))] max-w-full">
+            {(Object.keys(LABELS) as GoalType[]).map((type) => <option key={type} value={type}>{LABELS[type]}</option>)}
+          </select>
+        </label>
 
         {/* Input row */}
         <div className="flex gap-3 flex-wrap">
-          <input type="text" placeholder="Goal name" value={formName}
+          <input type="text" aria-label="Goal name" placeholder="Goal name" value={formName}
             onChange={(e) => setFormName(e.target.value)}
             className="border rounded-lg px-3 py-2 text-sm flex-1 min-w-36
                        bg-[hsl(var(--background))] text-[hsl(var(--foreground))]
                        placeholder:text-[hsl(var(--muted-foreground))]" />
           {showCatPicker && formCats.length > 0 && (
-            <select value={formCatId} onChange={(e) => setFormCatId(parseInt(e.target.value))}
+            <select aria-label="Goal category" value={formCatId} onChange={(e) => setFormCatId(parseInt(e.target.value))}
               className="border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
               <CategoryOptions categories={formCats} />
             </select>
           )}
           {showAccountPicker && (
-            <select value={formAccountId} onChange={(e) => setFormAccountId(parseInt(e.target.value))}
+            <select aria-label="Goal account" value={formAccountId} onChange={(e) => setFormAccountId(parseInt(e.target.value))}
               className="border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
               <option value={0}>All Credit Cards & Loans</option>
               {debtAccounts.map((a) => (
@@ -605,7 +584,7 @@ export default function GoalsPage() {
           <div className="flex items-center gap-1">
             {!isRatePct && <span className="text-sm text-[hsl(var(--muted-foreground))]">$</span>}
             <input type="number" min={formType === "debt_paydown" ? "0" : "1"} step={isRatePct ? "1" : "0.01"}
-              placeholder={isRatePct ? "Rate %" : "Target"}
+              aria-label={isRatePct ? "Target savings rate" : "Target amount"} placeholder={isRatePct ? "Rate %" : "Target"}
               value={formTarget}
               onChange={(e) => setFormTarget(e.target.value)}
               className="border rounded-lg px-3 py-2 text-sm w-28
@@ -627,16 +606,31 @@ export default function GoalsPage() {
                        rounded-lg text-sm font-medium disabled:opacity-50 hover:opacity-90 transition-opacity">
             {saving ? "Saving..." : editingId ? "Save Changes" : "Add"}
           </button>
-          {editingId && (
+          {formOpen && (
             <button onClick={cancelEdit}
               className="px-4 py-2 border rounded-lg text-sm font-medium hover:bg-[hsl(var(--muted))] transition-colors">
               Cancel
             </button>
           )}
         </div>
-      </div>
+        </div>
+      </details>
 
       {loading && <CardListSkeleton count={3} />}
+
+      {!loading && goals.length > 0 && <>
+        <div className="goal-summary">
+          <div><p>On track</p><strong>{onTrackCount}<span> / {goals.length}</span></strong></div>
+          <div><p>Needs attention</p><strong className={attentionCount ? "text-[hsl(var(--warning))]" : ""}>{attentionCount}</strong></div>
+          <div><p>Awaiting data</p><strong>{missingDataCount}</strong></div>
+        </div>
+        <div className="workspace-segments" role="group" aria-label="Goal status">
+          <button aria-pressed={goalFilter === "all"} onClick={() => setGoalFilter("all")}><Target size={14} /> All goals</button>
+          <button aria-pressed={goalFilter === "attention"} onClick={() => setGoalFilter("attention")}><AlertCircle size={14} /> Attention</button>
+          <button aria-pressed={goalFilter === "onTrack"} onClick={() => setGoalFilter("onTrack")}><Check size={14} /> On track</button>
+        </div>
+        {visibleGoals.length === 0 && <p className="text-sm text-[hsl(var(--muted-foreground))] py-8">No goals in this group.</p>}
+      </>}
 
       {!loading && goals.length === 0 && (
         <div className="flex flex-col items-center gap-3 py-20 text-center">
@@ -644,16 +638,18 @@ export default function GoalsPage() {
             className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl mb-1"
             style={{ backgroundColor: "hsl(var(--muted))" }}
           >
-            &#127919;
+            <Target size={24} />
           </div>
           <p className="font-semibold text-[hsl(var(--foreground))]">No goals yet</p>
-          <p className="text-sm text-[hsl(var(--muted-foreground))] max-w-xs">
-            Add one above to start tracking your progress toward a savings target, spending limit, or income goal.
+          <p className="text-sm text-[hsl(var(--muted-foreground))] max-w-md">
+            Your next milestone starts here.
           </p>
+          <button onClick={() => setFormOpen(true)} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] text-sm"><Plus size={15} /> Create your first goal</button>
         </div>
       )}
 
-      {!loading && goals.map((g) => {
+      <div className="goal-grid">
+      {!loading && visibleGoals.map((g) => {
         const isSpend  = g.type === "reduce_spend";
         const isIncome = g.type === "increase_income";
         const isStreak = STREAK_TYPES.has(g.type);
@@ -662,10 +658,10 @@ export default function GoalsPage() {
         const targetMonths = g.target_months ?? 3;
         const streakCount = g.current_streak;
 
-        const barPct = Math.min(100, g.pct);
+        const barPct = Math.max(0, Math.min(100, g.pct));
         const barColor = isReduceType
-          ? (g.on_track ? "hsl(var(--success))" : "hsl(var(--error))")
-          : (g.on_track ? "hsl(var(--success))" : g.pct >= 75 ? "hsl(var(--warning))" : "hsl(var(--neutral))");
+          ? (g.on_track ? "hsl(var(--primary))" : "hsl(var(--error))")
+          : "hsl(var(--primary))";
 
         const totalDays = daysInMonth(month);
         const elapsed   = daysElapsed(month);
@@ -676,37 +672,30 @@ export default function GoalsPage() {
         const showPace = remaining > 0 && (isSpend || isIncome);
 
         return (
-          <div key={g.id} className="border rounded-xl p-5">
+          <article key={g.id} className="goal-item">
             <div className="flex items-start justify-between mb-3 gap-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium">{g.name}</span>
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${GOAL_TYPE_STYLE[g.type]}`}>
+              <div className="min-w-0">
+                <h2 className="text-base font-semibold break-words">{g.name}</h2>
+                <span className="text-xs text-[hsl(var(--muted-foreground))]">
                   {LABELS[g.type]}
                 </span>
                 {g.category_name && (
-                  <span className="text-xs px-2 py-0.5 rounded-full text-white"
-                    style={{ backgroundColor: g.category_color ?? "hsl(var(--neutral))" }}>
-                    {g.category_name}
+                  <span className="text-xs text-[hsl(var(--muted-foreground))]">
+                    {" · "}{g.category_name}
                   </span>
                 )}
                 {g.account_name && (
-                  <span className="text-xs px-2 py-0.5 rounded-full text-white"
-                    style={{ backgroundColor: g.account_kind === "credit" ? "#f59e0b" : "#8b5cf6" }}>
-                    {g.account_name}
+                  <span className="text-xs text-[hsl(var(--muted-foreground))]">
+                    {" · "}{g.account_name}
                   </span>
                 )}
                 {g.type === "debt_paydown" && !g.account_name && (
-                  <span className="text-xs px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: "hsl(var(--neutral))" }}>
-                    All Credit Cards & Loans
+                  <span className="text-xs text-[hsl(var(--muted-foreground))]">
+                    {" · "}All debt accounts
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-3 shrink-0">
-                {!g.noBalanceData && !g.noBudgetData && (
-                  <span className={`text-xs font-medium ${g.on_track ? "text-[hsl(var(--success))]" : "text-orange-500"}`}>
-                    {g.on_track ? "On track" : "Needs attention"}
-                  </span>
-                )}
+              <div className="flex items-center gap-1 shrink-0">
                 {confirmDeleteId === g.id ? (
                   <span className="flex items-center gap-1.5">
                     <button onClick={() => removeGoal(g.id)}
@@ -720,29 +709,33 @@ export default function GoalsPage() {
                     </button>
                   </span>
                 ) : (
-                  <span className="flex items-center gap-3">
+                  <span className="flex items-center gap-1">
                     <button onClick={() => startEdit(g)}
-                      className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))] transition-colors">
-                      Edit
+                      title="Edit goal" aria-label={`Edit ${g.name}`} className="workspace-icon text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--gold-ink))]">
+                      <Pencil size={15} />
                     </button>
                     <button onClick={() => setConfirmDeleteId(g.id)}
-                      className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))] transition-colors">
-                      Remove
+                      title="Remove goal" aria-label={`Remove ${g.name}`} className="workspace-icon text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))]">
+                      <Trash2 size={15} />
                     </button>
                   </span>
                 )}
               </div>
             </div>
 
+            {hasData(g) && <p className={`flex items-center gap-1.5 text-xs mb-5 ${g.on_track ? "text-[hsl(var(--muted-foreground))]" : "text-[hsl(var(--warning))]"}`}>
+              {g.on_track ? <Check size={14} /> : <AlertCircle size={14} />}{g.on_track ? "On track" : "Needs attention"}
+            </p>}
+
             {/* No-data banners */}
             {g.noBalanceData && (
-              <p className="text-xs text-amber-600 mb-3">
+              <p className="text-xs text-[hsl(var(--warning))] mb-3">
                 No balance data yet -- import a CSV with a Balance column to enable this goal.
               </p>
             )}
             {g.noBudgetData && (
-              <p className="text-xs text-amber-600 mb-3">
-                No budget found for this category. Create a budget first to track your streak.
+              <p className="text-xs text-[hsl(var(--warning))] mb-3">
+                A monthly budget and covered, completed months are needed to measure this streak.
               </p>
             )}
 
@@ -760,13 +753,13 @@ export default function GoalsPage() {
                   {Array.from({ length: targetMonths }).map((_, i) => (
                     <div key={i}
                       className="h-2 rounded-full flex-1"
-                      style={{ backgroundColor: i < streakCount ? "#22c55e" : "hsl(var(--muted))" }}
+                      style={{ backgroundColor: i < streakCount ? "hsl(var(--primary))" : "hsl(var(--muted))" }}
                     />
                   ))}
                 </div>
                 {g.type === "savings_rate_habit" && (
                   <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1.5">
-                    Target: maintain {formatCurrency(g.target_cents)} savings rate ({g.target_cents / 100}%)
+                    Target: {g.target_cents / 100}% savings rate
                   </p>
                 )}
               </div>
@@ -774,13 +767,13 @@ export default function GoalsPage() {
 
             {/* Classic + savings_target + balance_floor progress bar */}
             {!isStreak && !g.noBalanceData && (
-              <>
-                <div className="h-2.5 rounded-full bg-[hsl(var(--muted))] overflow-hidden mb-3">
+              <div className="goal-progress">
+                <div className="goal-progress-track h-2 rounded-full bg-[hsl(var(--muted))] overflow-hidden mb-3" role="meter" aria-label={`${g.name} progress`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={barPct} aria-valuetext={`${formatCurrency(g.current_cents)} of ${formatCurrency(g.target_cents)}`}>
                   <div className="h-full rounded-full transition-all"
                     style={{ width: `${barPct}%`, backgroundColor: barColor }} />
                 </div>
 
-                <div className="flex justify-between text-sm text-[hsl(var(--muted-foreground))] mb-3">
+                <div className="goal-progress-values text-sm text-[hsl(var(--muted-foreground))] mb-3">
                   <span>
                     {isSpend       ? "Spent: "
                     : isIncome     ? "Earned: "
@@ -788,7 +781,7 @@ export default function GoalsPage() {
                     : g.type === "balance_floor"  ? "Balance: "
                     : g.type === "debt_paydown"   ? "Owed: "
                     :                              "Net: "}
-                    <span className="font-medium text-[hsl(var(--foreground))]">
+                    <span className="goal-current text-[hsl(var(--foreground))]">
                       {formatCurrency(g.current_cents)}
                     </span>
                   </span>
@@ -797,11 +790,19 @@ export default function GoalsPage() {
                     <span className="font-medium text-[hsl(var(--foreground))]">
                       {formatCurrency(g.target_cents)}
                     </span>
-                    {" "}({g.pct}%)
                   </span>
                 </div>
-              </>
+              </div>
             )}
+
+            {!isStreak && hasData(g) && <p className="text-xs text-[hsl(var(--muted-foreground))] mb-3">
+              {g.type === "debt_paydown"
+                ? `${formatCurrency(Math.max(0, g.current_cents - g.target_cents))} left to pay down`
+                : isSpend
+                  ? `${formatCurrency(Math.abs(g.target_cents - g.current_cents))} ${g.current_cents > g.target_cents ? "over limit" : "left this month"}`
+                  : g.current_cents >= g.target_cents ? "Target reached"
+                  : `${formatCurrency(g.target_cents - g.current_cents)} to target`}
+            </p>}
 
             {/* Daily pace + weekly bar for classic types */}
             {isClassic && showPace && (
@@ -812,8 +813,8 @@ export default function GoalsPage() {
                   </p>
                   <p className={`text-sm font-semibold ${
                     isSpend
-                      ? dailyNeeded < 0 ? "text-[hsl(var(--error))]" : "text-emerald-600"
-                      : dailyNeeded <= 0 ? "text-emerald-600" : "text-[hsl(var(--foreground))]"
+                      ? dailyNeeded < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"
+                      : dailyNeeded <= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--foreground))]"
                   }`}>
                     {isSpend
                       ? dailyNeeded < 0 ? "Over limit"
@@ -832,9 +833,10 @@ export default function GoalsPage() {
                 )}
               </div>
             )}
-          </div>
+          </article>
         );
       })}
+      </div>
     </div>
   );
 }

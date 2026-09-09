@@ -35,7 +35,7 @@ export default function OnboardingChecklistWidget() {
   if (neverEngaged && !checklistOpen) {
     const welcome = ONBOARDING_STEPS[0];
     return (
-      <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40">
+      <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40" role="dialog" aria-modal="true" aria-label="Welcome to Compass">
         <div className="bg-[hsl(var(--background))] border rounded-2xl shadow-2xl w-full max-w-md p-6">
           <div className="flex items-center gap-2 mb-3">
             <Sparkles size={18} style={{ color: "var(--gold)" }} />

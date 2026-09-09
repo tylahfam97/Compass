@@ -11,16 +11,22 @@ import {
   getLoanAccountsForProfile, getLoanBalanceHistory, type LoanAccount,
 } from "@/lib/db";
 import { seedDemoData } from "@/lib/demoData";
-import { formatCurrency, formatDate, formatAxisCurrency, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
+import { formatCurrency, formatDate, formatAxisCurrency, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex, formatMonthLabel } from "@/lib/utils";
+import { staggerContainer, riseIn } from "@/lib/motionPresets";
 import type { Transaction, Insight } from "@/lib/types";
 import { EXCLUSION_DISCLAIMER_TEXT } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
+import { handleLoadFailure } from "@/stores/toastStore";
 import { generateInsights } from "@/lib/agent";
+import { latestHoldingPerAccount } from "@/lib/netWorth";
+import { incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
 import InsightCard from "@/components/InsightCard";
 import LoanUploaderModal from "@/components/LoanUploaderModal";
 import InfoTooltip from "@/components/InfoTooltip";
 import ClickHint from "@/components/ClickHint";
+import CountUp from "@/components/CountUp";
+import TrendChip from "@/components/TrendChip";
 import AccountDetailModal, { type AccountDetailAccount } from "@/components/AccountDetailModal";
 import { Skeleton, CardListSkeleton } from "@/components/Skeleton";
 
@@ -52,6 +58,7 @@ interface CreditAccountMeta {
    *  headline number must never depend on whether the current month happens to have any
    *  activity/statement for this account (see loadData for why). */
   balanceCents: number | null;
+  balanceDate: string | null;
 }
 
 interface CreditBalanceRow {
@@ -73,6 +80,12 @@ function monthBounds(ym: string): [string, string] {
   return [start, end];
 }
 
+function prevMonthOf(ym: string): string {
+  const [y, m] = ym.split("-").map(Number);
+  const d = new Date(y, m - 2, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
 export default function DashboardPage() {
   const [month, setMonth] = useAutoMonth("dashboard");
   const navigate = useNavigate();
@@ -80,6 +93,7 @@ export default function DashboardPage() {
   const dismissedInsights = useProfileStore((s) => s.dismissedInsights);
   const profileId = activeProfile?.id ?? 1;
   const [stats, setStats] = useState<MonthStats>({ income: 0, expenses: 0, net: 0 });
+  const [prevStats, setPrevStats] = useState<MonthStats | null>(null);
   const [insights, setInsights] = useState<Insight[]>([]);
   const [cats, setCats] = useState<CatStat[]>([]);
   const [recent, setRecent] = useState<Transaction[]>([]);
@@ -100,6 +114,7 @@ export default function DashboardPage() {
   const [loanModal, setLoanModal] = useState<"new" | LoanAccount | null>(null);
   const [viewAccount, setViewAccount] = useState<AccountDetailAccount | null>(null);
   const [portfolioValueCents, setPortfolioValueCents] = useState(0);
+  const [portfolioChange, setPortfolioChange] = useState<{ change: number; periodEnd: string } | null>(null);
   const [expandedCat, setExpandedCat] = useState<CatStat | null>(null);
   const [expandedCatTxns, setExpandedCatTxns] = useState<Transaction[] | null>(null);
   const [includeInvestments, setIncludeInvestments] = useState(
@@ -124,14 +139,16 @@ export default function DashboardPage() {
     setLoading(true);
     const db = await getDb();
     const [start, end] = monthBounds(month);
-    const [incRow, expRow, catRows, recentRows, monthCountRow, totalCountRow, balanceRow, balancePointRows, portfolioRow, balanceAcctRows, demoAcctRow] = await Promise.all([
+    const [prevStart, prevEnd] = monthBounds(prevMonthOf(month));
+    const [incRow, expRow, catRows, recentRows, monthCountRow, totalCountRow, balanceRow, balancePointRows, portfolioRow, portfolioChangeRow, balanceAcctRows, demoAcctRow, prevIncRow, prevExpRow] = await Promise.all([
       db.select<{ total: number }[]>(
-        `SELECT COALESCE(SUM(t.amount_cents),0) as total FROM transactions t JOIN accounts a ON a.id=t.account_id
-         WHERE t.date>=? AND t.date<? AND t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') AND t.profile_id=?`,
+        `SELECT ${incomeSumSql()} as total FROM transactions t JOIN accounts a ON a.id=t.account_id
+         WHERE t.date>=? AND t.date<? AND t.profile_id=?`,
         [start, end, profileId]
       ),
       db.select<{ total: number }[]>(
-        "SELECT COALESCE(SUM(amount_cents),0) as total FROM transactions WHERE date>=? AND date<? AND amount_cents<0 AND (category_id IS NULL OR category_id NOT IN (20,29)) AND profile_id=?",
+        `SELECT -${expenseSumSql()} as total FROM transactions t JOIN accounts a ON a.id=t.account_id
+         WHERE t.date>=? AND t.date<? AND t.profile_id=?`,
         [start, end, profileId]
       ),
       db.select<{ categoryId: number | null; name: string; color: string; total: number }[]>(
@@ -156,10 +173,11 @@ export default function DashboardPage() {
         [start, end, profileId]
       ),
       db.select<{ n: number }[]>("SELECT COUNT(*) as n FROM transactions WHERE profile_id=?", [profileId]),
-      db.select<{ account_id: number; balance_cents: number | null }[]>(
+      db.select<{ account_id: number; balance_cents: number | null; balance_date: string | null }[]>(
         `SELECT a.id as account_id,
            (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
-            ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents
+            ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents,
+           (SELECT t.date FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL ORDER BY t.date DESC,t.id DESC LIMIT 1) as balance_date
          FROM accounts a WHERE a.profile_id=? AND a.account_type IN ('checking','credit')`,
         [profileId]
       ),
@@ -171,9 +189,16 @@ export default function DashboardPage() {
         [profileId, end]
       ),
       db.select<{ total: number | null }[]>(
-        `SELECT SUM(market_value_cents) as total FROM holdings
-         WHERE profile_id=? AND as_of_date=(SELECT MAX(as_of_date) FROM holdings WHERE profile_id=?)`,
-        [profileId, profileId]
+        `SELECT SUM(h.market_value_cents) as total FROM holdings h
+         WHERE h.profile_id=? AND ${latestHoldingPerAccount()}`,
+        [profileId]
+      ),
+      db.select<{ change: number | null; period_end: string }[]>(
+        `SELECT change_in_value_cents as change, period_end FROM investment_summaries s
+         WHERE s.profile_id=? AND s.change_in_value_cents IS NOT NULL
+           AND s.period_end = (SELECT MAX(period_end) FROM investment_summaries s2 WHERE s2.profile_id=s.profile_id)
+         LIMIT 1`,
+        [profileId]
       ),
       db.select<{ id: number; name: string; account_type: string; hidden_from_dashboard: number; interest_rate_bps: number | null; minimum_payment_cents: number | null }[]>(
         "SELECT id, name, account_type, hidden_from_dashboard, interest_rate_bps, minimum_payment_cents FROM accounts WHERE profile_id=? AND account_type IN ('checking','credit') ORDER BY account_type, name",
@@ -183,10 +208,24 @@ export default function DashboardPage() {
         "SELECT COUNT(*) as n FROM accounts WHERE profile_id=? AND name IN ('Demo Checking','Demo Credit Card')",
         [profileId]
       ),
+      db.select<{ total: number }[]>(
+        `SELECT ${incomeSumSql()} as total FROM transactions t JOIN accounts a ON a.id=t.account_id
+         WHERE t.date>=? AND t.date<? AND t.profile_id=?`,
+        [prevStart, prevEnd, profileId]
+      ),
+      db.select<{ total: number }[]>(
+        `SELECT -${expenseSumSql()} as total FROM transactions t JOIN accounts a ON a.id=t.account_id
+         WHERE t.date>=? AND t.date<? AND t.profile_id=?`,
+        [prevStart, prevEnd, profileId]
+      ),
     ]);
     const inc = incRow[0]?.total ?? 0;
     const exp = expRow[0]?.total ?? 0;
     setStats({ income: inc, expenses: exp, net: inc + exp });
+    const prevInc = prevIncRow[0]?.total ?? 0;
+    const prevExp = prevExpRow[0]?.total ?? 0;
+    // No chips at all for a first month - a delta against an empty month is meaningless.
+    setPrevStats(prevInc === 0 && prevExp === 0 ? null : { income: prevInc, expenses: prevExp, net: prevInc + prevExp });
     setCats(catRows.map((r) => ({ ...r, total: Math.max(0, -r.total) })));
     setRecent(recentRows);
     setMonthTxnCount(monthCountRow[0]?.n ?? 0);
@@ -210,11 +249,13 @@ export default function DashboardPage() {
     // recent statement falls outside the selected month (e.g. right after a historical batch
     // import) would wrongly show $0 instead of its real balance.
     const latestBalanceById = new Map(balanceRow.map((r) => [r.account_id, r.balance_cents]));
+    const balanceDates = new Map(balanceRow.map((row) => [row.account_id, row.balance_date]));
     const creditAccountsMeta = balanceAcctRows
       .filter((a) => a.account_type === "credit")
       .map((a, i) => ({
         id: a.id, name: a.name, color: accountChartColor(i), hidden: !!a.hidden_from_dashboard,
         interestRateBps: a.interest_rate_bps, minimumPaymentCents: a.minimum_payment_cents, balanceCents: latestBalanceById.get(a.id) ?? null,
+        balanceDate: balanceDates.get(a.id) ?? null,
       }));
     setCreditBalanceAccounts(creditAccountsMeta);
     // Checking accounts combine into one line (there's usually just one); credit cards stay
@@ -230,6 +271,7 @@ export default function DashboardPage() {
       .map((a, i) => ({
         id: a.id, name: a.name, color: accountChartColor(i), hidden: false,
         interestRateBps: null, minimumPaymentCents: null, balanceCents: latestBalanceById.get(a.id) ?? null,
+        balanceDate: balanceDates.get(a.id) ?? null,
       }));
     setBankAccountsMeta(checkingAccountsMeta);
     const separatedChecking = separateAccountBalances(balancePointRows.filter((r) => checkingIds.has(r.account_id)));
@@ -249,6 +291,11 @@ export default function DashboardPage() {
       })
     );
     setPortfolioValueCents(portfolioRow[0]?.total ?? 0);
+    setPortfolioChange(
+      portfolioChangeRow[0]?.change != null
+        ? { change: portfolioChangeRow[0].change, periodEnd: portfolioChangeRow[0].period_end }
+        : null
+    );
     setHasDemoAccounts((demoAcctRow[0]?.n ?? 0) > 0);
     setExpandedCat(null);
     setExpandedCatTxns(null);
@@ -309,11 +356,11 @@ export default function DashboardPage() {
       for (const { account_id } of affectedAccounts) await recomputeCalculatedBalances(account_id);
     }
     setConfirmClear(null);
-    loadData().catch(console.error);
+    loadData().catch(handleLoadFailure("your dashboard", setLoading, () => void loadData()));
   };
 
   useEffect(() => {
-    loadData().catch(console.error);
+    loadData().catch(handleLoadFailure("your dashboard", setLoading, () => void loadData()));
   }, [loadData]);
 
   // Load insights separately (not tied to month selection)
@@ -359,7 +406,7 @@ export default function DashboardPage() {
   const hasData = stats.income !== 0 || stats.expenses !== 0;
 
   return (
-    <div className="p-8 space-y-6 max-w-6xl mx-auto w-full">
+    <div className="workspace-page space-y-6 dashboard-workspace">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
         <div className="flex items-center gap-1">
@@ -413,7 +460,12 @@ export default function DashboardPage() {
             >
               Import Transactions
             </Link>
-            {!hasDemoAccounts && (
+            {/* Demo Mode is only offered when this profile has genuinely never had any real
+                transactions - once any data exists (even in a different month, or after demo
+                data itself was imported), it's no longer relevant. Recomputed live from
+                totalTxnCount, so clearing all transactions brings it back automatically, and
+                each profile is judged independently of every other profile's data. */}
+            {!hasDemoAccounts && totalTxnCount === 0 && (
               <button
                 data-tour="demo-mode"
                 onClick={async () => {
@@ -451,7 +503,7 @@ export default function DashboardPage() {
               ))}
               <Link
                 to="/agent"
-                className="block text-xs text-[hsl(var(--primary))] hover:opacity-80 transition-opacity"
+                className="block text-xs text-[hsl(var(--gold-ink))] hover:opacity-80 transition-opacity"
               >
                 See all Agent insights →
               </Link>
@@ -459,21 +511,28 @@ export default function DashboardPage() {
           )}
 
           {/* Summary cards */}
-          <div className="grid grid-cols-3 gap-4">
+          <motion.div className="grid grid-cols-3 gap-4" variants={staggerContainer} initial="hidden" animate="show">
             {[
-              { label: "Income", value: stats.income, cls: "text-[hsl(var(--success))]" },
-              { label: "Expenses", value: Math.abs(stats.expenses), cls: "text-[hsl(var(--error))]" },
-              { label: "Net", value: stats.net, cls: stats.net >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]" },
-            ].map(({ label, value, cls }) => (
-              <div key={label} className="border rounded-xl p-5">
+              { label: "Income", value: stats.income, prev: prevStats?.income, invert: false, cls: "text-[hsl(var(--success))]" },
+              { label: "Expenses", value: Math.abs(stats.expenses), prev: prevStats ? Math.abs(prevStats.expenses) : undefined, invert: true, cls: "text-[hsl(var(--error))]" },
+              { label: "Net", value: stats.net, prev: prevStats?.net, invert: false, cls: stats.net >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]" },
+            ].map(({ label, value, prev, invert, cls }) => (
+              <motion.div key={label} variants={riseIn} className="border rounded-xl p-5">
                 <p className="text-sm text-[hsl(var(--muted-foreground))] mb-1 flex items-center gap-1">
                   {label}
                   {(label === "Income" || label === "Expenses") && <InfoTooltip text={EXCLUSION_DISCLAIMER_TEXT} />}
                 </p>
-                <p className={`text-2xl font-bold ${cls}`}>{formatCurrency(value)}</p>
-              </div>
+                <p className={`text-2xl font-bold tabular-nums ${cls}`}>
+                  <CountUp value={value} format={(v) => formatCurrency(Math.round(v))} />
+                </p>
+                {prev !== undefined && (
+                  <p className="mt-1">
+                    <TrendChip deltaCents={value - prev} compareLabel={`vs ${formatMonthLabel(prevMonthOf(month)).split(" ")[0]}`} invert={invert} />
+                  </p>
+                )}
+              </motion.div>
             ))}
-          </div>
+          </motion.div>
 
           {/* Account balance card + checking sparkline */}
           {currentBalance != null && (
@@ -497,23 +556,37 @@ export default function DashboardPage() {
                     </button>
                   )}
                 </div>
-                <p className={`text-2xl font-bold ${(currentBalance + (includeInvestments ? portfolioValueCents : 0)) >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
-                  {formatCurrency(currentBalance + (includeInvestments ? portfolioValueCents : 0))}
+                <p className={`text-2xl font-bold tabular-nums ${(currentBalance + (includeInvestments ? portfolioValueCents : 0)) >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
+                  <CountUp value={currentBalance + (includeInvestments ? portfolioValueCents : 0)} format={(v) => formatCurrency(Math.round(v))} />
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
                   {portfolioValueCents > 0
                     ? `${formatCurrency(currentBalance)} checking${includeInvestments ? ` + ${formatCurrency(portfolioValueCents)} investments` : ""} (excludes credit card debt)`
                     : "Checking/bank accounts only - excludes credit card debt"}
                 </p>
+                {includeInvestments && portfolioChange && (
+                  <p className={`text-xs mt-0.5 ${portfolioChange.change >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
+                    {portfolioChange.change >= 0 ? "+" : ""}{formatCurrency(portfolioChange.change)} on your latest statement period
+                  </p>
+                )}
               </div>
               {checkingBalancePoints.length > 1 && (
-                <div className="flex-1 h-16 min-w-[140px]">
+                <div
+                  className="flex-1 h-16 min-w-[140px]"
+                  role="img"
+                  aria-label={(() => {
+                    const first = checkingBalancePoints[0].balance;
+                    const last = checkingBalancePoints[checkingBalancePoints.length - 1].balance;
+                    const delta = Math.round((last - first) * 100);
+                    return `Checking balance trend: ${delta >= 0 ? "up" : "down"} ${formatCurrency(Math.abs(delta))} over the period shown`;
+                  })()}
+                >
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={checkingBalancePoints} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
                       <defs>
                         <linearGradient id="balGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.2} />
-                          <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                          <stop offset="5%" stopColor="hsl(var(--sea))" stopOpacity={0.2} />
+                          <stop offset="95%" stopColor="hsl(var(--sea))" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <XAxis dataKey="date" hide />
@@ -528,7 +601,7 @@ export default function DashboardPage() {
                         formatter={(v) => [`$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "Balance"]}
                         labelFormatter={(l) => formatDate(String(l))}
                       />
-                      <Area type="monotone" dataKey="balance" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#balGrad)" dot={false} />
+                      <Area type="monotone" dataKey="balance" stroke="hsl(var(--sea))" strokeWidth={2} fill="url(#balGrad)" dot={false} />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -561,6 +634,8 @@ export default function DashboardPage() {
                   return (
                     <div
                       key={acc.id}
+                      role="button" tabIndex={0} aria-label={`${acc.name} details`}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (e.currentTarget as HTMLElement).click(); } }}
                       className="border rounded-xl p-4 cursor-pointer hover:border-[hsl(var(--primary))] transition-colors chart-clickable"
                       onClick={() => setViewAccount({ id: acc.id, name: acc.name, accountType: "checking", color: acc.color, balanceCents: lastCents, series })}
                     >
@@ -577,8 +652,9 @@ export default function DashboardPage() {
                         )}
                       </div>
                       <p className={`text-xl font-bold mb-2 ${lastCents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
-                        {formatCurrency(lastCents)}
+                        {acc.balanceCents === null ? "No recorded balance" : formatCurrency(lastCents)}
                       </p>
+                      {acc.balanceDate && <p className="text-xs text-[hsl(var(--muted-foreground))] mb-2">Recorded {formatDate(acc.balanceDate)}</p>}
                       {series.length > 1 && (
                         <div className="h-10 -mx-1">
                           <ResponsiveContainer width="100%" height="100%">
@@ -660,6 +736,8 @@ export default function DashboardPage() {
                   return (
                     <div
                       key={acc.id}
+                      role="button" tabIndex={0} aria-label={`${acc.name} details`}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (e.currentTarget as HTMLElement).click(); } }}
                       className="border rounded-xl p-4 cursor-pointer hover:border-[hsl(var(--primary))] transition-colors chart-clickable"
                       onClick={() => setViewAccount({ id: acc.id, name: acc.name, accountType: "credit", color: acc.color, balanceCents: lastCents, series, interestRateBps: acc.interestRateBps, minimumPaymentCents: acc.minimumPaymentCents })}
                     >
@@ -685,8 +763,9 @@ export default function DashboardPage() {
                         </span>
                       </div>
                       <p className={`text-xl font-bold mb-2 ${lastCents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
-                        {formatCurrency(lastCents)}
+                        {acc.balanceCents === null ? "No recorded balance" : formatCurrency(lastCents)}
                       </p>
+                      {acc.balanceDate && <p className="text-xs text-[hsl(var(--muted-foreground))] mb-2">Recorded {formatDate(acc.balanceDate)}</p>}
                       {series.length > 1 && (
                         <div className="h-10 -mx-1">
                           <ResponsiveContainer width="100%" height="100%">
@@ -751,6 +830,8 @@ export default function DashboardPage() {
                     return (
                       <div
                         key={loan.id}
+                        role="button" tabIndex={0} aria-label={`${loan.name} details`}
+                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (e.currentTarget as HTMLElement).click(); } }}
                         className="border rounded-xl p-4 cursor-pointer hover:border-[hsl(var(--primary))] transition-colors chart-clickable"
                         onClick={() => setViewAccount({
                           id: loan.id, name: loan.name, accountType: "loan", color, balanceCents: lastCents, series,
@@ -889,7 +970,7 @@ export default function DashboardPage() {
                         <Link
                           to="/transactions"
                           state={{ month, category: expandedCat.categoryId }}
-                          className="text-[11px] text-[hsl(var(--primary))] hover:underline"
+                          className="text-[11px] text-[hsl(var(--gold-ink))] hover:underline"
                         >
                           View all →
                         </Link>
@@ -901,7 +982,7 @@ export default function DashboardPage() {
                           {expandedCatTxns.map((t) => (
                             <div key={t.id} className="flex items-center justify-between text-xs py-1">
                               <span className="truncate flex-1 text-[hsl(var(--muted-foreground))]">{t.description}</span>
-                              <span className="font-mono ml-3 shrink-0">{formatCurrency(Math.abs(t.amount_cents))}</span>
+                              <span className="ml-3 shrink-0">{formatCurrency(Math.abs(t.amount_cents))}</span>
                             </div>
                           ))}
                         </div>
@@ -918,7 +999,7 @@ export default function DashboardPage() {
             <div className="border rounded-xl overflow-hidden">
               <div className="px-5 py-3 border-b bg-[hsl(var(--muted))] flex items-center justify-between">
                 <h2 className="font-semibold">Recent Transactions</h2>
-                <Link to="/transactions" className="text-sm text-[hsl(var(--primary))]">
+                <Link to="/transactions" className="text-sm text-[hsl(var(--gold-ink))]">
                   View all →
                 </Link>
               </div>
@@ -939,7 +1020,7 @@ export default function DashboardPage() {
                         </span>
                       </td>
                       <td
-                        className={`px-5 py-3 text-right font-mono ${t.amount_cents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}
+                        className={`px-5 py-3 text-right ${t.amount_cents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}
                       >
                         {formatCurrency(t.amount_cents)}
                       </td>
@@ -954,14 +1035,14 @@ export default function DashboardPage() {
 
       {/* ── MANAGE DATA — only shown when there is something to clear ── */}
       {(monthTxnCount > 0 || totalTxnCount > 0) && (
-        <div className="border rounded-xl p-4">
-          <p className="text-sm font-medium text-[hsl(var(--muted-foreground))] mb-3">Manage Data</p>
+        <details className="workspace-disclosure border-t pt-3">
+          <summary>Manage Data</summary>
           {confirmClear === null ? (
             <div className="flex gap-4 text-sm flex-wrap">
               {monthTxnCount > 0 && (
                 <button
                   onClick={() => setConfirmClear("month")}
-                  className="text-[hsl(var(--muted-foreground))] hover:text-red-500 transition-colors"
+                  className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))] transition-colors"
                 >
                   Clear {month}
                 </button>
@@ -972,7 +1053,7 @@ export default function DashboardPage() {
               {totalTxnCount > 0 && (
                 <button
                   onClick={() => setConfirmClear("all")}
-                  className="text-[hsl(var(--muted-foreground))] hover:text-red-500 transition-colors"
+                  className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))] transition-colors"
                 >
                   Clear all transactions
                 </button>
@@ -980,15 +1061,15 @@ export default function DashboardPage() {
             </div>
           ) : (
             <div className="flex items-center gap-3 flex-wrap">
-              <p className="text-sm text-red-500">
+              <p className="text-sm text-[hsl(var(--error))]">
                 {confirmClear === "month"
                   ? `Delete all transactions for ${month}? This cannot be undone.`
                   : "Delete ALL transactions? This cannot be undone."}
               </p>
               <button
                 onClick={() => handleClear(confirmClear)}
-                className="px-3 py-1 bg-red-500 text-white rounded-lg text-sm font-medium
-                           hover:bg-red-600 transition-colors"
+                className="px-3 py-1 bg-[hsl(var(--error))] text-white rounded-lg text-sm font-medium
+                           hover:opacity-90 transition-colors"
               >
                 Yes, delete
               </button>
@@ -1001,7 +1082,7 @@ export default function DashboardPage() {
               </button>
             </div>
           )}
-        </div>
+        </details>
       )}
 
       {loanModal && (
@@ -1019,6 +1100,7 @@ export default function DashboardPage() {
           insights={insights}
           onApply={handleApplyInsight}
           onClose={() => setViewAccount(null)}
+          onUpdated={() => loadData()}
         />
       )}
     </div>

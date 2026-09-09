@@ -1,21 +1,27 @@
+import ScopeToggle from "@/components/ScopeToggle";
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { LineChart, Line, XAxis, ResponsiveContainer, Tooltip } from "recharts";
 import { Eye, EyeOff, ChevronLeft, ChevronRight } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
 import { getDb, setAccountHiddenFromDashboard } from "@/lib/db";
+import { incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
 import { formatCurrency, formatDate, formatMonthLabel, separateAccountBalances, accountChartColor } from "@/lib/utils";
-import { computeNetWorth, type NetWorthSnapshot } from "@/lib/netWorth";
+import { motion } from "motion/react";
+import { staggerContainer, riseIn } from "@/lib/motionPresets";
+import { computeNetWorth, latestHoldingPerAccount, type NetWorthSnapshot } from "@/lib/netWorth";
 import { useProfileStore } from "@/stores/profileStore";
+import { toast, handleLoadFailure } from "@/stores/toastStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import PinModal from "@/components/PinModal";
 import ManageAccountsPanel from "@/components/ManageAccountsPanel";
 import { Skeleton } from "@/components/Skeleton";
 import InfoTooltip from "@/components/InfoTooltip";
+import CountUp from "@/components/CountUp";
 import type { Profile } from "@/lib/types";
 import { EXCLUSION_DISCLAIMER_TEXT } from "@/lib/types";
 
 interface ProfileData {
+  sources: { name: string; date: string | null }[];
   profileId: number;
   /** Sum of bank (checking) account balances only - excludes credit card debt and investments,
    *  so this card shows spendable/liquid cash rather than a blended net-worth figure (the
@@ -49,27 +55,6 @@ function monthBounds(ym: string): [string, string] {
   ];
 }
 
-interface ScopeToggleProps { isGlobal: boolean; onToggle: () => void; }
-function ScopeToggle({ isGlobal, onToggle }: ScopeToggleProps) {
-  return (
-    <button role="switch" aria-checked={isGlobal} onClick={onToggle}
-      style={{
-        width: 52, height: 28, borderRadius: 14, padding: 3,
-        backgroundColor: isGlobal ? "var(--gold)" : "hsl(var(--primary))",
-        transition: "background-color 0.3s", cursor: "pointer",
-        display: "inline-flex", alignItems: "center",
-        border: "none", flexShrink: 0, boxShadow: "inset 0 1px 3px rgba(0,0,0,0.18)",
-      }}>
-      <div style={{
-        width: 22, height: 22, borderRadius: 11, backgroundColor: "white",
-        transition: "transform 0.25s cubic-bezier(0.4,0,0.2,1)",
-        transform: isGlobal ? "translateX(24px)" : "translateX(0)",
-        boxShadow: "0 1px 4px rgba(0,0,0,0.28)", flexShrink: 0,
-      }} />
-    </button>
-  );
-}
-
 export default function OverviewPage() {
   const navigate = useNavigate();
   const { profiles, setActiveProfile, activeProfile, unlockedIds, unlockProfile } = useProfileStore();
@@ -79,7 +64,6 @@ export default function OverviewPage() {
   const [loading, setLoading] = useState(true);
   const [netWorth, setNetWorth] = useState<NetWorthSnapshot | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
-  const [hideToast, setHideToast] = useState<{ id: number; name: string } | null>(null);
 
   const [viewMode, setViewMode] = useState<"profile" | "global">(() => {
     const saved = localStorage.getItem(viewModeKey(profileId));
@@ -140,21 +124,22 @@ export default function OverviewPage() {
       const entries = await Promise.all(
         visibleProfiles.map(async (p) => {
           const [balRow, incRow, expRow, txRow, sparkRows, portfolioRow, hiddenRow] = await Promise.all([
-            db.select<{ account_id: number; account_type: string; name: string; balance_cents: number | null }[]>(
+            db.select<{ account_id: number; account_type: string; name: string; balance_cents: number | null; balance_date: string | null }[]>(
               `SELECT a.id as account_id, a.account_type, a.name,
                  (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
-                  ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents
+                  ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents,
+                 (SELECT t.date FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL ORDER BY t.date DESC,t.id DESC LIMIT 1) as balance_date
                FROM accounts a WHERE a.profile_id=? AND a.account_type IN ('checking','credit') AND a.hidden_from_dashboard=0`,
               [p.id]
             ),
             db.select<{ total: number }[]>(
-              `SELECT COALESCE(SUM(t.amount_cents),0) as total FROM transactions t JOIN accounts a ON a.id=t.account_id
-               WHERE t.profile_id=? AND t.date>=? AND t.date<? AND t.amount_cents>0
-                 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan')`,
+              `SELECT ${incomeSumSql()} as total FROM transactions t JOIN accounts a ON a.id=t.account_id
+               WHERE t.profile_id=? AND t.date>=? AND t.date<?`,
               [p.id, start, end]
             ),
             db.select<{ total: number }[]>(
-              "SELECT COALESCE(SUM(amount_cents),0) as total FROM transactions WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0",
+              `SELECT -${expenseSumSql()} as total FROM transactions t JOIN accounts a ON a.id=t.account_id
+               WHERE t.profile_id=? AND t.date>=? AND t.date<?`,
               [p.id, start, end]
             ),
             db.select<{ n: number }[]>(
@@ -170,9 +155,9 @@ export default function OverviewPage() {
               [p.id]
             ),
             db.select<{ total: number | null }[]>(
-              `SELECT SUM(market_value_cents) as total FROM holdings
-               WHERE profile_id=? AND as_of_date=(SELECT MAX(as_of_date) FROM holdings WHERE profile_id=?)`,
-              [p.id, p.id]
+              `SELECT SUM(h.market_value_cents) as total FROM holdings h
+               WHERE h.profile_id=? AND ${latestHoldingPerAccount()}`,
+              [p.id]
             ),
             db.select<{ id: number; name: string }[]>(
               "SELECT id, name FROM accounts WHERE profile_id=? AND account_type IN ('checking','credit') AND hidden_from_dashboard=1 ORDER BY name",
@@ -184,6 +169,7 @@ export default function OverviewPage() {
           const creditAccounts = balRow.filter((r) => r.account_type === "credit").map((r) => ({ id: r.account_id, name: r.name }));
           const trackedBankAccounts = trackedAccounts.filter((r) => r.account_type === "checking");
           return [p.id, {
+            sources: balRow.map((row) => ({ name: row.name, date: row.balance_date })),
             profileId: p.id,
             liquidCents: trackedBankAccounts.length > 0 ? trackedBankAccounts.reduce((s, r) => s + (r.balance_cents ?? 0), 0) : null,
             income: incRow[0]?.total ?? 0,
@@ -200,7 +186,7 @@ export default function OverviewPage() {
       );
       setData(new Map(entries));
       setLoading(false);
-    })().catch(console.error);
+    })().catch(handleLoadFailure("your account overview", setLoading, () => setReloadTick((t) => t + 1)));
   }, [visibleProfiles, month, reloadTick]);
 
   useEffect(() => {
@@ -223,18 +209,19 @@ export default function OverviewPage() {
    *  by the eye-off icon next to each credit-card legend chip. */
   const hideAccount = async (id: number, name: string) => {
     await setAccountHiddenFromDashboard(id, true);
-    setHideToast({ id, name });
+    toast.info(<><strong>{name}</strong> hidden from the dashboard/overview.</>, {
+      action: { label: "Undo", onClick: () => void restoreAccount(id).catch(console.error) },
+    });
     setReloadTick((t) => t + 1);
   };
 
   const restoreAccount = async (id: number) => {
     await setAccountHiddenFromDashboard(id, false);
-    setHideToast(null);
     setReloadTick((t) => t + 1);
   };
 
   return (
-    <div className="p-8 space-y-6 max-w-[1320px] mx-auto w-full">
+    <div className="workspace-page space-y-6 overview-workspace">
       {pinTarget && (
         <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />
       )}
@@ -357,11 +344,11 @@ export default function OverviewPage() {
           {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-48 rounded-2xl" />)}
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
+        <motion.div className="grid grid-cols-2 gap-4 xl:grid-cols-3" variants={staggerContainer} initial="hidden" animate="show">
           {visibleProfiles.map((profile) => {
             const d = data.get(profile.id);
             return (
-              <button key={profile.id} onClick={() => handleSwitch(profile)}
+              <motion.button key={profile.id} variants={riseIn} onClick={() => handleSwitch(profile)}
                 className="border rounded-2xl p-5 text-left hover:shadow-md hover:border-[var(--gold)] transition-all duration-150
                            bg-[hsl(var(--background))] active:scale-[0.99] chart-clickable"
               >
@@ -385,11 +372,15 @@ export default function OverviewPage() {
                   </p>
                 ) : (
                   <>
+                    <details className="workspace-disclosure mb-3" onClick={(event) => event.stopPropagation()}>
+                      <summary>Recorded balances</summary>
+                      {d.sources.map((source) => <p key={source.name} className="text-xs py-1">{source.name}: {source.date ? formatDate(source.date) : "No recorded balance"}</p>)}
+                    </details>
                     {d.liquidCents !== null && (
                       <div className="mb-3">
                         <p className="text-xs text-[hsl(var(--muted-foreground))] mb-0.5">Liquid</p>
-                        <p className={`text-2xl font-bold ${d.liquidCents >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
-                          {formatCurrency(d.liquidCents)}
+                        <p className={`text-2xl font-bold tabular-nums ${d.liquidCents >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
+                          <CountUp value={d.liquidCents} format={(v) => formatCurrency(Math.round(v))} />
                         </p>
                       </div>
                     )}
@@ -397,7 +388,7 @@ export default function OverviewPage() {
                     {((d.bankAccounts.length > 0 && d.bankSparkline.length > 1) || (d.creditAccounts.length > 0 && d.creditSparkline.length > 1)) && (
                       <div className="mb-3 -mx-1">
                         {d.bankAccounts.length > 0 && d.bankSparkline.length > 1 && (
-                          <div className="h-14">
+                          <div className="h-14" role="img" aria-label={`Balance history for ${d.bankAccounts.length} bank account${d.bankAccounts.length === 1 ? "" : "s"}`}>
                             <ResponsiveContainer width="100%" height="100%">
                               <LineChart data={d.bankSparkline} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
                                 <XAxis dataKey="date" hide />
@@ -431,7 +422,7 @@ export default function OverviewPage() {
                           </div>
                         )}
                         {d.creditAccounts.length > 0 && d.creditSparkline.length > 1 && (
-                          <div className="h-8 mt-0.5">
+                          <div className="h-8 mt-0.5" role="img" aria-label={`Balance history for ${d.creditAccounts.length} credit account${d.creditAccounts.length === 1 ? "" : "s"}`}>
                             <ResponsiveContainer width="100%" height="100%">
                               <LineChart data={d.creditSparkline} margin={{ top: 1, right: 2, bottom: 1, left: 2 }}>
                                 <XAxis dataKey="date" hide />
@@ -484,7 +475,7 @@ export default function OverviewPage() {
                     )}
                   </>
                 )}
-              </button>
+              </motion.button>
             );
           })}
           {isGlobalActive && lockedExcluded.map((profile) => (
@@ -507,38 +498,8 @@ export default function OverviewPage() {
               </p>
             </button>
           ))}
-        </div>
+        </motion.div>
       )}
-
-      {/* Hide-account undo toast - border/rounded live on the inner div, not this
-          fixed-positioned one (see CSS specificity note in TransactionsPage). */}
-      <AnimatePresence>
-        {hideToast && (
-          <motion.div
-            key="hide-account-toast"
-            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} transition={{ duration: 0.2 }}
-            className="fixed bottom-6 right-6 z-50 max-w-sm"
-          >
-            <div className="border shadow-xl rounded-xl px-5 py-3 flex items-center gap-4 text-sm bg-[hsl(var(--background))]">
-              <span className="flex-1 text-[hsl(var(--foreground))]">
-                <strong>{hideToast.name}</strong> hidden from the dashboard/overview.
-              </span>
-              <button
-                onClick={() => restoreAccount(hideToast.id)}
-                className="px-3 py-1.5 border rounded-lg font-medium hover:bg-[hsl(var(--muted))] transition-colors shrink-0"
-              >
-                Undo
-              </button>
-              <button
-                onClick={() => setHideToast(null)}
-                className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] text-lg leading-none"
-              >
-                ?
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

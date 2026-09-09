@@ -3,21 +3,29 @@ import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import {
   Calendar, Tag, DollarSign, BarChart2, Upload, Loader2, CheckCircle2, Info,
-  Landmark, CreditCard, TrendingUp, HandCoins,
+  Landmark, CreditCard, TrendingUp, HandCoins, AlertTriangle,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import {
   getDb, applyCategorizationRules, recomputeCalculatedBalances,
   listAccountsForProfile, resolveAccountId, setAccountInterestRate, setAccountMinimumPayment,
+  getManualTransactionsForAccount, shiftBalanceAnchorForTransactionChange,
 } from "@/lib/db";
 import type { AccountChoice } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { parseDate, parseAmount, dedupeRowHash } from "@/lib/importParsing";
-import type { CategorizationRule, SecurityType, Account } from "@/lib/types";
+import { parseDate, parseAmount, dedupeRowHash, hashRow, findDuplicateCandidates } from "@/lib/importParsing";
+import type { DuplicateCandidate } from "@/lib/importParsing";
+import {
+  parseInvestmentWorkbook, buildInvestmentRow, columnFillCount, sectionHasNoValueData,
+  HOLDING_FIELDS, SUPPORTED_INVESTMENT_FORMATS,
+} from "@/lib/investmentParsing";
+import type { InvestmentRow, ParsedInvestment } from "@/lib/investmentParsing";
+import type { CategorizationRule, Account, ActivityType } from "@/lib/types";
 import { TRANSFER_CATEGORY_ID, EXCLUDED_CATEGORY_ID } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
+import { reportLoadError } from "@/stores/toastStore";
 import { takePendingImportFiles } from "@/lib/pendingImport";
-import { parsePdfStatement, extractPdfRows } from "@/lib/pdfParse";
+import { parsePdfStatement, extractPdfRows, parseLoanStatementFile } from "@/lib/pdfParse";
 import InfoTooltip from "@/components/InfoTooltip";
 import ManageAccountsPanel from "@/components/ManageAccountsPanel";
 import LoanUploaderModal from "@/components/LoanUploaderModal";
@@ -25,7 +33,8 @@ import LoanUploaderModal from "@/components/LoanUploaderModal";
 type Step =
   | "upload" | "checking"
   | "wizard:account"
-  | "wizard:data" | "wizard:date" | "wizard:desc" | "wizard:amount" | "wizard:balance" | "wizard:preview"
+  | "wizard:data" | "wizard:date" | "wizard:desc" | "wizard:amount" | "wizard:balance"
+  | "wizard:reconcile" | "wizard:preview"
   | "wizard:investment-preview"
   | "importing" | "done";
 
@@ -250,6 +259,14 @@ interface Summary {
    *  genuine constraint/data error) - kept separate from `skipped` so the summary never
    *  reassures the user that a real failure was "just a duplicate". */
   errors?: { index: number; message: string }[];
+  /** From the reconcile step - rows the user chose to skip because they already had a
+   *  matching manual entry, and manual entries the user chose to replace with the imported
+   *  version instead. Both default to 0/undefined when no possible duplicates were found. */
+  keptManualCount?: number;
+  replacedManualCount?: number;
+  /** Statement activity lines (trades, dividends, transfers) written alongside the holdings
+   *  snapshot - only brokerage statements carry these, portfolio exports never do. */
+  activityImported?: number;
 }
 
 interface ImportSession {
@@ -272,6 +289,10 @@ const WIZARD_STEPS = [
 ];
 
 function wizardNum(step: string): number {
+  // The reconcile step is an interstitial gate shown only when duplicates are found - it
+  // shares Preview's bubble number rather than getting its own, so skipping it entirely
+  // (the common case) doesn't shift every later step's number.
+  if (step === "wizard:reconcile") return 7;
   return WIZARD_STEPS.find((s) => s.step === step)?.num ?? 0;
 }
 
@@ -395,605 +416,20 @@ function detectAllMonths(rows: string[][], dateColIdx: number): string[] {
   return [...months].sort();
 }
 
-// ─── Investment portfolio import (Wells Fargo Advisors "Portfolio Positions") ─
+// ─── Investment portfolio import ───────────────────────────────────────────────
+// The parsers themselves live in src/lib/investmentParsing.ts so they're testable.
 
-interface InvestmentRow {
-  securityType: SecurityType;
-  symbol: string | null;
-  description: string;
-  shares: number | null;
-  price: number | null;
-  marketValue: number | null;
-  costBasis: number | null;
-  tradeDate: string | null;
-  dividendPerShare: number | null;
-  estAnnualIncome: number | null;
-}
-
-interface InvestmentSection {
-  title: string;
-  securityType: SecurityType;
-  headerRow: string[];
-  rawRows: string[][];
-  colMap: Record<string, number>;
-  rows: InvestmentRow[];
-  totalMarketValue: number;
-}
-
-interface ParsedInvestment {
-  asOfDate: string;
-  sections: InvestmentSection[];
-}
-
-/** Maps a section title (as printed in the export) to a broad security type. */
-function classifySection(title: string): SecurityType {
-  const key = title.trim().toLowerCase();
-  if (key.includes("stock")) return "stock";
-  if (key.includes("etf") || key.includes("exchange")) return "etf";
-  if (key.includes("mutual fund") || key.includes("fund")) return "mutual_fund";
-  if (key.includes("cash")) return "cash";
-  return "other";
-}
-
-/**
- * Asset-class sub-heading labels that can appear mid-section (e.g. under
- * "Stocks") to group holdings. They only ever have a value in the first
- * column, but so can a legitimate holding whose other fields are blank -
- * so we only skip rows that exactly match this known vocabulary.
- */
-const ASSET_CLASS_LABELS = new Set([
-  "common stock", "preferred stock", "adr", "american depositary receipt",
-  "exchange traded fund", "exchange-traded fund", "closed end fund",
-  "mutual fund", "money market fund", "municipal bond", "corporate bond",
-  "government bond", "treasury", "reit", "master limited partnership", "mlp",
-  "warrant", "warrants", "option", "options", "unit investment trust",
-]);
-
-/** Column-name aliases (lowercased, trimmed) mapped to a canonical field. */
-const HOLDING_HEADER_ALIASES: Record<string, string[]> = {
-  description: ["description"],
-  symbol: ["symbol", "symbol/cusip"],
-  shares: ["shares", "quantity"],
-  price: ["last price ($)", "estimated price", "price"],
-  marketValue: ["market value", "estimated market value"],
-  costBasis: ["cost basis"],
-  tradeDate: ["trade date1", "trade date"],
-  dividendPerShare: ["dividend"],
-  estAnnualIncome: ["est. annual income"],
+/** Display labels for a statement activity line's type. */
+const ACTIVITY_TYPE_LABELS: Record<ActivityType, string> = {
+  buy: "Buy", sell: "Sell", dividend: "Dividend", reinvest: "Reinvestment",
+  interest: "Interest", deposit: "Deposit", withdrawal: "Withdrawal",
+  transfer: "Transfer", fee: "Fee", tax: "Tax", other: "Other",
 };
-
-/** Field order + display labels for the manual column-remap UI. */
-const HOLDING_FIELDS: { key: string; label: string }[] = [
-  { key: "description", label: "Description" },
-  { key: "symbol", label: "Symbol" },
-  { key: "shares", label: "Shares" },
-  { key: "price", label: "Price" },
-  { key: "marketValue", label: "Market Value" },
-  { key: "costBasis", label: "Cost Basis" },
-  { key: "tradeDate", label: "Trade Date" },
-  { key: "dividendPerShare", label: "Dividend/Share" },
-  { key: "estAnnualIncome", label: "Est. Annual Income" },
-];
-
-function buildHoldingHeaderMap(headerRow: string[]): Record<string, number> {
-  const norm = headerRow.map((h) => (h ?? "").toLowerCase().trim());
-  const map: Record<string, number> = {};
-  for (const [field, aliases] of Object.entries(HOLDING_HEADER_ALIASES)) {
-    for (const alias of aliases) {
-      const idx = norm.findIndex((h) => h === alias);
-      if (idx >= 0) { map[field] = idx; break; }
-    }
-  }
-  return map;
-}
-
-function cellOrNull(row: string[], idx: number | undefined): string | null {
-  if (idx === undefined) return null;
-  const v = (row[idx] ?? "").trim();
-  return !v || v.toUpperCase() === "N/A" ? null : v;
-}
-
-function parseMoneyOrNull(row: string[], idx: number | undefined): number | null {
-  const v = cellOrNull(row, idx);
-  return v === null ? null : parseAmount(v);
-}
-
-function parseSharesOrNull(row: string[], idx: number | undefined): number | null {
-  const v = cellOrNull(row, idx);
-  if (v === null) return null;
-  const n = parseFloat(v.replace(/,/g, ""));
-  return isNaN(n) ? null : n;
-}
-
-function parseTradeDateOrNull(row: string[], idx: number | undefined): string | null {
-  const v = cellOrNull(row, idx);
-  if (v === null) return null;
-  const iso = parseDate(v);
-  return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null;
-}
-
-/** Builds a single holding row from a raw data row using a (possibly user-edited) column map. */
-function buildInvestmentRow(dataRow: string[], colMap: Record<string, number>, securityType: SecurityType): InvestmentRow | null {
-  const dCol0 = (dataRow[0] ?? "").trim();
-  const description = cellOrNull(dataRow, colMap.description) ?? dCol0;
-  if (!description) return null;
-  return {
-    securityType,
-    symbol: cellOrNull(dataRow, colMap.symbol),
-    description,
-    shares: parseSharesOrNull(dataRow, colMap.shares),
-    price: parseMoneyOrNull(dataRow, colMap.price),
-    marketValue: parseMoneyOrNull(dataRow, colMap.marketValue),
-    costBasis: parseMoneyOrNull(dataRow, colMap.costBasis),
-    tradeDate: parseTradeDateOrNull(dataRow, colMap.tradeDate),
-    dividendPerShare: parseMoneyOrNull(dataRow, colMap.dividendPerShare),
-    estAnnualIncome: parseMoneyOrNull(dataRow, colMap.estAnnualIncome),
-  };
-}
-
-/** Counts how many of a section's raw rows have a non-blank value in a given column - lets the
- *  "Fix columns" picker show whether a candidate column actually has data before you pick it. */
-function columnFillCount(rawRows: string[][], idx: number): number {
-  return rawRows.reduce((n, row) => n + ((row[idx] ?? "").toString().trim() ? 1 : 0), 0);
-}
-
-/** True when none of a section's value fields (everything but description/symbol) has any data. */
-function sectionHasNoValueData(rows: InvestmentRow[]): boolean {
-  return rows.every((r) =>
-    r.shares === null && r.price === null && r.marketValue === null && r.costBasis === null &&
-    r.tradeDate === null && r.dividendPerShare === null && r.estAnnualIncome === null
-  );
-}
-
-/** Detects a brokerage statement's "Priced as of ..." date from the first few rows. */
-function detectStatementDate(rows: string[][]): string | null {
-  for (const row of rows.slice(0, 6)) {
-    for (const cell of row) {
-      if (!cell) continue;
-      const m = cell.match(/priced as of.*?(\d{1,2}\/\d{1,2}\/\d{4})/i);
-      if (m) { const iso = parseDate(m[1]); return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null; }
-    }
-  }
-  return null;
-}
-
-/** Classify a Fidelity/Thrivent security-type string to our internal SecurityType. */
-function classifyFlatSecurityType(raw: string): SecurityType {
-  const s = raw.trim().toLowerCase();
-  if (s.includes("mutual fund") || s.includes("money market")) return "mutual_fund";
-  if (s.includes("etf") || s.includes("exchange traded")) return "etf";
-  if (s.includes("stock") || s.includes("common stock")) return "stock";
-  if (s.includes("cash")) return "cash";
-  return "other";
-}
-
-/**
- * Builds a synthetic InvestmentSection from a flat array of rows, grouped by a
- * derived title. Used by the Fidelity and Thrivent parsers.
- */
-function buildFlatSection(
-  title: string,
-  securityType: SecurityType,
-  headerRow: string[],
-  colMap: Record<string, number>,
-  rawRows: string[][]
-): InvestmentSection {
-  const rows = rawRows
-    .map((r) => buildInvestmentRow(r, colMap, securityType))
-    .filter((r): r is InvestmentRow => r !== null);
-  return {
-    title, securityType, headerRow, rawRows, colMap, rows,
-    totalMarketValue: rows.reduce((s, r) => s + (r.marketValue ?? 0), 0),
-  };
-}
-
-/**
- * Parses a Fidelity brokerage positions export (flat CSV, one row per holding).
- * Groups results into sections by Security Type.
- * Returns null if the file doesn't look like a Fidelity export.
- *
- * Expected headers (0-based indices used due to duplicate "Currency Code" names):
- *   3  Security Description, 5  Recent Quantity, 6  Recent Price,
- *   10 Recent Market Value,  15 Cost,            27 Security Type,  29 Symbol
- */
-function parseFidelityCSV(data: string[][]): ParsedInvestment | null {
-  const headerRow = data[0];
-  if (!headerRow) return null;
-  const norm = headerRow.map((h) => (h ?? "").toLowerCase().trim());
-  if (!norm.includes("security description") || !norm.includes("security type")) return null;
-
-  const today = new Date().toISOString().split("T")[0];
-
-  // Build a simple index map using header names where unique, falling back to known indices
-  const colMap: Record<string, number> = {
-    description: norm.indexOf("security description"),
-    symbol:      norm.lastIndexOf("symbol"),        // last occurrence avoids "Security ID"
-    shares:      norm.indexOf("recent quantity"),
-    price:       norm.indexOf("recent price"),
-    marketValue: norm.indexOf("recent market value"),
-    costBasis:   norm.indexOf("cost"),
-  };
-  // "cost" might match "account type" column name fragments - pin to known safe range
-  // If recent market value was found at col 10, cost should be around col 15
-  const mvIdx = colMap.marketValue;
-  if (colMap.costBasis >= 0 && mvIdx >= 0 && colMap.costBasis <= mvIdx) {
-    // cost column appeared before market value - re-search after market value
-    const afterMv = norm.slice(mvIdx + 1).indexOf("cost");
-    colMap.costBasis = afterMv >= 0 ? mvIdx + 1 + afterMv : -1;
-  }
-
-  const secTypeIdx = norm.indexOf("security type");
-
-  // Bucket rows by security type
-  const buckets = new Map<string, string[][]>();
-  for (const row of data.slice(1)) {
-    const desc = (row[colMap.description] ?? "").trim();
-    if (!desc) continue;
-    const rawType = (secTypeIdx >= 0 ? row[secTypeIdx] ?? "" : "").trim() || "Other";
-    if (!buckets.has(rawType)) buckets.set(rawType, []);
-    buckets.get(rawType)!.push(row);
-  }
-
-  if (buckets.size === 0) return null;
-
-  const sections: InvestmentSection[] = [];
-  for (const [rawType, rows] of buckets) {
-    const securityType = classifyFlatSecurityType(rawType);
-    const title = rawType === "Common Stock/ETF" ? "Stocks & ETFs" : rawType;
-    const section = buildFlatSection(title, securityType, headerRow, colMap, rows);
-    if (section.rows.length > 0) sections.push(section);
-  }
-
-  return sections.length > 0 ? { asOfDate: today, sections } : null;
-}
-
-/**
- * Parses a Thrivent brokerage positions export (flat CSV, one row per holding,
- * potentially spanning multiple accounts). Groups results into one section per
- * account name.
- * Returns null if the file doesn't look like a Thrivent export.
- *
- * Expected headers: Account number, Account name, Symbol, Description, Quantity,
- *   Last price, Last price change, Current value, ..., Cost basis total, Average cost basis, Type
- */
-function parseThriventCSV(data: string[][]): ParsedInvestment | null {
-  const headerRow = data[0];
-  if (!headerRow) return null;
-  const norm = headerRow.map((h) => (h ?? "").toLowerCase().trim());
-  if (!norm.includes("cost basis total") || !norm.includes("account name")) return null;
-
-  const today = new Date().toISOString().split("T")[0];
-
-  const colMap: Record<string, number> = {
-    description: norm.indexOf("description"),
-    symbol:      norm.indexOf("symbol"),
-    shares:      norm.indexOf("quantity"),
-    price:       norm.indexOf("last price"),
-    marketValue: norm.indexOf("current value"),
-    costBasis:   norm.indexOf("cost basis total"),
-  };
-  const typeIdx    = norm.indexOf("type");
-  const accountIdx = norm.indexOf("account name");
-
-  // Bucket rows by account name
-  const buckets = new Map<string, string[][]>();
-  for (const row of data.slice(1)) {
-    const desc = (row[colMap.description] ?? "").trim();
-    if (!desc) continue;
-    const account = (accountIdx >= 0 ? row[accountIdx] ?? "" : "").trim() || "Portfolio";
-    // Strip trailing quote/apostrophe artifacts sometimes present in Thrivent exports
-    const cleanAccount = account.replace(/['"]+$/, "").trim() || "Portfolio";
-    if (!buckets.has(cleanAccount)) buckets.set(cleanAccount, []);
-    buckets.get(cleanAccount)!.push(row);
-  }
-
-  if (buckets.size === 0) return null;
-
-  const sections: InvestmentSection[] = [];
-  for (const [account, rows] of buckets) {
-    // Derive a representative security type for the section from the first row that has one
-    let securityType: SecurityType = "other";
-    if (typeIdx >= 0) {
-      for (const row of rows) {
-        const t = (row[typeIdx] ?? "").trim();
-        if (t) { securityType = classifyFlatSecurityType(t); break; }
-      }
-    }
-    const section = buildFlatSection(account, securityType, headerRow, colMap, rows);
-    if (section.rows.length > 0) sections.push(section);
-  }
-
-  return sections.length > 0 ? { asOfDate: today, sections } : null;
-}
-
-// ─── Principal Financial Group 401(k)/retirement-plan quarterly statement (PDF) ─
-
-/**
- * Principal's "Investments" table asset-class category names (risk buckets, not security
- * types - every holding underneath them is a mutual fund investment option, unlike WFA's
- * sections which are already named by security type). Used both to detect the format and to
- * find each new grouping's boundary while walking the extracted rows.
- */
-const RETIREMENT_ASSET_CLASS_TITLES = new Set([
-  "short-term fixed income", "fixed income", "balanced/asset allocation",
-  "large u.s. equity", "small/mid u.s. equity", "global/international equity", "other",
-]);
-
-const MONEY_CELL_RE = /^\(?-?\$?[\d,]+\.\d{2}\)?$/;
-function isMoneyCell(s: string): boolean {
-  return MONEY_CELL_RE.test((s ?? "").trim());
-}
-
-/**
- * True for any row ending in 5 consecutive money cells - Principal's "Investments" table
- * always lays out [Balance as of <start>, Additions, Deducted/Adjusted Fees, Gain/Loss,
- * Balance as of <end>] as the last 5 logical columns, whether or not a description happens to
- * fit on the same physical PDF line as those values. Short fund/total names fit on one line
- * (`leadingText` is the whole label); long ones wrap onto the line before AND after their own
- * values line, in which case this particular line has no leading text at all.
- */
-function principalValuesRow(row: string[]): { leadingText: string; values: number[] } | null {
-  if (row.length < 5) return null;
-  const tail = row.slice(row.length - 5);
-  if (!tail.every(isMoneyCell)) return null;
-  return { leadingText: row.slice(0, row.length - 5).join(" ").trim(), values: tail.map((c) => parseAmount(c)) };
-}
-
-// Recurring page boilerplate (plan/contract/participant header block, sidebar disclaimers,
-// page footer) that appears interleaved with the real "Investments" table content every time
-// the table spans a page break - none of it is a holding, an asset-class heading, or a values
-// row, so it's simplest to just recognize and skip it outright rather than trying to bound the
-// table region page-by-page.
-const PRINCIPAL_BOILERPLATE_RES: RegExp[] = [
-  /401\(k\)\s*plan/i,
-  /^please review this statement/i,
-  /^contract number/i,
-  /^_$/,
-  /^[A-Za-z]+\s+\d{1,2},\s+\d{4}\s+[A-Za-z]+\s+\d{1,2},\s+\d{4}$/, // e.g. "January 1, 2026 March 31, 2026"
-  /^discrepancies within/i,
-  /^participant name/i,
-  /^days,\s*corrections/i,
-  /^current basis\.?$/i,
-  /^investments(\s*\(continued\))?$/i,
-  /principal\.com/i,
-  /^and notify us promptly/i,
-];
-function isPrincipalBoilerplate(row: string[]): boolean {
-  const joined = row.join(" ").trim();
-  if (!joined) return true;
-  return PRINCIPAL_BOILERPLATE_RES.some((re) => re.test(joined) || re.test((row[0] ?? "").trim()));
-}
-
-/** Cheap check used by `detectInvestmentFormat`: Principal's "Investments" table header row
- *  ("Asset Class" / "Balance as of ..."), reconstructed from the statement's text layer. */
-function looksLikePrincipalStatement(data: string[][]): boolean {
-  return data.some(
-    (row) => (row[0] ?? "").trim().toLowerCase() === "asset class" && row.some((c) => /balance as of/i.test(c ?? ""))
-  );
-}
-
-/**
- * Parses a Principal Financial Group 401(k)/retirement-plan "Quarterly statement" PDF's
- * "Investments" table. Returns one `InvestmentSection` per asset-class grouping (e.g. "Large
- * U.S. Equity"), mirroring how the statement itself groups holdings - all rows are classified
- * as `mutual_fund` since a retirement-plan lineup is effectively always mutual funds (unlike
- * WFA sections, Principal's asset-class titles describe risk bucket, not security type, so
- * `classifySection`'s generic keyword matching doesn't apply here). There's no symbol, share
- * count, price, or cost-basis data on this statement (only a period's beginning/ending balance
- * per fund), so those fields are left null - the description combines the fund name with its
- * advisor/fund-family name as printed (e.g. "Vanguard 500 Index Admiral Fd — Vanguard Group").
- * Returns null if no recognizable "Asset Class" header row is found.
- */
-function parsePrincipalStatement(data: string[][]): ParsedInvestment | null {
-  const headerIdx = data.findIndex(
-    (row) => (row[0] ?? "").trim().toLowerCase() === "asset class" && row.some((c) => /balance as of/i.test(c ?? ""))
-  );
-  if (headerIdx < 0) return null;
-
-  // The period-end date sits in the last cell of the header's 3rd physical line, e.g.
-  // ["Advisor/Investment","01/01/2026","Adjusted Fees","03/31/2026"].
-  let asOfDate = new Date().toISOString().split("T")[0];
-  const dateHeaderRow = data[headerIdx + 2];
-  if (dateHeaderRow) {
-    const iso = parseDate(dateHeaderRow[dateHeaderRow.length - 1] ?? "");
-    if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) asOfDate = iso;
-  }
-
-  let totalAssetsIdx = data.findIndex((row) => (row[0] ?? "").trim().toLowerCase() === "total assets");
-  if (totalAssetsIdx < 0) totalAssetsIdx = data.length;
-
-  const sectionsByTitle = new Map<string, { description: string; marketValue: number }[]>();
-  let currentAssetClass: string | null = null;
-  let pendingText: string[] = [];
-
-  for (let i = headerIdx + 3; i < totalAssetsIdx; i++) {
-    const row = data[i];
-    const c0 = (row[0] ?? "").trim();
-    const c0Lower = c0.toLowerCase();
-
-    // A repeated header block (the table continues onto a later page) - skip its 3 lines.
-    if (c0Lower === "asset class" && row.some((c) => /balance as of/i.test(c ?? ""))) {
-      i += 2;
-      pendingText = [];
-      continue;
-    }
-    if (isPrincipalBoilerplate(row)) continue;
-    if (RETIREMENT_ASSET_CLASS_TITLES.has(c0Lower) && row.length === 1) {
-      currentAssetClass = c0;
-      pendingText = [];
-      continue;
-    }
-
-    const valuesRow = principalValuesRow(row);
-    if (valuesRow) {
-      const { leadingText, values } = valuesRow;
-      const marketValue = values[4];
-      let advisor: string | null = null;
-      let label: string;
-      if (leadingText) {
-        label = leadingText;
-        if (pendingText.length >= 1 && !/^total\b/i.test(leadingText)) advisor = pendingText[pendingText.length - 1];
-      } else if (pendingText.length >= 2) {
-        advisor = pendingText[pendingText.length - 2];
-        label = pendingText[pendingText.length - 1];
-      } else if (pendingText.length === 1) {
-        label = pendingText[0];
-      } else {
-        label = "";
-      }
-
-      // A values-only line (no leading text) means the label didn't fit on one line and
-      // continues on the very next line - consume it, unless that next line is clearly the
-      // start of something else (defensive; shouldn't happen in a well-formed statement).
-      let fullLabel = label;
-      if (!leadingText) {
-        const next = data[i + 1];
-        const nextC0 = (next?.[0] ?? "").trim();
-        const nextIsContinuation =
-          i + 1 < totalAssetsIdx && next && next.length === 1 && nextC0 &&
-          !RETIREMENT_ASSET_CLASS_TITLES.has(nextC0.toLowerCase()) &&
-          !isPrincipalBoilerplate(next) && !principalValuesRow(next);
-        if (nextIsContinuation) {
-          fullLabel = `${label} ${nextC0}`.trim();
-          i++;
-        }
-      }
-
-      pendingText = [];
-      // "Total <asset class>" rows are per-section subtotals, not individual holdings - skip.
-      if (!/^total\b/i.test(fullLabel) && currentAssetClass && fullLabel) {
-        const description = advisor ? `${fullLabel} — ${advisor}` : fullLabel;
-        const arr = sectionsByTitle.get(currentAssetClass) ?? [];
-        arr.push({ description, marketValue });
-        sectionsByTitle.set(currentAssetClass, arr);
-      }
-      continue;
-    }
-
-    if (c0) pendingText.push(c0);
-  }
-
-  if (sectionsByTitle.size === 0) return null;
-
-  // Principal's "Contributions" section (earlier in the statement, outside the range scanned
-  // above) reports cumulative "Total contributions" - "Since joining" as its own column - the
-  // true, correct cost basis for the WHOLE account (money actually put in, employee + employer,
-  // since day one), unlike a per-quarter Additions figure which would wrongly count new payroll
-  // contributions as investment gains. Principal doesn't break this total down per fund, so it's
-  // allocated proportionally by each fund's current share of the total account value - this
-  // doesn't distort the ACCOUNT-level return (which is all `computeInvestmentReturn` actually
-  // uses, summing cost basis and market value back up across every holding) even though it
-  // necessarily shows the same blended ROI% on every individual fund on the Investments page.
-  const contributionsRow = data.find((row) => (row[0] ?? "").trim().toLowerCase() === "total contributions");
-  const sinceJoiningCell = contributionsRow?.[1];
-  const totalContributions = sinceJoiningCell && isMoneyCell(sinceJoiningCell) ? parseAmount(sinceJoiningCell) : null;
-  const totalMarketValueAllSections = [...sectionsByTitle.values()]
-    .flat()
-    .reduce((s, h) => s + h.marketValue, 0);
-
-  const sections: InvestmentSection[] = [...sectionsByTitle.entries()].map(([title, holdings]) => {
-    const rows: InvestmentRow[] = holdings.map((h) => ({
-      securityType: "mutual_fund", symbol: null, description: h.description, shares: null,
-      price: null, marketValue: h.marketValue,
-      costBasis: totalContributions !== null && totalMarketValueAllSections > 0
-        ? totalContributions * (h.marketValue / totalMarketValueAllSections)
-        : null,
-      tradeDate: null, dividendPerShare: null, estAnnualIncome: null,
-    }));
-    return {
-      title, securityType: "mutual_fund", headerRow: ["Description", "Market Value"],
-      rawRows: holdings.map((h) => [h.description, h.marketValue.toFixed(2)]),
-      colMap: { description: 0, marketValue: 1 }, rows,
-      totalMarketValue: rows.reduce((s, r) => s + (r.marketValue ?? 0), 0),
-    };
-  });
-
-  return { asOfDate, sections };
-}
-
-/**
- * Detects the format of an investment CSV/XLSX based on distinctive header names.
- * Returns "fidelity" | "thrivent" | "principal" | "wells-fargo".
- */
-function detectInvestmentFormat(data: string[][]): "fidelity" | "thrivent" | "principal" | "wells-fargo" {
-  // Look for a flat header row in the first 3 rows
-  for (const row of data.slice(0, 3)) {
-    const norm = row.map((h) => (h ?? "").toLowerCase().trim());
-    if (norm.includes("security description") && norm.includes("security type")) return "fidelity";
-    if (norm.includes("cost basis total") && norm.includes("account name")) return "thrivent";
-  }
-  // Principal's "Investments" table only appears several pages into the statement (after a
-  // cover page and account snapshot), so - unlike the flat CSV formats above - it can't be
-  // detected from the first few rows alone; scan the whole extracted PDF text instead.
-  if (looksLikePrincipalStatement(data)) return "principal";
-  return "wells-fargo";
-}
-
-/**
- * Dispatcher: detects the brokerage export format and routes to the appropriate
- * parser. Supports Wells Fargo Advisors (sectioned XLSX), Fidelity (flat CSV),
- * Thrivent (flat CSV, multi-account), and Principal (PDF quarterly statement).
- * Returns null if no supported format is detected.
- */
-function parseInvestmentWorkbook(data: string[][]): ParsedInvestment | null {
-  const fmt = detectInvestmentFormat(data);
-  if (fmt === "fidelity")  return parseFidelityCSV(data);
-  if (fmt === "thrivent")  return parseThriventCSV(data);
-  if (fmt === "principal") return parsePrincipalStatement(data);
-
-  // Wells Fargo Advisors: sectioned format
-  const asOfDate = detectStatementDate(data) ?? new Date().toISOString().split("T")[0];
-  const sections: InvestmentSection[] = [];
-
-  let i = 0;
-  while (i < data.length) {
-    const row = data[i];
-    const col0 = (row[0] ?? "").trim();
-    const restBlank = row.slice(1).every((c) => !c || !c.trim());
-    const isTotalRow = /^total\b/i.test(col0);
-
-    if (col0 && restBlank && !isTotalRow) {
-      const headerRow = data[i + 1];
-      const looksLikeHeader = headerRow?.some((c) => (c ?? "").toLowerCase().trim() === "description");
-      if (looksLikeHeader) {
-        const title = col0;
-        const securityType = classifySection(title);
-        const colMap = buildHoldingHeaderMap(headerRow);
-        const rows: InvestmentRow[] = [];
-        const rawRows: string[][] = [];
-        let j = i + 2;
-        for (; j < data.length; j++) {
-          const dataRow = data[j];
-          const dCol0 = (dataRow[0] ?? "").trim();
-          if (/^total\b/i.test(dCol0)) { j++; break; }
-          if (!dCol0 && dataRow.every((c) => !c || !c.trim())) continue; // blank separator row
-          if (ASSET_CLASS_LABELS.has(dCol0.toLowerCase())) continue; // asset-class sub-heading
-
-          const built = buildInvestmentRow(dataRow, colMap, securityType);
-          if (!built) continue;
-          rows.push(built);
-          rawRows.push(dataRow);
-        }
-        if (rows.length > 0) {
-          sections.push({
-            title, securityType, headerRow, rawRows, colMap, rows,
-            totalMarketValue: rows.reduce((s, r) => s + (r.marketValue ?? 0), 0),
-          });
-        }
-        i = j;
-        continue;
-      }
-    }
-    i++;
-  }
-
-  return sections.length > 0 ? { asOfDate, sections } : null;
-}
 
 const IMPORT_KINDS: { id: ImportKind; label: string; hint: string; Icon: typeof Landmark }[] = [
   { id: "bank", label: "Bank Statement", hint: "Checking or savings CSV/XLSX export", Icon: Landmark },
   { id: "credit", label: "Credit Card Statement", hint: "Credit card CSV/XLSX export", Icon: CreditCard },
-  { id: "investment", label: "Investment / Brokerage", hint: "Portfolio positions export or 401(k) statement (stocks, ETFs, funds)", Icon: TrendingUp },
+  { id: "investment", label: "Investment / Brokerage", hint: "Portfolio positions export or a brokerage/401(k) statement (holdings, trades, dividends)", Icon: TrendingUp },
 ];
 
 export default function ImportPage() {
@@ -1021,8 +457,20 @@ export default function ImportPage() {
   const [importSubmitting, setImportSubmitting] = useState(false);
   const [colMap, setColMap] = useState<ColMap>({ dateCol: 0, descCol: 1, amountCol: 2, typeCol: -1, balanceCol: -1, invertAmounts: false, debitCol: -1, creditCol: -1 });
   const [currentBalanceInput, setCurrentBalanceInput] = useState("");
+  // Best-effort "New/Current Balance" figure read straight off a credit-card PDF statement
+  // (findLabeledValue-based, same machinery as the loan uploader) - only ever used to prefill
+  // `currentBalanceInput`, never saved without the user seeing/confirming it first.
+  const [parsedStatementBalance, setParsedStatementBalance] = useState<string | null>(null);
+  // Possible duplicates of already-existing manual transactions, found when leaving the
+  // "Balance" step - only ever populated (and the reconcile step only ever shown) when at
+  // least one is found; each item's `resolution` defaults to "keep_both" (never destructive
+  // unless the user explicitly says otherwise).
+  const [dupCandidates, setDupCandidates] = useState<(DuplicateCandidate & { resolution: "keep_both" | "keep_manual" | "keep_imported" })[]>([]);
   const [profileFound, setProfileFound] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
+  // Set when an import would land on a snapshot date this account already has - the preview
+  // step then asks whether to replace it rather than silently doubling every position.
+  const [duplicateSnapshot, setDuplicateSnapshot] = useState<{ accountId: number; count: number; profileIdOverride?: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [targetMonth, setTargetMonth] = useState(currentYM);
   const [importHistory, setImportHistory] = useState<ImportSession[]>([]);
@@ -1107,10 +555,17 @@ export default function ImportPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
-  // When there's no balance column, prefill the account's current balance anchor (the real
-  // balance as of the day it was entered) so returning to the step shows what's already saved.
+  // When there's no balance column, prefill "Current balance" - preferring a figure freshly
+  // parsed off this statement (credit-card PDFs only) over the account's last-saved anchor.
+  // Either way, the stored anchor by itself is stale the moment this step is reached: it
+  // reflects the balance BEFORE this batch's transactions, but the field means "balance AFTER
+  // these transactions" - so it's added to this batch's own signed total (every row here is
+  // new, not yet reflected in the stored anchor at all). Submitting the suggested value
+  // unedited must already be correct, exactly like every other parsed field in this wizard -
+  // this only ever pre-fills the editable input below, never saves anything by itself.
   useEffect(() => {
     if (step !== "wizard:balance" || colMap.balanceCol >= 0) return;
+    if (parsedStatementBalance) { setCurrentBalanceInput(parsedStatementBalance); return; }
     if (!accountChoice || accountChoice.mode !== "existing") { setCurrentBalanceInput(""); return; }
     (async () => {
       try {
@@ -1120,11 +575,15 @@ export default function ImportPage() {
           [accountChoice.accountId]
         );
         const cents = rows[0]?.balance_anchor_cents;
-        setCurrentBalanceInput(cents != null ? (cents / 100).toFixed(2) : "");
+        if (cents == null) { setCurrentBalanceInput(""); return; }
+        const newRowsCents = parsed
+          ? parsed.rows.reduce((sum, row) => sum + Math.round(computeRowAmount(row, colMap) * 100), 0)
+          : 0;
+        setCurrentBalanceInput(((cents + newRowsCents) / 100).toFixed(2));
       } catch { /* leave blank */ }
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step]);
+  }, [step, parsedStatementBalance, parsed]);
 
 
   // Re-derives each section's holding rows after applying any manual column-map overrides
@@ -1175,7 +634,7 @@ export default function ImportPage() {
     setImportHistory(rows);
   }, [profileId]);
 
-  useEffect(() => { loadHistory().catch(console.error); }, [loadHistory]);
+  useEffect(() => { loadHistory().catch(reportLoadError("your import history", () => void loadHistory())); }, [loadHistory]);
 
   // On mount: drain any files queued by other pages (e.g. CSV drop on Transactions tab)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1194,11 +653,46 @@ export default function ImportPage() {
     setMaxStepReached((m) => Math.max(m, wizardNum(target)));
   };
 
+  /** Gate between the wizard's column-mapping steps and Preview - checks incoming rows against
+   *  this account's existing manually-added transactions for possible duplicates (see
+   *  importParsing.ts) and, only if any are found, detours through the reconcile step instead
+   *  of going straight to Preview. A brand-new account has no manual transactions to conflict
+   *  with, so this is a no-op (straight to Preview) in that case. */
+  const proceedToPreview = async () => {
+    if (!parsed || !accountChoice || accountChoice.mode !== "existing") {
+      wizardGo("wizard:preview", "forward");
+      return;
+    }
+    const manualTxns = await getManualTransactionsForAccount(accountChoice.accountId);
+    if (manualTxns.length === 0) {
+      wizardGo("wizard:preview", "forward");
+      return;
+    }
+    const importedRows = parsed.rows
+      .map((row, rowIndex) => {
+        const date = parseDate(row[colMap.dateCol] ?? "");
+        const description = (row[colMap.descCol] ?? "").trim();
+        const amount = computeRowAmount(row, colMap);
+        if (!date || !description || !isFinite(amount) || amount === 0) return null;
+        return { rowIndex, date, description, amountCents: Math.round(amount * 100) };
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null);
+    const candidates = findDuplicateCandidates(importedRows, manualTxns);
+    if (candidates.length === 0) {
+      wizardGo("wizard:preview", "forward");
+      return;
+    }
+    setDupCandidates(candidates.map((c) => ({ ...c, resolution: "keep_both" as const })));
+    wizardGo("wizard:reconcile", "forward");
+  };
+
   const undoImport = async (sessionId: number) => {
     const db = await getDb();
     const session = importHistory.find((s) => s.id === sessionId);
     if (session?.kind === "investment") {
       await db.execute("DELETE FROM holdings WHERE import_session_id=?", [sessionId]);
+      await db.execute("DELETE FROM investment_activity WHERE import_session_id=?", [sessionId]);
+      await db.execute("DELETE FROM investment_summaries WHERE import_session_id=?", [sessionId]);
     } else if (session?.kind === "loan") {
       // Loan statement rows carry their own definitive balance_cents per upload (not a
       // computed running total from an anchor), so there's nothing to recompute after
@@ -1222,8 +716,12 @@ export default function ImportPage() {
     await loadHistory();
   };
 
-  /** Writes every parsed holding row into the `holdings` table as a new dated snapshot. */
-  const handleInvestmentImport = async (profileIdOverride?: number) => {
+  /**
+   * Writes a parsed statement: holdings as a new dated snapshot, plus the period's activity
+   * rows and account-level totals for formats that carry them. `replaceExisting` re-imports a
+   * snapshot date that already has holdings (the wizard asks first - never silent).
+   */
+  const handleInvestmentImport = async (profileIdOverride?: number, replaceExisting = false) => {
     if (!invParsed) return;
     const targetProfileId = profileIdOverride ?? profileId;
     setStep("importing");
@@ -1240,6 +738,23 @@ export default function ImportPage() {
       // instead of sharing the one just created.
       setAccountChoice((prev) => (prev?.mode === "existing" && prev.accountId === accountId ? prev : { mode: "existing", accountId, name: prev?.name ?? "Investment Account" }));
       lastResolvedAccountRef.current = { accountType: "investment", accountId };
+
+      // A holdings snapshot has no content hash to dedup on (unlike transactions), so a repeat
+      // import of the same statement would silently double every position. Ask, don't guess.
+      const [existing] = await db.select<{ n: number }[]>(
+        "SELECT COUNT(*) as n FROM holdings WHERE account_id=? AND as_of_date=?",
+        [accountId, invParsed.asOfDate]
+      );
+      if ((existing?.n ?? 0) > 0) {
+        if (!replaceExisting) {
+          setDuplicateSnapshot({ accountId, count: existing.n, profileIdOverride });
+          setStep("wizard:investment-preview");
+          return;
+        }
+        await db.execute("DELETE FROM holdings WHERE account_id=? AND as_of_date=?", [accountId, invParsed.asOfDate]);
+      }
+      setDuplicateSnapshot(null);
+
       const sessionResult = await db.execute(
         "INSERT INTO import_sessions (filename, row_count, skipped_count, profile_id, kind) VALUES (?, 0, 0, ?, 'investment')",
         [currentFilename, targetProfileId]
@@ -1270,8 +785,79 @@ export default function ImportPage() {
         }
       }
 
-      await db.execute("UPDATE import_sessions SET row_count=? WHERE id=?", [imported, sessionId]);
-      setSummary({ imported, skipped: 0 });
+      // Unlike holdings, activity lines DO have stable content to hash, so re-importing an
+      // overlapping statement skips rows it already has instead of duplicating them.
+      let activityImported = 0;
+      let activitySkipped = 0;
+      for (const act of invParsed.activity) {
+        const importHash = await hashRow([
+          "inv", act.date, act.rawActivityType, act.description,
+          String(act.quantity ?? ""), String(act.amount),
+        ]);
+        try {
+          await db.execute(
+            `INSERT INTO investment_activity
+               (account_id, profile_id, import_session_id, trade_date, settle_date, activity_type,
+                raw_activity_type, symbol, description, quantity, price_cents, amount_cents,
+                cost_basis_cents, realized_gain_cents, acquired_date, term, import_hash)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              accountId, targetProfileId, sessionId, act.date, act.settleDate, act.activityType,
+              act.rawActivityType, act.symbol, act.description, act.quantity,
+              act.price !== null ? Math.round(act.price * 100) : null,
+              Math.round(act.amount * 100),
+              act.costBasis !== null ? Math.round(act.costBasis * 100) : null,
+              act.realizedGain !== null ? Math.round(act.realizedGain * 100) : null,
+              act.acquiredDate, act.term, importHash,
+            ]
+          );
+          activityImported++;
+        } catch {
+          activitySkipped++; // UNIQUE(account_id, import_hash) - already imported
+        }
+      }
+
+      if (invParsed.summary) {
+        const s = invParsed.summary;
+        const cents = (v: number | null) => (v !== null ? Math.round(v * 100) : null);
+        await db.execute(
+          `INSERT INTO investment_summaries
+             (account_id, profile_id, import_session_id, period_start, period_end,
+              beginning_value_cents, ending_value_cents, change_in_value_cents, cash_balance_cents,
+              deposits_cents, withdrawals_cents, transfers_cents, income_cents, dividends_cents,
+              interest_cents, fees_cents, realized_gain_cents, realized_gain_ytd_cents,
+              unrealized_gain_cents)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(account_id, period_end) DO UPDATE SET
+             import_session_id=excluded.import_session_id,
+             period_start=excluded.period_start,
+             beginning_value_cents=excluded.beginning_value_cents,
+             ending_value_cents=excluded.ending_value_cents,
+             change_in_value_cents=excluded.change_in_value_cents,
+             cash_balance_cents=excluded.cash_balance_cents,
+             deposits_cents=excluded.deposits_cents,
+             withdrawals_cents=excluded.withdrawals_cents,
+             transfers_cents=excluded.transfers_cents,
+             income_cents=excluded.income_cents,
+             dividends_cents=excluded.dividends_cents,
+             interest_cents=excluded.interest_cents,
+             fees_cents=excluded.fees_cents,
+             realized_gain_cents=excluded.realized_gain_cents,
+             realized_gain_ytd_cents=excluded.realized_gain_ytd_cents,
+             unrealized_gain_cents=excluded.unrealized_gain_cents`,
+          [
+            accountId, targetProfileId, sessionId, s.periodStart, s.periodEnd,
+            cents(s.beginningValue), cents(s.endingValue), cents(s.changeInValue), cents(s.cashBalance),
+            cents(s.deposits), cents(s.withdrawals), cents(s.transfers), cents(s.income),
+            cents(s.dividends), cents(s.interest), cents(s.fees),
+            cents(s.realizedGain), cents(s.realizedGainYtd), cents(s.unrealizedGain),
+          ]
+        );
+      }
+
+      await db.execute("UPDATE import_sessions SET row_count=?, skipped_count=? WHERE id=?",
+        [imported + activityImported, activitySkipped, sessionId]);
+      setSummary({ imported, skipped: activitySkipped, activityImported });
       await loadHistory();
       setStep("done");
     } catch (err) {
@@ -1320,6 +906,16 @@ export default function ImportPage() {
           return;
         }
         finishParsingData([["Date", "Description", "Amount"], ...rows]);
+        // Credit-card statements almost never have a per-transaction running-balance column,
+        // so this is the only shot at pre-filling "Current balance" from the statement itself
+        // rather than the account's last-saved anchor - kicked off after finishParsingData (which
+        // resets parsedStatementBalance to null for the new file) so it can't be clobbered by that
+        // reset resolving out of order.
+        if (importKind === "credit") {
+          parseLoanStatementFile(file).then((fields) => {
+            if (fields.balance) setParsedStatementBalance(fields.balance);
+          }).catch(() => { /* best-effort only - leave blank */ });
+        }
       }).catch(() => {
         setError("Could not read that PDF. Make sure it's a valid, text-based statement.");
         setStep("upload");
@@ -1393,7 +989,7 @@ export default function ImportPage() {
   const finishParsingInvestmentData = useCallback((data: string[][]) => {
     const result = parseInvestmentWorkbook(data);
     if (!result) {
-      setError("We couldn't detect a supported portfolio format. Supported formats: Wells Fargo Advisors (XLSX), Fidelity, Thrivent (CSV), and Principal (PDF quarterly statement).");
+      setError(`We couldn't detect a supported portfolio format. Supported formats: ${SUPPORTED_INVESTMENT_FORMATS}.`);
       setStep("upload");
       return;
     }
@@ -1434,6 +1030,8 @@ export default function ImportPage() {
     setExistingAccountsForType([]);
     setCreditInterestRateInput("");
     setCreditMinimumPaymentInput("");
+    setParsedStatementBalance(null);
+    setDupCandidates([]);
     setMaxStepReached(1);
     const derived = deriveHeaders(data, initialSkip);
     if (!derived) {
@@ -1590,12 +1188,21 @@ export default function ImportPage() {
       let imported = 0;
       let skipped = 0;
       let transferCount = 0;
+      // From the reconcile step (only ever non-zero when possible duplicates were found and
+      // resolved) - tracked separately from `skipped` since that specifically means "already-
+      // imported duplicate via content hash", a different situation from "user chose to keep
+      // their manual entry instead".
+      let keptManualCount = 0;
+      let replacedManualCount = 0;
+      let deletedAnyManual = false;
+      const dupByRow = new Map(dupCandidates.map((c) => [c.rowIndex, c]));
       const rowErrors: { index: number; message: string }[] = [];
 
       const seenHashCounts = new Map<string, number>();
       const rowPayloads: { params: unknown[]; categoryId: number | null }[] = [];
 
-      for (const row of parsed.rows) {
+      for (let rowIndex = 0; rowIndex < parsed.rows.length; rowIndex++) {
+        const row = parsed.rows[rowIndex];
         const requiredCols = [colMap.dateCol, colMap.descCol];
         if (colMap.debitCol >= 0 || colMap.creditCol >= 0) {
           if (colMap.debitCol >= 0) requiredCols.push(colMap.debitCol);
@@ -1610,6 +1217,22 @@ export default function ImportPage() {
         const description = (row[colMap.descCol] ?? "").trim();
         const amount = computeRowAmount(row, colMap);
         if (!date || !description || !isFinite(amount) || amount === 0) continue;
+
+        const dup = dupByRow.get(rowIndex);
+        if (dup?.resolution === "keep_manual") { keptManualCount++; continue; }
+        if (dup?.resolution === "keep_imported") {
+          // Remove the manual entry this row is replacing FIRST, shifting the balance anchor by
+          // its removal exactly like any other manual delete (see shiftBalanceAnchorForTransactionChange) -
+          // the new row below then gets inserted as if the manual one never existed.
+          await db.execute("DELETE FROM transactions WHERE id=?", [dup.existingTxnId]);
+          await shiftBalanceAnchorForTransactionChange(
+            accountId,
+            { date: dup.existingDate, amountCents: dup.existingAmountCents },
+            null
+          );
+          replacedManualCount++;
+          deletedAnyManual = true;
+        }
 
         const amountCents = Math.round(amount * 100);
         const hash = await dedupeRowHash(row, seenHashCounts);
@@ -1680,11 +1303,13 @@ export default function ImportPage() {
 
       // No native balance column - (re)calculate a running balance for every transaction on
       // this account from its balance anchor (or 0), so charts/dashboards still have a value.
-      if (colMap.balanceCol < 0) {
+      // Also needed whenever a manual duplicate was deleted above, regardless of balanceCol -
+      // the surrounding rows that relied on calculated balances still need to reflect its removal.
+      if (colMap.balanceCol < 0 || deletedAnyManual) {
         await recomputeCalculatedBalances(accountId);
       }
 
-      setSummary({ imported, skipped, transferCount, errors: rowErrors });
+      setSummary({ imported, skipped, transferCount, errors: rowErrors, keptManualCount, replacedManualCount });
       await loadHistory();
       setStep("done");
       setImportSubmitting(false);
@@ -1695,7 +1320,10 @@ export default function ImportPage() {
     }
   };
 
-  /** Silently import a file using a previously approved column mapping (batch auto-mode). */
+  /** Silently import a file using a previously approved column mapping (batch auto-mode). Does
+   *  NOT run manual-duplicate reconciliation (see proceedToPreview/wizard:reconcile) - pausing
+   *  an unattended batch mid-flight for input would break its whole "silent" contract, so this
+   *  path always behaves like "keep both" for any manual entry a row might actually duplicate. */
   const autoImportFile = useCallback(async (file: File, savedColMap: ColMap) => {
     setError(null);
     setCurrentFilename(file.name);
@@ -1823,6 +1451,7 @@ export default function ImportPage() {
     setSkipRows(0);
     setParsed(null);
     setInvParsed(null);
+    setDuplicateSnapshot(null);
     setColMapOverrides({});
     setFixColumnsOpen(new Set());
     setCurrentBalanceInput("");
@@ -1830,6 +1459,8 @@ export default function ImportPage() {
     setExistingAccountsForType([]);
     setCreditInterestRateInput("");
     setCreditMinimumPaymentInput("");
+    setParsedStatementBalance(null);
+    setDupCandidates([]);
     setMaxStepReached(1);
     setCurrentFilename("");
     setIsPdfImport(false);
@@ -1847,7 +1478,7 @@ export default function ImportPage() {
   };
 
   return (
-    <div className="p-8 max-w-4xl mx-auto w-full">
+    <div className="workspace-page import-workspace">
       <h1 className="text-2xl font-semibold mb-2">Import Statements</h1>
       <p className="text-sm text-[hsl(var(--muted-foreground))] mb-6">
         Your data never leaves this device.
@@ -1869,7 +1500,7 @@ export default function ImportPage() {
                 onClick={() => setImportKind(k.id)}
                 className="border rounded-xl p-5 text-center hover:border-[hsl(var(--primary))] hover:bg-[hsl(var(--muted))] transition-colors chart-clickable"
               >
-                <div className="flex justify-center mb-2 text-[hsl(var(--primary))]"><k.Icon size={26} /></div>
+                <div className="flex justify-center mb-2 text-[hsl(var(--gold-ink))]"><k.Icon size={26} /></div>
                 <p className="font-medium text-sm">{k.label}</p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">{k.hint}</p>
               </button>
@@ -1878,7 +1509,7 @@ export default function ImportPage() {
               onClick={() => setShowLoanUploader(true)}
               className="border rounded-xl p-5 text-center hover:border-[hsl(var(--primary))] hover:bg-[hsl(var(--muted))] transition-colors chart-clickable"
             >
-              <div className="flex justify-center mb-2 text-[hsl(var(--primary))]"><HandCoins size={26} /></div>
+              <div className="flex justify-center mb-2 text-[hsl(var(--gold-ink))]"><HandCoins size={26} /></div>
               <p className="font-medium text-sm">Loan Statement</p>
               <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">Car, student, personal loan, or mortgage - balance snapshot, not itemized transactions</p>
             </button>
@@ -1889,7 +1520,7 @@ export default function ImportPage() {
       {(step === "upload" || step === "checking") && importKind !== null && (
         <div>
           {step === "upload" && (
-            <button onClick={() => setImportKind(null)} className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))] mb-2">
+            <button onClick={() => setImportKind(null)} className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--gold-ink))] mb-2">
               ‹ Change type
             </button>
           )}
@@ -1951,12 +1582,12 @@ export default function ImportPage() {
                 <p className="text-xs text-[hsl(var(--muted-foreground))] border-t pt-2 flex items-start gap-1"><Info size={12} className="shrink-0 mt-0.5" /> {BANK_PRESETS[selectedPresetId].note}</p>
               )}
               {selectedPresetId && (
-                <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1"><CheckCircle2 size={12} /> {BANK_PRESETS[selectedPresetId].name} selected - column mapping will be pre-filled.</p>
+                <p className="text-xs text-[hsl(var(--success))] flex items-center gap-1"><CheckCircle2 size={12} /> {BANK_PRESETS[selectedPresetId].name} selected - column mapping will be pre-filled.</p>
               )}
             </div>
           )}
 
-          {error && <p className="mt-4 text-red-500 text-sm">{error}</p>}
+          {error && <p className="mt-4 text-[hsl(var(--error))] text-sm">{error}</p>}
         </div>
       )}
 
@@ -1976,13 +1607,13 @@ export default function ImportPage() {
                       wizardNum(step) === ws.num
                         ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
                         : wizardNum(step) > ws.num
-                        ? "bg-green-500 text-white cursor-pointer hover:opacity-80"
+                        ? "bg-[hsl(var(--success))] text-white cursor-pointer hover:opacity-80"
                         : "bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] cursor-not-allowed"
                     }`}>
                     {wizardNum(step) > ws.num ? "✓" : ws.num}
                   </button>
                   {i < WIZARD_STEPS.length - 1 && (
-                    <div className={`h-0.5 w-6 transition-colors ${wizardNum(step) > ws.num ? "bg-green-500" : "bg-[hsl(var(--muted))]"}`} />
+                    <div className={`h-0.5 w-6 transition-colors ${wizardNum(step) > ws.num ? "bg-[hsl(var(--success))]" : "bg-[hsl(var(--muted))]"}`} />
                   )}
                 </div>
               );
@@ -2006,12 +1637,12 @@ export default function ImportPage() {
         <div key="wizard:account" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "hsl(var(--primary)/0.1)" }}>
-              {importKind === "credit" ? <CreditCard size={18} className="text-[hsl(var(--primary))]" />
-                : importKind === "investment" ? <TrendingUp size={18} className="text-[hsl(var(--primary))]" />
-                : <Landmark size={18} className="text-[hsl(var(--primary))]" />}
+              {importKind === "credit" ? <CreditCard size={18} className="text-[hsl(var(--gold-ink))]" />
+                : importKind === "investment" ? <TrendingUp size={18} className="text-[hsl(var(--gold-ink))]" />
+                : <Landmark size={18} className="text-[hsl(var(--gold-ink))]" />}
             </div>
             <div>
-              <h2 className="text-lg font-bold leading-tight">Which <span className="text-[hsl(var(--primary))]">account</span> is this?</h2>
+              <h2 className="text-lg font-bold leading-tight">Which <span className="text-[hsl(var(--gold-ink))]">account</span> is this?</h2>
               <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">
                 Compass tracks each account's balance separately - pick the right one so nothing gets mixed up or overwritten.
               </p>
@@ -2020,15 +1651,15 @@ export default function ImportPage() {
 
           <div className="border rounded-xl p-5 space-y-4">
             {accountChoice?.mode === "existing" && (
-              <div className="px-3 py-2.5 rounded-lg text-sm border border-green-300 bg-green-50
-                              text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300 flex items-start gap-2">
+              <div className="px-3 py-2.5 rounded-lg text-sm border border-[hsl(var(--success)/0.4)] bg-[hsl(var(--success)/0.08)]
+                              text-[hsl(var(--success))] dark:border-[hsl(var(--success)/0.5)] dark:bg-[hsl(var(--success)/0.15)] flex items-start gap-2">
                 <CheckCircle2 size={14} className="shrink-0 mt-0.5" />
                 <span>This looks like your existing <strong>{accountChoice.name}</strong> account - we'll add these transactions there.</span>
               </div>
             )}
             {accountChoice?.mode === "new" && existingAccountsForType.length > 0 && (
-              <div className="px-3 py-2.5 rounded-lg text-sm border border-blue-300 bg-blue-50
-                              text-blue-800 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300 flex items-start gap-2">
+              <div className="px-3 py-2.5 rounded-lg text-sm border border-[hsl(var(--primary)/0.4)] bg-[hsl(var(--primary)/0.08)]
+                              text-[hsl(var(--gold-ink))] dark:border-[hsl(var(--primary)/0.5)] dark:bg-[hsl(var(--primary)/0.15)] flex items-start gap-2">
                 <Info size={14} className="shrink-0 mt-0.5" />
                 <span>This looks like a new account - we'll create <strong>{accountChoice.name || "it"}</strong>.</span>
               </div>
@@ -2160,7 +1791,7 @@ export default function ImportPage() {
           {/* Header-only display - centered column pills */}
           <div className="border rounded-xl overflow-hidden">
             <div className="text-center py-2 bg-[hsl(var(--primary)/0.08)] border-b">
-              <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
+              <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--gold-ink))]">
                 Header row (row {skipRows + 1})
               </span>
             </div>
@@ -2187,8 +1818,8 @@ export default function ImportPage() {
           </div>
 
           {profileFound && (
-            <div className="px-4 py-2.5 rounded-lg text-sm border border-green-300 bg-green-50
-                            text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
+            <div className="px-4 py-2.5 rounded-lg text-sm border border-[hsl(var(--success)/0.4)] bg-[hsl(var(--success)/0.08)]
+                            text-[hsl(var(--success))] dark:border-[hsl(var(--success)/0.5)] dark:bg-[hsl(var(--success)/0.15)]">
                   Column layout recognized from a previous import.
             </div>
           )}
@@ -2198,7 +1829,7 @@ export default function ImportPage() {
               className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
               Back
             </button>
-            <button onClick={() => wizardGo("wizard:preview", "forward")}
+            <button onClick={proceedToPreview}
               className="px-5 py-2 border rounded-lg text-sm font-medium hover:bg-[hsl(var(--muted))] transition-colors">
               Skip to Preview
             </button>
@@ -2217,10 +1848,10 @@ export default function ImportPage() {
         <div key="wizard:date" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "hsl(var(--primary)/0.1)" }}>
-              <Calendar size={18} className="text-[hsl(var(--primary))]" />
+              <Calendar size={18} className="text-[hsl(var(--gold-ink))]" />
             </div>
             <div>
-              <h2 className="text-lg font-bold leading-tight">Which column is the <span className="text-[hsl(var(--primary))]">Date</span>?</h2>
+              <h2 className="text-lg font-bold leading-tight">Which column is the <span className="text-[hsl(var(--gold-ink))]">Date</span>?</h2>
               <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">Pick the column that contains the transaction date.</p>
             </div>
           </div>
@@ -2233,7 +1864,7 @@ export default function ImportPage() {
 
           <div className="border rounded-xl overflow-hidden">
             <div className="text-center py-2.5 bg-[hsl(var(--primary)/0.08)] border-b">
-              <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
+              <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--gold-ink))]">
                 {parsed.headers[colMap.dateCol] || `Column ${colMap.dateCol + 1}`}
               </span>
             </div>
@@ -2245,7 +1876,7 @@ export default function ImportPage() {
                 return (
                   <div key={i} className="py-3 text-center">
                     <p className="font-mono text-sm text-[hsl(var(--muted-foreground))]">{raw}</p>
-                    <p className={`text-base font-semibold mt-0.5 ${ok ? "text-green-600" : "text-red-500"}`}>
+                    <p className={`text-base font-semibold mt-0.5 ${ok ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
                       {ok ? formatDate(iso) : "Couldn't parse"}
                     </p>
                   </div>
@@ -2264,7 +1895,7 @@ export default function ImportPage() {
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
               Continue
             </button>
-            <button onClick={() => wizardGo("wizard:preview", "forward")}
+            <button onClick={proceedToPreview}
               className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
               Skip to Preview
             </button>
@@ -2279,10 +1910,10 @@ export default function ImportPage() {
         <div key="wizard:desc" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "hsl(var(--primary)/0.1)" }}>
-              <Tag size={18} className="text-[hsl(var(--primary))]" />
+              <Tag size={18} className="text-[hsl(var(--gold-ink))]" />
             </div>
             <div>
-              <h2 className="text-lg font-bold leading-tight">Which column is the <span className="text-[hsl(var(--primary))]">Description</span>?</h2>
+              <h2 className="text-lg font-bold leading-tight">Which column is the <span className="text-[hsl(var(--gold-ink))]">Description</span>?</h2>
               <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">The merchant or payee name - used for auto-categorization.</p>
             </div>
           </div>
@@ -2295,7 +1926,7 @@ export default function ImportPage() {
 
             <div className="border rounded-xl overflow-hidden">
               <div className="text-center py-2.5 bg-[hsl(var(--primary)/0.08)] border-b">
-                <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
+                <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--gold-ink))]">
                   {parsed.headers[colMap.descCol] || `Column ${colMap.descCol + 1}`}
                 </span>
               </div>
@@ -2318,7 +1949,7 @@ export default function ImportPage() {
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
               Continue
             </button>
-            <button onClick={() => wizardGo("wizard:preview", "forward")}
+            <button onClick={proceedToPreview}
               className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
               Skip to Preview
             </button>
@@ -2333,10 +1964,10 @@ export default function ImportPage() {
         <div key="wizard:amount" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "hsl(var(--primary)/0.1)" }}>
-              <DollarSign size={18} className="text-[hsl(var(--primary))]" />
+              <DollarSign size={18} className="text-[hsl(var(--gold-ink))]" />
             </div>
             <div>
-              <h2 className="text-lg font-bold leading-tight">Which column is the <span className="text-[hsl(var(--primary))]">Amount</span>?</h2>
+              <h2 className="text-lg font-bold leading-tight">Which column is the <span className="text-[hsl(var(--gold-ink))]">Amount</span>?</h2>
               <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">Expenses should be negative, income positive.</p>
             </div>
           </div>
@@ -2349,7 +1980,7 @@ export default function ImportPage() {
 
             <div className="border rounded-xl overflow-hidden">
               <div className="text-center py-2.5 bg-[hsl(var(--primary)/0.08)] border-b">
-                <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
+                <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--gold-ink))]">
                   {parsed.headers[colMap.amountCol] || `Column ${colMap.amountCol + 1}`}
                 </span>
               </div>
@@ -2370,7 +2001,7 @@ export default function ImportPage() {
                         )}
                         <p className="font-mono text-xs text-[hsl(var(--muted-foreground))] truncate">{raw}</p>
                       </div>
-                      <p className={`font-mono text-base font-semibold shrink-0 ${amt < 0 ? "text-[hsl(var(--error))]" : amt > 0 ? "text-[hsl(var(--success))]" : "text-amber-500"}`}>
+                      <p className={`text-base font-semibold shrink-0 ${amt < 0 ? "text-[hsl(var(--error))]" : amt > 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--warning))]"}`}>
                         {formatCurrency(Math.round(amt * 100))}
                       </p>
                     </div>
@@ -2509,7 +2140,7 @@ export default function ImportPage() {
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
               Continue
             </button>
-            <button onClick={() => wizardGo("wizard:preview", "forward")}
+            <button onClick={proceedToPreview}
               className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
               Skip to Preview
             </button>
@@ -2524,10 +2155,10 @@ export default function ImportPage() {
         <div key="wizard:balance" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "hsl(var(--primary)/0.1)" }}>
-              <BarChart2 size={18} className="text-[hsl(var(--primary))]" />
+              <BarChart2 size={18} className="text-[hsl(var(--gold-ink))]" />
             </div>
             <div>
-              <h2 className="text-lg font-bold leading-tight">Is there a <span className="text-[hsl(var(--primary))]">Balance</span> column? <span className="text-sm font-normal text-[hsl(var(--muted-foreground))]">Optional</span></h2>
+              <h2 className="text-lg font-bold leading-tight">Is there a <span className="text-[hsl(var(--gold-ink))]">Balance</span> column? <span className="text-sm font-normal text-[hsl(var(--muted-foreground))]">Optional</span></h2>
               <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">Running account balance - unlocks balance charts and low-balance alerts.</p>
             </div>
           </div>
@@ -2559,7 +2190,7 @@ export default function ImportPage() {
                 </select>
                 <div className="border rounded-xl overflow-hidden">
                   <div className="text-center py-2.5 bg-[hsl(var(--primary)/0.08)] border-b">
-                    <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
+                    <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--gold-ink))]">
                       {parsed.headers[colMap.balanceCol] || `Column ${colMap.balanceCol + 1}`}
                     </span>
                   </div>
@@ -2570,7 +2201,7 @@ export default function ImportPage() {
                       return (
                         <div key={i} className="py-3 text-center">
                           <p className="font-mono text-sm text-[hsl(var(--muted-foreground))]">{raw}</p>
-                          <p className="font-mono text-base font-semibold mt-0.5 text-[hsl(var(--foreground))]">
+                          <p className="text-base font-semibold mt-0.5 text-[hsl(var(--foreground))]">
                             {formatCurrency(Math.round(amt * 100))}
                           </p>
                         </div>
@@ -2589,6 +2220,9 @@ export default function ImportPage() {
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">
                   Know your real account balance today, after these transactions? Enter it and Compass will calculate each transaction's running balance by working backward from today's date. Leave it blank and Compass will still calculate a relative running total starting from $0.
                 </p>
+                {parsedStatementBalance && (
+                  <p className="text-xs text-[hsl(var(--gold-ink))]">Pre-filled from your statement - double-check it before continuing.</p>
+                )}
                 <div className="relative max-w-xs">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[hsl(var(--muted-foreground))]">$</span>
                   <input
@@ -2609,7 +2243,7 @@ export default function ImportPage() {
               className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
               Back
             </button>
-            <button onClick={() => wizardGo("wizard:preview", "forward")}
+            <button onClick={proceedToPreview}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
               Continue to Preview
             </button>
@@ -2622,10 +2256,10 @@ export default function ImportPage() {
 
       {step === "wizard:investment-preview" && invParsed && (
         <div key="wizard:investment-preview" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
-          {error && <p className="text-red-500 text-sm p-3 border border-red-300 rounded-lg">{error}</p>}
+          {error && <p className="text-[hsl(var(--error))] text-sm p-3 border border-[hsl(var(--error)/0.4)] rounded-lg">{error}</p>}
 
           {isPdfImport && (
-            <p className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1.5 p-3 border border-amber-300/50 rounded-lg bg-amber-500/5">
+            <p className="text-xs text-[hsl(var(--warning))] flex items-start gap-1.5 p-3 border border-[hsl(var(--warning)/0.35)] rounded-lg bg-[hsl(var(--warning)/0.06)]">
               <Info size={13} className="shrink-0 mt-0.5" />
               PDF portfolio statements are read with text-extraction heuristics, not a guaranteed column layout -
               double-check the sections and columns below (use "Fix columns" if anything looks misaligned) before importing.
@@ -2635,16 +2269,20 @@ export default function ImportPage() {
 
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "hsl(var(--primary)/0.1)" }}>
-              <TrendingUp size={18} className="text-[hsl(var(--primary))]" />
+              <TrendingUp size={18} className="text-[hsl(var(--gold-ink))]" />
             </div>
             <div>
-              <h2 className="text-lg font-bold leading-tight">Portfolio Positions</h2>
-              <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">Priced as of {formatDate(invParsed.asOfDate)}</p>
+              <h2 className="text-lg font-bold leading-tight">
+                {invParsed.summary ? "Statement Review" : "Portfolio Positions"}
+              </h2>
+              <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">
+                {invParsed.accountLabel ? `${invParsed.accountLabel} · ` : ""}Priced as of {formatDate(invParsed.asOfDate)}
+              </p>
             </div>
           </div>
 
           {accountChoice && (
-            <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+            <p className="text-xs text-[hsl(var(--success))] flex items-center gap-1">
               <CheckCircle2 size={12} />
               {accountChoice.mode === "existing"
                 ? <>Adding a new snapshot to your existing <strong>{accountChoice.name}</strong> account.</>
@@ -2684,13 +2322,13 @@ export default function ImportPage() {
                 <div className="flex items-center gap-3">
                   <span>{formatCurrency(Math.round(section.totalMarketValue * 100))}</span>
                   <button onClick={() => toggleFixColumns(section.title)}
-                    className="text-[hsl(var(--primary))] hover:underline normal-case font-normal">
+                    className="text-[hsl(var(--gold-ink))] hover:underline normal-case font-normal">
                     {isFixOpen ? "Done" : "Fix columns"}
                   </button>
                 </div>
               </div>
               {noValueData && (
-                <p className="px-4 py-2 text-xs text-amber-600 dark:text-amber-400 border-b flex items-start gap-1 normal-case font-normal">
+                <p className="px-4 py-2 text-xs text-[hsl(var(--warning))] border-b flex items-start gap-1 normal-case font-normal">
                   <Info size={12} className="shrink-0 mt-0.5" />
                   This section's file columns are all empty for shares, price, market value, and dates - Compass found the holdings but no numbers to go with them. Check <strong>Fix columns</strong> below to confirm, or re-export the statement with those columns visible.
                 </p>
@@ -2730,10 +2368,10 @@ export default function ImportPage() {
                   {section.rows.slice(0, 8).map((row, i) => (
                     <tr key={i} className="border-t">
                       <td className="px-4 py-2 max-w-xs truncate text-xs">{row.description}</td>
-                      <td className="px-4 py-2 text-xs font-mono">{row.symbol ?? "-"}</td>
-                      <td className="px-4 py-2 text-right text-xs font-mono">{row.shares ?? "-"}</td>
-                      <td className="px-4 py-2 text-right text-xs font-mono">{row.marketValue !== null ? formatCurrency(Math.round(row.marketValue * 100)) : "-"}</td>
-                      <td className="px-4 py-2 text-right text-xs font-mono text-[hsl(var(--muted-foreground))]">{row.tradeDate ? formatDate(row.tradeDate) : "-"}</td>
+                      <td className="px-4 py-2 text-xs">{row.symbol ?? "-"}</td>
+                      <td className="px-4 py-2 text-right text-xs">{row.shares ?? "-"}</td>
+                      <td className="px-4 py-2 text-right text-xs">{row.marketValue !== null ? formatCurrency(Math.round(row.marketValue * 100)) : "-"}</td>
+                      <td className="px-4 py-2 text-right text-xs text-[hsl(var(--muted-foreground))]">{row.tradeDate ? formatDate(row.tradeDate) : "-"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -2750,26 +2388,179 @@ export default function ImportPage() {
             Dividend and "Est. Annual Income" figures reflect the brokerage's projected estimates, not a history of dividends actually paid.
           </p>
 
+          {invParsed.summary && (
+            <div className="border rounded-xl overflow-hidden">
+              <div className="px-4 py-2 bg-[hsl(var(--muted))] border-b text-xs font-medium uppercase tracking-wide">
+                Statement Period Totals
+                {invParsed.summary.periodStart && (
+                  <span className="normal-case font-normal text-[hsl(var(--muted-foreground))]">
+                    {" "}· {formatDate(invParsed.summary.periodStart)} – {formatDate(invParsed.summary.periodEnd)}
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-[hsl(var(--border))]">
+                {([
+                  ["Beginning Value", invParsed.summary.beginningValue],
+                  ["Ending Value", invParsed.summary.endingValue],
+                  ["Change in Value", invParsed.summary.changeInValue],
+                  ["Cash Balance", invParsed.summary.cashBalance],
+                  ["Deposits", invParsed.summary.deposits],
+                  ["Withdrawals", invParsed.summary.withdrawals],
+                  ["Income", invParsed.summary.income],
+                  ["Realized Gain", invParsed.summary.realizedGain],
+                ] as [string, number | null][])
+                  .filter(([, v]) => v !== null)
+                  .map(([label, v]) => (
+                    <div key={label} className="bg-[hsl(var(--background))] px-4 py-3">
+                      <p className="text-sm font-semibold">{formatCurrency(Math.round((v as number) * 100))}</p>
+                      <p className="text-[hsl(var(--muted-foreground))] text-xs mt-0.5">{label}</p>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
+          {invParsed.activity.length > 0 && (
+            <div className="border rounded-xl overflow-hidden">
+              <div className="px-4 py-2 bg-[hsl(var(--muted))] border-b text-xs font-medium uppercase tracking-wide">
+                Activity ({invParsed.activity.length})
+              </div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs text-[hsl(var(--muted-foreground))]">
+                    <th className="px-4 py-2 font-medium">Date</th>
+                    <th className="px-4 py-2 font-medium">Type</th>
+                    <th className="px-4 py-2 font-medium">Description</th>
+                    <th className="px-4 py-2 font-medium text-right">Quantity</th>
+                    <th className="px-4 py-2 font-medium text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {invParsed.activity.slice(0, 8).map((act, i) => (
+                    <tr key={i} className="border-t">
+                      <td className="px-4 py-2 text-xs whitespace-nowrap">{formatDate(act.date)}</td>
+                      <td className="px-4 py-2 text-xs">{ACTIVITY_TYPE_LABELS[act.activityType]}</td>
+                      <td className="px-4 py-2 max-w-xs truncate text-xs">{act.description}</td>
+                      <td className="px-4 py-2 text-right text-xs">{act.quantity ?? "-"}</td>
+                      <td className={`px-4 py-2 text-right text-xs ${act.amount < 0 ? "text-[hsl(var(--error))]" : ""}`}>
+                        {formatCurrency(Math.round(act.amount * 100))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {invParsed.activity.length > 8 && (
+                <div className="px-4 py-2 text-xs text-[hsl(var(--muted-foreground))] border-t">+ {invParsed.activity.length - 8} more</div>
+              )}
+            </div>
+          )}
+
+          {duplicateSnapshot && (
+            <div className="p-3 border border-[hsl(var(--warning)/0.4)] rounded-lg bg-[hsl(var(--warning)/0.06)] space-y-2">
+              <p className="text-xs text-[hsl(var(--warning))] flex items-start gap-1.5">
+                <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+                This account already has <strong>{duplicateSnapshot.count}</strong> position{duplicateSnapshot.count === 1 ? "" : "s"} recorded
+                for {formatDate(invParsed.asOfDate)}. Importing again would double-count them.
+              </p>
+              <button
+                onClick={() => handleInvestmentImport(duplicateSnapshot.profileIdOverride, true)}
+                className="px-4 py-1.5 border border-[hsl(var(--warning)/0.5)] rounded-lg text-xs font-medium hover:bg-[hsl(var(--warning)/0.12)] transition-colors">
+                Replace that snapshot
+              </button>
+            </div>
+          )}
+
           <div className="flex gap-3">
-            <button onClick={() => wizardGo(backTargetFor(step), "back")}
+            <button onClick={() => { setDuplicateSnapshot(null); wizardGo(backTargetFor(step), "back"); }}
               className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
               Back
             </button>
             <button onClick={() => handleInvestmentImport()}
               className="px-6 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg font-medium hover:opacity-90 transition-opacity">
-              Import {invTotals.count} Positions
+              Import {invTotals.count} Position{invTotals.count === 1 ? "" : "s"}
+              {invParsed.activity.length > 0 && ` + ${invParsed.activity.length} Activity`}
             </button>
             <button onClick={reset} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">Cancel</button>
           </div>
         </div>
       )}
 
+      {step === "wizard:reconcile" && parsed && (
+        <div key="wizard:reconcile" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "hsl(var(--warning)/0.12)" }}>
+              <AlertTriangle size={18} className="text-[hsl(var(--warning))]" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold leading-tight">Possible duplicates found</h2>
+              <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">
+                {dupCandidates.length} transaction{dupCandidates.length === 1 ? "" : "s"} in this file look like they might
+                already be on this account as a manual entry (same amount, a close date, and a similar description).
+                Choose what to keep for each - "Keep both" is safest if they're actually different.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {dupCandidates.map((c, i) => (
+              <div key={c.existingTxnId} className="border rounded-xl p-4 space-y-3">
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="border rounded-lg p-3">
+                    <p className="text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))] mb-1">Your manual entry</p>
+                    <p className="font-medium truncate">{c.existingDescription}</p>
+                    <p className="text-xs text-[hsl(var(--muted-foreground))]">{formatDate(c.existingDate)} · {formatCurrency(c.existingAmountCents)}</p>
+                  </div>
+                  <div className="border rounded-lg p-3">
+                    <p className="text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))] mb-1">Being imported</p>
+                    <p className="font-medium truncate">{c.importedDescription}</p>
+                    <p className="text-xs text-[hsl(var(--muted-foreground))]">{formatDate(c.importedDate)} · {formatCurrency(c.importedAmountCents)}</p>
+                  </div>
+                </div>
+                <div className="flex gap-2 text-xs flex-wrap">
+                  {([
+                    { key: "keep_both" as const, label: "Keep both (not a duplicate)" },
+                    { key: "keep_manual" as const, label: "Keep my manual entry" },
+                    { key: "keep_imported" as const, label: "Keep the imported one" },
+                  ]).map((opt) => (
+                    <button
+                      key={opt.key}
+                      onClick={() => setDupCandidates((prev) => prev.map((p, pi) => (pi === i ? { ...p, resolution: opt.key } : p)))}
+                      className={`px-2.5 py-1.5 rounded-lg border transition-colors ${
+                        c.resolution === opt.key
+                          ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent"
+                          : "hover:bg-[hsl(var(--muted))]"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex gap-3">
+            <button onClick={() => wizardGo("wizard:balance", "back")}
+              className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
+              Back
+            </button>
+            <button onClick={() => wizardGo("wizard:preview", "forward")}
+              className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
+              Continue
+            </button>
+            <button onClick={reset} className="px-5 py-2 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors ml-auto">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {step === "wizard:preview" && parsed && (
         <div key="wizard:preview" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
-          {error && <p className="text-red-500 text-sm p-3 border border-red-300 rounded-lg">{error}</p>}
+          {error && <p className="text-[hsl(var(--error))] text-sm p-3 border border-[hsl(var(--error)/0.4)] rounded-lg">{error}</p>}
 
           {isPdfImport && (
-            <p className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1.5 p-3 border border-amber-300/50 rounded-lg bg-amber-500/5">
+            <p className="text-xs text-[hsl(var(--warning))] flex items-start gap-1.5 p-3 border border-[hsl(var(--warning)/0.35)] rounded-lg bg-[hsl(var(--warning)/0.06)]">
               <Info size={13} className="shrink-0 mt-0.5" />
               PDF statements are read with text-extraction heuristics, not a guaranteed column layout -
               double-check the rows below before importing. A CSV/XLSX export from your bank is more reliable when available.
@@ -2777,7 +2568,7 @@ export default function ImportPage() {
           )}
 
           {importKind === "credit" && accountChoice && (
-            <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+            <p className="text-xs text-[hsl(var(--success))] flex items-center gap-1">
               <CheckCircle2 size={12} />
               {accountChoice.mode === "existing"
                 ? <>Adding to your existing <strong>{accountChoice.name}</strong> account.</>
@@ -2828,11 +2619,11 @@ export default function ImportPage() {
                         {formatDate(parseDate(row[colMap.dateCol] ?? ""))}
                       </td>
                       <td className="px-4 py-2 max-w-xs truncate text-xs">{row[colMap.descCol]}</td>
-                      <td className={`px-4 py-2 text-right font-mono text-xs ${amt < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
+                      <td className={`px-4 py-2 text-right text-xs ${amt < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
                         {formatCurrency(Math.round(amt * 100))}
                       </td>
                       {colMap.balanceCol >= 0 && (
-                        <td className="px-4 py-2 text-right font-mono text-xs text-[hsl(var(--muted-foreground))]">
+                        <td className="px-4 py-2 text-right text-xs text-[hsl(var(--muted-foreground))]">
                           {balRaw ? formatCurrency(Math.round(parseAmount(balRaw) * 100)) : "-"}
                         </td>
                       )}
@@ -2850,7 +2641,7 @@ export default function ImportPage() {
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {allMonths.map((ym) => (
                   <span key={ym} className="text-xs px-2.5 py-0.5 rounded-full font-medium"
-                    style={{ backgroundColor: "hsl(var(--primary)/0.12)", color: "hsl(var(--primary))" }}>
+                    style={{ backgroundColor: "hsl(var(--primary)/0.12)", color: "hsl(var(--gold-ink))" }}>
                     {ym}
                   </span>
                 ))}
@@ -2863,7 +2654,7 @@ export default function ImportPage() {
               <input type="month" value={targetMonth} onChange={(e) => setTargetMonth(e.target.value)}
                 className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]" />
               {detectedMonth && detectedMonth !== targetMonth && (
-                <button onClick={() => setTargetMonth(detectedMonth)} className="text-xs text-[hsl(var(--primary))] hover:underline">
+                <button onClick={() => setTargetMonth(detectedMonth)} className="text-xs text-[hsl(var(--gold-ink))] hover:underline">
                   Reset to detected ({detectedMonth})
                 </button>
               )}
@@ -2889,7 +2680,7 @@ export default function ImportPage() {
                   handleImport();
                 }}
                 disabled={importSubmitting}
-                className="px-5 py-2 bg-[hsl(var(--primary)/0.15)] text-[hsl(var(--primary))]
+                className="px-5 py-2 bg-[hsl(var(--primary)/0.15)] text-[hsl(var(--gold-ink))]
                            border border-[hsl(var(--primary)/0.4)] rounded-lg text-sm font-medium
                            hover:bg-[hsl(var(--primary)/0.25)] transition-colors disabled:opacity-50"
                 title="Import this file then automatically import all remaining files using the same column settings"
@@ -2904,7 +2695,7 @@ export default function ImportPage() {
 
       {step === "importing" && (
         <div className="text-center py-16">
-              <div className="flex justify-center mb-4 text-blue-500"><Info size={48} /></div>
+              <div className="flex justify-center mb-4 text-[hsl(var(--gold-ink))]"><Loader2 size={48} className="animate-spin" /></div>
           {batchAutoMode && totalBatchCount > 1 ? (
             <>
               <p className="font-medium mb-1">
@@ -2930,7 +2721,7 @@ export default function ImportPage() {
         <div className="text-center py-12 wizard-enter-done">
           {summary.imported === 0 ? (
             <>
-              <div className="flex justify-center mb-4 text-blue-500"><Info size={48} /></div>
+              <div className="flex justify-center mb-4 text-[hsl(var(--gold-ink))]"><Info size={48} /></div>
               <p className="text-xl font-semibold mb-2">Already imported</p>
               <p className="text-[hsl(var(--muted-foreground))] mb-6">
                 All {summary.skipped} rows from <strong>{currentFilename}</strong> already exist
@@ -2939,7 +2730,7 @@ export default function ImportPage() {
             </>
           ) : (
             <>
-              <div className="flex justify-center mb-4 wizard-enter-done"><CheckCircle2 size={48} className="text-green-500" /></div>
+              <div className="flex justify-center mb-4 wizard-enter-done"><CheckCircle2 size={48} className="text-[hsl(var(--success))]" /></div>
               <p className="text-xl font-semibold mb-2">Import complete!</p>
               <p className="text-[hsl(var(--muted-foreground))] mb-6">
                 <span className="text-[hsl(var(--success))] font-semibold">{summary.imported} transactions</span>{" "}
@@ -2968,7 +2759,24 @@ export default function ImportPage() {
                   saved and are not counted above.
                 </p>
               )}
+              {(!!summary.keptManualCount || !!summary.replacedManualCount) && (
+                <p className="text-xs text-[hsl(var(--warning))] mb-6 max-w-md mx-auto border rounded-lg px-3 py-2 border-[hsl(var(--warning)/0.3)]"
+                  style={{ backgroundColor: "hsl(var(--warning)/0.05)" }}>
+                  {!!summary.keptManualCount && (
+                    <>Kept <strong>{summary.keptManualCount}</strong> existing manual {summary.keptManualCount === 1 ? "entry" : "entries"} instead of the matching imported row{summary.keptManualCount === 1 ? "" : "s"}. </>
+                  )}
+                  {!!summary.replacedManualCount && (
+                    <>Replaced <strong>{summary.replacedManualCount}</strong> manual {summary.replacedManualCount === 1 ? "entry" : "entries"} with the imported version.</>
+                  )}
+                </p>
+              )}
             </>
+          )}
+          {!!summary.activityImported && (
+            <p className="text-xs text-[hsl(var(--muted-foreground))] mb-6 max-w-md mx-auto">
+              Also recorded <strong>{summary.activityImported}</strong> statement activity {summary.activityImported === 1 ? "line" : "lines"}
+              {!!summary.skipped && <> ({summary.skipped} already imported)</>}.
+            </p>
           )}
           <div className="flex gap-3 justify-center">
             {summary.imported > 0 && (
@@ -3041,9 +2849,9 @@ export default function ImportPage() {
                     <td className="px-4 py-2 font-mono text-xs max-w-[200px] truncate" title={s.filename}>
                       <span className="inline-flex items-center gap-1.5">
                         {s.kind === "investment"
-                          ? <TrendingUp size={12} className="shrink-0 text-[hsl(var(--primary))]" />
+                          ? <TrendingUp size={12} className="shrink-0 text-[hsl(var(--gold-ink))]" />
                           : s.kind === "loan"
-                          ? <HandCoins size={12} className="shrink-0 text-[hsl(var(--primary))]" />
+                          ? <HandCoins size={12} className="shrink-0 text-[hsl(var(--gold-ink))]" />
                           : <Landmark size={12} className="shrink-0 text-[hsl(var(--muted-foreground))]" />}
                         {s.filename}
                       </span>
@@ -3057,7 +2865,7 @@ export default function ImportPage() {
                         <span className="flex items-center justify-end gap-2 text-xs">
                           <button
                             onClick={() => undoImport(s.id)}
-                            className="text-red-500 font-medium hover:underline"
+                            className="text-[hsl(var(--error))] font-medium hover:underline"
                           >
                             Delete {s.row_count} rows
                           </button>
@@ -3072,7 +2880,7 @@ export default function ImportPage() {
                       ) : (
                         <button
                           onClick={() => setConfirmDeleteId(s.id)}
-                          className="text-xs text-[hsl(var(--muted-foreground))] hover:text-red-500
+                          className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))]
                                      transition-colors"
                         >
                           Undo

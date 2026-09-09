@@ -1,3 +1,4 @@
+import ScopeToggle from "@/components/ScopeToggle";
 import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -7,9 +8,11 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { TrendingUp, TrendingDown } from "lucide-react";
 import { getDb } from "@/lib/db";
+import { incomeSumSql, expenseSumSql, categorySpendSql } from "@/lib/reportingSql";
 import { formatCurrency, formatMonthLabel, formatAxisCurrency, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
 import { pickVariantIndex } from "@/lib/voice";
 import { useProfileStore } from "@/stores/profileStore";
+import { handleLoadFailure } from "@/stores/toastStore";
 import type { Profile } from "@/lib/types";
 import PinModal from "@/components/PinModal";
 import { Skeleton } from "@/components/Skeleton";
@@ -25,17 +28,19 @@ interface CreditAccountMeta { id: number; name: string; color: string; }
 const RANGE_OPTIONS = [3, 6, 12];
 const VIEW_KEY = "compass_trends_view";
 
-function ScopeToggle({ isGlobal, onToggle }: { isGlobal: boolean; onToggle: () => void }) {
-  return (
-    <button role="switch" aria-checked={isGlobal} onClick={onToggle}
-      style={{ width:52,height:28,borderRadius:14,padding:3,backgroundColor:isGlobal?"var(--gold)":"hsl(var(--primary))",transition:"background-color 0.3s",cursor:"pointer",display:"inline-flex",alignItems:"center",border:"none",flexShrink:0,boxShadow:"inset 0 1px 3px rgba(0,0,0,0.18)" }}>
-      <div style={{ width:22,height:22,borderRadius:11,backgroundColor:"white",transition:"transform 0.25s cubic-bezier(0.4,0,0.2,1)",transform:isGlobal?"translateX(24px)":"translateX(0)",boxShadow:"0 1px 4px rgba(0,0,0,0.28)",flexShrink:0 }} />
-    </button>
-  );
+export default function TrendsPage() {
+  const profileId = useProfileStore((state) => state.activeProfile?.id ?? 1);
+  return <ProfileTrends key={profileId} />;
 }
 
-export default function TrendsPage() {
-  const [range, setRange] = useState(6);
+function ProfileTrends() {
+  const currentProfileId = useProfileStore((state) => state.activeProfile?.id ?? 1);
+  const [range, setRange] = useState(() => {
+    try { const stored = Number(sessionStorage.getItem(`compass_trends_view_${currentProfileId}`)); return RANGE_OPTIONS.includes(stored) ? stored : 6; } catch { return 6; }
+  });
+  useEffect(() => {
+    try { sessionStorage.setItem(`compass_trends_view_${currentProfileId}`, String(range)); } catch { return; }
+  }, [currentProfileId, range]);
   const [monthly, setMonthly] = useState<MonthRow[]>([]);
   const [stacked, setStacked] = useState<StackedRow[]>([]);
   const [catColors, setCatColors] = useState<Record<string, string>>({});
@@ -84,9 +89,12 @@ export default function TrendsPage() {
    *  framing at all (small/noisy categories under $30 last month are ignored, and the swing
    *  itself must be at least $30 to be worth mentioning). */
   const categoryTrendNarrative = useMemo(() => {
-    if (stacked.length < 2 || catNames.length === 0) return null;
-    const last = stacked[stacked.length - 1];
-    const prev = stacked[stacked.length - 2];
+    const today = new Date();
+    const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+    const completed = stacked.filter((row) => row.month < currentMonth);
+    if (completed.length < 2 || catNames.length === 0) return null;
+    const last = completed[completed.length - 1];
+    const prev = completed[completed.length - 2];
     let best: { cat: string; delta: number; prevTotal: number; curTotal: number } | null = null;
     for (const cat of catNames) {
       const curTotal = Number(last[cat] ?? 0);
@@ -100,14 +108,14 @@ export default function TrendsPage() {
     const seedKey = `${best.cat}:${last.month}`;
     const variants = rising
       ? [
-          `${best.cat} jumped to ${formatCurrency(best.curTotal)} this month, up from ${formatCurrency(best.prevTotal)} - worth a look if that wasn't planned.`,
-          `Biggest mover: ${best.cat}, up ${formatCurrency(best.delta)} from last month.`,
+          `${best.cat} rose to ${formatCurrency(best.curTotal)}, up from ${formatCurrency(best.prevTotal)}.`,
+          `Biggest mover: ${best.cat}, up ${formatCurrency(best.delta)}.`,
         ]
       : [
-          `${best.cat} dropped to ${formatCurrency(best.curTotal)} this month, down from ${formatCurrency(best.prevTotal)} - nice pullback.`,
-          `Biggest mover: ${best.cat}, down ${formatCurrency(Math.abs(best.delta))} from last month.`,
+          `${best.cat} fell to ${formatCurrency(best.curTotal)}, down from ${formatCurrency(best.prevTotal)}.`,
+          `Biggest mover: ${best.cat}, down ${formatCurrency(Math.abs(best.delta))}.`,
         ];
-    return { text: variants[pickVariantIndex(seedKey, variants.length)], rising };
+    return { text: `${formatMonthLabel(last.month)} vs ${formatMonthLabel(prev.month)}: ${variants[pickVariantIndex(seedKey, variants.length)]}`, rising };
   }, [stacked, catNames]);
 
   const ids = viewMode === "global" ? (unlockedProfileIds.length > 0 ? unlockedProfileIds : [profileId]) : [profileId];
@@ -127,7 +135,7 @@ export default function TrendsPage() {
     const start = `${y}-${String(m).padStart(2, "0")}-01`;
     const end = new Date(y, m, 1).toISOString().split("T")[0];
     const rows = await db.select<{ name: string; color: string; total: number }[]>(
-      `SELECT c.name, c.color, MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)) as total
+      `SELECT c.name, c.color, ${categorySpendSql()} as total
        FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
        JOIN accounts a ON a.id=t.account_id
        WHERE t.date>=? AND t.date<? AND t.profile_id IN (${ph})
@@ -162,8 +170,8 @@ export default function TrendsPage() {
       const [incExpRows, catRows, allTimeRow, cumRows, balanceRows, balanceAcctRows] = await Promise.all([
         db.select<{ month: string; income: number; expenses: number }[]>(
           `SELECT strftime('%Y-%m', t.date) as month,
-                  SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income,
-                  SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+                  ${incomeSumSql()} as income,
+                  ${expenseSumSql()} as expenses
            FROM transactions t JOIN accounts a ON a.id=t.account_id
            WHERE t.date>=? AND t.profile_id IN (${ph})
            GROUP BY month ORDER BY month`,
@@ -171,7 +179,7 @@ export default function TrendsPage() {
         ),
         db.select<CatMonthRow[]>(
           `SELECT strftime('%Y-%m', t.date) as month, c.name as category, c.color, t.category_id as categoryId,
-                  MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)) as total
+                  ${categorySpendSql()} as total
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
            JOIN accounts a ON a.id=t.account_id
            WHERE t.date>=? AND t.profile_id IN (${ph})
@@ -181,16 +189,15 @@ export default function TrendsPage() {
         ),
         db.select<{ income: number; expenses: number }[]>(
           `SELECT
-             SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END) as income,
-             SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) THEN ABS(t.amount_cents) ELSE 0 END) as expenses
+             ${incomeSumSql()} as income,
+             ${expenseSumSql()} as expenses
            FROM transactions t JOIN accounts a ON a.id=t.account_id
            WHERE t.profile_id IN (${ph})`,
           [...ids]
         ),
         db.select<{ month: string; net: number }[]>(
           `SELECT strftime('%Y-%m', t.date) as month,
-             SUM(CASE WHEN t.amount_cents>0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type NOT IN ('credit','loan') THEN t.amount_cents ELSE 0 END)
-             - SUM(CASE WHEN t.amount_cents<0 AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) THEN ABS(t.amount_cents) ELSE 0 END) as net
+             ${incomeSumSql()} - ${expenseSumSql()} as net
            FROM transactions t JOIN accounts a ON a.id=t.account_id
            WHERE t.profile_id IN (${ph})
            GROUP BY month ORDER BY month`,
@@ -271,7 +278,7 @@ export default function TrendsPage() {
       setStacked(Object.values(byMonth).sort((a,b) => String(a.month).localeCompare(String(b.month))));
       setLoading(false);
     }
-    load().catch(console.error);
+    load().catch(handleLoadFailure("your trends", setLoading));
     return () => { cancelled = true; };
   }, [range, profileId, viewMode, unlockedProfileIds]);
 
@@ -283,14 +290,14 @@ export default function TrendsPage() {
     <>
       {pinTarget && <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />}
 
-      <div className="p-8 space-y-6 max-w-6xl mx-auto w-full">
+      <div className="workspace-page space-y-6 trends-workspace">
         {/* Header */}
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <h1 className="text-2xl font-semibold">Spending Trends</h1>
           <div className="flex items-center gap-3 flex-wrap">
             {/* Scope toggle */}
             <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold select-none" style={{ color: viewMode !== "profile" ? "hsl(var(--muted-foreground))" : "hsl(var(--primary))", transition:"color 0.3s" }}>Profile</span>
+              <span className="text-sm font-semibold select-none" style={{ color: viewMode !== "profile" ? "hsl(var(--muted-foreground))" : "hsl(var(--gold-ink))", transition:"color 0.3s" }}>Profile</span>
               <ScopeToggle isGlobal={viewMode === "global"} onToggle={() => viewMode === "global" ? handleSwitchToProfile() : handleSwitchToGlobal()} />
               <span className="text-sm font-semibold select-none" style={{ color: viewMode === "global" ? "var(--gold)" : "hsl(var(--muted-foreground))", transition:"color 0.3s" }}>Global</span>
             </div>
@@ -341,14 +348,14 @@ export default function TrendsPage() {
               <div
                 className={`flex items-start gap-2.5 rounded-xl px-4 py-3 text-sm ${
                   categoryTrendNarrative.rising
-                    ? "bg-gradient-to-br from-amber-50 to-amber-50/30 dark:from-amber-950/30 dark:to-amber-950/10"
-                    : "bg-gradient-to-br from-emerald-50/80 to-emerald-50/20 dark:from-emerald-950/25 dark:to-emerald-950/10"
+                    ? "bg-gradient-to-br from-[hsl(var(--warning)/0.08)] to-[hsl(var(--warning)/0.02)] dark:from-[hsl(var(--warning)/0.12)] dark:to-[hsl(var(--warning)/0.04)]"
+                    : "bg-gradient-to-br from-[hsl(var(--success)/0.08)] to-[hsl(var(--success)/0.02)] dark:from-[hsl(var(--success)/0.12)] dark:to-[hsl(var(--success)/0.04)]"
                 }`}
               >
                 {categoryTrendNarrative.rising
-                  ? <TrendingUp size={15} className="shrink-0 mt-0.5 text-amber-500" />
-                  : <TrendingDown size={15} className="shrink-0 mt-0.5 text-emerald-600" />}
-                <p className={categoryTrendNarrative.rising ? "text-amber-900 dark:text-amber-100" : "text-emerald-900 dark:text-emerald-100"}>
+                  ? <TrendingUp size={15} className="shrink-0 mt-0.5 text-[hsl(var(--warning))]" />
+                  : <TrendingDown size={15} className="shrink-0 mt-0.5 text-[hsl(var(--success))]" />}
+                <p className="text-[hsl(var(--foreground))]">
                   {categoryTrendNarrative.text}
                 </p>
               </div>
@@ -380,7 +387,7 @@ export default function TrendsPage() {
                     <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize:11 }} />
                     <Tooltip contentStyle={tooltipStyle} labelFormatter={(l) => formatMonthLabel(String(l))} formatter={v => formatCurrency(v as number)} />
                     <ReferenceLine y={0} stroke="hsl(var(--border))" strokeDasharray="3 3" />
-                    <Line type="monotone" dataKey="balance" name="Balance" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="balance" name="Balance" stroke="hsl(var(--sea))" strokeWidth={2} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -495,7 +502,7 @@ export default function TrendsPage() {
                     <div className="mt-1 pt-3 border-t">
                       <div className="flex items-center justify-between mb-2">
                         <p className="text-xs font-semibold">Top categories - {formatMonthLabel(expandedMonth)}</p>
-                        <Link to="/transactions" state={{ month: expandedMonth }} className="text-[11px] text-[hsl(var(--primary))] hover:underline">
+                        <Link to="/transactions" state={{ month: expandedMonth }} className="text-[11px] text-[hsl(var(--gold-ink))] hover:underline">
                           View month →
                         </Link>
                       </div>
@@ -511,7 +518,7 @@ export default function TrendsPage() {
                                 <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
                                 {c.name}
                               </span>
-                              <span className="font-mono">{formatCurrency(c.total)}</span>
+                              <span>{formatCurrency(c.total)}</span>
                             </div>
                           ))}
                         </div>
@@ -568,7 +575,7 @@ export default function TrendsPage() {
                             <Link
                               to="/transactions"
                               state={{ category: catIds[expandedCatName] }}
-                              className="text-[11px] text-[hsl(var(--primary))] hover:underline"
+                              className="text-[11px] text-[hsl(var(--gold-ink))] hover:underline"
                             >
                               View all ?
                             </Link>
@@ -581,7 +588,7 @@ export default function TrendsPage() {
                             return (
                               <div key={row.month} className="flex items-center justify-between text-xs py-1">
                                 <span className="text-[hsl(var(--muted-foreground))]">{formatMonthLabel(row.month)}</span>
-                                <span className="font-mono">{formatCurrency(amt)}</span>
+                                <span>{formatCurrency(amt)}</span>
                               </div>
                             );
                           })}

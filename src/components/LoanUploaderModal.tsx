@@ -4,6 +4,7 @@ import { Upload, Loader2, Info } from "lucide-react";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import { upsertLoanStatement, getLoanAccountsForProfile, type LoanAccount } from "@/lib/db";
 import { parseLoanStatementFile } from "@/lib/pdfParse";
+import { parseDollarInput } from "@/lib/utils";
 
 interface Props {
   profileId: number;
@@ -27,11 +28,6 @@ function parseLooseDate(s: string): string {
   return isNaN(d.getTime()) ? new Date().toISOString().split("T")[0] : d.toISOString().split("T")[0];
 }
 
-function parseDollarInput(s: string): number {
-  const n = parseFloat(s.replace(/[^0-9.]/g, ""));
-  return isNaN(n) ? 0 : n;
-}
-
 /** True if `guess` (a loosely-extracted lender name) plausibly refers to `loan` - used to
  *  auto-pick an existing loan account while bulk-uploading several statements at once so the
  *  user isn't forced to match every file by hand. Deliberately loose (substring, either
@@ -44,7 +40,7 @@ function institutionMatchesLoan(guess: string, loan: LoanAccount): boolean {
 }
 
 export default function LoanUploaderModal({ profileId, existingLoan, onClose, onSaved }: Props) {
-  const { onBackdropClick } = useModalDismiss(onClose);
+  const { onBackdropClick, containerRef } = useModalDismiss(onClose);
   const isAdd = !existingLoan;
 
   const [name, setName] = useState(existingLoan?.name ?? "");
@@ -208,7 +204,8 @@ export default function LoanUploaderModal({ profileId, existingLoan, onClose, on
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
-      onClick={onBackdropClick}
+      onClick={onBackdropClick} ref={containerRef}
+      role="dialog" aria-modal="true" aria-label="Loan statement upload"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
     >
       <motion.div
@@ -222,8 +219,8 @@ export default function LoanUploaderModal({ profileId, existingLoan, onClose, on
           they only track balance over time for the Loan Dashboard and net worth.
         </p>
 
-        {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
-        {batchWarning && <p className="mb-3 text-sm text-amber-600 dark:text-amber-400">{batchWarning}</p>}
+        {error && <p className="mb-3 text-sm text-[hsl(var(--error))]">{error}</p>}
+        {batchWarning && <p className="mb-3 text-sm text-[hsl(var(--warning))]">{batchWarning}</p>}
 
         <label
           className={`mb-4 flex items-center justify-center gap-2 border-2 border-dashed rounded-xl p-4 text-sm cursor-pointer
@@ -243,7 +240,7 @@ export default function LoanUploaderModal({ profileId, existingLoan, onClose, on
         </label>
 
         {pdfNotice && (
-          <p className="mb-2 text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1.5">
+          <p className="mb-2 text-xs text-[hsl(var(--warning))] flex items-start gap-1.5">
             <Info size={12} className="shrink-0 mt-0.5" />
             {pdfNotice}
           </p>

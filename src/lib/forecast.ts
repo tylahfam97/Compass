@@ -1,0 +1,600 @@
+import type { RecurringCadence } from "./types";
+import { computeNextOccurrence, type RecurringSchedule } from "./recurring";
+
+/**
+ * Forward-looking cash flow projection: given today's checking balance, the bills and income
+ * we know are coming, and a baseline for everyday spending, what does the balance look like
+ * over the next N days and does it ever dip below zero?
+ *
+ * Deliberately pure and synchronous (no DB access, no async) for two reasons: it's directly
+ * unit-testable, and the what-if controls on the Plan page can recompute it inside a `useMemo`
+ * on every slider tick with no round trip - the same split `simulateCustomDebtPayoff` uses in
+ * agent.ts. DB gathering lives in `forecastData.ts`.
+ *
+ * Scope note: checking/debit accounts only. Credit cards are deliberately excluded - "will I
+ * make it to payday" is a question about spendable cash, and folding in revolving balances
+ * makes the number much harder to explain than it is useful.
+ */
+
+const MS_PER_DAY = 86_400_000;
+
+/** Whether an event is a bill the user told us about or one we inferred from their history. */
+export type ForecastEventSource = "rule" | "detected";
+
+export interface ForecastEvent {
+  key: string;
+  /** YYYY-MM-DD */
+  date: string;
+  description: string;
+  /** Signed: negative is money out, positive is money in. */
+  amountCents: number;
+  source: ForecastEventSource;
+  categoryName: string | null;
+  categoryColor: string | null;
+}
+
+/** A recurring schedule plus the details needed to turn each occurrence into an event. */
+export interface ForecastRule extends RecurringSchedule {
+  id: number;
+  description: string;
+  amount_cents: number;
+  source: ForecastEventSource;
+  category_name?: string | null;
+  category_color?: string | null;
+}
+
+export interface ForecastDay {
+  scenarioSpendCents?: number;
+  purchaseCents?: number;
+  date: string;
+  /** Projected balance at the end of this day. */
+  balanceCents: number;
+  events: ForecastEvent[];
+  /** Scheduled bills still to be paid after this day. Deliberately excludes any assumed
+   *  spending - that's a projection of the user's own choices, not an obligation, and folding
+   *  it in made the band slide down continuously with nothing real behind the movement. */
+  committedCents: number;
+}
+
+export interface ForecastResult {
+  days: ForecastDay[];
+  /** The lowest projected balance in the window - the number that actually matters. */
+  lowPoint: ForecastDay | null;
+  /** Every day the projection is below zero. */
+  shortfallDays: ForecastDay[];
+  /** The first day the projection goes below zero, if it ever does. */
+  firstShortfall: ForecastDay | null;
+  /** Next money-in event after the start date. */
+  nextIncome: ForecastEvent | null;
+  /** True if the balance stays at or above zero all the way to `nextIncome`. */
+  makesItToPayday: boolean;
+  totalIncomeCents: number;
+  totalBillsCents: number;
+  /** Extra day-to-day spending the user asked to simulate, across the whole window. Zero unless
+   *  a what-if is running - the projection never invents spending on its own. */
+  assumedSpendCents: number;
+  /**
+   * Income in this window minus the bills scheduled against it - what's left over to live on.
+   */
+  afterBillsCents: number;
+  /** Projected balance on the final day of the window. */
+  endingBalanceCents: number;
+  /** What can be spent today without driving the projected low point below `bufferCents`. */
+  safeToSpendCents: number;
+}
+
+export interface ProjectCashFlowInput {
+  extraSpendCents?: number;
+  purchase?: { date: string; amountCents: number };
+  startingBalanceCents: number;
+  /** YYYY-MM-DD, normally today. */
+  startDate: string;
+  days: number;
+  events: ForecastEvent[];
+  /** Extra spending per day to simulate, as a positive number. Defaults to 0 - the forecast is
+   *  built from scheduled bills and income only, never from an inferred spending rate. */
+  dailySpendCents?: number;
+  /** Cash the user wants to keep untouched; subtracted from safe-to-spend. */
+  bufferCents?: number;
+}
+
+function toLocalDate(iso: string): Date {
+  // Date-only ISO strings parse as UTC midnight, which rolls back a day in negative-offset
+  // timezones - same guard as utils.ts/recurring.ts.
+  return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? new Date(`${iso}T00:00:00`) : new Date(iso);
+}
+
+export function toISODate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function addDays(d: Date, n: number): Date {
+  const out = new Date(d);
+  out.setDate(out.getDate() + n);
+  return out;
+}
+
+/** Stops a malformed cadence from looping forever; far more than any real 90-day window needs. */
+const MAX_OCCURRENCES_PER_RULE = 400;
+
+/**
+ * Expands recurring rules into every occurrence falling within [from, to]. `computeNextOccurrence`
+ * only ever returns the single next date, so this walks it forward one occurrence at a time.
+ */
+export function expandOccurrences(rules: ForecastRule[], from: Date, to: Date): ForecastEvent[] {
+  const events: ForecastEvent[] = [];
+
+  for (const rule of rules) {
+    let cursor = from;
+    for (let i = 0; i < MAX_OCCURRENCES_PER_RULE; i++) {
+      const next = computeNextOccurrence(rule, cursor);
+      if (next.getTime() > to.getTime()) break;
+      const date = toISODate(next);
+      events.push({
+        key: `${rule.source}-${rule.id}-${date}`,
+        date,
+        description: rule.description,
+        amountCents: rule.amount_cents,
+        source: rule.source,
+        categoryName: rule.category_name ?? null,
+        categoryColor: rule.category_color ?? null,
+      });
+      cursor = addDays(next, 1);
+    }
+  }
+
+  return events.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
+ * Turns a charge inferred from transaction history into a schedule we can project forward.
+ *
+ * `detectRecurringCharges` only reports charges with consecutive-month streaks, so monthly is
+ * the right cadence, and the day is taken from when it was last seen. Charges that actually
+ * follow an "nth weekday" pattern (a "3rd Thursday" bill) will land within a few days rather
+ * than exactly - which is why detected charges are shown as lower-confidence in the UI.
+ */
+export function detectedChargeToRule(
+  charge: {
+    description: string;
+    amount_cents: number;
+    last_seen: string;
+    category_name?: string | null;
+    category_color?: string | null;
+  },
+  index: number
+): ForecastRule {
+  return {
+    // Negative so an inferred charge's id can never collide with a real rule's.
+    id: -(index + 1),
+    description: charge.description,
+    amount_cents: -Math.abs(charge.amount_cents),
+    source: "detected",
+    cadence: "monthly",
+    day_of_month: toLocalDate(charge.last_seen).getDate(),
+    day_of_week: null,
+    start_date: charge.last_seen,
+    category_name: charge.category_name ?? null,
+    category_color: charge.category_color ?? null,
+  };
+}
+
+const OCCURRENCES_PER_MONTH: Record<RecurringCadence, number> = {
+  monthly: 1,
+  weekly: 52 / 12,
+  biweekly: 26 / 12,
+};
+/** A rule's cost normalised to "per month", so cadences can be compared and summed. */
+export function monthlyEquivalentCents(rule: { cadence: RecurringCadence; amount_cents: number }): number {
+  return Math.round(rule.amount_cents * OCCURRENCES_PER_MONTH[rule.cadence]);
+}
+
+export function projectCashFlow(input: ProjectCashFlowInput): ForecastResult {
+  const { startingBalanceCents, startDate, days, events } = input;
+  const dailySpendCents = input.dailySpendCents ?? 0;
+  const buffer = input.bufferCents ?? 0;
+
+  const byDate = new Map<string, ForecastEvent[]>();
+  for (const e of events) {
+    const list = byDate.get(e.date);
+    if (list) list.push(e);
+    else byDate.set(e.date, [e]);
+  }
+
+  const start = toLocalDate(startDate);
+  const out: ForecastDay[] = [];
+  let balance = startingBalanceCents;
+  let totalIncome = 0;
+  let totalBills = 0;
+  let assumedSpend = 0;
+  const extra = Math.max(0, Math.round(input.extraSpendCents ?? 0));
+  const dailyExtra = days > 0 ? Math.floor(extra / days) : 0;
+  const remainder = days > 0 ? extra % days : 0;
+
+  for (let i = 0; i < days; i++) {
+    const date = toISODate(addDays(start, i));
+    const dayEvents = byDate.get(date) ?? [];
+
+    for (const e of dayEvents) {
+      balance += e.amountCents;
+      if (e.amountCents > 0) totalIncome += e.amountCents;
+      else totalBills += Math.abs(e.amountCents);
+    }
+    const purchaseCents = input.purchase?.date === date ? Math.max(0, Math.round(input.purchase.amountCents)) : 0;
+    const scenarioSpendCents = dailyExtra + (i < remainder ? 1 : 0) + purchaseCents;
+    balance -= dailySpendCents + scenarioSpendCents;
+    assumedSpend += dailySpendCents + scenarioSpendCents;
+
+    out.push({ date, balanceCents: balance, events: dayEvents, committedCents: 0, scenarioSpendCents, purchaseCents });
+  }
+
+  // Reverse pass: what's still owed after each day. Has to run backwards because a day's
+  // commitment depends on everything that comes after it.
+  let stillOwed = 0;
+  for (let i = out.length - 1; i >= 0; i--) {
+    out[i].committedCents = stillOwed;
+    stillOwed += out[i].events.reduce(
+      (sum, e) => sum + (e.amountCents < 0 ? Math.abs(e.amountCents) : 0),
+      0
+    );
+  }
+
+  let lowPoint: ForecastDay | null = null;
+  for (const day of out) {
+    if (!lowPoint || day.balanceCents < lowPoint.balanceCents) lowPoint = day;
+  }
+
+  const shortfallDays = out.filter((d) => d.balanceCents < 0);
+  const firstShortfall = shortfallDays[0] ?? null;
+
+  const nextIncome = events.find((e) => e.amountCents > 0 && e.date >= startDate) ?? null;
+  const makesItToPayday = nextIncome
+    ? !out.some((d) => d.date <= nextIncome.date && d.balanceCents < 0)
+    : !firstShortfall;
+
+  return {
+    days: out,
+    lowPoint,
+    shortfallDays,
+    firstShortfall,
+    nextIncome,
+    makesItToPayday,
+    totalIncomeCents: totalIncome,
+    totalBillsCents: totalBills,
+    assumedSpendCents: assumedSpend,
+    afterBillsCents: totalIncome - totalBills,
+    endingBalanceCents: out.length > 0 ? out[out.length - 1].balanceCents : startingBalanceCents,
+    safeToSpendCents: (lowPoint?.balanceCents ?? startingBalanceCents) - buffer,
+  };
+}
+
+/** Whole days from `from` to `iso`, for "in 6 days" style labels. */
+export function daysFromToday(iso: string, from: Date = new Date()): number {
+  const a = toLocalDate(iso).getTime();
+  const b = new Date(from.getFullYear(), from.getMonth(), from.getDate()).getTime();
+  return Math.round((a - b) / MS_PER_DAY);
+}
+
+/** How much history the spending baseline looks back over. */
+export const BASELINE_WEEKS = 13;
+/** Below these, the baseline is too thin to trust and the toggle is disabled. */
+export const BASELINE_MIN_TX = 20;
+export const BASELINE_MIN_WEEKS = 4;
+
+export interface SpendingBaseline {
+  /** Typical everyday spending per day: median of trailing 7-day totals, divided by 7. */
+  dailySpendCents: number;
+  txCount: number;
+  /** Full 7-day windows the history actually covers, capped at BASELINE_WEEKS. */
+  weeksCovered: number;
+}
+
+/** Whether a baseline has enough history behind it to project forward honestly. */
+export function baselineIsUsable(b: SpendingBaseline | null): b is SpendingBaseline {
+  return !!b && b.txCount >= BASELINE_MIN_TX && b.weeksCovered >= BASELINE_MIN_WEEKS;
+}
+
+/**
+ * Derives "what I typically spend per day" from discretionary expense transactions (callers
+ * must pre-filter out scheduled bills - those are already projected as events).
+ *
+ * Median of 7-day-window totals rather than of daily totals: most days have zero spending, so
+ * a daily median collapses to $0, and a plain mean lets one $900 repair inflate "typical" for
+ * three months. Weekly windows with a median keep one bad week from moving the number.
+ */
+export function computeSpendingBaseline(
+  transactions: { date: string; amount_cents: number }[],
+  today: Date = new Date()
+): SpendingBaseline | null {
+  const expenses = transactions.filter((t) => t.amount_cents < 0);
+  if (expenses.length === 0) return null;
+
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  let earliest = Infinity;
+  const byDaysAgo = new Map<number, number>();
+  for (const t of expenses) {
+    // daysFromToday is negative for past dates.
+    const daysAgo = -daysFromToday(t.date, startOfToday);
+    if (daysAgo < 0) continue;
+    earliest = Math.min(earliest, -daysAgo);
+    byDaysAgo.set(daysAgo, (byDaysAgo.get(daysAgo) ?? 0) + Math.abs(t.amount_cents));
+  }
+  if (!isFinite(earliest)) return null;
+
+  const historyDays = -earliest + 1;
+  const weeksCovered = Math.min(BASELINE_WEEKS, Math.floor(historyDays / 7));
+  if (weeksCovered === 0) return { dailySpendCents: 0, txCount: expenses.length, weeksCovered: 0 };
+
+  // Window w covers daysAgo [7w+1 .. 7w+7]: yesterday backwards, so today's partial day never
+  // drags the most recent window down.
+  const weekTotals: number[] = [];
+  for (let w = 0; w < weeksCovered; w++) {
+    let total = 0;
+    for (let d = 7 * w + 1; d <= 7 * w + 7; d++) total += byDaysAgo.get(d) ?? 0;
+    weekTotals.push(total);
+  }
+
+  weekTotals.sort((a, b) => a - b);
+  const mid = Math.floor(weekTotals.length / 2);
+  const medianWeek =
+    weekTotals.length % 2 === 1 ? weekTotals[mid] : Math.round((weekTotals[mid - 1] + weekTotals[mid]) / 2);
+
+  return {
+    dailySpendCents: Math.round(medianWeek / 7),
+    txCount: expenses.length,
+    weeksCovered,
+  };
+}
+
+export interface EventGroup {
+  label: string;
+  events: ForecastEvent[];
+}
+
+function monthHeading(iso: string, today: Date): string {
+  const d = toLocalDate(iso);
+  const sameYear = d.getFullYear() === today.getFullYear();
+  return d.toLocaleDateString(undefined, sameYear ? { month: "long" } : { month: "long", year: "numeric" });
+}
+
+/**
+ * Buckets upcoming events for the bill list. Near-term items are grouped by how soon they are,
+ * but anything past a fortnight is grouped by its ACTUAL calendar month - a 30-day window spans
+ * two months, and labelling September's bills "later this month" made them look like duplicates
+ * of August's.
+ */
+export function groupUpcomingEvents(events: ForecastEvent[], today: Date = new Date()): EventGroup[] {
+  const currentMonth = toISODate(today).slice(0, 7);
+  const groups: EventGroup[] = [];
+
+  for (const e of events) {
+    const days = daysFromToday(e.date, today);
+    const label =
+      days <= 0 ? "Today"
+      : days <= 7 ? "This week"
+      : days <= 14 ? "Next week"
+      : e.date.slice(0, 7) === currentMonth ? "Later this month"
+      : monthHeading(e.date, today);
+
+    const existing = groups.find((g) => g.label === label);
+    if (existing) existing.events.push(e);
+    else groups.push({ label, events: [e] });
+  }
+
+  return groups;
+}
+
+/** The three questions people ask about their balance. Each resolves to a different length. */
+export type ForecastWindowMode = "month" | "paycheck" | "nextMonth";
+
+export interface ResolvedWindow {
+  /** Number of days to project, inclusive of today. */
+  days: number;
+  /** Last day covered, YYYY-MM-DD. */
+  endDate: string;
+  /** True when "to next paycheck" was asked for but no income is scheduled, so this fell back
+   *  to the rest of the month. */
+  usedFallback: boolean;
+}
+
+/**
+ * Works out how many days a window covers. "To next paycheck" can't know its own length until
+ * the paycheck has been located, so this takes the already-expanded event list.
+ *
+ * The paycheck window runs up to and including the day the money lands, so the user can see it
+ * arrive - the low point that matters still falls before it.
+ *
+ * "Through next month" deliberately ends on the last day of the following month rather than a
+ * flat 30 days: a rolling 30-day window from mid-month stops before the next month's rent is
+ * due, so a bill you certainly owe simply vanishes from the list.
+ */
+export function resolveForecastWindow(
+  events: ForecastEvent[],
+  today: Date,
+  mode: ForecastWindowMode
+): ResolvedWindow {
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const todayIso = toISODate(startOfToday);
+
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const monthDays = daysInMonth - today.getDate() + 1;
+
+  // Day 0 of month+2 is the last day of month+1.
+  const endOfNextMonth = new Date(today.getFullYear(), today.getMonth() + 2, 0);
+  const throughNextMonthDays = daysFromToday(toISODate(endOfNextMonth), startOfToday) + 1;
+
+  const nextPaycheck = events.find((e) => e.amountCents > 0 && e.date >= todayIso) ?? null;
+  const usedFallback = mode === "paycheck" && !nextPaycheck;
+
+  const days =
+    mode === "nextMonth" ? throughNextMonthDays
+    : mode === "paycheck" && nextPaycheck
+      ? Math.max(1, daysFromToday(nextPaycheck.date, startOfToday) + 1)
+      : monthDays;
+
+  return { days, endDate: toISODate(addDays(startOfToday, days - 1)), usedFallback };
+}
+
+/** How pressing an action is - drives ordering and colour, nothing else. */
+export type NextActionTone = "urgent" | "suggested" | "positive";
+
+/** Where on the Plan page an action can take the user, so recommendations are clickable. */
+export type NextActionAnchor = "rules" | "detected" | "payoff";
+
+export interface NextAction {
+  key: string;
+  title: string;
+  detail: string;
+  tone: NextActionTone;
+  anchor?: NextActionAnchor;
+}
+
+export interface NextActionContext {
+  hasIncomeRule: boolean;
+  detectedCount: number;
+  /** Average money going out per day across the window, used to express the cushion in days. */
+  dailyOutflowCents: number;
+  /** The debt this profile is carrying, so a surplus can be pointed at something real rather
+   *  than described in the abstract. */
+  topDebt?: { name: string; balanceCents: number } | null;
+  /** Reference point for "how many days until the shortfall". */
+  today?: Date;
+}
+
+/** A cushion thinner than this many days of outgoings is worth flagging. */
+const THIN_CUSHION_DAYS = 7;
+/** Above this many days of cushion, suggest putting the surplus to work instead. */
+const COMFORTABLE_CUSHION_DAYS = 45;
+
+/**
+ * Turns a projection into a short list of concrete things the user could do about it. The rest
+ * of the app observes; this is the one place that recommends. Kept pure and rule-based - see the
+ * offline-first rationale behind the rest of the insight engine.
+ */
+export function deriveNextActions(result: ForecastResult, context: NextActionContext): NextAction[] {
+  const actions: NextAction[] = [];
+  const { dailyOutflowCents, today = new Date() } = context;
+
+  if (result.firstShortfall) {
+    const daysAway = Math.max(1, daysFromToday(result.firstShortfall.date, today));
+    const gap = Math.abs(result.lowPoint?.balanceCents ?? result.firstShortfall.balanceCents);
+    const perDay = Math.ceil(gap / daysAway);
+    actions.push({
+      key: "cover_shortfall",
+      title: `Find ${formatPlainCurrency(gap)} before ${result.firstShortfall.date}`,
+      detail:
+        `That's about ${formatPlainCurrency(perDay)} a day for the next ${daysAway} ` +
+        `${daysAway === 1 ? "day" : "days"} - either trimmed from spending or moved in from savings.`,
+      tone: "urgent",
+    });
+  }
+
+  if (!context.hasIncomeRule) {
+    actions.push({
+      key: "add_income",
+      title: "Schedule your paycheck",
+      detail:
+        "With no income scheduled, this forecast only ever slopes downward. Adding your pay " +
+        "makes every number here meaningful.",
+      tone: result.firstShortfall ? "suggested" : "urgent",
+      anchor: "rules",
+    });
+  }
+
+  if (context.detectedCount > 0) {
+    actions.push({
+      key: "confirm_detected",
+      title: `Confirm ${context.detectedCount} detected charge${context.detectedCount === 1 ? "" : "s"}`,
+      detail:
+        "Compass spotted these repeating in your history and is guessing at their timing. " +
+        "Adding them as scheduled items pins them to the right date.",
+      tone: "suggested",
+      anchor: "detected",
+    });
+  }
+
+  const cushionDays =
+    dailyOutflowCents > 0 && result.lowPoint
+      ? result.lowPoint.balanceCents / dailyOutflowCents
+      : null;
+
+  if (!result.firstShortfall && cushionDays !== null && cushionDays < THIN_CUSHION_DAYS) {
+    actions.push({
+      key: "thin_cushion",
+      title: "Your cushion gets thin",
+      detail:
+        `At the low point you're down to roughly ${Math.max(0, Math.floor(cushionDays))} days of ` +
+        "your usual outgoings. It holds, but there's little room for anything unexpected.",
+      tone: "suggested",
+    });
+  }
+
+  if (!result.firstShortfall && result.safeToSpendCents > 0 && cushionDays !== null && cushionDays > COMFORTABLE_CUSHION_DAYS) {
+    const debt = context.topDebt;
+    actions.push({
+      key: "surplus",
+      title: `You have room to move ${formatPlainCurrency(result.safeToSpendCents)}`,
+      detail: debt
+        ? `Even at the lowest point in this window you stay well ahead, while ${debt.name} is ` +
+          `still costing you interest on ${formatPlainCurrency(debt.balanceCents)}. Sending some ` +
+          "of that spare money there beats leaving it still."
+        : "Even at the lowest point in this window you stay well ahead. That surplus could go " +
+          "toward a goal instead of sitting still.",
+      tone: "positive",
+      anchor: debt ? "payoff" : undefined,
+    });
+  }
+
+  return actions;
+}
+
+/** Whole-dollar formatting kept local so this module stays free of UI imports. */
+function formatPlainCurrency(cents: number): string {
+  return `$${Math.abs(Math.round(cents / 100)).toLocaleString("en-US")}`;
+}
+
+/** Strips punctuation and case so a hand-typed "SoFi" can be compared against a bank's
+ *  "SOFI BANK PL DES:PL PYMT ID:T860... WEB". */
+function normalizeDescription(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/** Shortest normalized description that's distinctive enough to substring-match on - below
+ *  this, "a" or "co" would match half the statement. */
+const MIN_MATCHABLE_LENGTH = 3;
+
+/** Amounts this close are treated as the same charge - covers a payment that drifts by a few
+ *  cents of interest between months. */
+function amountsAreClose(a: number, b: number): boolean {
+  const x = Math.abs(a);
+  const y = Math.abs(b);
+  return Math.abs(x - y) <= Math.max(100, Math.max(x, y) * 0.02);
+}
+
+/**
+ * Whether a charge inferred from history is really the same thing as a bill the user already
+ * scheduled, in which case projecting both would double-count it.
+ *
+ * Exact description equality alone isn't enough: people name their rule "SoFi" while the bank
+ * writes "SOFI BANK PL DES:PL PYMT ID:T86083200 INDN:Tyler Fameli CO ID:3452499527 WEB". So a
+ * near-identical amount plus a recognisable description overlap counts as a match.
+ */
+export function chargeMatchesRule(
+  charge: { description: string; amount_cents: number },
+  rule: { description: string; amount_cents: number }
+): boolean {
+  const a = normalizeDescription(charge.description);
+  const b = normalizeDescription(rule.description);
+  if (a.length === 0 || b.length === 0) return false;
+  if (a === b) return true;
+
+  if (!amountsAreClose(charge.amount_cents, rule.amount_cents)) return false;
+
+  const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
+  if (shorter.length >= MIN_MATCHABLE_LENGTH && longer.includes(shorter)) return true;
+
+  // "SoFi Loan" vs "SoFi Bank PL…" share no containment but obviously refer to the same payee.
+  const firstA = a.split(" ")[0];
+  const firstB = b.split(" ")[0];
+  return firstA.length >= MIN_MATCHABLE_LENGTH && firstA === firstB;
+}

@@ -1,13 +1,17 @@
-﻿import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import ScopeToggle from "@/components/ScopeToggle";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ChevronDown, ChevronRight, CheckCircle, Target, Info, HelpCircle, TrendingUp, TrendingDown, SlidersHorizontal } from "lucide-react";
-import { motion, AnimatePresence, animate, useMotionValue } from "motion/react";
+import { ChevronDown, ChevronRight, CheckCircle, Target, Info, HelpCircle, TrendingUp, TrendingDown, SlidersHorizontal, EyeOff } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import { getDb, getAccountsSummaryForProfile, setAccountExcludedFromInsights, getLoanAccountsForProfile, getCreditAccountsForProfile, getLoanBalanceHistory, type AccountSummary, type LoanAccount } from "@/lib/db";
+import { categorySpendSql } from "@/lib/reportingSql";
 import { formatCurrency, formatMonthLabel } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
+import { handleLoadFailure, toast } from "@/stores/toastStore";
+import { hideCharge, unhideCharge, listHiddenCharges, clearHiddenCharges } from "@/lib/hiddenCharges";
 import {
   generateInsights, getSpendingProfile, getSavingsHistory, computeHealthScore, computeCreditCardHealthScore, detectRecurringCharges,
 } from "@/lib/agent";
@@ -16,35 +20,24 @@ import {
   type NetWorthSnapshot, type InvestmentReturn, type TopRoiHolding,
 } from "@/lib/netWorth";
 import type { Insight, Profile, HealthScore, SecurityType, CreditCardHealthScore, InvestmentHealthScore, RecurringCharge } from "@/lib/types";
-import InsightCarousel from "@/components/InsightCarousel";
+import InsightCard from "@/components/InsightCard";
 import InfoTooltip from "@/components/InfoTooltip";
 import ClickHint from "@/components/ClickHint";
+import CountUp from "@/components/CountUp";
+import TrendChip from "@/components/TrendChip";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import SpotlightCard from "@/components/SpotlightCard";
 import PinModal from "@/components/PinModal";
 import DebtPayoffModal from "@/components/DebtPayoffModal";
 import MilestoneCelebration from "@/components/MilestoneCelebration";
 import { detectNewMilestones } from "@/lib/milestones";
+import { useMilestoneQueue } from "@/hooks/useMilestoneQueue";
+import { CardListSkeleton } from "@/components/Skeleton";
 
 const ROI_SECTION_LABELS: Record<SecurityType, string> = {
   stock: "Stocks", etf: "ETFs", mutual_fund: "Mutual Funds", cash: "Cash", other: "Other",
 };
 const ROI_SECTION_ORDER: SecurityType[] = ["stock", "etf", "mutual_fund", "other", "cash"];
-
-/** Animates a number counting up to `value` on change/mount, using motion's imperative animate(). */
-function CountUp({ value, format }: { value: number; format: (v: number) => string }) {
-  const mv = useMotionValue(0);
-  const [display, setDisplay] = useState(() => format(0));
-  useEffect(() => {
-    const controls = animate(mv, value, {
-      duration: 0.7, ease: "easeOut",
-      onUpdate: (v) => setDisplay(format(v)),
-    });
-    return () => controls.stop();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value]);
-  return <>{display}</>;
-}
 
 /** Small standalone benchmark-based score card (Credit Card Health / Investment Health). */
 function MiniScoreCard({
@@ -116,28 +109,6 @@ function loadGroupState(): Record<string, boolean> {
     const s = localStorage.getItem("compass_insight_groups");
     return s ? JSON.parse(s) : {};
   } catch { return {}; }
-}
-
-// ── Scope toggle ──────────────────────────────────────────────────────────────
-interface ScopeToggleProps { isGlobal: boolean; onToggle: () => void; }
-function ScopeToggle({ isGlobal, onToggle }: ScopeToggleProps) {
-  return (
-    <button role="switch" aria-checked={isGlobal} onClick={onToggle}
-      style={{
-        width: 52, height: 28, borderRadius: 14, padding: 3,
-        backgroundColor: isGlobal ? "var(--gold)" : "hsl(var(--primary))",
-        transition: "background-color 0.3s", cursor: "pointer",
-        display: "inline-flex", alignItems: "center",
-        border: "none", flexShrink: 0, boxShadow: "inset 0 1px 3px rgba(0,0,0,0.18)",
-      }}>
-      <div style={{
-        width: 22, height: 22, borderRadius: 11, backgroundColor: "white",
-        transition: "transform 0.25s cubic-bezier(0.4,0,0.2,1)",
-        transform: isGlobal ? "translateX(24px)" : "translateX(0)",
-        boxShadow: "0 1px 4px rgba(0,0,0,0.28)", flexShrink: 0,
-      }} />
-    </button>
-  );
 }
 
 // ── Insights account-exclusion dropdown (sits next to the Profile/Global scope toggle) ────────
@@ -259,28 +230,29 @@ function InsightGroup({ label, severity, items, onApply, open, onToggle }: Insig
   type StyleMap = { iconWrap: string; chevronCls: string; badgeCls: string; };
   const styles: Record<string, StyleMap> = {
     success: {
-      iconWrap:   "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400",
-      chevronCls: "text-emerald-500/80",
-      badgeCls:   "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
+      iconWrap:   "bg-[hsl(var(--success)/0.12)] text-[hsl(var(--success))]",
+      chevronCls: "text-[hsl(var(--success)/0.8)]",
+      badgeCls:   "bg-[hsl(var(--success)/0.12)] text-[hsl(var(--success))]",
     },
     info: {
-      iconWrap:   "bg-blue-500/12 text-blue-600 dark:text-blue-400",
-      chevronCls: "text-blue-500/80",
-      badgeCls:   "bg-blue-500/12 text-blue-700 dark:text-blue-300",
+      iconWrap:   "bg-[hsl(var(--primary)/0.12)] text-[hsl(var(--gold-ink))]",
+      chevronCls: "text-[hsl(var(--primary)/0.8)]",
+      badgeCls:   "bg-[hsl(var(--primary)/0.12)] text-[hsl(var(--gold-ink))]",
     },
     warning: {
-      iconWrap:   "bg-amber-500/12 text-amber-600 dark:text-amber-400",
-      chevronCls: "text-amber-500/80",
-      badgeCls:   "bg-amber-500/12 text-amber-700 dark:text-amber-300",
+      iconWrap:   "bg-[hsl(var(--warning)/0.12)] text-[hsl(var(--warning))]",
+      chevronCls: "text-[hsl(var(--warning)/0.8)]",
+      badgeCls:   "bg-[hsl(var(--warning)/0.12)] text-[hsl(var(--warning))]",
     },
   };
   const s = styles[severity];
   const GroupIcon = severity === "success" ? CheckCircle : severity === "info" ? Info : Target;
 
   return (
-    <div className="rounded-2xl bg-[hsl(var(--background))] shadow-sm ring-1 ring-[hsl(var(--border))]/60 overflow-hidden">
+    <div className="border-t overflow-hidden">
       <button onClick={onToggle}
-        className="w-full flex items-center justify-between px-5 py-4 transition-colors
+        aria-expanded={open}
+        className="w-full flex items-center justify-between py-4 transition-colors
                    hover:bg-[hsl(var(--muted))/40]">
         <div className="flex items-center gap-3">
           <span className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${s.iconWrap}`}>
@@ -297,16 +269,14 @@ function InsightGroup({ label, severity, items, onApply, open, onToggle }: Insig
         />
       </button>
       {open && (
-        <div className="px-4 pb-4 pt-1 border-t border-[hsl(var(--border))]/50">
-          <InsightCarousel items={items} onApply={onApply} />
+        <div className="pb-4 pt-1 border-t border-[hsl(var(--border))]/50">
+          {items.map((insight) => <InsightCard key={insight.id} insight={insight} onApply={onApply} variant="row" />)}
         </div>
       )}
     </div>
   );
 }
 
-// Module-level flag: resets on every app restart, never written to localStorage
-let scoreIntroShownThisSession = false;
 
 // ── Health Score Hero Card ────────────────────────────────────────────────────
 function ScoreHeroCard({ score, scopeLabel, onOpen }: { score: HealthScore; scopeLabel?: string; onOpen: () => void }) {
@@ -379,8 +349,6 @@ function NetWorthCard({
   const first = history[0]?.netWorthCents ?? netWorth.netWorthCents;
   const changeCents = netWorth.netWorthCents - first;
   const changePct = first !== 0 ? (changeCents / Math.abs(first)) * 100 : 0;
-  const isGrowing = changeCents > 0;
-  const isFlat = Math.abs(changeCents) < 100; // under $1 - treat as flat
   const selected = history.find((h) => h.month === selectedMonth) ?? null;
 
   return (
@@ -395,11 +363,8 @@ function NetWorthCard({
               <CountUp value={netWorth.netWorthCents} format={(v) => formatCurrency(Math.round(v))} />
             </p>
           </div>
-          {history.length >= 2 && !isFlat && (
-            <div className={`flex items-center gap-1 text-sm font-semibold ${isGrowing ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
-              {isGrowing ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
-              {formatCurrency(Math.abs(changeCents))} ({Math.abs(Math.round(changePct))}%) this year
-            </div>
+          {history.length >= 2 && (
+            <TrendChip deltaCents={changeCents} pct={changePct} compareLabel="this year" />
           )}
         </div>
 
@@ -486,7 +451,7 @@ function NetWorthCard({
         <div className="grid grid-cols-2 gap-4 pt-3 border-t">
           <div>
             <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wide mb-0.5">Savings Rate</p>
-            <p className={`text-lg font-bold ${savingsRatePct >= 20 ? "text-[hsl(var(--success))]" : savingsRatePct >= 10 ? "text-amber-500" : "text-[hsl(var(--error))]"}`}>
+            <p className={`text-lg font-bold ${savingsRatePct >= 20 ? "text-[hsl(var(--success))]" : savingsRatePct >= 10 ? "text-[hsl(var(--warning))]" : "text-[hsl(var(--error))]"}`}>
               {savingsRatePct}%
             </p>
           </div>
@@ -628,7 +593,7 @@ function LoanDashboardCard({ loans, onSelectLoan }: { loans: DebtEntry[]; onSele
         </div>
 
         {method === "avalanche" && !hasAnyRate && (
-          <p className="text-xs text-amber-600 dark:text-amber-400 mb-3 flex items-start gap-1.5">
+          <p className="text-xs text-[hsl(var(--warning))] mb-3 flex items-start gap-1.5">
             <Info size={12} className="shrink-0 mt-0.5" />
             Add an interest rate to your loans (via "Add a Statement") to rank them by avalanche priority.
           </p>
@@ -658,7 +623,7 @@ function ScoreIntroModal({
 }) {
   const [tab, setTab] = useState<"global" | "profile">("global");
   const score = tab === "global" ? globalScore : (profileScore ?? globalScore);
-  const { onBackdropClick } = useModalDismiss(onClose);
+  const { onBackdropClick, containerRef } = useModalDismiss(onClose);
 
   const grades = [
     { g: "A", r: "85–100", l: "Excellent",       c: "#059669" },
@@ -679,7 +644,7 @@ function ScoreIntroModal({
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
       className="fixed inset-0 z-50 flex items-center justify-center p-6"
       style={{ backgroundColor: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
-      onClick={onBackdropClick}>
+      onClick={onBackdropClick} ref={containerRef}>
       <motion.div
         initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} transition={{ duration: 0.15 }}
         className="bg-[hsl(var(--background))] border rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
@@ -798,15 +763,26 @@ export default function AgentPage() {
   const [topRoi, setTopRoi]                     = useState<Partial<Record<SecurityType, TopRoiHolding[]>>>({});
   const [loans, setLoans]                       = useState<DebtEntry[]>([]);
   const [payoffModal, setPayoffModal] = useState<{ debts: DebtEntry[]; title: string; subtitle?: string } | null>(null);
-  const [milestoneQueue, setMilestoneQueue] = useState<string[]>([]);
-  const [activeMilestone, setActiveMilestone] = useState<string | null>(null);
+  const { active: activeMilestone, enqueue: enqueueMilestones, dismiss: dismissMilestone } = useMilestoneQueue();
 
-  useEffect(() => {
-    if (activeMilestone === null && milestoneQueue.length > 0) {
-      setActiveMilestone(milestoneQueue[0]);
-      setMilestoneQueue((q) => q.slice(1));
-    }
-  }, [activeMilestone, milestoneQueue]);
+  const hiddenChargeCount = listHiddenCharges(profileId).length;
+
+  const hideSubscription = (description: string) => {
+    hideCharge(profileId, description);
+    setReloadTick((t) => t + 1);
+    toast.info("Hidden from subscriptions and the Plan forecast.", {
+      action: {
+        label: "Undo",
+        onClick: () => { unhideCharge(profileId, description); setReloadTick((t) => t + 1); },
+      },
+    });
+  };
+
+  const restoreHiddenSubscriptions = () => {
+    clearHiddenCharges(profileId);
+    setReloadTick((t) => t + 1);
+    toast.success("Restored every hidden charge.");
+  };
 
   const [sectExpanded, setSectExpanded] = useState<{ trends: boolean; subs: boolean; topRoi: boolean }>(() => {
     try { const s = localStorage.getItem("compass_insight_sections"); return s ? JSON.parse(s) : { trends: false, subs: false, topRoi: false }; }
@@ -820,14 +796,6 @@ export default function AgentPage() {
     const saved = localStorage.getItem(viewKey(profileId));
     setViewMode(saved === "global" ? "global" : "profile");
   }, [profileId]);
-
-  // Score intro: once per app session (shows tabbed global+profile modal)
-  useEffect(() => {
-    if (globalHealthScore && !scoreIntroShownThisSession) {
-      scoreIntroShownThisSession = true;
-      setShowScoreIntro(true);
-    }
-  }, [globalHealthScore]);
 
   const unlockedProfileIds = useMemo(
     () => profiles.filter((p) => !p.pin_hash || p.id === profileId || unlockedIds.has(p.id)).map((p) => p.id),
@@ -878,9 +846,8 @@ export default function AgentPage() {
     if (localStorage.getItem("compass_insight_groups")) return; // user has custom state
     didSetDefaults.current = true;
     const visible = insights.filter((i) => !dismissedInsights.includes(i.dismissKey));
-    const wins = visible.filter((i) => i.severity === "success").length;
-    const obs  = visible.filter((i) => i.severity === "info").length;
-    setGroupOpen({ success: wins > 0, info: wins === 0 && obs > 0, warning: wins === 0 && obs === 0 });
+    const warnings = visible.some((insight) => insight.severity === "warning");
+    setGroupOpen({ success: !warnings, info: !warnings, warning: true });
   }, [insights, dismissedInsights]);
 
   const pinTarget = pinQueue.length > 0 && pinQueueIdx < pinQueue.length ? pinQueue[pinQueueIdx] : null;
@@ -912,8 +879,7 @@ export default function AgentPage() {
       ]);
       if (cancelled) return;
 
-      if (!profile || history.length < 2) { setHasEnoughData(false); setLoading(false); return; }
-      setHasEnoughData(true);
+      setHasEnoughData(!!profile && history.length >= 2);
       setInsights(allInsights);
       setSavingsHistory(history);
       setSpendingProfile(profile);
@@ -935,6 +901,7 @@ export default function AgentPage() {
         ...creditLists.flat().map((c) => ({ ...c, debtKind: "credit" as const })),
       ];
       const debtTrends = await Promise.all(allDebts.map((l) => getLoanBalanceHistory(l.id)));
+      if (cancelled) return;
       const debtsWithTrend = allDebts.map((l, i) => {
         const series = debtTrends[i];
         const trendCents = series.length > 1 ? Math.round((series[series.length - 1].value - series[0].value) * 100) : null;
@@ -946,12 +913,11 @@ export default function AgentPage() {
       const newMilestones = detectNewMilestones(profileId, {
         netWorthCents: nw.netWorthCents,
         debts: debtsWithTrend.map((d) => ({ id: d.id, name: d.name, balanceCents: d.balance_cents, firstKnownBalanceCents: d.firstKnownBalanceCents })),
+        healthGrade: profileScore.grade,
       });
-      if (newMilestones.length > 0) {
-        setMilestoneQueue((q) => [...q, ...newMilestones.map((m) => m.message)]);
-      }
+      enqueueMilestones(newMilestones);
 
-      const thisMonth = currentYM();
+      const thisMonth = prevYM(currentYM());
       const lMonth = prevYM(thisMonth);
       const [ts, te] = monthBounds(thisMonth);
       const [ls, le] = monthBounds(lMonth);
@@ -960,7 +926,7 @@ export default function AgentPage() {
         detectRecurringCharges(ids),
         db.select<{ category_id: number; category_name: string; category_color: string; total: number }[]>(
           `SELECT t.category_id, c.name as category_name, c.color as category_color,
-                  MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)) as total
+                  ${categorySpendSql()} as total
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
            JOIN accounts a ON a.id=t.account_id
            WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<?
@@ -969,7 +935,7 @@ export default function AgentPage() {
           [...ids, ts, te]
         ),
         db.select<{ category_id: number; total: number }[]>(
-          `SELECT t.category_id, MAX(0, SUM(CASE WHEN t.amount_cents>0 AND a.account_type IN ('credit','loan') THEN 0 ELSE -t.amount_cents END)) as total
+          `SELECT t.category_id, ${categorySpendSql()} as total
            FROM transactions t JOIN accounts a ON a.id=t.account_id
            WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<?
              AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
@@ -990,9 +956,9 @@ export default function AgentPage() {
       setRefreshedAt(new Date());
       setLoading(false);
     }
-    load().catch(console.error);
+    load().catch((error) => { if (!cancelled) handleLoadFailure("your insights", setLoading, () => setReloadTick((t) => t + 1))(error); });
     return () => { cancelled = true; };
-  }, [profileId, activeProfile, viewMode, unlockedProfileIds, scopeIds, reloadTick]);
+  }, [profileId, activeProfile, viewMode, unlockedProfileIds, scopeIds, reloadTick, enqueueMilestones]);
 
   const visibleInsights  = insights.filter((i) => !dismissedInsights.includes(i.dismissKey));
   const successInsights  = visibleInsights.filter((i) => i.severity === "success");
@@ -1011,14 +977,14 @@ export default function AgentPage() {
 
   // ── Shared sticky header ─────────────────────────────────────────────────
   const PageHeader = (
-    <div className="sticky top-0 z-20 border-b px-8 py-4 flex items-center justify-between gap-6"
+    <div className="insights-heading sticky top-0 z-20 border-b px-8 py-4 flex flex-wrap items-center justify-between gap-4"
       style={{ backgroundColor: "hsl(var(--background))", backdropFilter: "blur(8px)" }}>
       <div className="flex items-center gap-3 min-w-0">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Insights</h1>
           <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">
             {refreshedAt
-              ? `Updated ${refreshedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+              ? `Calculated ${refreshedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
               : "Rule-based analysis of your financial habits."}
           </p>
         </div>
@@ -1065,33 +1031,8 @@ export default function AgentPage() {
       <>
         {pinTarget && <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />}
         {PageHeader}
-        <div className="flex items-center justify-center py-24">
-          <div className="flex flex-col items-center gap-3 text-[hsl(var(--muted-foreground))]">
-            <div className="w-8 h-8 rounded-full border-2 border-current animate-spin" style={{ borderTopColor: "transparent" }} />
-            <p className="text-sm">Analysing your data...</p>
-          </div>
-        </div>
-      </>
-    );
-  }
-
-  if (!hasEnoughData) {
-    return (
-      <>
-        {pinTarget && <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />}
-        {PageHeader}
-        <div className="p-8 max-w-xl mx-auto">
-          <div className="border-2 border-dashed rounded-2xl p-16 text-center mt-8">
-            <p className="text-4xl mb-4">📊</p>
-            <p className="font-semibold text-lg mb-2">Not enough data yet</p>
-            <p className="text-sm text-[hsl(var(--muted-foreground))] mb-6">
-              Import at least 2 months of transactions to unlock insights, the health score, and trend analysis.
-            </p>
-            <Link to="/import"
-              className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium">
-              Import Transactions
-            </Link>
-          </div>
+        <div className="p-8">
+          <CardListSkeleton count={4} />
         </div>
       </>
     );
@@ -1099,7 +1040,7 @@ export default function AgentPage() {
 
   return (
     <>
-      <MilestoneCelebration message={activeMilestone} onDismiss={() => setActiveMilestone(null)} />
+      <MilestoneCelebration event={activeMilestone} onDismiss={dismissMilestone} />
       {pinTarget && <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />}
       <AnimatePresence>
         {showScoreIntro && globalHealthScore && (
@@ -1126,7 +1067,16 @@ export default function AgentPage() {
       </AnimatePresence>
       {PageHeader}
 
-      <div className="p-8 max-w-4xl space-y-6 mx-auto w-full">
+      <div className="workspace-page space-y-6 insights-workspace">
+        {!hasEnoughData && <div role="status" className="insights-readiness border-b pb-4 text-sm">
+          <p>Limited history. Trends need at least two months; available balances and review items are shown below.</p>
+          <Link to="/import" className="inline-block mt-2 text-[hsl(var(--gold-ink))]">Import transactions</Link>
+        </div>}
+
+        <section className="insights-context" aria-label="Financial context and scores">
+          <h2 className="font-semibold">Financial context and scores</h2>
+          <p className="text-xs text-[hsl(var(--muted-foreground))] mt-2">{viewMode === "global" ? "Unlocked profiles" : "This profile"}. Budget analysis uses accounts enabled for insights.</p>
+          <div className="insights-context-content space-y-5 pt-4">
 
         {/* Locked-profile notice */}
         {lockedExcluded.length > 0 && (
@@ -1235,7 +1185,7 @@ export default function AgentPage() {
                       {topRoi[type]!.map((h) => (
                         <div key={`${type}-${h.symbol ?? h.description}`} className="flex items-center justify-between gap-3 text-sm">
                           <span className="truncate flex-1">{h.symbol ?? h.description}</span>
-                          <span className={`font-mono font-semibold flex items-center gap-1 shrink-0 ${h.roiPct >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
+                          <span className={`font-semibold flex items-center gap-1 shrink-0 ${h.roiPct >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
                             {h.roiPct >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
                             {h.roiPct >= 0 ? "+" : ""}{h.roiPct.toFixed(1)}%
                           </span>
@@ -1252,7 +1202,7 @@ export default function AgentPage() {
         {/* ── KPI Strip ── */}
         {spendingProfile && (
           <section className="border rounded-2xl overflow-hidden shadow-sm">
-            <div className="flex divide-x">
+            <div className="insights-kpis grid grid-cols-2 gap-px">
               {[
                 {
                   label: "Avg Monthly Income",
@@ -1269,7 +1219,7 @@ export default function AgentPage() {
                 {
                   label: "Avg Savings Rate",
                   value: `${avgSavingsRatePct}%`,
-                  color: avgSavingsRatePct >= 20 ? "text-[hsl(var(--success))]" : avgSavingsRatePct >= 10 ? "text-amber-500" : "text-[hsl(var(--error))]",
+                  color: avgSavingsRatePct >= 20 ? "text-[hsl(var(--success))]" : avgSavingsRatePct >= 10 ? "text-[hsl(var(--warning))]" : "text-[hsl(var(--error))]",
                   sub: avgSavingsRatePct >= 20 ? "Healthy" : avgSavingsRatePct >= 10 ? "Building" : "Below target",
                 },
                 {
@@ -1279,11 +1229,11 @@ export default function AgentPage() {
                   sub: null,
                 },
               ].map(({ label, value, color, sub }) => (
-                <div key={label} className="flex-1 px-6 py-6">
+                <div key={label} className="min-w-0 px-4 py-4">
                   <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2">
                     {label}
                   </p>
-                  <p className={`text-xl font-bold tabular-nums ${color}`}>{value}</p>
+                  <p className={`text-xl font-bold tabular-nums break-words ${color}`}>{value}</p>
                   {sub && <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">{sub}</p>}
                 </div>
               ))}
@@ -1329,6 +1279,19 @@ export default function AgentPage() {
           </section>
         )}
 
+          </div>
+        </section>
+
+        <section className="insights-review space-y-3" aria-label="Items to review">
+          <div className="workspace-heading"><h2 className="font-semibold">Review</h2>
+            {dismissedInsights.length > 0 && <button onClick={clearDismissed} className="text-xs text-[hsl(var(--muted-foreground))]">Restore {dismissedInsights.length} dismissed</button>}
+          </div>
+          {visibleInsights.length === 0 && <p className="py-6 text-sm text-[hsl(var(--muted-foreground))]">Nothing left to review. This list is not an assessment of your financial health.</p>}
+          <InsightGroup label="Action Items" severity="warning" items={warningInsights} onApply={handleApply} open={!!groupOpen.warning} onToggle={() => toggleGroup("warning")} />
+          <InsightGroup label="Observations" severity="info" items={infoInsights} onApply={handleApply} open={!!groupOpen.info} onToggle={() => toggleGroup("info")} />
+          <InsightGroup label="Wins" severity="success" items={successInsights} onApply={handleApply} open={!!groupOpen.success} onToggle={() => toggleGroup("success")} />
+        </section>
+
         {/* ── Spotlight ── */}
         {(() => {
           const SPOTLIGHT_WINS    = new Set(["positive_streak", "most_improved"]);
@@ -1336,7 +1299,7 @@ export default function AgentPage() {
           const spotWin    = successInsights.find((i) => SPOTLIGHT_WINS.has(i.type)    && !!i.richData);
           const spotAction = [...warningInsights, ...infoInsights]
             .find((i) => SPOTLIGHT_ACTIONS.has(i.type) && !!i.richData);
-          const cards = [spotWin, spotAction].filter(Boolean) as typeof visibleInsights;
+          const cards = [spotAction, spotWin].filter(Boolean) as typeof visibleInsights;
           if (cards.length === 0) return null;
           return (
             <section className="space-y-3">
@@ -1352,56 +1315,16 @@ export default function AgentPage() {
           );
         })()}
 
-        {/* ── Insights section ── */}
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">
-              Insights
-            </p>
-            {dismissedInsights.length > 0 && (
-              <button onClick={clearDismissed}
-                className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors">
-                Restore {dismissedInsights.length} dismissed
-              </button>
-            )}
-          </div>
-
-          {visibleInsights.length === 0 && (
-            <div className="border-2 border-dashed border-emerald-200 dark:border-emerald-900/60 rounded-2xl py-14 text-center">
-              <p className="text-4xl mb-3">🎉</p>
-              <p className="font-semibold text-base text-emerald-700 dark:text-emerald-400">All clear!</p>
-              <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1.5">
-                No active insights — your finances are looking healthy.
-              </p>
-            </div>
-          )}
-
-          {/* Wins first — positive reinforcement anchor */}
-          <InsightGroup label="Wins" severity="success"
-            items={successInsights} onApply={handleApply}
-            open={!!groupOpen.success} onToggle={() => toggleGroup("success")} />
-
-          {/* Observations — neutral information */}
-          <InsightGroup label="Observations" severity="info"
-            items={infoInsights} onApply={handleApply}
-            open={!!groupOpen.info} onToggle={() => toggleGroup("info")} />
-
-          {/* Action Items — constructive, not alarming */}
-          <InsightGroup label="Action Items" severity="warning"
-            items={warningInsights} onApply={handleApply}
-            open={!!groupOpen.warning} onToggle={() => toggleGroup("warning")} />
-        </section>
-
         {/* ── Category Trends ── */}
         {catDeltas.length > 0 && (
-          <CollapsibleSection title="Category Trends" subtitle="this vs last month"
+          <CollapsibleSection title="Category Trends" subtitle={`${formatMonthLabel(prevYM(currentYM()))} vs ${formatMonthLabel(prevYM(prevYM(currentYM())))}`}
             expanded={sectExpanded.trends} onToggle={() => toggleSection("trends")}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left">
                   <th className="px-5 py-2.5 font-medium text-[hsl(var(--muted-foreground))]">Category</th>
-                  <th className="px-5 py-2.5 font-medium text-[hsl(var(--muted-foreground))] text-right">This month</th>
-                  <th className="px-5 py-2.5 font-medium text-[hsl(var(--muted-foreground))] text-right">Last month</th>
+                  <th className="px-5 py-2.5 font-medium text-[hsl(var(--muted-foreground))] text-right">{formatMonthLabel(prevYM(currentYM()))}</th>
+                  <th className="px-5 py-2.5 font-medium text-[hsl(var(--muted-foreground))] text-right">{formatMonthLabel(prevYM(prevYM(currentYM())))}</th>
                   <th className="px-5 py-2.5 font-medium text-[hsl(var(--muted-foreground))] text-right">Change</th>
                 </tr>
               </thead>
@@ -1414,8 +1337,8 @@ export default function AgentPage() {
                         {r.category_name}
                       </div>
                     </td>
-                    <td className="px-5 py-2.5 text-right font-mono">{formatCurrency(r.this_month)}</td>
-                    <td className="px-5 py-2.5 text-right font-mono text-[hsl(var(--muted-foreground))]">
+                    <td className="px-5 py-2.5 text-right">{formatCurrency(r.this_month)}</td>
+                    <td className="px-5 py-2.5 text-right text-[hsl(var(--muted-foreground))]">
                       {r.last_month > 0 ? formatCurrency(r.last_month) : "—"}
                     </td>
                     <td className={`px-5 py-2.5 text-right font-semibold ${
@@ -1439,7 +1362,7 @@ export default function AgentPage() {
               <tbody>
                 {subscriptions.map((s) => (
                   <tr key={`${s.description}_${s.amount_cents}_${s.last_seen}`}
-                    className="border-b last:border-0 hover:bg-[hsl(var(--muted))]">
+                    className="border-b last:border-0 hover:bg-[hsl(var(--muted))] group">
                     <td className="px-5 py-2.5 max-w-xs truncate">{s.description}</td>
                     <td className="px-5 py-2.5">
                       <span className="text-xs px-2 py-0.5 rounded-full text-white"
@@ -1450,15 +1373,31 @@ export default function AgentPage() {
                     <td className="px-5 py-2.5 text-[hsl(var(--muted-foreground))]">
                       {s.patternLabel} · {s.month_count} months running
                     </td>
-                    <td className="px-5 py-2.5 text-right font-mono text-[hsl(var(--error))]">
+                    <td className="px-5 py-2.5 text-right text-[hsl(var(--error))]">
                       {formatCurrency(Math.abs(s.amount_cents))}/mo
+                    </td>
+                    <td className="pr-4 py-2.5 text-right">
+                      <button
+                        onClick={() => hideSubscription(s.description)}
+                        aria-label={`Hide ${s.description}`}
+                        title="Not a subscription - hide it from here and from the Plan forecast"
+                        className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))]
+                                   opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                      >
+                        <EyeOff size={14} />
+                      </button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            <div className="px-5 py-3 border-t text-xs text-[hsl(var(--muted-foreground))]">
-              {formatCurrency(totalSubCost)}/month · {formatCurrency(annualSubCost)}/year
+            <div className="px-5 py-3 border-t text-xs text-[hsl(var(--muted-foreground))] flex items-center justify-between gap-3">
+              <span>{formatCurrency(totalSubCost)}/month · {formatCurrency(annualSubCost)}/year</span>
+              {hiddenChargeCount > 0 && (
+                <button onClick={restoreHiddenSubscriptions} className="underline hover:text-[hsl(var(--foreground))]">
+                  Restore {hiddenChargeCount} hidden
+                </button>
+              )}
             </div>
           </CollapsibleSection>
         )}

@@ -45,7 +45,7 @@ function isModestExtraCost(extraInterestCents: number, baseInterestCents: number
 }
 
 export default function DebtPayoffModal({ profileIds, debts, title, subtitle, onClose }: DebtPayoffModalProps) {
-  const { onBackdropClick } = useModalDismiss(onClose);
+  const { onBackdropClick, containerRef } = useModalDismiss(onClose);
   const [plan, setPlan] = useState<DebtPayoffPlan | null>(null);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<Set<number> | null>(null);
   const [redirectPct, setRedirectPct] = useState(50);
@@ -167,7 +167,8 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
     <>
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
-      onClick={onBackdropClick}
+      onClick={onBackdropClick} ref={containerRef}
+      role="dialog" aria-modal="true" aria-label="Debt payoff plan"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
     >
       <motion.div
@@ -180,7 +181,7 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
             <h2 className="text-lg font-semibold">{title}</h2>
             {subtitle && <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">{subtitle}</p>}
           </div>
-          <button onClick={onClose} className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] shrink-0">
+          <button onClick={onClose} aria-label="Close" className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] shrink-0">
             <X size={18} />
           </button>
         </div>
@@ -206,7 +207,7 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
             </div>
 
             {!plan.hasRateData && (
-              <p className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1.5">
+              <p className="text-xs text-[hsl(var(--warning))] flex items-start gap-1.5">
                 <Info size={12} className="shrink-0 mt-0.5" />
                 No interest rate is on file for these accounts, so the timelines below assume 0% interest as a placeholder.
                 Add a rate via "Add a Statement" for an accurate estimate.
@@ -256,7 +257,7 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
                           onClick={() => toggleCategory(c.categoryId)}
                           className={`w-full flex items-center gap-2 text-sm rounded-lg px-1.5 py-1 -mx-1.5 transition-colors ${selected ? "" : "opacity-45"} hover:bg-[hsl(var(--muted))]`}
                         >
-                          {selected ? <CheckCircle2 size={14} className="text-[hsl(var(--primary))] shrink-0" /> : <Circle size={14} className="text-[hsl(var(--muted-foreground))] shrink-0" />}
+                          {selected ? <CheckCircle2 size={14} className="text-[hsl(var(--gold-ink))] shrink-0" /> : <Circle size={14} className="text-[hsl(var(--muted-foreground))] shrink-0" />}
                           <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
                           <span className="flex-1 truncate text-left">{c.name}</span>
                           <span className="font-medium">{formatCurrency(c.avgMonthlyCents)}/mo</span>
@@ -327,7 +328,7 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
                 settles a moment after dragging stops instead of flickering mid-drag. */}
             {plan.simDebts.length > 1 && (
               <div className="flex items-center gap-2 text-xs rounded-xl px-3 py-2.5 min-h-[52px] bg-[hsl(var(--primary)/0.06)] border border-[hsl(var(--primary)/0.25)]">
-                <Sparkles size={14} className="shrink-0 text-[hsl(var(--primary))]" />
+                <Sparkles size={14} className="shrink-0 text-[hsl(var(--gold-ink))]" />
                 <p>
                   {quickWin ? (
                     <>
@@ -373,7 +374,7 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
                     No debts pay off within the projection window at this pace - increase the redirect above.
                   </div>
                 )}
-                <p className={`text-[11px] text-amber-600 dark:text-amber-400 mt-1 ${unresolvedDebtNames.length > 0 ? "" : "invisible"}`}>
+                <p className={`text-[11px] text-[hsl(var(--warning))] mt-1 ${unresolvedDebtNames.length > 0 ? "" : "invisible"}`}>
                   {unresolvedDebtNames.length > 0 ? `${unresolvedDebtNames.join(", ")} won't pay off at this pace - increase the redirect above.` : "placeholder"}
                 </p>
               </div>

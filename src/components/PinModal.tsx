@@ -59,7 +59,7 @@ interface PinModalProps {
 }
 
 export default function PinModal({ profile, onSuccess, onCancel }: PinModalProps) {
-  const { onBackdropClick } = useModalDismiss(onCancel);
+  const { onBackdropClick, containerRef } = useModalDismiss(onCancel);
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [attempts, setAttempts] = useState(0);
@@ -116,7 +116,8 @@ export default function PinModal({ profile, onSuccess, onCancel }: PinModalProps
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
-      onClick={onBackdropClick}
+      onClick={onBackdropClick} ref={containerRef}
+      role="dialog" aria-modal="true" aria-label="PIN entry"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
     >
       <motion.div
@@ -160,7 +161,7 @@ export default function PinModal({ profile, onSuccess, onCancel }: PinModalProps
           />
 
           {error && (
-            <p className="text-xs text-red-500 text-center">
+            <p className="text-xs text-[hsl(var(--error))] text-center">
               {cooldown > 0 ? `Too many attempts. Wait ${cooldown}s.` : error}
             </p>
           )}

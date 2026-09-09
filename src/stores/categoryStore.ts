@@ -7,7 +7,6 @@ interface CategoryStore {
   getCategoryById: (id: number) => Category | undefined;
   addCategory: (cat: Category) => void;
   updateCategory: (cat: Category) => void;
-  removeCategory: (id: number) => void;
 }
 
 export const useCategoryStore = create<CategoryStore>((set, get) => ({
@@ -17,6 +16,4 @@ export const useCategoryStore = create<CategoryStore>((set, get) => ({
   addCategory: (cat) => set((s) => ({ categories: [...s.categories, cat] })),
   updateCategory: (cat) =>
     set((s) => ({ categories: s.categories.map((c) => (c.id === cat.id ? cat : c)) })),
-  removeCategory: (id) =>
-    set((s) => ({ categories: s.categories.filter((c) => c.id !== id) })),
 }));

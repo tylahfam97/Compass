@@ -73,6 +73,8 @@ const ALLOWED_MIGRATION_TABLES = new Set([
   "profiles",
   "import_sessions",
   "holdings",
+  "investment_activity",
+  "investment_summaries",
   "recurring_rules",
 ]);
 
@@ -1219,6 +1221,86 @@ async function runMigrations(db: CompassDb): Promise<void> {
     }
     await db.execute("PRAGMA user_version = 28");
   }
+
+  // ── v29: Brokerage statements carry far more than a positions snapshot. `holdings` only
+  //         models "what you own on date X"; these two tables model "what happened during the
+  //         period" (trades, dividends, transfers) and the statement's own period totals. ──
+  if (version < 29) {
+    await db.executeBatch([
+      {
+        sql: `CREATE TABLE IF NOT EXISTS investment_activity (
+          id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+          account_id          INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          profile_id          INTEGER NOT NULL,
+          import_session_id   INTEGER REFERENCES import_sessions(id) ON DELETE CASCADE,
+          trade_date          TEXT    NOT NULL,
+          settle_date         TEXT,
+          activity_type       TEXT    NOT NULL, -- buy|sell|dividend|reinvest|interest|deposit|withdrawal|transfer|fee|tax|other
+          raw_activity_type   TEXT,
+          symbol              TEXT,
+          description         TEXT    NOT NULL DEFAULT '',
+          quantity            REAL,
+          price_cents         INTEGER,
+          amount_cents        INTEGER NOT NULL DEFAULT 0,
+          -- Only populated by statements that print per-lot cost basis next to the sale.
+          cost_basis_cents    INTEGER,
+          realized_gain_cents INTEGER,
+          acquired_date       TEXT,
+          term                TEXT,          -- short|long
+          import_hash         TEXT    NOT NULL,
+          created_at          TEXT    NOT NULL DEFAULT (datetime('now')),
+          UNIQUE(account_id, import_hash)
+        )`,
+      },
+      { sql: "CREATE INDEX IF NOT EXISTS idx_investment_activity_account_date ON investment_activity(account_id, trade_date)" },
+      {
+        sql: `CREATE TABLE IF NOT EXISTS investment_summaries (
+          id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+          account_id              INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          profile_id              INTEGER NOT NULL,
+          import_session_id       INTEGER REFERENCES import_sessions(id) ON DELETE CASCADE,
+          period_start            TEXT,
+          period_end              TEXT    NOT NULL,
+          beginning_value_cents   INTEGER,
+          ending_value_cents      INTEGER,
+          change_in_value_cents   INTEGER,
+          cash_balance_cents      INTEGER,
+          deposits_cents          INTEGER,
+          withdrawals_cents       INTEGER,
+          transfers_cents         INTEGER,
+          income_cents            INTEGER,
+          dividends_cents         INTEGER,
+          interest_cents          INTEGER,
+          fees_cents              INTEGER,
+          realized_gain_cents     INTEGER,
+          realized_gain_ytd_cents INTEGER,
+          unrealized_gain_cents   INTEGER,
+          created_at              TEXT    NOT NULL DEFAULT (datetime('now')),
+          UNIQUE(account_id, period_end)
+        )`,
+      },
+      { sql: "PRAGMA user_version = 29" },
+    ]);
+  }
+
+  // Almost every query in the app filters transactions by profile_id (and usually a date
+  // range on top), but the only index was on date alone - so those all degraded to a full
+  // scan. Composite indices matter most for users with years of history. Batched so a large
+  // database builds all three in one transaction rather than three sequential ones.
+  if (version < 30) {
+    await db.executeBatch([
+      { sql: "CREATE INDEX IF NOT EXISTS idx_transactions_profile_date ON transactions(profile_id, date)" },
+      { sql: "CREATE INDEX IF NOT EXISTS idx_transactions_account_date ON transactions(account_id, date)" },
+      { sql: "CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category_id)" },
+      { sql: "PRAGMA user_version = 30" },
+    ]);
+  }
+  if (version < 31) {
+    if (!(await colExists(db, "categories", "sort_order"))) {
+      await db.execute("ALTER TABLE categories ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0");
+    }
+    await db.execute("PRAGMA user_version = 31");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────
@@ -1257,6 +1339,64 @@ export async function listAccountsForProfile(profileId: number, accountType: str
   return db.select<Account[]>(
     "SELECT id, name, account_type, institution, created_at, balance_anchor_cents, balance_anchor_date, interest_rate_bps, minimum_payment_cents FROM accounts WHERE profile_id=? AND account_type=? ORDER BY name",
     [profileId, accountType]
+  );
+}
+
+export interface BalanceAnchorRiskEntry {
+  accountId: number;
+  name: string;
+  accountType: string;
+  hasAnchor: boolean;
+  manualTxnCount: number;
+  latestBalanceCents: number | null;
+}
+
+/**
+ * Flags accounts that have had 2+ manually-added transactions (via "Add Transaction", not an
+ * import) - the exact pattern that could trip the anchor-absorption bug fixed in
+ * `recomputeCalculatedBalancesWithDb`/`shiftBalanceAnchorForTransactionChange` (see
+ * import-account-resolution.md). A flagged account ISN'T necessarily wrong - the fix prevents
+ * the bug going forward regardless - this is just a "worth double-checking against your real
+ * bank balance" list for anyone who used the app before that fix shipped. Scoped to
+ * checking/credit accounts, the only types manual transactions meaningfully apply to.
+ */
+export async function getBalanceAnchorRiskReport(profileId: number): Promise<BalanceAnchorRiskEntry[]> {
+  const db = await getDb();
+  const rows = await db.select<{
+    id: number; name: string; account_type: string;
+    balance_anchor_cents: number | null;
+    manual_txn_count: number;
+    latest_balance_cents: number | null;
+  }[]>(
+    `SELECT a.id, a.name, a.account_type, a.balance_anchor_cents,
+       (SELECT COUNT(*) FROM transactions t WHERE t.account_id=a.id AND t.import_hash LIKE 'manual_%') as manual_txn_count,
+       (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
+        ORDER BY t.date DESC, t.id DESC LIMIT 1) as latest_balance_cents
+     FROM accounts a
+     WHERE a.profile_id=? AND a.account_type IN ('checking','credit')
+     ORDER BY a.account_type, a.name`,
+    [profileId]
+  );
+  return rows
+    .filter((r) => r.manual_txn_count >= 2)
+    .map((r) => ({
+      accountId: r.id, name: r.name, accountType: r.account_type,
+      hasAnchor: r.balance_anchor_cents != null,
+      manualTxnCount: r.manual_txn_count,
+      latestBalanceCents: r.latest_balance_cents,
+    }));
+}
+
+/** Existing manually-added transactions on an account (import_hash is a random UUID, never
+ *  content-derived) - fetched so the import wizard can check incoming statement rows against
+ *  them for possible duplicates before anything gets inserted. */
+export async function getManualTransactionsForAccount(
+  accountId: number
+): Promise<{ id: number; date: string; description: string; amount_cents: number }[]> {
+  const db = await getDb();
+  return db.select<{ id: number; date: string; description: string; amount_cents: number }[]>(
+    "SELECT id, date, description, amount_cents FROM transactions WHERE account_id=? AND import_hash LIKE 'manual_%'",
+    [accountId]
   );
 }
 
@@ -1383,8 +1523,9 @@ export async function deleteEmptyAccount(accountId: number): Promise<void> {
   const db = await getDb();
   const [row] = await db.select<{ txn_count: number; holdings_count: number }[]>(
     `SELECT (SELECT COUNT(*) FROM transactions WHERE account_id=?) as txn_count,
-            (SELECT COUNT(*) FROM holdings WHERE account_id=?) as holdings_count`,
-    [accountId, accountId]
+            (SELECT COUNT(*) FROM holdings WHERE account_id=?)
+            + (SELECT COUNT(*) FROM investment_activity WHERE account_id=?) as holdings_count`,
+    [accountId, accountId, accountId]
   );
   if ((row?.txn_count ?? 0) > 0 || (row?.holdings_count ?? 0) > 0) {
     throw new Error("This account still has transactions or holdings - remove those first.");
@@ -1409,6 +1550,8 @@ export async function deleteAccountWithData(accountId: number): Promise<void> {
   );
   await db.execute("DELETE FROM transactions WHERE account_id=?", [accountId]);
   await db.execute("DELETE FROM holdings WHERE account_id=?", [accountId]);
+  await db.execute("DELETE FROM investment_activity WHERE account_id=?", [accountId]);
+  await db.execute("DELETE FROM investment_summaries WHERE account_id=?", [accountId]);
   for (const { id } of sessions) {
     const [remaining] = await db.select<{ n: number }[]>(
       "SELECT COUNT(*) as n FROM transactions WHERE import_session_id=?",
@@ -1419,6 +1562,35 @@ export async function deleteAccountWithData(accountId: number): Promise<void> {
     }
   }
   await db.execute("DELETE FROM accounts WHERE id=?", [accountId]);
+}
+
+/**
+ * Erases everything belonging to one profile - transactions, accounts, holdings, budgets,
+ * goals, scheduled rules, categorization rules, saved import layouts and any custom categories -
+ * while keeping the profile itself. Runs as a single transaction so a failure part-way through
+ * can't leave a half-erased profile behind.
+ *
+ * A privacy-first app that can't forget you is a contradiction, but this is unrecoverable:
+ * callers MUST confirm explicitly, and should point the user at Backup first.
+ */
+export async function deleteAllProfileData(profileId: number): Promise<void> {
+  const db = await getDb();
+  await db.executeBatch([
+    { sql: "DELETE FROM holdings WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM investment_activity WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM investment_summaries WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM transactions WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM import_sessions WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM accounts WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM budgets WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM goals WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM recurring_rules WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM categorization_rules WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM column_profiles WHERE profile_id=?", params: [profileId] },
+    // System categories are shared across profiles and must survive - only this profile's own
+    // custom ones go.
+    { sql: "DELETE FROM categories WHERE profile_id=? AND is_system=0", params: [profileId] },
+  ]);
 }
 
 /** One group of accounts that share the same type + name (case/whitespace-insensitive) within
@@ -1656,6 +1828,41 @@ export async function deleteLoanAccount(accountId: number): Promise<void> {
 }
 
 /**
+ * Shifts a manually-set balance anchor by a transaction change that falls within the anchor's
+ * coverage window (date <= the anchor's date). Without this, adding/editing/deleting a single
+ * transaction dated on or before the anchor date gets silently absorbed by
+ * `recomputeCalculatedBalancesWithDb`'s backward-fit pass instead of actually changing the
+ * anchor's own target value - e.g. adding a same-day $300 transfer out of an account anchored
+ * at $315 would otherwise leave the anchor (and therefore the latest balance) unchanged at
+ * $315, instead of correctly becoming $15. `removed` is the transaction's PRE-change date/amount
+ * (pass for an edit or delete), `added` is its POST-change date/amount (pass for an edit or a
+ * new add) - either may be null. No-op if the account has no anchor set, or if neither date
+ * falls on/before it.
+ */
+export async function shiftBalanceAnchorForTransactionChange(
+  accountId: number,
+  removed: { date: string; amountCents: number } | null,
+  added: { date: string; amountCents: number } | null
+): Promise<void> {
+  const db = await getDb();
+  const [acct] = await db.select<{ balance_anchor_cents: number | null; balance_anchor_date: string | null }[]>(
+    "SELECT balance_anchor_cents, balance_anchor_date FROM accounts WHERE id=?",
+    [accountId]
+  );
+  if (acct?.balance_anchor_cents == null || !acct.balance_anchor_date) return;
+
+  let delta = 0;
+  if (removed && removed.date <= acct.balance_anchor_date) delta -= removed.amountCents;
+  if (added && added.date <= acct.balance_anchor_date) delta += added.amountCents;
+  if (delta !== 0) {
+    await db.execute(
+      "UPDATE accounts SET balance_anchor_cents=balance_anchor_cents+? WHERE id=?",
+      [delta, accountId]
+    );
+  }
+}
+
+/**
  * Recalculates `balance_cents` for every transaction on an account using its manually-set
  * balance anchor - the real balance AFTER all transactions up to `balance_anchor_date`
  * (typically "today", the date the value was entered). Transactions on or before that date
@@ -1666,6 +1873,11 @@ export async function deleteLoanAccount(accountId: number): Promise<void> {
  * see the "implicit anchor" comment below for why this matters. Used for imports whose source
  * file has no native running-balance column, and any time a transaction is manually
  * added/edited/deleted or an import batch is undone.
+ *
+ * Callers that add/edit/delete a SINGLE transaction dated on or before the anchor date must
+ * call {@link shiftBalanceAnchorForTransactionChange} first - this function trusts the stored
+ * anchor as-is and has no way to tell a brand-new transaction apart from one that already
+ * existed when the anchor was set.
  */
 export async function recomputeCalculatedBalances(accountId: number): Promise<void> {
   const db = await getDb();
@@ -1718,6 +1930,30 @@ async function recomputeCalculatedBalancesWithDb(db: CompassDb, accountId: numbe
         anchorDate = rows[i].date;
         break;
       }
+    }
+    if (anchorCents != null && anchorDate) {
+      // Any OTHER row dated on/before the picked anchor date that doesn't have a balance_cents
+      // value yet isn't reflected in that native number at all - it's either a manual
+      // transaction added in this very same operation, or an older no-balance-column import
+      // that's never been computed - so shift the anchor by its amount first, the same reason
+      // shiftBalanceAnchorForTransactionChange exists for an anchor that already existed
+      // in `accounts` before this call.
+      const unreflectedCents = rows
+        .filter((r) => r.date <= anchorDate! && r.balance_cents == null)
+        .reduce((sum, r) => sum + r.amount_cents, 0);
+      anchorCents += unreflectedCents;
+      // Persist this as a real explicit anchor going forward - otherwise a SECOND manual
+      // add/edit/delete would re-derive an implicit anchor from whatever the FIRST one just
+      // computed (its balance_cents is no longer a genuine bank-native value at that point,
+      // just this function's own prior output), silently re-anchoring to an already-adjusted
+      // number and compounding every mutation after it instead of shifting from a fixed point.
+      // shiftBalanceAnchorForTransactionChange (called by add/edit/delete BEFORE this function)
+      // can only shift an anchor that already exists in `accounts` - this makes one exist after
+      // the very first mutation on a previously anchor-less (native-balance-column) account.
+      await db.execute(
+        "UPDATE accounts SET balance_anchor_cents=?, balance_anchor_date=? WHERE id=?",
+        [anchorCents, anchorDate, accountId]
+      );
     }
   }
 

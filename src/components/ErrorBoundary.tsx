@@ -30,7 +30,7 @@ export default class ErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       return (
         <div className="flex flex-col items-center justify-center gap-4 py-24 text-center px-6">
-          <AlertTriangle size={32} className="text-amber-500" />
+          <AlertTriangle size={32} className="text-[hsl(var(--warning))]" />
           <div>
             <p className="font-semibold text-base">Something went wrong displaying this page</p>
             <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">

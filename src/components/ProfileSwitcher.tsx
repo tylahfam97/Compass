@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { getDb } from "@/lib/db";
+import { incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
 import { useProfileStore } from "@/stores/profileStore";
 import { useCategoryStore } from "@/stores/categoryStore";
 import type { Profile, Category } from "@/lib/types";
@@ -81,7 +82,9 @@ export default function ProfileSwitcher() {
               [p.id]
             ),
             db.select<{ v: number }[]>(
-              "SELECT COALESCE(SUM(amount_cents),0) as v FROM transactions WHERE profile_id=? AND date>=? AND date<?",
+              `SELECT ${incomeSumSql()} - ${expenseSumSql()} as v
+               FROM transactions t JOIN accounts a ON a.id=t.account_id
+               WHERE t.profile_id=? AND t.date>=? AND t.date<?`,
               [p.id, start, end]
             ),
           ]);
@@ -274,7 +277,7 @@ export default function ProfileSwitcher() {
 
       {/* Panel overlay */}
       {open && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Profiles">
           <div
             ref={panelRef}
             className="bg-[hsl(var(--background))] border rounded-2xl shadow-2xl w-96 max-h-[80vh]
@@ -327,7 +330,7 @@ export default function ProfileSwitcher() {
                             </svg>
                           )}
                           {isActive && (
-                            <span className="text-xs text-[hsl(var(--primary))] font-medium">Active</span>
+                            <span className="text-xs text-[hsl(var(--gold-ink))] font-medium">Active</span>
                           )}
                         </div>
                         {pStats && (
@@ -370,8 +373,8 @@ export default function ProfileSwitcher() {
                             }
                             className={`text-xs px-1.5 transition-colors ${
                               deleteConfirm === p.id
-                                ? "text-red-500 font-medium"
-                                : "text-[hsl(var(--muted-foreground))] hover:text-red-500"
+                                ? "text-[hsl(var(--error))] font-medium"
+                                : "text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))]"
                             }`}
                           >
                             {deleteConfirm === p.id ? "Confirm?" : "Delete"}
@@ -478,7 +481,7 @@ export default function ProfileSwitcher() {
                           {editState.pinAction === "set" &&
                             editState.pin.length >= 4 &&
                             editState.pin !== editState.pinConfirm && (
-                              <p className="text-xs text-red-500">PINs do not match.</p>
+                              <p className="text-xs text-[hsl(var(--error))]">PINs do not match.</p>
                             )}
                         </div>
 

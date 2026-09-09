@@ -2,6 +2,613 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.2.0 — Night Navigation 🧭
+
+This release gives Compass a visual identity of its own. The logo, the navy-and-gold palette,
+every page, and every keyboard shortcut are where you left them; what changed is how it all
+looks, plus one new planning view.
+
+### New: Planned payments against planned income
+- Plan now shows the money you have scheduled as one bar: planned income as the track,
+  planned payments filling it from the left, and the remainder labelled **Left for unplanned**.
+  It replaces the two separate "Scheduled margin" and "In vs out" figures, which said the same
+  thing twice. Detected recurring charges count when the existing "Include detected bills"
+  toggle is on; budgets are not counted.
+- The Dashboard's new bearing bar shows the current month as spent, still due, and free
+  against expected income (income received so far plus scheduled deposits still to come),
+  with a marker for today. Past months show spent against actual income.
+
+### New: A typeface, a token system, and a night sky
+- Source Serif 4 sets page titles and the one hero figure on each page; Source Sans 3 sets
+  everything else, with tabular numerals for money. Both fonts ship inside the app, so nothing
+  is fetched from the network.
+- The palette is now Compass's own. Dark mode is the navy of the compass mark with a soft
+  moonlight gradient, a faint graticule of chart lines, and a fine grain; light mode is cool
+  chart paper with navy ink. Gold is the accent for anything you act on (active navigation,
+  buttons, focus, clickable charts, what-if values), and a sea blue is reserved for recorded
+  data such as balances and income.
+- Three corner radii, navy-tinted shadows, and one chart language (grid, ticks, tooltips,
+  series colors) replace the mix of defaults that had accumulated.
+- Category and account colors are harmonized at paint time: each keeps its hue but sits in
+  the same lightness band as its neighbours, in both themes. Nothing in your data changes.
+
+### Changed: Dashboard, Overview, Investments, Import, and Insights
+- These pages move to the rule-and-space layout the other pages already used: stat rows
+  instead of bordered tiles, account rows instead of card grids, ranked bars instead of a
+  bar chart, and the same ledger rows as Transactions for recent activity.
+- The Dashboard opens with the month's net figure, income and spending with their
+  comparison to last month, and the bearing bar. Insight cards sit below it.
+- Insights' header joins the page instead of floating over it; the score is the page's hero
+  figure and every section is a plain disclosure.
+- Empty states share one calm pattern with a one-sentence explanation and a single action.
+
+### Changed: Icons, chrome, and copy
+- Icons are now Phosphor. The sidebar is the instrument panel: navy in both themes, the
+  compass mark in the rail, a gold bearing mark on the active item, and a compass-needle
+  loading indicator.
+- Copy is sentence case throughout; arrows, middle dots, and exclamation marks are gone from
+  buttons and labels, and two garbled strings on Overview and Trends are fixed.
+
+### Website
+- privatecompass.app mirrors the new palette and fonts, uses the vector mark instead of a
+  bitmap, and now honours the reduce-motion setting.
+
+## Compass 1.0.2 — A Plan That Knows How You Actually Spend ✨
+
+This release simplifies Plan, Transactions, and Goals while preserving Compass's colors,
+themes, and branding.
+
+### New: Cash-Flow Horizon
+- Compare the current projection with extra spending and one dated purchase preview.
+  Previews never create transactions or scheduled bills.
+- Inspect daily balances, scheduled events, detected estimates, and hypothetical changes
+  with the date scrubber or optional playback. The chart uses exact daily steps.
+- Scenario amounts allocate every cent exactly and stay separate for each profile.
+  A purchase outside the selected window remains saved but inactive.
+- Recorded checking-balance dates are available in source details. Missing balances make
+  safe-to-spend unavailable instead of treating unknown cash as a confirmed zero.
+
+### Fixed: Signed Budgets And Rollover
+- Category credits can produce negative net usage. A $200 budget with -$50 net used shows
+  $250 remaining; only the $200 allowance carries forward, plus any prior carry.
+- Weekly bars show signed daily values and drill into the exact labelled week.
+- Budget streak goals and celebrations use covered, completed months and effective limits.
+  Insights no longer describe a count of qualifying months as a consecutive streak.
+- Income targets and existing credit/loan account treatment remain unchanged.
+
+### Changed: A Workspace That Fits The Window
+- All pages use available width and reflow as the window or sidebar changes. Narrow-screen
+  navigation opens as a dismissible overlay.
+- Insights puts readable action rows first, with compact context and expandable scores.
+  Limited history no longer hides otherwise available sections.
+- Transaction filters, view and sort are remembered per profile for the session, along with
+  report date ranges and trend windows. Search text is not added to URLs.
+- Settings prioritizes backups and appearance, remembers System/Light/Dark themes, and
+  recovers from failed account checks. Bulk data controls remain behind disclosures.
+- Login particles use restrained depth-aware parallax, retain positions during resize,
+  and stop when hidden or when reduced motion is enabled, including live preference changes.
+
+### Fixed: Safe To Spend Can Go Negative
+Plan now displays the actual negative allowance in red instead of stopping at zero.
+The number includes your reserved cushion, and a negative allowance no longer produces a
+suggestion to move surplus cash.
+
+### Changed: Decision-First Workspaces
+- **Categories:** custom categories can be renamed, reordered, or removed from the manager.
+  Rename and reorder preserve IDs. Removal reassigns linked records atomically; conflicting
+  budgets or rules must be resolved first. System categories remain protected.
+- **Transaction colors:** category colors now provide a subtle whole-row gradient in both
+  activity and table views, with neutral category controls.
+- **Budgets:** the default view emphasizes limits and remaining amounts, with an over-limit
+  filter and an on-demand editor. Weekly limits now use spending from the labelled week.
+- **Reports:** exact selected-period totals, income/spending trends, category shares, and
+  expense drill-downs lead. Detailed tables and all-time payees expand on demand. Balance
+  charts use consistent currency units and stop at the selected end date.
+- **Plan:** cash outlook and forecast lead; scenario controls sit alongside the chart on wide
+  screens. Balance arithmetic, action explanations, and scheduled-rule setup expand on demand.
+- **Transactions:** a date-grouped activity view emphasizes merchant, account, category, and
+  amount. The full table remains available, along with search, filters, bulk actions, and editing.
+  Export and categorization tools now live in a compact menu.
+- **Goals:** progress, target gaps, and status filters lead. A compact editor opens when adding
+  or editing a goal, replacing the always-visible grid of goal types.
+
+### New: The Forecast Can Use Your Real Spending
+Plan projected your balance from scheduled bills and income only — everyday spending was
+always $0 unless you dragged a slider, so the picture was permanently rosier than reality.
+
+Turn on **"Include my typical spending"** and the forecast folds in what you actually spend
+day to day, derived from your last three months of transactions (with your scheduled bills
+excluded so nothing counts twice). It uses the median week — a one-off car repair won't
+inflate what "typical" means. With it on:
+
+- **Safe to spend** accounts for the selected everyday-spending baseline
+- The math breakdown shows **typical spending** as its own line, separate from what-if spending
+- The extra-spend slider becomes "on top of what you typically spend"
+
+It's opt-in and clearly labelled, and it needs about a month of imported history before it
+trusts itself enough to turn on.
+
+### New: Confirm Detected Charges In One Click
+Compass has always spotted charges repeating in your history, but the only thing you could do
+about one was hide it. Now every detected item in **Upcoming cash flow** has a confirm button that
+turns it into a real scheduled bill — pre-filled with its amount and usual date, editable
+in the schedule editor like any other rule. The forecast stops guessing about it, and the
+"Estimated" label disappears.
+
+### New: "What To Do Next" Actually Takes You There
+The suggested actions used to describe what you could do. Now they're buttons:
+
+- **Schedule your paycheck** scrolls you to the rules panel with the income form already open
+- **Confirm detected charges** jumps you to the list
+- **You have room to move $X** opens the debt payoff planner directly
+
+### Changed: Plan Remembers Your Scenario
+The what-if sliders, the set-aside amount, and the detected-charges toggle all survive
+navigating away and coming back — and the window selector has moved up to the page header,
+since it's how you *look at* the page, not a scenario you're trying.
+
+### Changed: Quieter When Things Are Fine
+The Plan headline no longer glows green when you're okay — a calm border is the good state, so
+the red shortfall warning stands out by being the only loud thing on the page. Same principle
+applied across the app: saturated color is reserved for things that need your attention.
+
+### Changed: Livelier, Smoother, Easier To Read
+- Headline numbers **count up** when they load or change (Dashboard, Overview, Insights).
+  Plan updates its safe-to-spend amount immediately as scenarios change.
+- Pages fade in on navigation; cards rise in with a gentle stagger
+- Dashboard's Income / Expenses / Net cards now show **how they compare to last month**
+- The Reports category donut and Investments allocation donut are now **horizontal bars** — shares
+  you compare by length at a glance instead of decoding arc angles
+- Updated metrics use tabular digits to keep columns aligned
+- Buttons have pressed-state feedback and shared keyboard focus styling
+
+### Changed: More Accessible Throughout
+- Added dialog semantics to shared modals and keyboard handlers to selected account and insight cards
+- Added text alternatives to selected sparklines and mini-charts
+- Deepened light-theme status colors and added labels alongside key status indicators
+
+### New: First End-To-End Test Suite
+`npm run test:e2e` runs isolated browser tests using an in-memory SQLite database; it does not
+read or modify your desktop data. Tests cover negative Plan values, scenario controls,
+transaction views and editing, goal filters, and desktop/mobile layouts in both themes.
+The optional native smoke suite runs when `COMPASS_CDP_URL` points at a Tauri debug window
+launched with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222`.
+
+All local, all offline, as always. 🧭
+
+---
+
+## Compass 1.0.1 — Forecast Accuracy & Loading Feedback 🔧
+
+A fast follow-up to v1.0 fixing the things real use turned up immediately.
+
+### New: Plan Connects Your Spare Money To Your Debt
+Plan knew what was coming in and going out, but nothing about what you owe — so a surplus just
+sat there being described as a surplus.
+
+**Put your spare money to work** now takes the gap between your scheduled income and your
+scheduled bills, and shows what redirecting it at your cards and loans would actually do: the
+date they'd clear under minimum payments, the date they'd clear with your surplus behind them,
+and the interest that difference saves. One click opens the full payoff planner already in
+Compass, pre-loaded with those accounts.
+
+The suggested actions know about your debt too — instead of "that surplus could go toward a
+goal or a debt", it now names the account and the balance still costing you interest.
+
+### New: Plan Now Shows What's Actually Yours To Decide
+Plan could tell you your balance over time, but never the number people actually want: how much
+of what's coming in is genuinely free once your bills are paid.
+
+- An **After bills** figure sits alongside safe-to-spend and the low point — the income arriving
+  in this window minus the bills scheduled against it. When it's negative, your bills for the
+  period exceed the pay arriving and the difference is coming out of savings, which is worth
+  knowing.
+- A one-line breakdown spells out the whole picture —
+  `$3,834 now + $2,331 coming in − $2,374 bills − $2,449 everyday = $1,342 left on Aug 31` —
+  so where the projection lands is arithmetic you can follow rather than a number to trust
+- The chart now shades **bills still due** at each point, so the gap between your balance and
+  that band is what's left for everyday life and saving. It steps down only when a bill is
+  actually due — everyday spending is deliberately left out of it, since an estimate of your own
+  choices isn't an obligation
+- Setting money aside draws a line on the chart, so it's something you can see the balance
+  approach rather than just a number
+
+### Fixed: Chart Amounts Were 100× Too Small
+The projection chart's vertical axis showed `$15` where it meant `$1,500` — the axis was reading
+dollars as cents. Hovering a point gave the right figure, which made the mismatch easy to miss.
+
+### Changed: Plan Layout
+The green summary is followed by the sliders, then the chart, then what to do next — so a change
+to a slider and its effect on both the numbers and the chart are visible together instead of
+needing a scroll between them.
+
+### Changed: Plan Now Asks You What Window To Use
+The forecast used to run over a fixed 30, 60 or 90 days — while the What-if slider said "this
+month", which wasn't the period it was actually calculating. Two different answers to the same
+question, which made the whole panel hard to trust.
+
+Plan now has three windows that match how people actually think about their balance:
+
+- **Rest of month** *(the new default)* — today through the last day of this month
+- **To next paycheck** — today through your next scheduled income
+- **Through next month** — today through the last day of the following month
+
+That third one deliberately ends on a month boundary rather than counting a flat 30 days. A
+rolling 30-day window starting mid-month stops before the *next* month's rent is due, so a bill
+you definitely owe simply vanished from the list. Ending on the last day of next month means
+every bill in both months is accounted for.
+
+Bills more than a fortnight out are now grouped under their real month name too — a window
+spanning two months used to label September's bills "later this month", which made them look
+like duplicates of August's.
+
+Every figure moves with the window: safe to spend, the projected low point, money in versus out,
+the chart, the bill list and the suggested actions. The headline states the exact range it used
+(`Aug 18 – Aug 31 · 14 days`) so there's no ambiguity about what any number covers.
+
+"To next paycheck" needs a scheduled income to aim at. If you haven't added one yet, Compass
+falls back to the rest of the month and tells you why rather than quietly showing something else.
+
+### Improved: The What-if Panel Explains Itself
+The window picker now sits inside the What-if box alongside the sliders, since it's the same
+kind of question. Each control explains what it does and what it doesn't:
+
+- **Spend an extra…** is an amount across the whole window, spread evenly — and now shows the
+  per-day figure that works out to. Previously it always divided by 30 regardless of the window
+  being shown, so the arithmetic didn't match the label.
+- **Keep … untouched** makes clear it comes off "safe to spend" and doesn't move the projection.
+- The panel states up front that nothing here is saved or changes your data.
+
+### Fixed: Cancelled Subscriptions Never Went Away
+A charge that recurred for a few months and then stopped kept its streak forever — so a
+subscription you cancelled in April was still listed under Subscriptions and still being billed
+against you in the Plan forecast months later. Anything not seen for **2 months** is now treated
+as cancelled and drops out of both. If it ever reappears in an import, it comes straight back.
+
+### Fixed: Your Own Bills Counted Twice in the Forecast
+Compass only skipped a detected charge if its description matched a scheduled bill *exactly*.
+In practice nobody types `SOFI BANK PL DES:PL PYMT ID:T86083200 INDN:...WEB` — they type "SoFi".
+So the bill you entered and the charge Compass detected were both projected, doubling it. Matching
+is now based on the amount plus a recognisable overlap in the description, so a hand-typed name
+lines up with whatever your bank actually writes.
+
+### New: Hide a Detected Charge
+Detected charges are guesses, and sometimes the guess is wrong — a one-off that looked like a
+pattern, or a transfer that isn't a bill. Hover any detected item on **Plan → What's coming**, or
+any row under **Insights → Subscriptions**, and hide it. It's removed from the forecast, the
+subscription totals and the insights, with an Undo and a "Restore hidden" link if you change your
+mind. Bills you scheduled yourself are never hidden this way — they're facts, not guesses.
+
+### Fixed: The App Looked Frozen While Importing
+Two separate causes. The import step showed a **static** icon while it wrote transactions to the
+database, so a large file looked like a hang. It now shows a moving spinner. Separately, the
+reduce-motion support added in v1.0 was too aggressive and stopped loading spinners and skeletons
+animating at all — for anyone with reduce-motion enabled, every loading state in the app appeared
+frozen. Loading indicators now keep moving (just slowly) because they're feedback, not decoration.
+
+### Fixed: Pages Could Get Stuck Loading Forever
+v1.0 made failed page loads show an error, but the loading skeleton underneath never cleared — so
+you'd get an error message floating over a page that span forever. The skeleton now clears and you
+get the page, the explanation and a Retry button.
+
+### Fixed: Transactions Silently Stopped at 500
+A month with more than 500 transactions quietly dropped the rest with no indication. It now tells
+you how many are shown and suggests narrowing the search.
+
+### Fixed: Erasing a Profile Left Traces
+Erasing a profile's data removed everything from the database but left behind app memory tied to
+it — celebrated milestones, dismissed insights, hidden charges. A fresh start now really is one.
+
+### Improved: Faster First Launch After Updating
+The new database indexes are created in a single operation rather than three, which matters if
+you have years of history.
+
+## Compass 1.0.0 — Version One 🧭
+
+Compass is out of pre-release. Version one is the same app you've been using, finished: nothing
+here changes how your money is counted, and nothing needs to be re-imported.
+
+### New: Plan — Compass Now Looks Forward
+Every screen in Compass has described the past. The new **Plan** tab describes what's coming.
+
+It projects your checking balance forward 30, 60 or 90 days using the bills and income you've
+scheduled, the recurring charges Compass spots in your history, and an estimate of everyday
+spending drawn from your last 3 months. The headline answers the question people actually have:
+**do I make it to payday?** Underneath it are three numbers — what's safe to spend today, the
+lowest point your balance is projected to reach and when, and total money in versus out over the
+window.
+
+Below the chart, **What if…** lets you drag a slider to see what an extra few hundred dollars of
+spending does to that low point, or set aside a cushion you don't want to dip into, and watch
+the whole projection respond instantly.
+
+**What's coming** lists every bill and paycheck the forecast is counting on, grouped by week.
+Charges Compass inferred from your history are marked as detected rather than confirmed — they
+are an educated guess about a pattern, not something you told us, and they're labelled that way.
+You can switch them off entirely if you'd rather only plan against what you've entered yourself.
+
+### New: What To Do Next
+Compass has always described your money. Plan adds a short list that *recommends* — the amount
+you'd need to find before a projected shortfall and what that works out to per day, a nudge to
+schedule your paycheck if nothing is scheduled, a heads-up when your cushion gets thin, and a
+prompt to put a surplus to work when you're comfortably ahead. Only what applies to you appears,
+ordered by how pressing it is, and the list is empty when there's genuinely nothing to do.
+
+### New: Last Month In Review
+The "Welcome to August" message that appeared when the calendar turned over now actually says
+something. It recaps the month that just ended: money in, money out, what you kept, how your
+spending compared to the month before, where most of it went, and how many budgets you held.
+It waits for you to dismiss it rather than disappearing on a timer, and falls back to the old
+welcome message when there's nothing to summarise.
+
+Some deliberate limits, so the number means something:
+
+- **Checking and debit accounts only.** "Will I make it to payday" is a question about spendable
+  cash. Folding revolving credit balances in would make the figure harder to explain than it is
+  useful.
+- **At least 2 months of history required.** With less than that, a spending estimate is noise,
+  and a forecast you might actually rely on shouldn't be built from noise. Compass tells you how
+  much history you have instead of guessing.
+- **Bills you've scheduled are never double-counted.** The everyday-spending estimate has your
+  known bills removed from it first, so rent doesn't get charged twice.
+- **If you haven't scheduled any income, Compass says so** — without a paycheck in the picture a
+  forecast only ever slopes downward, which looks far worse than reality.
+
+### Moved: Scheduled Bills & Income
+Recurring bills and paychecks now live on the Plan page, directly beneath the forecast they
+drive, rather than at the bottom of Settings. Settings links across to it. They're still
+reminder-only: nothing ever posts a real transaction on your behalf.
+
+### New: Compass Now Celebrates When You Hit Something
+Progress with money is slow and mostly invisible. A card balance drops a little each month, a
+goal creeps toward its target, and the moment it actually lands passes without anything marking
+it. Compass now notices those moments and says something.
+
+Celebrations come in two sizes. The big ones — a debt reaching zero, a goal completed, net worth
+crossing into positive territory — get a full congratulations dialog and a confetti burst, and
+wait for you to dismiss them. The smaller ones appear as a banner at the top of the screen and
+clear themselves after a few seconds.
+
+What Compass watches for:
+
+- **Debt paid off** — a loan or credit card reaching a zero balance
+- **Debt paid down** — passing 25%, 50% and 75% of the way to zero, measured against the
+  earliest balance on record for that account
+- **Net worth turning positive** — the first month you own more than you owe
+- **Net worth milestones** — passing $1K, $5K, $10K, $25K, $50K, $100K, $250K, $500K and $1M
+- **Goals reached** — any goal hitting 100%
+- **Budgets held** — finishing a full calendar month inside your monthly budgets
+- **Health Score grade up** — your Financial Health Score moving up a letter grade
+
+Each milestone celebrates once, per profile, and is remembered across restarts — so reopening
+the Insights page doesn't replay it. The exception is the Health Score grade, which celebrates
+again if you lose a grade and earn it back, because that's a real accomplishment the second time
+too. If you've turned on your system's "reduce motion" setting, the confetti is skipped and you
+still get the message.
+
+A few deliberate details, so nothing feels random:
+
+- Only the highest milestone you've newly passed is announced. Importing years of history at
+  once gives you a single "$100K net worth" moment rather than nine banners counting up to it.
+- Budget celebrations only ever refer to a month that has actually finished — a budget you're
+  still in the middle of can still be blown, and congratulating you early would be dishonest.
+- Multiple budgets held in the same month are announced together ("3 budgets held"), not one
+  after another.
+- The first time you open Compass after updating, your current Health Score grade is recorded
+  quietly as a starting point. You won't be congratulated for a grade you already had — only for
+  the next one you earn.
+
+Because net worth milestones are new, one may fire shortly after updating if you're already past
+one of those marks. That's a one-time catch-up, not a bug.
+
+### Fixed: Failures No Longer Happen in Silence
+If loading a page failed — a database problem, a permissions issue — Compass showed you an empty
+page and said nothing. In an app about your money, an empty page reads like lost data. Every page
+now tells you when something went wrong and offers to try again.
+
+### New: Suggested Budgets
+A blank Budgets page asks you to invent numbers you don't have, which is where most people give
+up. Compass can now propose a starter set from your last 3 months of spending, rounded to
+sensible figures. Nothing is final — edit or delete any of them.
+
+### Improved: Accessibility
+Compass now honours your system's "reduce motion" setting throughout — the confetti, the
+particle field, the glows and the page transitions all stand down. There's also a **Reduce
+motion in Compass** switch in Settings, for calmer animation in this app without turning it on
+system-wide. Dialogs now keep keyboard focus inside them while open and hand it back where it
+came from on close, and the remaining unlabelled icon buttons have been named for screen readers.
+
+### New: Erase a Profile's Data
+Settings gains a way to permanently delete everything belonging to one profile — transactions,
+accounts, budgets, goals, scheduled items and custom categories — while leaving your other
+profiles untouched. It takes a typed confirmation, and it points you at Backup first, because it
+cannot be undone. An app that promises your data never leaves your machine should also be able to
+forget it on request.
+
+### Improved: The Guided Tour Is Easier To Find
+"Replay the guided tour" now also lives in Settings, not only tucked in the sidebar footer.
+
+### Improved: Speed on Larger Histories
+Transactions were only indexed by date, while nearly every screen also filters by profile. On a
+few years of data that meant scanning the whole table repeatedly. Added the indexes that were
+missing — the difference grows with the size of your history.
+
+### Improved: Empty Goals Page
+The Goals page now shows all eight goal types with a one-line explanation of each, and clicking
+one sets up the form for it, instead of an empty list and a sentence.
+
+## Compass 0.9.9 — Brokerage Statements & Honest Numbers 📊
+
+Full E\*TRADE statement support, plus a round of accuracy fixes to how your savings rate and
+investment totals are calculated. **Some of your numbers will change after updating — that's
+intentional, and explained below.**
+
+### New: E\*TRADE / Morgan Stanley Client Statements
+Compass now reads an E\*TRADE (Morgan Stanley) monthly or quarterly client statement PDF
+directly. Unlike a portfolio-positions export, a statement carries the whole picture, and
+Compass now imports all of it:
+
+- **Holdings** — symbol, shares, share price, total cost, market value and estimated annual income
+- **Activity** — the period's buys, sells, dividends, interest, fees, deposits, withdrawals and
+  transfers, each categorized automatically
+- **Period totals** — beginning and ending value, change in value, cash balance, and realized
+  and unrealized gain
+
+The statement's own period-end date is used as the snapshot date, so importing a few months of
+back statements builds a real portfolio history rather than stacking them all on today.
+
+### New: Activity and Income & Gains Views
+The Investments page gains two new tabs alongside Holdings. **Activity** lists every transaction
+from your imported statements, filterable by type. **Income & Gains** shows dividends and
+interest you actually received, charted by month, next to realized gains — a real counterpart to
+the "Est. Annual Income" tile, which has always been the brokerage's forward-looking projection
+rather than a record of anything paid.
+
+### New: Re-Import Protection for Statements
+Importing the same statement twice used to silently double every position in it. Compass now
+notices when a snapshot already exists for that account and date and asks whether to replace it,
+rather than quietly counting everything twice.
+
+### Fixed: One Account's Statement Could Hide All Your Other Investment Accounts
+If you held, say, a 401(k) that reports quarterly and a brokerage account that reports monthly,
+importing the monthly statement made the 401(k) disappear from the Investments page, your
+portfolio value, and your net worth. Nothing was ever deleted — Compass was looking for holdings
+dated on one single "most recent" date and quietly dropping every account that hadn't filed a
+statement on exactly that day. Each account is now read as of its own latest statement. The
+portfolio value chart was affected by the same issue and no longer collapses toward zero on
+months where only one account reported. The Investments page also now lists each account with
+its own "priced as of" date so mixed statement schedules are visible rather than silent.
+
+### Fixed: Savings Rate Ignored Credit Card Spending
+Your savings rate is meant to be the share of income you didn't spend. It was only counting
+money that left your checking account, so anything charged to a credit card was invisible to it —
+which could show a comfortable savings rate in a month you actually spent more than you earned.
+Card purchases now count as spending, while the card payment itself is still treated as a
+transfer so nothing is counted twice.
+
+**Expect your savings rate to drop** if you use credit cards regularly. The old number was
+flattering, not accurate. Your Financial Health Score may drop alongside it, and budgets now
+count card purchases against their category the same way the Budgets page always has.
+
+### Fixed: Savings Rate Math and Labelling
+Three separate problems made the savings rate on the Insights page disagree with the savings
+rate chart directly above it:
+
+- It averaged each month's percentage rather than dividing the actual dollars, so a single
+  unusual month could swing the figure wildly past anything your real income and spending
+  justified
+- It blended in the current, half-finished month, so the number drifted every day
+- It was labelled "Current rate" while actually being a multi-month average — now labelled
+  "3-month average"
+
+### Fixed: Pages Disagreeing About the Same Numbers
+Several figures were calculated independently in different places and had drifted apart. The
+Trends expense chart excluded credit card spending while the cumulative-net line on the same
+page included it; the All Accounts overview counted transfers and loan statement rows as
+spending while the Dashboard didn't; a budget-streak goal could break a streak the Budgets page
+showed as under budget; and the "low balance" insight reported only one checking account's
+balance if you had more than one. Every reporting figure now comes from a single shared
+definition, so the same number means the same thing everywhere.
+
+### Improved: Existing Investment Formats
+The other supported formats got the same depth of extraction while this work was underway.
+Fidelity exports now use the file's own download date instead of today's, and correctly identify
+stocks, ETFs and funds even when the export leaves its type column blank (previously everything
+landed under "Other"). Thrivent's combined stock/ETF holdings are now filed individually rather
+than all as ETFs, cash sweep funds are recognized as cash, and holdings without a ticker fall
+back to their CUSIP. Principal 401(k) statements now also record their period totals.
+
+## Compass 0.9.8 — Quality of Life 🛠️
+
+A round of small but real quality-of-life improvements ahead of v1.0.
+
+### New: Edit an Account's Interest Rate & Minimum Payment Anytime
+Previously, a credit card's APR and minimum payment could only be set once, during import -
+there was no way to update them later if a rate changed. Both are now editable directly from an
+account's detail view (click any credit card or loan tile), no re-import required.
+
+### New: Backup Reminder
+Settings now shows how long it's been since your last backup, with a gentle nudge if it's been
+30+ days (or if you've never backed up at all) - so it's easier to notice before it matters.
+
+### Improved: Insights Page Loading State
+The Insights page now shows the same loading skeleton as every other page while your data is
+being analyzed, instead of a different one-off spinner.
+
+### Improved: Roadmap Refresh
+The README's "Path to v1.0" section now reflects everything shipped in the last few releases -
+the visual refresh, the balance-integrity fixes, and import duplicate detection.
+
+## Compass 0.9.7 — Import Duplicate Protection 🔍
+
+A focused release closing a real gap: a transaction entered by hand and later seen on an
+imported statement had no way to be recognized as the same one.
+
+### New: The Import Wizard Now Catches Possible Duplicates of Manual Entries
+Manually-added transactions never had a way to match against a real import - so entering one by
+hand and later importing a statement that includes it could quietly double-count it. The import
+wizard now checks incoming statement rows against your existing manual entries (same amount, a
+close date, and a similar description) and, only when it finds a likely match, shows a
+side-by-side comparison before anything is saved: keep both, keep your manual entry, or keep the
+imported one. Nothing is ever deleted automatically - "keep both" is the default for anything you
+don't explicitly resolve. This step stays out of the way entirely when nothing looks like a
+duplicate, which is the common case.
+
+## Compass 0.9.6 — Premier UI Refresh ✨
+
+A visual polish pass ahead of v1.0 - a calmer, more professional look plus a handful of real
+month-picker bugs found along the way.
+
+### Fixed: Manually Adding/Editing/Deleting a Transaction Could Corrupt Your Account Balance
+If you manually added, edited, or deleted a transaction dated on or before the day you last
+entered your account's real balance, the running balance could silently fail to update - e.g.
+adding a $300 transfer out of an account showing $315 could still show $315 afterward instead of
+$15, throwing off every balance calculated from that point on. This is now fixed: your entered
+balance correctly shifts by the change instead of absorbing it. The same stale-balance problem
+could also happen when importing another batch of transactions right after - the Import
+wizard's "Current balance" field now correctly suggests your balance including the new
+transactions instead of the old, pre-import figure, so accepting the suggested value is safe
+again. A third, deeper case affected accounts that were originally imported with their own
+running-balance column and never had a manually-entered balance at all: adding a second manual
+transaction right after a first one could bump every earlier transaction's balance up by the
+new amount instead of applying it correctly. All three now share the same fix, so your real
+balance stays correct through any combination of manual entries and imports. If an account was
+already thrown off by this before updating, re-confirm its real balance once (via a small
+re-import through the Import wizard's "Current balance" field) to reset it - this fix prevents
+it happening again, but can't retroactively repair a balance that was already thrown off.
+
+### New: A Calmer, More Professional Look
+The tiled background texture is gone, replaced by a barely-there gradient. Gold is now reserved
+specifically for things you can click or interact with (chart cards, profile switching, the
+onboarding checklist), while blue carries everything else - navigation, buttons, and structural
+chrome - for a more consistent, less "busy" feel throughout the app.
+
+### Improved: Dimmed and Contained the Glow on Clickable Cards
+The gold glow that signals a chart card can be clicked for detail was brighter than intended and
+bled out past the card's own edges. It's now dimmer and clipped to the card itself.
+
+### Fixed: Some Month Pickers Were Missing Their Forward/Back Buttons
+The Transactions page's month picker had no way to step forward or backward a month - only
+Dashboard, Overview, Budgets, Goals, and Reports had them. All month pickers are now consistent.
+
+### Fixed: The Month Picker Could Silently Jump to a Different Month Than Expected
+If the real current month had no transactions yet, every month picker used to quietly jump to
+whichever past month last had data - easy to miss, and confusing right at the start of a new
+month. Every page now always defaults to the actual current month, and each page's selection is
+now remembered independently when navigating between tabs, resetting to the current month again
+on profile switch.
+
+### New: A Friendlier Empty State for a Transaction-Free Month
+The Transactions page now says "No transactions for this month - Add some now!" (with a button
+to add one directly) when a month is genuinely empty, instead of a generic "no results" message
+meant for search/filters.
+
+### Fixed: "Try Demo Mode" Could Appear After You Already Had Real Data
+The empty-month Demo Mode button only checked whether demo accounts already existed, not whether
+the profile had any real transactions at all - so it could resurface on a month with no data even
+after you'd been actively using the app. It now only appears for a profile that has never had any
+real transactions, and correctly reappears if everything is later cleared.
+
 ## Compass 0.9.5 — Data Integrity Hardening 🔒
 
 A behind-the-scenes release focused on making sure your data stays correct and intact, even when

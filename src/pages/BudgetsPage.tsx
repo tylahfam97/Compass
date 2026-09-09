@@ -1,15 +1,21 @@
+import ScopeToggle from "@/components/ScopeToggle";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { AlertTriangle, CheckCircle, ChevronLeft, ChevronRight } from "lucide-react";
+import { AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Plus, Pencil, Trash2, RotateCcw, Globe, Wallet } from "lucide-react";
 import { getDb } from "@/lib/db";
-import { formatCurrency } from "@/lib/utils";
-import { pickVariantIndex } from "@/lib/voice";
+import { categorySpendSql, categoryNetSql } from "@/lib/reportingSql";
+import { budgetCarryCents, evaluateBudgetPeriod, type BudgetDefinition } from "@/lib/budgetMetrics";
+import { formatCurrency, formatMonthLabel, formatDate } from "@/lib/utils";
+import { detectNewMilestones } from "@/lib/milestones";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
+import { useMilestoneQueue } from "@/hooks/useMilestoneQueue";
 import { useProfileStore } from "@/stores/profileStore";
+import { handleLoadFailure, toast } from "@/stores/toastStore";
 import CategoryOptions from "@/components/CategoryOptions";
 import WeeklyMiniBar from "@/components/WeeklyMiniBar";
 import PinModal from "@/components/PinModal";
+import MilestoneCelebration from "@/components/MilestoneCelebration";
 import { CardListSkeleton } from "@/components/Skeleton";
 import type { Profile } from "@/lib/types";
 
@@ -28,15 +34,10 @@ interface BudgetRow {
   rollover: number;
   /** Unspent amount carried forward from prior months (0 unless `rollover` is enabled and
    *  this is a monthly budget) - added to `amount_cents` to get the effective limit for the
-   *  currently-viewed month. See `computeRolloverCents`. */
+  *  currently-viewed month. */
   rolloverCents: number;
   weeklyAmounts: number[];
 }
-
-/** Safety cap on how many months of history a rollover computation will walk back through -
- *  rollover chains compound month over month, so this bounds the query cost for a budget
- *  that's existed a very long time instead of walking back indefinitely. */
-const MAX_ROLLOVER_MONTHS = 36;
 
 function viewModeKey(profileId: number) {
   return `compass_budget_view_${profileId}`;
@@ -50,20 +51,29 @@ function monthBounds(ym: string): [string, string] {
   ];
 }
 
-function nextYM(ym: string): string {
-  const [y, m] = ym.split("-").map(Number);
-  const d = new Date(y, m, 1); // m is 1-indexed here, so this already advances one month
+/** The most recent month that has actually finished - the only period a "you held your budget"
+ *  celebration can honestly be based on. */
+function lastCompletedYM(): string {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function currentWeekBounds(): [string, string] {
+function currentWeekBounds(month: string): [string, string] {
   const now = new Date();
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  if (month !== currentMonth) {
+    const [year, monthNumber] = month.split("-").map(Number);
+    now.setFullYear(year, monthNumber, 0);
+  }
   const dow = (now.getDay() + 6) % 7;
   const mon = new Date(now);
   mon.setDate(now.getDate() - dow);
   const sun = new Date(mon);
   sun.setDate(mon.getDate() + 7);
-  return [mon.toISOString().split("T")[0], sun.toISOString().split("T")[0]];
+  const localDate = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+  return [localDate(mon), localDate(sun)];
 }
 
 function daysInMonth(ym: string): number {
@@ -79,129 +89,6 @@ function daysElapsed(ym: string): number {
   return now.getDate();
 }
 
-/** A short, human narrative sentence for one budget's current standing - the "companion voice"
- *  layer applied to budgets (see voice.ts), which otherwise only shows a progress bar and raw
- *  numbers. Picks between a couple of phrasings deterministically (`seedKey`) so it doesn't
- *  read identically for every budget, but stays stable within a single day. */
-function budgetNarrative(params: {
-  seedKey: string;
-  over: boolean;
-  effectiveLimit: number;
-  displayCents: number;
-  remaining: number;
-  dailyRemaining: number;
-  projectedOver: boolean;
-  projectedOverBy: number;
-}): { text: string; tone: "warning" | "success" | "info" } {
-  const { seedKey, over, effectiveLimit, displayCents, remaining, dailyRemaining, projectedOver, projectedOverBy } = params;
-  const daysLeftText = remaining > 0 ? `${remaining} day${remaining !== 1 ? "s" : ""} left` : "the period ends today";
-
-  if (over) {
-    const overBy = displayCents - effectiveLimit;
-    const variants = [
-      `You're ${formatCurrency(overBy)} over, with ${daysLeftText} - might be worth pausing new purchases here.`,
-      `Over by ${formatCurrency(overBy)} with ${daysLeftText} to go.`,
-    ];
-    return { text: variants[pickVariantIndex(seedKey, variants.length)], tone: "warning" };
-  }
-
-  const cushion = effectiveLimit - displayCents;
-  if (remaining > 0 && projectedOver) {
-    return {
-      text: `You're under for now, but on pace to go ${formatCurrency(projectedOverBy)} over with ${daysLeftText} - a good spot to ease off.`,
-      tone: "warning",
-    };
-  }
-  if (remaining > 0) {
-    const variants = [
-      `You're ${formatCurrency(cushion)} under, with ${daysLeftText} - ${formatCurrency(Math.max(0, dailyRemaining))}/day of room left.`,
-      `${formatCurrency(cushion)} of breathing room left, with ${daysLeftText}.`,
-    ];
-    return { text: variants[pickVariantIndex(seedKey, variants.length)], tone: "success" };
-  }
-  return { text: `You came in ${formatCurrency(cushion)} under this period.`, tone: "success" };
-}
-
-/** Walks month-by-month from a rollover-enabled budget's creation month up to (but excluding)
- *  the currently-viewed month, compounding each month's leftover (`amountCents - spent`,
- *  floored at 0 - overspending never creates a "debt" that reduces future months, it just
- *  resets that month's carry to 0) into the next month's available amount. Returns the total
- *  carried into the currently-viewed month, added to `amountCents` for the effective limit.
- *  Capped at `MAX_ROLLOVER_MONTHS` months of history to bound query cost. */
-async function computeRolloverCents(
-  db: Awaited<ReturnType<typeof getDb>>,
-  categoryId: number,
-  amountCents: number,
-  startDate: string,
-  currentMonthYM: string,
-  spendProfileIds: number[]
-): Promise<number> {
-  const ph = spendProfileIds.map(() => "?").join(",");
-  let cursor = startDate.slice(0, 7); // "YYYY-MM" of the budget's own creation month
-  let carry = 0;
-  let iterations = 0;
-  while (cursor < currentMonthYM && iterations < MAX_ROLLOVER_MONTHS) {
-    const [s, e] = monthBounds(cursor);
-    const [row] = await db.select<{ spent: number }[]>(
-      `SELECT COALESCE(SUM(CASE WHEN t.amount_cents<0 THEN -t.amount_cents
-         WHEN (a.account_type IS NULL OR a.account_type NOT IN ('credit','loan')) THEN -t.amount_cents ELSE 0 END),0) as spent
-       FROM transactions t LEFT JOIN accounts a ON a.id=t.account_id
-       WHERE t.category_id=? AND t.date>=? AND t.date<? AND t.profile_id IN (${ph})`,
-      [categoryId, s, e, ...spendProfileIds]
-    );
-    const available = amountCents + carry - (row?.spent ?? 0);
-    carry = Math.max(0, available);
-    cursor = nextYM(cursor);
-    iterations++;
-  }
-  return carry;
-}
-
-interface ScopeToggleProps {
-  isGlobal: boolean;
-  onToggle: () => void;
-  size?: "sm" | "md";
-}
-function ScopeToggle({ isGlobal, onToggle, size = "md" }: ScopeToggleProps) {
-  const trackW = size === "sm" ? 40 : 52;
-  const trackH = size === "sm" ? 22 : 28;
-  const thumbS = size === "sm" ? 16 : 22;
-  const travel = trackW - 6 - thumbS;
-  return (
-    <button
-      role="switch"
-      aria-checked={isGlobal}
-      onClick={onToggle}
-      style={{
-        width: trackW,
-        height: trackH,
-        borderRadius: trackH / 2,
-        padding: 3,
-        backgroundColor: isGlobal ? "var(--gold)" : "hsl(var(--primary))",
-        transition: "background-color 0.3s",
-        cursor: "pointer",
-        display: "inline-flex",
-        alignItems: "center",
-        border: "none",
-        flexShrink: 0,
-        boxShadow: "inset 0 1px 3px rgba(0,0,0,0.18)",
-      }}
-    >
-      <div
-        style={{
-          width: thumbS,
-          height: thumbS,
-          borderRadius: thumbS / 2,
-          backgroundColor: "white",
-          transition: "transform 0.25s cubic-bezier(0.4,0,0.2,1)",
-          transform: isGlobal ? `translateX(${travel}px)` : "translateX(0)",
-          boxShadow: "0 1px 4px rgba(0,0,0,0.28)",
-          flexShrink: 0,
-        }}
-      />
-    </button>
-  );
-}
 
 export default function BudgetsPage() {
   const [month, setMonth] = useAutoMonth("budgets");
@@ -226,10 +113,14 @@ export default function BudgetsPage() {
   const [formRollover, setFormRollover] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [onlyOver, setOnlyOver] = useState(false);
 
   const [pinQueue, setPinQueue] = useState<Profile[]>([]);
   const [pinQueueIdx, setPinQueueIdx] = useState(0);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [suggesting, setSuggesting] = useState(false);
+  const { active: activeMilestone, enqueue: enqueueMilestones, dismiss: dismissMilestone } = useMilestoneQueue();
 
   useEffect(() => {
     const saved = localStorage.getItem(viewModeKey(profileId));
@@ -240,6 +131,7 @@ export default function BudgetsPage() {
   useEffect(() => {
     const prefill = (location.state as { prefillBudget?: { category_id: number; amount_cents: number; period: string } } | null)?.prefillBudget;
     if (!prefill) return;
+    setFormOpen(true);
     setFormCatId(prefill.category_id);
     setFormAmount(String((prefill.amount_cents / 100).toFixed(2)));
     setFormPeriod((prefill.period === "weekly" ? "weekly" : "monthly") as "monthly" | "weekly");
@@ -268,7 +160,7 @@ export default function BudgetsPage() {
     setLoading(true);
     const db = await getDb();
     const [start, end] = monthBounds(month);
-    const [weekStart, weekEnd] = currentWeekBounds();
+    const [weekStart, weekEnd] = currentWeekBounds(month);
 
     let rawBudgets: Omit<BudgetRow, "weeklyAmounts" | "rolloverCents">[];
     let weeklyRows: { category_id: number; dow: number; total: number }[];
@@ -280,23 +172,23 @@ export default function BudgetsPage() {
         `SELECT b.id, b.category_id, c.parent_id as category_parent_id,
                 c.name as category_name, c.color as category_color,
                 b.amount_cents, b.period, b.start_date, b.is_global, b.rollover,
-                COALESCE(MAX(0, SUM(CASE WHEN t.amount_cents<0 THEN -t.amount_cents
-                  WHEN (acc.account_type IS NULL OR acc.account_type NOT IN ('credit','loan')) THEN -t.amount_cents ELSE 0 END)),0) as spent_cents,
+                ${categoryNetSql("t", "acc")} as spent_cents,
                 COALESCE(SUM(CASE WHEN t.amount_cents>0 AND (acc.account_type IS NULL OR acc.account_type NOT IN ('credit','loan')) THEN t.amount_cents ELSE 0 END),0) as earned_cents
          FROM budgets b
          JOIN categories c ON b.category_id=c.id
          LEFT JOIN transactions t ON t.category_id=b.category_id
-           AND t.date>=? AND t.date<? AND t.profile_id IN (${ph})
+           AND t.date>=CASE WHEN b.period='weekly' THEN ? ELSE ? END
+           AND t.date<CASE WHEN b.period='weekly' THEN ? ELSE ? END AND t.profile_id IN (${ph})
          LEFT JOIN accounts acc ON acc.id=t.account_id
          WHERE b.is_global=1
          GROUP BY b.id ORDER BY c.name`,
-        [start, end, ...ids]
+        [weekStart, start, weekEnd, end, ...ids]
       );
       weeklyRows = await db.select<{ category_id: number; dow: number; total: number }[]>(
-        `SELECT category_id, (strftime('%w',date)+6)%7 as dow, SUM(ABS(amount_cents)) as total
-         FROM transactions
-         WHERE date>=? AND date<? AND profile_id IN (${ph}) AND amount_cents<0
-         GROUP BY category_id, dow`,
+        `SELECT t.category_id, (strftime('%w',t.date)+6)%7 as dow, ${categoryNetSql()} as total
+         FROM transactions t LEFT JOIN accounts a ON a.id=t.account_id
+         WHERE t.date>=? AND t.date<? AND t.profile_id IN (${ph})
+         GROUP BY t.category_id, dow`,
         [weekStart, weekEnd, ...ids]
       );
     } else {
@@ -304,23 +196,23 @@ export default function BudgetsPage() {
         `SELECT b.id, b.category_id, c.parent_id as category_parent_id,
                 c.name as category_name, c.color as category_color,
                 b.amount_cents, b.period, b.start_date, b.is_global, b.rollover,
-                COALESCE(MAX(0, SUM(CASE WHEN t.amount_cents<0 THEN -t.amount_cents
-                  WHEN (acc.account_type IS NULL OR acc.account_type NOT IN ('credit','loan')) THEN -t.amount_cents ELSE 0 END)),0) as spent_cents,
+                ${categoryNetSql("t", "acc")} as spent_cents,
                 COALESCE(SUM(CASE WHEN t.amount_cents>0 AND (acc.account_type IS NULL OR acc.account_type NOT IN ('credit','loan')) THEN t.amount_cents ELSE 0 END),0) as earned_cents
          FROM budgets b
          JOIN categories c ON b.category_id=c.id
          LEFT JOIN transactions t ON t.category_id=b.category_id
-           AND t.date>=? AND t.date<? AND t.profile_id=?
+           AND t.date>=CASE WHEN b.period='weekly' THEN ? ELSE ? END
+           AND t.date<CASE WHEN b.period='weekly' THEN ? ELSE ? END AND t.profile_id=?
          LEFT JOIN accounts acc ON acc.id=t.account_id
          WHERE b.profile_id=?
          GROUP BY b.id ORDER BY c.name`,
-        [start, end, profileId, profileId]
+        [weekStart, start, weekEnd, end, profileId, profileId]
       );
       weeklyRows = await db.select<{ category_id: number; dow: number; total: number }[]>(
-        `SELECT category_id, (strftime('%w',date)+6)%7 as dow, SUM(ABS(amount_cents)) as total
-         FROM transactions
-         WHERE date>=? AND date<? AND profile_id=? AND amount_cents<0
-         GROUP BY category_id, dow`,
+        `SELECT t.category_id, (strftime('%w',t.date)+6)%7 as dow, ${categoryNetSql()} as total
+         FROM transactions t LEFT JOIN accounts a ON a.id=t.account_id
+         WHERE t.date>=? AND t.date<? AND t.profile_id=?
+         GROUP BY t.category_id, dow`,
         [weekStart, weekEnd, profileId]
       );
     }
@@ -334,12 +226,11 @@ export default function BudgetsPage() {
     const spendProfileIds = viewMode === "global"
       ? (unlockedProfileIds.length > 0 ? unlockedProfileIds : [profileId])
       : [profileId];
-    const currentMonthYM = month;
     const rolloverCentsById = new Map<number, number>();
     for (const b of rawBudgets) {
       if (b.rollover && b.period === "monthly") {
-        const cents = await computeRolloverCents(db, b.category_id, b.amount_cents, b.start_date, currentMonthYM, spendProfileIds);
-        rolloverCentsById.set(b.id, cents);
+        const period = await evaluateBudgetPeriod(db, { ...b, profile_id: profileId }, spendProfileIds, start, end);
+        rolloverCentsById.set(b.id, period.available - b.amount_cents);
       }
     }
 
@@ -353,7 +244,43 @@ export default function BudgetsPage() {
     setLoading(false);
   }, [month, profileId, viewMode, unlockedProfileIds]);
 
-  useEffect(() => { loadBudgets().catch(console.error); }, [loadBudgets]);
+  useEffect(() => { loadBudgets().catch(handleLoadFailure("your budgets", setLoading, () => void loadBudgets())); }, [loadBudgets]);
+
+  // Celebrate budgets held for the whole of the last completed month. Deliberately independent
+  // of the month being viewed: the win is a fact about a finished period, not about where the
+  // user happened to navigate. Only monthly, non-income budgets that already existed before
+  // that month started qualify - anything else didn't cover the full period.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const month = lastCompletedYM();
+      const [start, end] = monthBounds(month);
+      const db = await getDb();
+      const rows = await db.select<BudgetDefinition[]>(
+        `SELECT b.*, c.name as category_name, c.parent_id as category_parent_id
+         FROM budgets b
+         JOIN categories c ON b.category_id=c.id
+         WHERE b.profile_id=? AND b.is_global=0 AND b.period='monthly' AND b.start_date<=?
+           AND c.id!=1 AND (c.parent_id IS NULL OR c.parent_id!=1)`,
+        [profileId, start]
+      );
+      const evaluated = await Promise.all(rows.map(async (budget) => ({ budget, period: await evaluateBudgetPeriod(db, budget, [profileId], start, end) })));
+      if (cancelled) return;
+      enqueueMilestones(
+        detectNewMilestones(profileId, {
+          budgets: evaluated.filter(({ period }) => period.covered).map(({ budget, period }) => ({
+            id: budget.id,
+            name: budget.category_name,
+            month,
+            monthLabel: formatMonthLabel(month),
+            spentCents: period.net,
+            limitCents: period.available,
+          })),
+        })
+      );
+    })().catch(console.error);
+    return () => { cancelled = true; };
+  }, [profileId, enqueueMilestones]);
 
   useEffect(() => {
     // Don't clobber a prefill that was just applied — only default-init when truly empty
@@ -379,6 +306,60 @@ export default function BudgetsPage() {
   const handleSwitchToProfile = () => {
     localStorage.setItem(viewModeKey(profileId), "profile");
     setViewMode("profile");
+  };
+
+  /** Creates a starter set of monthly budgets from the last 3 completed months of spending.
+   *  A blank Budgets page asks the user to invent numbers they don't have, which is where most
+   *  people give up - this turns it into a list they can adjust. */
+  const suggestBudgets = async () => {
+    setSuggesting(true);
+    try {
+      const db = await getDb();
+      const [y, m] = month.split("-").map(Number);
+      const from = new Date(y, m - 1 - 3, 1);
+      const start = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, "0")}-01`;
+      const [end] = monthBounds(month);
+
+      const rows = await db.select<{ category_id: number; total: number; months: number }[]>(
+        `SELECT t.category_id,
+                ${categorySpendSql("t", "a")} as total,
+                COUNT(DISTINCT substr(t.date,1,7)) as months
+         FROM transactions t
+         JOIN categories c ON c.id=t.category_id
+         JOIN accounts a ON a.id=t.account_id
+         WHERE t.profile_id=? AND t.date>=? AND t.date<?
+           AND t.category_id!=1 AND (c.parent_id IS NULL OR c.parent_id!=1)
+         GROUP BY t.category_id
+         HAVING total > 0
+         ORDER BY total DESC
+         LIMIT 6`,
+        [profileId, start, end]
+      );
+
+      if (rows.length === 0) {
+        toast.info("Not enough spending history yet to suggest budgets. Import a statement first.");
+        return;
+      }
+
+      const [budgetStart] = monthBounds(month);
+      for (const r of rows) {
+        // Round the monthly average up to the nearest $10 so suggestions read as deliberate
+        // round numbers rather than an oddly precise average.
+        const avg = r.total / Math.max(1, r.months);
+        const limit = Math.max(1000, Math.ceil(avg / 1000) * 1000);
+        await db.execute(
+          "INSERT INTO budgets (category_id, amount_cents, period, start_date, profile_id, is_global, rollover) VALUES (?,?,?,?,?,0,0)",
+          [r.category_id, limit, "monthly", budgetStart, profileId]
+        );
+      }
+      await loadBudgets();
+      toast.success(`Created ${rows.length} starter budgets from your recent spending. Adjust any of them below.`);
+    } catch (e) {
+      console.error(e);
+      toast.error(`Couldn't suggest budgets: ${String(e)}`);
+    } finally {
+      setSuggesting(false);
+    }
   };
 
   const advancePinQueue = (unlockedId?: number) => {
@@ -415,10 +396,12 @@ export default function BudgetsPage() {
     setFormAmount("");
     setFormRollover(false);
     setSaving(false);
+    setFormOpen(false);
     await loadBudgets();
   };
 
   const startEdit = (b: BudgetRow) => {
+    setFormOpen(true);
     setEditingId(b.id);
     setFormCatId(b.category_id);
     setFormAmount((b.amount_cents / 100).toString());
@@ -428,6 +411,7 @@ export default function BudgetsPage() {
   };
 
   const cancelEdit = () => {
+    setFormOpen(false);
     setEditingId(null);
     setFormCatId(0);
     setFormAmount("");
@@ -477,9 +461,15 @@ export default function BudgetsPage() {
       : [];
 
   const isGlobalActive = viewMode === "global";
+  const isOverLimit = (budget: BudgetRow) => budget.category_id !== 1 && budget.category_parent_id !== 1 && budget.spent_cents > budget.amount_cents + budget.rolloverCents;
+  const monthlyLimits = budgets.filter((budget) => budget.period === "monthly" && budget.category_id !== 1 && budget.category_parent_id !== 1);
+  const monthlyLimit = monthlyLimits.reduce((total, budget) => total + budget.amount_cents + budget.rolloverCents, 0);
+  const monthlyRemaining = monthlyLimits.reduce((total, budget) => total + budget.amount_cents + budget.rolloverCents - budget.spent_cents, 0);
 
   return (
-    <>
+    <div className="workspace-page budgets-workspace">
+      <MilestoneCelebration event={activeMilestone} onDismiss={dismissMilestone} />
+
       {pinTarget && (
         <PinModal
           profile={pinTarget}
@@ -490,13 +480,12 @@ export default function BudgetsPage() {
 
       {/* Sticky page header */}
       <div
-        className="sticky top-0 z-20 border-b px-8 py-4 flex items-center justify-between gap-6"
-        style={{ backgroundColor: "hsl(var(--background))", backdropFilter: "blur(8px)" }}
+        className="workspace-heading"
       >
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Budgets</h1>
           <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">
-            Soft limits — no penalties, just awareness.
+            {formatMonthLabel(month)} · {isGlobalActive ? "Shared budgets" : activeProfile?.name ?? "Your budgets"}
           </p>
         </div>
 
@@ -514,6 +503,7 @@ export default function BudgetsPage() {
           <ScopeToggle
             isGlobal={isGlobalActive}
             onToggle={() => isGlobalActive ? handleSwitchToProfile() : handleSwitchToGlobal()}
+            ariaLabel="Global budget scope"
           />
           <span
             className="text-sm font-semibold select-none"
@@ -528,10 +518,10 @@ export default function BudgetsPage() {
       </div>
 
       {/* Scrollable content */}
-      <div className="max-w-4xl mx-auto px-10 py-8 space-y-6">
+      <div className="pt-6 space-y-6">
 
         {/* Month navigation */}
-        <div className="flex items-center justify-end gap-1.5">
+        <div className="flex items-center justify-end gap-1.5 flex-wrap">
           <button
             onClick={() => navMonth(-1)}
             aria-label="Previous month"
@@ -552,6 +542,7 @@ export default function BudgetsPage() {
           >
             <ChevronRight size={16} />
           </button>
+          <button onClick={() => { cancelEdit(); setFormOpen(true); }} className="ml-2 flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"><Plus size={15} /> New budget</button>
         </div>
 
         {/* Locked-profile warning */}
@@ -608,7 +599,7 @@ export default function BudgetsPage() {
         )}
 
         {/* Add Budget form */}
-        <div ref={formRef} className="border rounded-2xl overflow-hidden">
+        <div ref={formRef} hidden={!formOpen} className="border rounded-lg overflow-hidden">
           <div className="px-6 py-4 border-b flex items-center justify-between">
             <h2 className="font-semibold text-base">{editingId ? "Edit Budget" : "New Budget"}</h2>
             {!editingId && (
@@ -626,6 +617,7 @@ export default function BudgetsPage() {
                   isGlobal={formIsGlobal}
                   onToggle={() => setFormIsGlobal((v) => !v)}
                   size="sm"
+                  ariaLabel="Global budget scope"
                 />
                 <span
                   className="text-xs font-semibold select-none"
@@ -644,6 +636,7 @@ export default function BudgetsPage() {
               <div className="flex-1 min-w-40 space-y-1.5">
                 <label className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Category</label>
                 <select
+                  aria-label="Budget category"
                   value={formCatId}
                   onChange={(e) => setFormCatId(parseInt(e.target.value))}
                   className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
@@ -655,6 +648,7 @@ export default function BudgetsPage() {
                 <label className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Amount</label>
                 <input
                   type="number"
+                  aria-label="Budget amount"
                   min="1"
                   step="0.01"
                   placeholder="$0.00"
@@ -666,6 +660,7 @@ export default function BudgetsPage() {
               <div className="w-32 space-y-1.5">
                 <label className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Period</label>
                 <select
+                  aria-label="Budget period"
                   value={formPeriod}
                   onChange={(e) => setFormPeriod(e.target.value as "monthly" | "weekly")}
                   className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
@@ -697,7 +692,7 @@ export default function BudgetsPage() {
               >
                 {saving ? "Saving..." : editingId ? "Save Changes" : "Add"}
               </button>
-              {editingId && (
+              {formOpen && (
                 <button
                   onClick={cancelEdit}
                   className="px-4 py-2 border rounded-lg text-sm font-medium hover:bg-[hsl(var(--muted))] transition-colors"
@@ -713,6 +708,19 @@ export default function BudgetsPage() {
         {/* Loading state */}
         {loading && <CardListSkeleton count={3} />}
 
+        {!loading && budgets.length > 0 && <>
+          <div className="goal-summary budget-summary">
+            <div><p>Monthly limits</p><strong>{formatCurrency(monthlyLimit)}</strong></div>
+            <div><p>Remaining across monthly limits</p><strong className={monthlyRemaining < 0 ? "text-[hsl(var(--error))]" : ""}>{formatCurrency(monthlyRemaining)}</strong></div>
+            <div><p>Over limit</p><strong>{budgets.filter(isOverLimit).length}<span> / {budgets.length}</span></strong></div>
+          </div>
+          <div className="workspace-segments" role="group" aria-label="Budget status">
+            <button aria-pressed={!onlyOver} onClick={() => setOnlyOver(false)}><Wallet size={14} /> All budgets</button>
+            <button aria-pressed={onlyOver} onClick={() => setOnlyOver(true)}><AlertTriangle size={14} /> Over limit</button>
+          </div>
+          {onlyOver && !budgets.some(isOverLimit) && <p className="text-sm py-6 text-[hsl(var(--muted-foreground))]">No budgets over their limit.</p>}
+        </>}
+
         {/* Empty state */}
         {!loading && budgets.length === 0 && (
           <div className="flex flex-col items-center gap-3 py-20 text-center">
@@ -720,33 +728,52 @@ export default function BudgetsPage() {
               className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl mb-1"
               style={{ backgroundColor: isGlobalActive ? "rgba(192,138,28,0.1)" : "hsl(var(--muted))" }}
             >
-              &#128176;
+              <Wallet size={24} />
             </div>
             <p className="font-semibold text-[hsl(var(--foreground))]">
               {isGlobalActive ? "No global budgets yet" : "No budgets yet"}
             </p>
-            <p className="text-sm text-[hsl(var(--muted-foreground))] max-w-xs">
-              {isGlobalActive
-                ? "Create a budget above and toggle it to Global to track spending across all profiles."
-                : "Set your first spending limit above to start tracking your progress."}
-            </p>
+            {isGlobalActive ? (
+              <p className="text-sm text-[hsl(var(--muted-foreground))] max-w-xs">
+                No shared spending limits for this period.
+              </p>
+            ) : (
+              <>
+                <p className="text-sm text-[hsl(var(--muted-foreground))] max-w-md">
+                  Start with limits based on your recent spending.
+                </p>
+                <button
+                  onClick={suggestBudgets}
+                  disabled={suggesting}
+                  className="mt-2 px-5 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-40 transition-opacity hover:opacity-90"
+                  style={{ backgroundColor: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))" }}
+                >
+                  {suggesting ? "Working…" : "Suggest budgets from my spending"}
+                </button>
+                <p className="text-xs text-[hsl(var(--muted-foreground))] max-w-xs">
+                  Based on your last three completed months.
+                </p>
+              </>
+            )}
           </div>
         )}
 
         {/* Budget cards */}
-        {!loading && budgets.map((b) => {
+        {!loading && budgets.filter((budget) => !onlyOver || isOverLimit(budget)).map((b) => {
           const isIncome = b.category_id === 1 || b.category_parent_id === 1;
           const displayCents = isIncome ? b.earned_cents : b.spent_cents;
-          const displayLabel = isIncome ? "earned" : "spent";
+          const displayLabel = isIncome ? "earned" : "net used";
           const effectiveLimit = b.amount_cents + (b.rolloverCents || 0);
-          const pct = effectiveLimit > 0
-            ? Math.min(100, Math.round((displayCents / effectiveLimit) * 100))
-            : 0;
+          const usedPct = effectiveLimit > 0 ? Math.round((displayCents / effectiveLimit) * 100) : 0;
+          const pct = Math.max(0, Math.min(100, usedPct));
           const over = !isIncome && displayCents > effectiveLimit;
           const under = isIncome && displayCents < effectiveLimit;
 
-          const totalDays = daysInMonth(month);
-          const elapsed = daysElapsed(month);
+          const totalDays = b.period === "weekly" ? 7 : daysInMonth(month);
+          const [weekStart, weekEnd] = currentWeekBounds(month);
+          const elapsed = b.period === "weekly"
+            ? Math.max(0, Math.min(7, Math.floor((new Date().getTime() - new Date(`${weekStart}T00:00:00`).getTime()) / 86_400_000) + 1))
+            : daysElapsed(month);
           const remaining = totalDays - elapsed;
           const dailyLimit = effectiveLimit / totalDays;
           const dailyRemaining = remaining > 0 ? (effectiveLimit - displayCents) / remaining : 0;
@@ -759,12 +786,12 @@ export default function BudgetsPage() {
           return (
             <div
               key={b.id}
-              className="group border rounded-2xl overflow-hidden"
-              style={{ borderLeft: `4px solid ${accentColor}` }}
+              data-budget-id={b.id}
+              className="budget-item"
             >
-              <div className="px-6 pt-5 pb-4">
+              <div className="pt-5 pb-4">
                 {/* Card header row */}
-                <div className="flex items-start justify-between gap-4 mb-4">
+                <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
                   <div className="flex items-center gap-2.5 flex-wrap min-w-0">
                     <span
                       className="w-2.5 h-2.5 rounded-full shrink-0"
@@ -772,7 +799,7 @@ export default function BudgetsPage() {
                     />
                     <span className="font-semibold text-base">{b.category_name}</span>
                     <span className="text-xs text-[hsl(var(--muted-foreground))] capitalize">
-                      {b.period}
+                      {b.period === "weekly" ? `Week of ${formatDate(weekStart)}` : b.period}
                     </span>
                     {b.is_global ? (
                       <span
@@ -784,14 +811,9 @@ export default function BudgetsPage() {
                     ) : (
                       <span
                         className="text-xs px-2 py-0.5 rounded-full font-semibold"
-                        style={{ backgroundColor: "hsl(var(--primary)/0.12)", color: "hsl(var(--primary))" }}
+                        style={{ backgroundColor: "hsl(var(--primary)/0.12)", color: "hsl(var(--gold-ink))" }}
                       >
                         Profile
-                      </span>
-                    )}
-                    {projectedOver && remaining > 0 && (
-                      <span className="text-xs font-semibold text-[hsl(var(--error))]">
-                        +{formatCurrency(projectedOverBy)} projected over
                       </span>
                     )}
                     {b.period === "monthly" && b.rollover === 1 && b.rolloverCents > 0 && (
@@ -811,33 +833,36 @@ export default function BudgetsPage() {
                     <button
                       onClick={() => startEdit(b)}
                       title="Edit budget"
-                      className="text-xs px-2.5 py-1 rounded-lg border transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100"
+                      aria-label={`Edit ${b.category_name} budget`}
+                      className="workspace-icon"
                       style={{
                         color: "hsl(var(--muted-foreground))",
                         borderColor: "hsl(var(--muted-foreground) / 0.3)",
                         backgroundColor: "transparent",
                       }}
                     >
-                      Edit
+                      <Pencil size={15} />
                     </button>
                     {b.period === "monthly" && (
                       <button
                         onClick={() => toggleBudgetRollover(b)}
                         title={b.rollover ? "Disable rollover" : "Roll over unspent amounts to next month"}
-                        className="text-xs px-2.5 py-1 rounded-lg border transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100"
+                        aria-label={`Rollover for ${b.category_name}`} aria-pressed={!!b.rollover}
+                        className="workspace-icon"
                         style={{
                           color: b.rollover ? "hsl(var(--success))" : "hsl(var(--muted-foreground))",
                           borderColor: b.rollover ? "hsl(var(--success) / 0.3)" : "hsl(var(--muted-foreground) / 0.3)",
                           backgroundColor: "transparent",
                         }}
                       >
-                        {b.rollover ? "↻ Rollover on" : "↻ Rollover off"}
+                        <RotateCcw size={15} />
                       </button>
                     )}
                     <button
                       onClick={() => toggleBudgetScope(b)}
                       title={b.is_global ? "Make profile-specific" : "Make global"}
-                      className="text-xs px-2.5 py-1 rounded-lg border transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100"
+                      aria-label={`Share ${b.category_name} budget`} aria-pressed={!!b.is_global}
+                      className="workspace-icon"
                       style={{
                         color: b.is_global ? "hsl(var(--primary))" : "var(--gold)",
                         borderColor: b.is_global ? "hsl(var(--primary) / 0.3)" : "rgba(192,138,28,0.3)",
@@ -850,7 +875,7 @@ export default function BudgetsPage() {
                       }}
                       onMouseOut={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
                     >
-                      {b.is_global ? "? Profile" : "? Global"}
+                      <Globe size={15} />
                     </button>
                     {confirmDeleteId === b.id ? (
                       <span className="flex items-center gap-1.5">
@@ -871,12 +896,13 @@ export default function BudgetsPage() {
                     ) : (
                       <button
                         onClick={() => setConfirmDeleteId(b.id)}
-                        className="text-xs px-2.5 py-1 rounded-lg border transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100"
+                        aria-label={`Remove ${b.category_name} budget`} title="Remove budget"
+                        className="workspace-icon"
                         style={{ color: "hsl(var(--error))", borderColor: "hsl(var(--error) / 0.3)", backgroundColor: "transparent" }}
                         onMouseOver={(e) => { e.currentTarget.style.backgroundColor = "hsl(var(--error) / 0.07)"; }}
                         onMouseOut={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
                       >
-                        Remove
+                        <Trash2 size={15} />
                       </button>
                     )}
                   </div>
@@ -895,20 +921,17 @@ export default function BudgetsPage() {
                 </div>
 
                 {/* Amounts row */}
-                <div className="flex items-baseline justify-between text-sm">
+                <div className="flex items-baseline justify-between gap-3 flex-wrap text-sm">
                   <span
-                    className="font-medium"
+                    className="text-2xl font-semibold tabular-nums"
                     style={{
-                      color: over ? "hsl(var(--error))" : under ? "hsl(var(--warning))" : "hsl(var(--muted-foreground))",
+                      color: displayCents < 0 ? "hsl(var(--success))" : over ? "hsl(var(--error))" : under ? "hsl(var(--warning))" : "hsl(var(--muted-foreground))",
                     }}
                   >
                     {formatCurrency(displayCents)}{" "}
-                    <span className="font-normal">{displayLabel}</span>
-                    {over && (
-                      <span className="ml-1.5 text-xs font-semibold text-[hsl(var(--error))]">over budget</span>
-                    )}
+                    <span className="font-normal text-xs">{displayLabel}</span>
                     {under && (
-                      <span className="ml-1.5 text-xs font-semibold text-orange-500">below target</span>
+                      <span className="ml-1.5 text-xs font-semibold text-[hsl(var(--warning))]">below target</span>
                     )}
                   </span>
                   <span className="text-[hsl(var(--muted-foreground))] tabular-nums">
@@ -916,54 +939,51 @@ export default function BudgetsPage() {
                     {b.rolloverCents > 0 && (
                       <span className="text-xs"> ({formatCurrency(b.amount_cents)} + {formatCurrency(b.rolloverCents)})</span>
                     )}
-                    <span className="ml-2 font-semibold" style={{ color: accentColor }}>{pct}%</span>
+                    <span className="ml-2 font-semibold" style={{ color: accentColor }}>{usedPct}%</span>
                   </span>
                 </div>
 
-                {/* Narrative callout - the "companion voice" pass over what would otherwise be
-                    just a progress bar and raw numbers (see budgetNarrative above). */}
+                {!isIncome && <details className="workspace-disclosure mt-2 text-xs">
+                  <summary>Debits and credits</summary>
+                  <div className="flex gap-6 flex-wrap py-3">
+                    <span>Debits {formatCurrency(b.spent_cents + b.earned_cents)}</span>
+                    <span>Credits {formatCurrency(b.earned_cents)}</span>
+                    {displayCents < 0 && <span className="text-[hsl(var(--success))]">Credits exceed debits</span>}
+                    {!!b.rollover && <span>Next carry: {formatCurrency(budgetCarryCents(effectiveLimit, displayCents))}</span>}
+                    {viewMode === "profile" ? <button className="text-[hsl(var(--gold-ink))]" onClick={() => navigate("/transactions", { state: { month, category: b.category_id, range: b.period === "weekly" ? { start: weekStart, end: weekEnd } : undefined } })}>View transactions</button> : <span>Global totals include unlocked profiles. View each profile's transactions for detail.</span>}
+                  </div>
+                </details>}
                 {!isIncome && elapsed > 0 && effectiveLimit > 0 && (() => {
-                  const { text, tone } = budgetNarrative({
-                    seedKey: `${b.id}:${month}:${elapsed}`,
-                    over,
-                    effectiveLimit,
-                    displayCents,
-                    remaining,
-                    dailyRemaining,
-                    projectedOver,
-                    projectedOverBy,
-                  });
-                  const ToneIcon = tone === "warning" ? AlertTriangle : CheckCircle;
-                  const toneColor = tone === "warning" ? "hsl(var(--warning))" : "hsl(var(--success))";
+                  const ToneIcon = over || projectedOver ? AlertTriangle : CheckCircle;
+                  const toneColor = over || projectedOver ? "hsl(var(--warning))" : "hsl(var(--muted-foreground))";
                   return (
                     <p className="text-xs mt-2 flex items-start gap-1.5" style={{ color: toneColor }}>
                       <ToneIcon size={12} className="shrink-0 mt-0.5" />
-                      <span>{text}</span>
+                      <span>{over ? `${formatCurrency(displayCents - effectiveLimit)} over limit` : projectedOver && remaining > 0 ? `${formatCurrency(projectedOverBy)} projected over limit` : `${formatCurrency(effectiveLimit - displayCents)} remaining`}</span>
                     </p>
                   );
                 })()}
               </div>
 
               {/* Footer: daily remaining + weekly bar */}
-              {!isIncome && remaining > 0 && (
+              {!isIncome && (
                 <div
-                  className="px-6 py-3 flex items-center justify-between gap-4 border-t"
-                  style={{ backgroundColor: "hsl(var(--muted)/0.4)" }}
+                  className="pb-4 flex items-center justify-between gap-4"
                 >
-                  <div>
-                    <p className="text-xs text-[hsl(var(--muted-foreground))] mb-0.5">Daily remaining</p>
+                  {displayCents >= 0 && !over && remaining > 0 ? <div>
+                    <p className="text-xs text-[hsl(var(--muted-foreground))] mb-0.5">Daily allowance · {remaining} days left</p>
                     <p
                       className="text-sm font-semibold"
-                      style={{ color: dailyRemaining < 0 ? "#ef4444" : "hsl(var(--foreground))" }}
+                      style={{ color: "hsl(var(--foreground))" }}
                     >
-                      {dailyRemaining < 0
-                        ? `Over by ${formatCurrency(Math.abs(dailyRemaining))}/day`
-                        : `${formatCurrency(Math.max(0, dailyRemaining))}/day`}
+                      {formatCurrency(Math.max(0, dailyRemaining))}/day
                     </p>
-                  </div>
+                  </div> : <p className="text-xs text-[hsl(var(--muted-foreground))]">Week of {formatDate(weekStart)}</p>}
                   <WeeklyMiniBar
                     dailyAmounts={b.weeklyAmounts}
                     dailyTarget={dailyLimit}
+                    signed
+                    weekStart={weekStart}
                     overIsBad={true}
                     className="w-28 shrink-0"
                   />
@@ -976,6 +996,6 @@ export default function BudgetsPage() {
         {/* Bottom padding */}
         <div className="h-8" />
       </div>
-    </>
+    </div>
   );
 }

@@ -13,6 +13,23 @@ export function formatCurrency(cents: number, currency = "USD"): string {
   }).format(cents / 100);
 }
 
+/** Whole-dollar currency formatter (no cents), e.g. -1234 → "-$12" - used for insight/narrative
+ *  text (agent.ts) where showing exact cents would be unnecessary precision/visual noise. */
+export function formatCurrencyWhole(cents: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(cents / 100);
+}
+
+/** Parses a plain (always non-negative) dollar input string, e.g. "1,234.56" -> 1234.56 -
+ *  used for loan/statement balance-style fields where a minus sign is never expected. */
+export function parseDollarInput(s: string): number {
+  const n = parseFloat(s.replace(/[^0-9.]/g, ""));
+  return isNaN(n) ? 0 : n;
+}
+
 /** Compact currency formatter for chart Y-axis ticks, e.g. 250000 (cents) → "$2.5k",
  *  15000 → "$150". Abbreviates to "k" once the dollar value reaches four figures so large
  *  balances don't crowd the axis, otherwise shows whole dollars - one shared formatter
@@ -90,7 +107,7 @@ export function combineAccountBalances(
 
 /** A date with each account's forward-filled balance kept separate (keyed by account_id),
  *  instead of summed into one combined total. */
-export interface SeparatedBalancePoint {
+interface SeparatedBalancePoint {
   date: string;
   byAccount: Record<number, number>;
 }

@@ -72,7 +72,7 @@ function RuleForm({ form, setForm, categories, onSubmit, submitLabel, saving, er
 
   return (
     <div className="space-y-3">
-      {error && <p className="text-xs text-red-500">{error}</p>}
+      {error && <p className="text-xs text-[hsl(var(--error))]">{error}</p>}
 
       {/* ── Simple mode ── */}
       <div>
@@ -246,7 +246,7 @@ function RuleForm({ form, setForm, categories, onSubmit, submitLabel, saving, er
 // ─── Main modal ───────────────────────────────────────────────────────────────
 
 export default function CategorizationRulesModal({ onClose, profileId }: Props) {
-  const { onBackdropClick } = useModalDismiss(onClose);
+  const { onBackdropClick, containerRef } = useModalDismiss(onClose);
   const categories = useCategoryStore((s) => s.categories);
   const [rules, setRules] = useState<RuleRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -365,7 +365,8 @@ export default function CategorizationRulesModal({ onClose, profileId }: Props) 
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
-      onClick={onBackdropClick}
+      onClick={onBackdropClick} ref={containerRef}
+      role="dialog" aria-modal="true" aria-label="Categorization rules"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
     >
       <motion.div
@@ -464,7 +465,7 @@ export default function CategorizationRulesModal({ onClose, profileId }: Props) 
                         <button
                           onClick={() => deleteRule(r.id)}
                           title="Delete rule"
-                          className="text-red-500 hover:text-red-700 transition-colors text-base leading-none shrink-0 px-1"
+                          className="text-[hsl(var(--error))] hover:opacity-80 transition-colors text-base leading-none shrink-0 px-1"
                         >
                           ×
                         </button>

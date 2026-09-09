@@ -158,7 +158,7 @@ export default function ManageAccountsPanel({ profileId, special = false }: Prop
             Use the profile switcher for separate people or entities.
           </p>
 
-          {error && <p className="text-xs text-red-500">{error}</p>}
+          {error && <p className="text-xs text-[hsl(var(--error))]">{error}</p>}
 
           {loading ? (
             <p className="text-xs text-[hsl(var(--muted-foreground))]">Loading…</p>
@@ -185,7 +185,7 @@ export default function ManageAccountsPanel({ profileId, special = false }: Prop
                             autoFocus
                             className="flex-1 border rounded-md px-2 py-1 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
                           />
-                          <button onClick={saveEdit} title="Save" className="text-green-600 hover:opacity-80"><Check size={16} /></button>
+                          <button onClick={saveEdit} title="Save" className="text-[hsl(var(--success))] hover:opacity-80"><Check size={16} /></button>
                           <button onClick={() => setEditingId(null)} title="Cancel" className="text-[hsl(var(--muted-foreground))] hover:opacity-80"><X size={16} /></button>
                         </>
                       ) : (
@@ -201,14 +201,14 @@ export default function ManageAccountsPanel({ profileId, special = false }: Prop
                           <button
                             onClick={() => toggleHidden(a)}
                             title={a.hidden_from_dashboard ? "Show on dashboard/overview" : "Hide from dashboard/overview"}
-                            className={a.hidden_from_dashboard ? "text-amber-500" : "text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"}
+                            className={a.hidden_from_dashboard ? "text-[hsl(var(--warning))]" : "text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"}
                           >
                             {a.hidden_from_dashboard ? <EyeOff size={14} /> : <Eye size={14} />}
                           </button>
                           <button
                             onClick={() => toggleExcluded(a)}
                             title={a.excluded_from_insights ? "Excluded from Insights - click to include" : "Included in Insights - click to exclude"}
-                            className={a.excluded_from_insights ? "text-amber-500" : "text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"}
+                            className={a.excluded_from_insights ? "text-[hsl(var(--warning))]" : "text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"}
                           >
                             <SlidersHorizontal size={14} />
                           </button>
@@ -218,11 +218,11 @@ export default function ManageAccountsPanel({ profileId, special = false }: Prop
                           {isEmpty ? (
                             confirmDeleteId === a.id ? (
                               <span className="flex items-center gap-1 text-xs shrink-0">
-                                <button onClick={() => handleDelete(a.id)} className="text-red-500 font-medium hover:underline">Delete?</button>
+                                <button onClick={() => handleDelete(a.id)} className="text-[hsl(var(--error))] font-medium hover:underline">Delete?</button>
                                 <button onClick={() => setConfirmDeleteId(null)} className="hover:underline">No</button>
                               </span>
                             ) : (
-                              <button onClick={() => setConfirmDeleteId(a.id)} title="Delete empty account" className="text-[hsl(var(--muted-foreground))] hover:text-red-500">
+                              <button onClick={() => setConfirmDeleteId(a.id)} title="Delete empty account" className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))]">
                                 <Trash2 size={14} />
                               </button>
                             )
@@ -230,7 +230,7 @@ export default function ManageAccountsPanel({ profileId, special = false }: Prop
                             <button
                               onClick={() => setConfirmDeleteId(a.id)}
                               title="Delete account and its data"
-                              className="text-[hsl(var(--muted-foreground))] hover:text-red-500"
+                              className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))]"
                             >
                               <Trash2 size={14} />
                             </button>
@@ -245,14 +245,14 @@ export default function ManageAccountsPanel({ profileId, special = false }: Prop
                       <div className="mt-2 pt-2 border-t space-y-2">
                         {confirmDeleteFinalId === a.id ? (
                           <>
-                            <p className="text-xs font-medium text-red-500">
+                            <p className="text-xs font-medium text-[hsl(var(--error))]">
                               Are you absolutely sure? This cannot be undone.
                             </p>
                             <div className="flex items-center gap-3 text-xs">
                               <button
                                 onClick={() => handleDeleteWithData(a.id)}
                                 disabled={deleting}
-                                className="px-2.5 py-1 bg-red-500 text-white rounded-md font-medium hover:bg-red-600 transition-colors disabled:opacity-50"
+                                className="px-2.5 py-1 bg-[hsl(var(--error))] text-white rounded-md font-medium hover:opacity-90 transition-colors disabled:opacity-50"
                               >
                                 {deleting ? "Deleting…" : "Yes, delete everything"}
                               </button>
@@ -266,14 +266,14 @@ export default function ManageAccountsPanel({ profileId, special = false }: Prop
                           </>
                         ) : (
                           <>
-                            <p className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1.5">
+                            <p className="text-xs text-[hsl(var(--warning))] flex items-start gap-1.5">
                               <Info size={12} className="shrink-0 mt-0.5" />
                               This account has {dataDesc} - deleting it will permanently remove all of them too.
                             </p>
                             <div className="flex items-center gap-3 text-xs">
                               <button
                                 onClick={() => setConfirmDeleteFinalId(a.id)}
-                                className="px-2.5 py-1 border border-red-400 text-red-500 rounded-md font-medium hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                                className="px-2.5 py-1 border border-[hsl(var(--error)/0.4)] text-[hsl(var(--error))] rounded-md font-medium hover:bg-[hsl(var(--error)/0.08)] transition-colors"
                               >
                                 Continue
                               </button>
@@ -291,7 +291,7 @@ export default function ManageAccountsPanel({ profileId, special = false }: Prop
 
           {duplicateGroups.length > 0 && (
             <div className="pt-2 border-t space-y-2">
-              <p className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1.5">
+              <p className="text-xs text-[hsl(var(--warning))] flex items-start gap-1.5">
                 <Info size={12} className="shrink-0 mt-0.5" />
                 Found {duplicateCount} duplicate account{duplicateCount === 1 ? "" : "s"} (same type + name) -
                 merging combines their transactions/holdings into a single account.
@@ -299,7 +299,7 @@ export default function ManageAccountsPanel({ profileId, special = false }: Prop
               {confirmMerge ? (
                 <div className="flex items-center gap-2 text-xs">
                   <span>Merge {duplicateGroups.length} duplicate group{duplicateGroups.length === 1 ? "" : "s"}?</span>
-                  <button onClick={handleMerge} className="text-amber-600 font-medium hover:underline">Yes, merge</button>
+                  <button onClick={handleMerge} className="text-[hsl(var(--warning))] font-medium hover:underline">Yes, merge</button>
                   <button onClick={() => setConfirmMerge(false)} className="hover:underline">Cancel</button>
                 </div>
               ) : (

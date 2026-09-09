@@ -112,17 +112,76 @@ jobs:
         # Windows services snapshot their environment at service-start time under whatever
         # account they run as. Symptom: `cargo -V` works fine over RDP, but `npm run tauri
         # build` fails with "failed to run command cargo metadata ...: program not found".
-        # Appending cargo's bin dir to $GITHUB_PATH here fixes it for every step in this job,
-        # on any self-hosted runner VM, without needing a one-off machine-level PATH edit.
+        #
+        # This is a hard prerequisite, so a miss FAILS here rather than warning and letting the
+        # build die four steps later with a message that points at Tauri instead of the cause.
+        # Also probes every user profile, since rustup installs per-user: changing the runner
+        # service account leaves the old account's Rust install stranded on disk.
         shell: powershell
         run: |
-          $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE ".cargo" }
-          $cargoBin = Join-Path $cargoHome "bin"
-          if (Test-Path $cargoBin) {
-            Write-Host "Adding $cargoBin to PATH for this job"
-            Add-Content -Path $env:GITHUB_PATH -Value $cargoBin
-          } else {
-            Write-Warning "Cargo bin directory not found at $cargoBin - is Rust/rustup installed for this runner's account?"
+          $ErrorActionPreference = "Stop"
+
+          $candidates = @()
+          if ($env:CARGO_HOME) { $candidates += (Join-Path $env:CARGO_HOME "bin") }
+          if ($env:USERPROFILE) { $candidates += (Join-Path $env:USERPROFILE ".cargo\bin") }
+          $candidates += "$env:SystemDrive\.cargo\bin"
+          Get-ChildItem "$env:SystemDrive\Users" -Directory -ErrorAction SilentlyContinue |
+            ForEach-Object { $candidates += (Join-Path $_.FullName ".cargo\bin") }
+          $candidates = $candidates | Select-Object -Unique
+
+          Write-Host "Runner identity: $env:USERDOMAIN\$env:USERNAME"
+          Write-Host "Probing for cargo.exe in:"
+          $candidates | ForEach-Object { Write-Host "  - $_" }
+
+          $cargoBin = $candidates |
+            Where-Object { Test-Path (Join-Path $_ "cargo.exe") } |
+            Select-Object -First 1
+
+          if (-not $cargoBin) {
+            $onPath = Get-Command cargo -ErrorAction SilentlyContinue
+            if ($onPath) { $cargoBin = Split-Path $onPath.Source -Parent }
+          }
+
+          if (-not $cargoBin) {
+            Write-Host "::error::cargo.exe not found in any candidate location. Rust is not installed for this runner. Fix: RDP to the runner AS THE ACCOUNT THE RUNNER SERVICE RUNS AS and run rustup-init (https://rustup.rs) - a per-user install needing no admin rights - then restart the runner service. Full runner prerequisites: Rust (MSVC toolchain), Node >=24, VS Build Tools (C++ workload), Strawberry Perl, Git, .NET Desktop Runtime, Azure CLI."
+            exit 1
+          }
+
+          Write-Host "Found cargo at $cargoBin - adding to PATH for subsequent steps"
+          Add-Content -Path $env:GITHUB_PATH -Value $cargoBin
+
+          # If the install belongs to a DIFFERENT user profile, PATH alone isn't enough:
+          # cargo.exe is a rustup shim that resolves its toolchain through RUSTUP_HOME, which
+          # still points at this account's own (empty) %USERPROFILE%\.rustup. Point both homes
+          # at the install actually found so the shim can resolve a toolchain.
+          $cargoHomeFound = Split-Path $cargoBin -Parent
+          $ownProfileCargo = if ($env:USERPROFILE) { Join-Path $env:USERPROFILE ".cargo" } else { "" }
+          if ($cargoHomeFound -ne $ownProfileCargo) {
+            Write-Host "cargo lives outside this account's profile - exporting CARGO_HOME=$cargoHomeFound"
+            "CARGO_HOME=$cargoHomeFound" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
+            $env:CARGO_HOME = $cargoHomeFound
+            $rustupHome = Join-Path (Split-Path $cargoHomeFound -Parent) ".rustup"
+            if (Test-Path $rustupHome) {
+              Write-Host "Exporting RUSTUP_HOME=$rustupHome"
+              "RUSTUP_HOME=$rustupHome" | Add-Content -Path $env:GITHUB_ENV -Encoding utf8
+              $env:RUSTUP_HOME = $rustupHome
+            }
+          }
+
+          # $GITHUB_PATH only affects LATER steps, so verify by absolute path here instead -
+          # this proves the build step will work rather than assuming it.
+          $cargoExe = Join-Path $cargoBin "cargo.exe"
+          $version = & $cargoExe -V 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::Found $cargoExe but it could not resolve a toolchain: $version. This usually means Rust belongs to a different Windows account. Cleanest fix: RDP in as the account the runner service runs as and run rustup-init (https://rustup.rs)."
+            exit 1
+          }
+          Write-Host "cargo reports: $version"
+
+          # artifact-signing-cli is installed with `cargo install`, so it lives in CARGO_HOME\bin
+          # and follows the same profile as the toolchain - a fresh account has to rebuild it.
+          if (-not (Test-Path (Join-Path $cargoBin "artifact-signing-cli.exe"))) {
+            Write-Host "Note: artifact-signing-cli is not in $cargoBin yet - the signing step will cargo-install it, so this build will take longer than usual."
           }
 
       - name: Install frontend dependencies
