@@ -1094,26 +1094,9 @@ export default function AgentPage() {
           <Link to="/import" className="inline-block mt-2 text-[hsl(var(--primary))]">Import transactions</Link>
         </div>}
 
-        <section className="insights-review space-y-3" aria-label="Items to review">
-          <div className="workspace-heading"><h2 className="font-semibold">Review</h2>
-            {dismissedInsights.length > 0 && <button onClick={clearDismissed} className="text-xs text-[hsl(var(--muted-foreground))]">Restore {dismissedInsights.length} dismissed</button>}
-          </div>
-          {visibleInsights.length === 0 && <p className="py-6 text-sm text-[hsl(var(--muted-foreground))]">Nothing left to review. This list is not an assessment of your financial health.</p>}
-          <InsightGroup label="Action Items" severity="warning" items={warningInsights} onApply={handleApply} open={!!groupOpen.warning} onToggle={() => toggleGroup("warning")} />
-          <InsightGroup label="Observations" severity="info" items={infoInsights} onApply={handleApply} open={!!groupOpen.info} onToggle={() => toggleGroup("info")} />
-          <InsightGroup label="Wins" severity="success" items={successInsights} onApply={handleApply} open={!!groupOpen.success} onToggle={() => toggleGroup("success")} />
-        </section>
-
-        <aside className="insights-context">
-          <h2 className="font-semibold mb-4">Financial context</h2>
-          <dl className="space-y-3 text-sm">
-            <div className="flex justify-between gap-4"><dt className="text-[hsl(var(--muted-foreground))]">Net worth</dt><dd className="font-semibold">{netWorth ? formatCurrency(netWorth.netWorthCents) : "Unavailable"}</dd></div>
-            <div className="flex justify-between gap-4"><dt className="text-[hsl(var(--muted-foreground))]">Average savings rate</dt><dd>{spendingProfile ? `${avgSavingsRatePct}%` : "Needs history"}</dd></div>
-            <div className="flex justify-between gap-4"><dt className="text-[hsl(var(--muted-foreground))]">Debt accounts</dt><dd>{loans.length}</dd></div>
-          </dl>
-          <p className="text-xs text-[hsl(var(--muted-foreground))] mt-4">{viewMode === "global" ? "Unlocked profiles" : "This profile"}. Budget analysis uses accounts enabled for insights.</p>
-        <details className="workspace-disclosure mt-4">
-          <summary>Financial context and scores</summary>
+        <section className="insights-context" aria-label="Financial context and scores">
+          <h2 className="font-semibold">Financial context and scores</h2>
+          <p className="text-xs text-[hsl(var(--muted-foreground))] mt-2">{viewMode === "global" ? "Unlocked profiles" : "This profile"}. Budget analysis uses accounts enabled for insights.</p>
           <div className="insights-context-content space-y-5 pt-4">
 
         {/* Locked-profile notice */}
@@ -1318,8 +1301,17 @@ export default function AgentPage() {
         )}
 
           </div>
-        </details>
-        </aside>
+        </section>
+
+        <section className="insights-review space-y-3" aria-label="Items to review">
+          <div className="workspace-heading"><h2 className="font-semibold">Review</h2>
+            {dismissedInsights.length > 0 && <button onClick={clearDismissed} className="text-xs text-[hsl(var(--muted-foreground))]">Restore {dismissedInsights.length} dismissed</button>}
+          </div>
+          {visibleInsights.length === 0 && <p className="py-6 text-sm text-[hsl(var(--muted-foreground))]">Nothing left to review. This list is not an assessment of your financial health.</p>}
+          <InsightGroup label="Action Items" severity="warning" items={warningInsights} onApply={handleApply} open={!!groupOpen.warning} onToggle={() => toggleGroup("warning")} />
+          <InsightGroup label="Observations" severity="info" items={infoInsights} onApply={handleApply} open={!!groupOpen.info} onToggle={() => toggleGroup("info")} />
+          <InsightGroup label="Wins" severity="success" items={successInsights} onApply={handleApply} open={!!groupOpen.success} onToggle={() => toggleGroup("success")} />
+        </section>
 
         {/* ── Spotlight ── */}
         {(() => {

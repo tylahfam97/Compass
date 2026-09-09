@@ -87,14 +87,7 @@ h1, h2, h3 {
 .settings-workspace > section, .settings-workspace > details { border: 0; border-top: 1px solid hsl(var(--border)); border-radius: 0; padding-inline: 0; background: none; box-shadow: none; }
 .settings-workspace { align-items: start; }
 .insights-workspace > *, .insights-context-content > * { min-width: 0; }
-.insights-workspace > * { grid-column: 1 / -1; }
 .insights-context-content .rounded-2xl { border-radius: 8px; }
-@container (min-width: 1100px) {
-  .insights-workspace { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr); gap: 28px; align-items: start; }
-  .insights-workspace > * { margin-block: 0; }
-  .insights-workspace > .insights-review { grid-column: 1; }
-  .insights-workspace > .insights-context { grid-column: 2; }
-}
 .settings-workspace p { max-width: 65ch; }
 .settings-workspace { display: flex; flex-direction: column; }
 .settings-workspace > div:first-child { order: 0; }

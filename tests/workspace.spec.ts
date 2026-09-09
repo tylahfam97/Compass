@@ -238,6 +238,26 @@ test("Transactions restores private view context and still changes month", async
   expect(page.url()).not.toContain('Green');
 });
 
+test("Insights leads with full-width financial context above review", async ({ page, database }, testInfo) => {
+  expect(database.isOpen).toBe(true);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/agent');
+  await expect(page.getByRole('region', { name: 'Financial context and scores', exact: true })).toBeVisible();
+  await expect(page.locator('.insights-context-content')).toBeVisible();
+  for (const width of [390, 2560]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await expect.poll(() => page.evaluate(() => {
+      const workspace = document.querySelector('.insights-workspace')!;
+      const context = document.querySelector('.insights-context')!.getBoundingClientRect();
+      const review = document.querySelector('.insights-review')!.getBoundingClientRect();
+      const style = getComputedStyle(workspace);
+      const available = workspace.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      return Math.abs(context.width - available) <= 1 && review.top >= context.bottom && Math.abs(review.width - context.width) <= 1;
+    })).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(`insights-context-first-${width}.png`) });
+  }
+});
+
 test("Insights retains available sections with limited history", async ({ page, database }) => {
   database.exec("DELETE FROM transactions WHERE date < date('now','start of month')");
   await page.goto('/agent');
