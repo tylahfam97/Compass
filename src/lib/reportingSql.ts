@@ -50,6 +50,12 @@ export function categorySpendSql(t = "t", a = "a"): string {
                           THEN 0 ELSE -${t}.amount_cents END))`;
 }
 
+export function categoryNetSql(t = "t", a = "a"): string {
+  return `COALESCE(SUM(CASE WHEN NOT ${notExcludedCategory(t)} THEN 0
+    WHEN ${t}.amount_cents>0 AND ${a}.account_type IN ('credit','loan') THEN 0
+    ELSE -${t}.amount_cents END),0)`;
+}
+
 /**
  * An account's own most recent recorded balance, as a correlated subquery against the outer
  * account row. Summing this per account is the only correct way to total balances across

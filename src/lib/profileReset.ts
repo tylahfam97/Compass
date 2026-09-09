@@ -6,6 +6,10 @@
  *  Kept as an explicit list rather than scanning localStorage for the profile id, which would
  *  false-match across profiles (profile 1 matching a key ending in `_11`). */
 const PROFILE_SCOPED_KEY_PREFIXES = [
+  "compass_plan_scenario_",
+  "compass_transactions_view_",
+  "compass_reports_view_",
+  "compass_trends_view_",
   "compass_milestones_seen_",
   "compass_milestone_grade_",
   "compass_voice_memory_",
@@ -20,6 +24,7 @@ export function clearProfileLocalState(profileId: number): void {
   for (const prefix of PROFILE_SCOPED_KEY_PREFIXES) {
     try {
       localStorage.removeItem(`${prefix}${profileId}`);
+      sessionStorage.removeItem(`${prefix}${profileId}`);
     } catch {
       // Nothing recoverable to do; the DB rows are already gone either way.
     }

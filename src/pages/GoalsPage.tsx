@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { ChevronLeft, ChevronRight, Plus, Pencil, Trash2, Target, Check, AlertCircle } from "lucide-react";
 import { getDb } from "@/lib/db";
 import { categorySpendSql, incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
+import { evaluateBudgetPeriod, completedBudgetMonths, type BudgetDefinition } from "@/lib/budgetMetrics";
 import { formatCurrency } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
@@ -307,23 +308,20 @@ export default function GoalsPage() {
           // Count consecutive months (newest first) where spend <= budget
           if (!g.category_id) { noBudgetData = true; }
           else {
-            const [budgetRow] = await db.select<{ amount_cents: number }[]>(
-              "SELECT amount_cents FROM budgets WHERE profile_id=? AND category_id=? AND is_global=0 ORDER BY created_at DESC LIMIT 1",
+            const [budgetRow] = await db.select<BudgetDefinition[]>(
+              "SELECT b.*,c.name as category_name,c.parent_id as category_parent_id FROM budgets b JOIN categories c ON c.id=b.category_id WHERE b.profile_id=? AND b.category_id=? AND b.is_global=0 AND b.period='monthly' ORDER BY b.created_at DESC LIMIT 1",
               [profileId, g.category_id]
             );
             if (!budgetRow) { noBudgetData = true; }
             else {
-              const months12 = recentMonths(12);
+              const months12 = completedBudgetMonths(12);
               let s = 0;
               for (const mo of months12) {
                 const [ms, me] = monthBounds(mo);
-                const [r] = await db.select<{ spent: number }[]>(
-                  `SELECT ${categorySpendSql()} as spent
-                   FROM transactions t JOIN accounts a ON a.id=t.account_id
-                   WHERE t.profile_id=? AND t.date>=? AND t.date<? AND t.category_id=?`,
-                  [profileId, ms, me, g.category_id]
-                );
-                if ((r?.spent ?? 0) > budgetRow.amount_cents) break;
+                if (ms < budgetRow.start_date) { if (s === 0) noBudgetData = true; break; }
+                const evaluation = await evaluateBudgetPeriod(db, budgetRow, [profileId], ms, me);
+                if (!evaluation.covered) { if (s === 0) noBudgetData = true; break; }
+                if (!evaluation.onTrack) break;
                 s++;
               }
               streak = s;
@@ -737,7 +735,7 @@ export default function GoalsPage() {
             )}
             {g.noBudgetData && (
               <p className="text-xs text-[hsl(var(--warning))] mb-3">
-                No budget found for this category. Create a budget first to track your streak.
+                A monthly budget and covered, completed months are needed to measure this streak.
               </p>
             )}
 

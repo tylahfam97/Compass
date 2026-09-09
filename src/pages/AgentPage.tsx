@@ -19,7 +19,7 @@ import {
   type NetWorthSnapshot, type InvestmentReturn, type TopRoiHolding,
 } from "@/lib/netWorth";
 import type { Insight, Profile, HealthScore, SecurityType, CreditCardHealthScore, InvestmentHealthScore, RecurringCharge } from "@/lib/types";
-import InsightCarousel from "@/components/InsightCarousel";
+import InsightCard from "@/components/InsightCard";
 import InfoTooltip from "@/components/InfoTooltip";
 import ClickHint from "@/components/ClickHint";
 import CountUp from "@/components/CountUp";
@@ -270,9 +270,10 @@ function InsightGroup({ label, severity, items, onApply, open, onToggle }: Insig
   const GroupIcon = severity === "success" ? CheckCircle : severity === "info" ? Info : Target;
 
   return (
-    <div className="rounded-2xl bg-[hsl(var(--background))] shadow-sm ring-1 ring-[hsl(var(--border))]/60 overflow-hidden">
+    <div className="border-t overflow-hidden">
       <button onClick={onToggle}
-        className="w-full flex items-center justify-between px-5 py-4 transition-colors
+        aria-expanded={open}
+        className="w-full flex items-center justify-between py-4 transition-colors
                    hover:bg-[hsl(var(--muted))/40]">
         <div className="flex items-center gap-3">
           <span className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${s.iconWrap}`}>
@@ -289,16 +290,14 @@ function InsightGroup({ label, severity, items, onApply, open, onToggle }: Insig
         />
       </button>
       {open && (
-        <div className="px-4 pb-4 pt-1 border-t border-[hsl(var(--border))]/50">
-          <InsightCarousel items={items} onApply={onApply} />
+        <div className="pb-4 pt-1 border-t border-[hsl(var(--border))]/50">
+          {items.map((insight) => <InsightCard key={insight.id} insight={insight} onApply={onApply} variant="row" />)}
         </div>
       )}
     </div>
   );
 }
 
-// Module-level flag: resets on every app restart, never written to localStorage
-let scoreIntroShownThisSession = false;
 
 // ── Health Score Hero Card ────────────────────────────────────────────────────
 function ScoreHeroCard({ score, scopeLabel, onOpen }: { score: HealthScore; scopeLabel?: string; onOpen: () => void }) {
@@ -819,14 +818,6 @@ export default function AgentPage() {
     setViewMode(saved === "global" ? "global" : "profile");
   }, [profileId]);
 
-  // Score intro: once per app session (shows tabbed global+profile modal)
-  useEffect(() => {
-    if (globalHealthScore && !scoreIntroShownThisSession) {
-      scoreIntroShownThisSession = true;
-      setShowScoreIntro(true);
-    }
-  }, [globalHealthScore]);
-
   const unlockedProfileIds = useMemo(
     () => profiles.filter((p) => !p.pin_hash || p.id === profileId || unlockedIds.has(p.id)).map((p) => p.id),
     [profiles, profileId, unlockedIds]
@@ -876,9 +867,8 @@ export default function AgentPage() {
     if (localStorage.getItem("compass_insight_groups")) return; // user has custom state
     didSetDefaults.current = true;
     const visible = insights.filter((i) => !dismissedInsights.includes(i.dismissKey));
-    const wins = visible.filter((i) => i.severity === "success").length;
-    const obs  = visible.filter((i) => i.severity === "info").length;
-    setGroupOpen({ success: wins > 0, info: wins === 0 && obs > 0, warning: wins === 0 && obs === 0 });
+    const warnings = visible.some((insight) => insight.severity === "warning");
+    setGroupOpen({ success: !warnings, info: !warnings, warning: true });
   }, [insights, dismissedInsights]);
 
   const pinTarget = pinQueue.length > 0 && pinQueueIdx < pinQueue.length ? pinQueue[pinQueueIdx] : null;
@@ -910,8 +900,7 @@ export default function AgentPage() {
       ]);
       if (cancelled) return;
 
-      if (!profile || history.length < 2) { setHasEnoughData(false); setLoading(false); return; }
-      setHasEnoughData(true);
+      setHasEnoughData(!!profile && history.length >= 2);
       setInsights(allInsights);
       setSavingsHistory(history);
       setSpendingProfile(profile);
@@ -933,6 +922,7 @@ export default function AgentPage() {
         ...creditLists.flat().map((c) => ({ ...c, debtKind: "credit" as const })),
       ];
       const debtTrends = await Promise.all(allDebts.map((l) => getLoanBalanceHistory(l.id)));
+      if (cancelled) return;
       const debtsWithTrend = allDebts.map((l, i) => {
         const series = debtTrends[i];
         const trendCents = series.length > 1 ? Math.round((series[series.length - 1].value - series[0].value) * 100) : null;
@@ -948,7 +938,7 @@ export default function AgentPage() {
       });
       enqueueMilestones(newMilestones);
 
-      const thisMonth = currentYM();
+      const thisMonth = prevYM(currentYM());
       const lMonth = prevYM(thisMonth);
       const [ts, te] = monthBounds(thisMonth);
       const [ls, le] = monthBounds(lMonth);
@@ -987,7 +977,7 @@ export default function AgentPage() {
       setRefreshedAt(new Date());
       setLoading(false);
     }
-    load().catch(handleLoadFailure("your insights", setLoading, () => setReloadTick((t) => t + 1)));
+    load().catch((error) => { if (!cancelled) handleLoadFailure("your insights", setLoading, () => setReloadTick((t) => t + 1))(error); });
     return () => { cancelled = true; };
   }, [profileId, activeProfile, viewMode, unlockedProfileIds, scopeIds, reloadTick, enqueueMilestones]);
 
@@ -1008,14 +998,14 @@ export default function AgentPage() {
 
   // ── Shared sticky header ─────────────────────────────────────────────────
   const PageHeader = (
-    <div className="sticky top-0 z-20 border-b px-8 py-4 flex items-center justify-between gap-6"
+    <div className="insights-heading sticky top-0 z-20 border-b px-8 py-4 flex flex-wrap items-center justify-between gap-4"
       style={{ backgroundColor: "hsl(var(--background))", backdropFilter: "blur(8px)" }}>
       <div className="flex items-center gap-3 min-w-0">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Insights</h1>
           <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">
             {refreshedAt
-              ? `Updated ${refreshedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+              ? `Calculated ${refreshedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
               : "Rule-based analysis of your financial habits."}
           </p>
         </div>
@@ -1069,28 +1059,6 @@ export default function AgentPage() {
     );
   }
 
-  if (!hasEnoughData) {
-    return (
-      <>
-        {pinTarget && <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />}
-        {PageHeader}
-        <div className="p-8 max-w-xl mx-auto">
-          <div className="border-2 border-dashed rounded-2xl p-16 text-center mt-8">
-            <p className="text-4xl mb-4">📊</p>
-            <p className="font-semibold text-lg mb-2">Not enough data yet</p>
-            <p className="text-sm text-[hsl(var(--muted-foreground))] mb-6">
-              Import at least 2 months of transactions to unlock insights, the health score, and trend analysis.
-            </p>
-            <Link to="/import"
-              className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium">
-              Import Transactions
-            </Link>
-          </div>
-        </div>
-      </>
-    );
-  }
-
   return (
     <>
       <MilestoneCelebration event={activeMilestone} onDismiss={dismissMilestone} />
@@ -1120,7 +1088,33 @@ export default function AgentPage() {
       </AnimatePresence>
       {PageHeader}
 
-      <div className="p-8 max-w-4xl space-y-6 mx-auto w-full">
+      <div className="workspace-page space-y-6 insights-workspace">
+        {!hasEnoughData && <div role="status" className="insights-readiness border-b pb-4 text-sm">
+          <p>Limited history. Trends need at least two months; available balances and review items are shown below.</p>
+          <Link to="/import" className="inline-block mt-2 text-[hsl(var(--primary))]">Import transactions</Link>
+        </div>}
+
+        <section className="insights-review space-y-3" aria-label="Items to review">
+          <div className="workspace-heading"><h2 className="font-semibold">Review</h2>
+            {dismissedInsights.length > 0 && <button onClick={clearDismissed} className="text-xs text-[hsl(var(--muted-foreground))]">Restore {dismissedInsights.length} dismissed</button>}
+          </div>
+          {visibleInsights.length === 0 && <p className="py-6 text-sm text-[hsl(var(--muted-foreground))]">Nothing left to review. This list is not an assessment of your financial health.</p>}
+          <InsightGroup label="Action Items" severity="warning" items={warningInsights} onApply={handleApply} open={!!groupOpen.warning} onToggle={() => toggleGroup("warning")} />
+          <InsightGroup label="Observations" severity="info" items={infoInsights} onApply={handleApply} open={!!groupOpen.info} onToggle={() => toggleGroup("info")} />
+          <InsightGroup label="Wins" severity="success" items={successInsights} onApply={handleApply} open={!!groupOpen.success} onToggle={() => toggleGroup("success")} />
+        </section>
+
+        <aside className="insights-context">
+          <h2 className="font-semibold mb-4">Financial context</h2>
+          <dl className="space-y-3 text-sm">
+            <div className="flex justify-between gap-4"><dt className="text-[hsl(var(--muted-foreground))]">Net worth</dt><dd className="font-semibold">{netWorth ? formatCurrency(netWorth.netWorthCents) : "Unavailable"}</dd></div>
+            <div className="flex justify-between gap-4"><dt className="text-[hsl(var(--muted-foreground))]">Average savings rate</dt><dd>{spendingProfile ? `${avgSavingsRatePct}%` : "Needs history"}</dd></div>
+            <div className="flex justify-between gap-4"><dt className="text-[hsl(var(--muted-foreground))]">Debt accounts</dt><dd>{loans.length}</dd></div>
+          </dl>
+          <p className="text-xs text-[hsl(var(--muted-foreground))] mt-4">{viewMode === "global" ? "Unlocked profiles" : "This profile"}. Budget analysis uses accounts enabled for insights.</p>
+        <details className="workspace-disclosure mt-4">
+          <summary>Financial context and scores</summary>
+          <div className="insights-context-content space-y-5 pt-4">
 
         {/* Locked-profile notice */}
         {lockedExcluded.length > 0 && (
@@ -1246,7 +1240,7 @@ export default function AgentPage() {
         {/* ── KPI Strip ── */}
         {spendingProfile && (
           <section className="border rounded-2xl overflow-hidden shadow-sm">
-            <div className="flex divide-x">
+            <div className="insights-kpis grid grid-cols-2 gap-px">
               {[
                 {
                   label: "Avg Monthly Income",
@@ -1273,11 +1267,11 @@ export default function AgentPage() {
                   sub: null,
                 },
               ].map(({ label, value, color, sub }) => (
-                <div key={label} className="flex-1 px-6 py-6">
+                <div key={label} className="min-w-0 px-4 py-4">
                   <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2">
                     {label}
                   </p>
-                  <p className={`text-xl font-bold tabular-nums ${color}`}>{value}</p>
+                  <p className={`text-xl font-bold tabular-nums break-words ${color}`}>{value}</p>
                   {sub && <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">{sub}</p>}
                 </div>
               ))}
@@ -1323,6 +1317,10 @@ export default function AgentPage() {
           </section>
         )}
 
+          </div>
+        </details>
+        </aside>
+
         {/* ── Spotlight ── */}
         {(() => {
           const SPOTLIGHT_WINS    = new Set(["positive_streak", "most_improved"]);
@@ -1330,7 +1328,7 @@ export default function AgentPage() {
           const spotWin    = successInsights.find((i) => SPOTLIGHT_WINS.has(i.type)    && !!i.richData);
           const spotAction = [...warningInsights, ...infoInsights]
             .find((i) => SPOTLIGHT_ACTIONS.has(i.type) && !!i.richData);
-          const cards = [spotWin, spotAction].filter(Boolean) as typeof visibleInsights;
+          const cards = [spotAction, spotWin].filter(Boolean) as typeof visibleInsights;
           if (cards.length === 0) return null;
           return (
             <section className="space-y-3">
@@ -1346,56 +1344,16 @@ export default function AgentPage() {
           );
         })()}
 
-        {/* ── Insights section ── */}
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">
-              Insights
-            </p>
-            {dismissedInsights.length > 0 && (
-              <button onClick={clearDismissed}
-                className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors">
-                Restore {dismissedInsights.length} dismissed
-              </button>
-            )}
-          </div>
-
-          {visibleInsights.length === 0 && (
-            <div className="border-2 border-dashed border-[hsl(var(--success)/0.35)] rounded-2xl py-14 text-center">
-              <p className="text-4xl mb-3">🎉</p>
-              <p className="font-semibold text-base text-[hsl(var(--success))]">All clear!</p>
-              <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1.5">
-                No active insights — your finances are looking healthy.
-              </p>
-            </div>
-          )}
-
-          {/* Wins first — positive reinforcement anchor */}
-          <InsightGroup label="Wins" severity="success"
-            items={successInsights} onApply={handleApply}
-            open={!!groupOpen.success} onToggle={() => toggleGroup("success")} />
-
-          {/* Observations — neutral information */}
-          <InsightGroup label="Observations" severity="info"
-            items={infoInsights} onApply={handleApply}
-            open={!!groupOpen.info} onToggle={() => toggleGroup("info")} />
-
-          {/* Action Items — constructive, not alarming */}
-          <InsightGroup label="Action Items" severity="warning"
-            items={warningInsights} onApply={handleApply}
-            open={!!groupOpen.warning} onToggle={() => toggleGroup("warning")} />
-        </section>
-
         {/* ── Category Trends ── */}
         {catDeltas.length > 0 && (
-          <CollapsibleSection title="Category Trends" subtitle="this vs last month"
+          <CollapsibleSection title="Category Trends" subtitle={`${formatMonthLabel(prevYM(currentYM()))} vs ${formatMonthLabel(prevYM(prevYM(currentYM())))}`}
             expanded={sectExpanded.trends} onToggle={() => toggleSection("trends")}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left">
                   <th className="px-5 py-2.5 font-medium text-[hsl(var(--muted-foreground))]">Category</th>
-                  <th className="px-5 py-2.5 font-medium text-[hsl(var(--muted-foreground))] text-right">This month</th>
-                  <th className="px-5 py-2.5 font-medium text-[hsl(var(--muted-foreground))] text-right">Last month</th>
+                  <th className="px-5 py-2.5 font-medium text-[hsl(var(--muted-foreground))] text-right">{formatMonthLabel(prevYM(currentYM()))}</th>
+                  <th className="px-5 py-2.5 font-medium text-[hsl(var(--muted-foreground))] text-right">{formatMonthLabel(prevYM(prevYM(currentYM())))}</th>
                   <th className="px-5 py-2.5 font-medium text-[hsl(var(--muted-foreground))] text-right">Change</th>
                 </tr>
               </thead>

@@ -37,7 +37,18 @@ function ScopeToggle({ isGlobal, onToggle }: { isGlobal: boolean; onToggle: () =
 }
 
 export default function TrendsPage() {
-  const [range, setRange] = useState(6);
+  const profileId = useProfileStore((state) => state.activeProfile?.id ?? 1);
+  return <ProfileTrends key={profileId} />;
+}
+
+function ProfileTrends() {
+  const currentProfileId = useProfileStore((state) => state.activeProfile?.id ?? 1);
+  const [range, setRange] = useState(() => {
+    try { const stored = Number(sessionStorage.getItem(`compass_trends_view_${currentProfileId}`)); return RANGE_OPTIONS.includes(stored) ? stored : 6; } catch { return 6; }
+  });
+  useEffect(() => {
+    try { sessionStorage.setItem(`compass_trends_view_${currentProfileId}`, String(range)); } catch { return; }
+  }, [currentProfileId, range]);
   const [monthly, setMonthly] = useState<MonthRow[]>([]);
   const [stacked, setStacked] = useState<StackedRow[]>([]);
   const [catColors, setCatColors] = useState<Record<string, string>>({});
@@ -86,9 +97,12 @@ export default function TrendsPage() {
    *  framing at all (small/noisy categories under $30 last month are ignored, and the swing
    *  itself must be at least $30 to be worth mentioning). */
   const categoryTrendNarrative = useMemo(() => {
-    if (stacked.length < 2 || catNames.length === 0) return null;
-    const last = stacked[stacked.length - 1];
-    const prev = stacked[stacked.length - 2];
+    const today = new Date();
+    const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+    const completed = stacked.filter((row) => row.month < currentMonth);
+    if (completed.length < 2 || catNames.length === 0) return null;
+    const last = completed[completed.length - 1];
+    const prev = completed[completed.length - 2];
     let best: { cat: string; delta: number; prevTotal: number; curTotal: number } | null = null;
     for (const cat of catNames) {
       const curTotal = Number(last[cat] ?? 0);
@@ -102,14 +116,14 @@ export default function TrendsPage() {
     const seedKey = `${best.cat}:${last.month}`;
     const variants = rising
       ? [
-          `${best.cat} jumped to ${formatCurrency(best.curTotal)} this month, up from ${formatCurrency(best.prevTotal)} - worth a look if that wasn't planned.`,
-          `Biggest mover: ${best.cat}, up ${formatCurrency(best.delta)} from last month.`,
+          `${best.cat} rose to ${formatCurrency(best.curTotal)}, up from ${formatCurrency(best.prevTotal)}.`,
+          `Biggest mover: ${best.cat}, up ${formatCurrency(best.delta)}.`,
         ]
       : [
-          `${best.cat} dropped to ${formatCurrency(best.curTotal)} this month, down from ${formatCurrency(best.prevTotal)} - nice pullback.`,
-          `Biggest mover: ${best.cat}, down ${formatCurrency(Math.abs(best.delta))} from last month.`,
+          `${best.cat} fell to ${formatCurrency(best.curTotal)}, down from ${formatCurrency(best.prevTotal)}.`,
+          `Biggest mover: ${best.cat}, down ${formatCurrency(Math.abs(best.delta))}.`,
         ];
-    return { text: variants[pickVariantIndex(seedKey, variants.length)], rising };
+    return { text: `${formatMonthLabel(last.month)} vs ${formatMonthLabel(prev.month)}: ${variants[pickVariantIndex(seedKey, variants.length)]}`, rising };
   }, [stacked, catNames]);
 
   const ids = viewMode === "global" ? (unlockedProfileIds.length > 0 ? unlockedProfileIds : [profileId]) : [profileId];
@@ -284,7 +298,7 @@ export default function TrendsPage() {
     <>
       {pinTarget && <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />}
 
-      <div className="p-8 space-y-6 max-w-6xl mx-auto w-full">
+      <div className="workspace-page space-y-6 trends-workspace">
         {/* Header */}
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <h1 className="text-2xl font-semibold">Spending Trends</h1>

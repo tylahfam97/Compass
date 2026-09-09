@@ -62,16 +62,26 @@ function changePct(now: number, prev: number): number {
 }
 
 export default function ReportsPage() {
+  const profileId = useProfileStore((state) => state.activeProfile?.id ?? 1);
+  return <ProfileReports key={profileId} profileId={profileId} />;
+}
+
+function ProfileReports({ profileId }: { profileId: number }) {
+  const [saved] = useState(() => {
+    try { return JSON.parse(sessionStorage.getItem(`compass_reports_view_${profileId}`) ?? "{}") ?? {}; } catch { return {}; }
+  });
   const [month, setMonth] = useAutoMonth("reports");
-  const [rangeMode, setRangeMode] = useState<"month" | "custom">("month");
+  const [rangeMode, setRangeMode] = useState<"month" | "custom">(saved.mode === "custom" ? "custom" : "month");
   const [customStart, setCustomStart] = useState(() => {
+    if (typeof saved.start === "string" && /^\d{4}-\d{2}-\d{2}$/.test(saved.start) && Number.isFinite(Date.parse(saved.start))) return saved.start;
     const d = new Date(); d.setMonth(d.getMonth() - 2); d.setDate(1);
     return d.toISOString().split("T")[0];
   });
-  const [customEnd, setCustomEnd] = useState(() => new Date().toISOString().split("T")[0]);
+  const [customEnd, setCustomEnd] = useState(() => typeof saved.end === "string" && /^\d{4}-\d{2}-\d{2}$/.test(saved.end) && Number.isFinite(Date.parse(saved.end)) ? saved.end : new Date().toISOString().split("T")[0]);
+  useEffect(() => {
+    try { sessionStorage.setItem(`compass_reports_view_${profileId}`, JSON.stringify({ mode: rangeMode, start: customStart, end: customEnd })); } catch { return; }
+  }, [profileId, rangeMode, customStart, customEnd]);
   const [loading, setLoading] = useState(true);
-  const activeProfile = useProfileStore((s) => s.activeProfile);
-  const profileId = activeProfile?.id ?? 1;
 
   const [catThis, setCatThis] = useState<CatRow[]>([]);
   const [catPrev, setCatPrev] = useState<CatRow[]>([]);

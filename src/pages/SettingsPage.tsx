@@ -14,11 +14,19 @@ import { toast } from "@/stores/toastStore";
  *  any single page. Currency is deliberately not configurable here; Compass stays USD-only.
  *  Scheduled bills and income moved to the Plan page, next to the forecast they drive. */
 export default function SettingsPage() {
+  const profileId = useProfileStore((state) => state.activeProfile?.id ?? 1);
+  return <ProfileSettings key={profileId} />;
+}
+
+function ProfileSettings() {
   const activeProfile = useProfileStore((s) => s.activeProfile);
   const profileId = activeProfile?.id ?? 1;
   const motionPref = useSettingsStore((s) => s.motionPref);
   const setMotionPref = useSettingsStore((s) => s.setMotionPref);
   const restartOnboarding = useOnboardingStore((s) => s.restart);
+  const theme = useSettingsStore((state) => state.theme);
+  const setTheme = useSettingsStore((state) => state.setTheme);
+  const [balanceError, setBalanceError] = useState("");
 
   // ── Danger zone ──────────────────────────────────────────────────────────
   const [eraseConfirmText, setEraseConfirmText] = useState("");
@@ -38,9 +46,10 @@ export default function SettingsPage() {
 
   const handleCheckBalances = async () => {
     setBalanceCheckBusy(true);
-    const report = await getBalanceAnchorRiskReport(profileId);
-    setBalanceReport(report);
-    setBalanceCheckBusy(false);
+    setBalanceError("");
+    try { setBalanceReport(await getBalanceAnchorRiskReport(profileId)); }
+    catch { setBalanceError("Account check failed. Your data is unchanged. Try again."); }
+    finally { setBalanceCheckBusy(false); }
   };
 
   const handleErase = async () => {
@@ -84,7 +93,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="p-8 max-w-3xl mx-auto space-y-8">
+    <div className="workspace-page settings-workspace space-y-8">
       <div>
         <h1 className="text-2xl font-semibold">Settings</h1>
         <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">
@@ -93,7 +102,8 @@ export default function SettingsPage() {
       </div>
 
       {/* ── Balance Anchor Check ─────────────────────────────────────────── */}
-      <section className="border rounded-2xl p-5 space-y-4">
+      <details className="settings-diagnostics border rounded-lg p-5 space-y-4">
+        <summary className="font-semibold cursor-pointer">Account diagnostics</summary>
         <div>
           <h2 className="font-semibold flex items-center gap-1.5"><AlertTriangle size={15} /> Balance Anchor Check</h2>
           <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
@@ -105,13 +115,14 @@ export default function SettingsPage() {
 
         <button
           onClick={handleCheckBalances}
-          disabled={balanceCheckBusy}
+          disabled={balanceCheckBusy || backupBusy || restoreBusy || erasing}
           className="text-sm px-3 py-1.5 rounded-lg border hover:bg-[hsl(var(--muted))]
                      transition-colors flex items-center gap-1.5 disabled:opacity-50"
         >
           <AlertTriangle size={14} /> {balanceCheckBusy ? "Checking…" : "Check My Accounts"}
         </button>
 
+        {balanceError && <p role="alert" className="text-sm text-[hsl(var(--error))]">{balanceError}</p>}
         {balanceReport && (
           balanceReport.length === 0 ? (
             <p className="text-sm text-[hsl(var(--success))] flex items-center gap-1.5">
@@ -135,10 +146,10 @@ export default function SettingsPage() {
             </div>
           )
         )}
-      </section>
+      </details>
 
       {/* ── Backup & Restore ────────────────────────────────────────────── */}
-      <section className="border rounded-2xl p-5 space-y-4">
+      <section className="settings-backup border rounded-lg p-5 space-y-4">
         <div>
           <h2 className="font-semibold flex items-center gap-1.5"><ShieldAlert size={15} /> Backup &amp; Restore</h2>
           <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
@@ -179,7 +190,7 @@ export default function SettingsPage() {
         <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={handleExport}
-            disabled={backupBusy}
+            disabled={backupBusy || restoreBusy || erasing || balanceCheckBusy}
             className="text-sm px-3 py-1.5 rounded-lg bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
                        hover:opacity-90 transition-opacity flex items-center gap-1.5 font-medium disabled:opacity-50"
           >
@@ -193,6 +204,7 @@ export default function SettingsPage() {
               </span>
               <button
                 onClick={handleRestore}
+                disabled={restoreBusy || backupBusy || erasing || balanceCheckBusy}
                 className="text-xs px-2.5 py-1.5 rounded-lg font-medium"
                 style={{ color: "white", backgroundColor: "hsl(var(--error))" }}
               >
@@ -208,7 +220,7 @@ export default function SettingsPage() {
           ) : (
             <button
               onClick={handleRestore}
-              disabled={restoreBusy}
+              disabled={restoreBusy || backupBusy || erasing || balanceCheckBusy}
               title="Choose a .compassbackup file to restore from"
               className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
                          transition-colors flex items-center gap-1.5 disabled:opacity-50"
@@ -220,7 +232,7 @@ export default function SettingsPage() {
       </section>
 
       {/* ── Scheduled bills & income (lives on the Plan page, linked from here) ─ */}
-      <section className="border rounded-2xl p-5">
+      <section className="settings-schedule border rounded-lg p-5">
         <h2 className="font-semibold flex items-center gap-1.5"><CalendarClock size={15} /> Scheduled Bills &amp; Income</h2>
         <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1 max-w-md">
           Recurring bills and paychecks now live on the Plan page, alongside the cash flow
@@ -235,7 +247,7 @@ export default function SettingsPage() {
       </section>
 
       {/* ── Appearance & guidance ────────────────────────────────────────── */}
-      <section className="border rounded-2xl p-5 space-y-4">
+      <section className="settings-appearance border rounded-lg p-5 space-y-4">
         <div>
           <h2 className="font-semibold flex items-center gap-1.5"><Eye size={15} /> Appearance &amp; Guidance</h2>
           <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1 max-w-md">
@@ -244,6 +256,11 @@ export default function SettingsPage() {
           </p>
         </div>
 
+        <label className="block text-sm">Theme
+          <select aria-label="Theme" value={theme} onChange={(event) => setTheme(event.target.value as "system" | "light" | "dark")} className="block w-full max-w-xs mt-2 border rounded-md bg-[hsl(var(--background))] px-3 py-2">
+            <option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option>
+          </select>
+        </label>
         <label className="flex items-center gap-2.5 text-sm cursor-pointer select-none">
           <input
             type="checkbox"
@@ -264,7 +281,8 @@ export default function SettingsPage() {
       </section>
 
       {/* ── Danger zone ──────────────────────────────────────────────────── */}
-      <section className="border rounded-2xl p-5 space-y-3" style={{ borderColor: "hsl(var(--error))" }}>
+      <details className="settings-danger border rounded-lg p-5 space-y-3">
+        <summary className="font-semibold cursor-pointer">Advanced data controls</summary>
         <div>
           <h2 className="font-semibold flex items-center gap-1.5" style={{ color: "hsl(var(--error))" }}>
             <Trash2 size={15} /> Erase this profile's data
@@ -301,7 +319,7 @@ export default function SettingsPage() {
             <div className="flex items-center gap-2">
               <button
                 onClick={handleErase}
-                disabled={eraseConfirmText !== "ERASE" || erasing}
+                disabled={eraseConfirmText !== "ERASE" || erasing || backupBusy || restoreBusy || balanceCheckBusy}
                 className="text-sm px-3 py-1.5 rounded-lg font-medium text-white disabled:opacity-40"
                 style={{ backgroundColor: "hsl(var(--error))" }}
               >
@@ -316,7 +334,7 @@ export default function SettingsPage() {
             </div>
           </div>
         )}
-      </section>
+      </details>
     </div>
   );
 }

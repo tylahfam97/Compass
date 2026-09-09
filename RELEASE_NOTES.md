@@ -7,6 +7,36 @@
 This release simplifies Plan, Transactions, and Goals while preserving Compass's colors,
 themes, and branding.
 
+### New: Cash-Flow Horizon
+- Compare the current projection with extra spending and one dated purchase preview.
+  Previews never create transactions or scheduled bills.
+- Inspect daily balances, scheduled events, detected estimates, and hypothetical changes
+  with the date scrubber or optional playback. The chart uses exact daily steps.
+- Scenario amounts allocate every cent exactly and stay separate for each profile.
+  A purchase outside the selected window remains saved but inactive.
+- Recorded checking-balance dates are available in source details. Missing balances make
+  safe-to-spend unavailable instead of treating unknown cash as a confirmed zero.
+
+### Fixed: Signed Budgets And Rollover
+- Category credits can produce negative net usage. A $200 budget with -$50 net used shows
+  $250 remaining; only the $200 allowance carries forward, plus any prior carry.
+- Weekly bars show signed daily values and drill into the exact labelled week.
+- Budget streak goals and celebrations use covered, completed months and effective limits.
+  Insights no longer describe a count of qualifying months as a consecutive streak.
+- Income targets and existing credit/loan account treatment remain unchanged.
+
+### Changed: A Workspace That Fits The Window
+- All pages use available width and reflow as the window or sidebar changes. Narrow-screen
+  navigation opens as a dismissible overlay.
+- Insights puts readable action rows first, with compact context and expandable scores.
+  Limited history no longer hides otherwise available sections.
+- Transaction filters, view and sort are remembered per profile for the session, along with
+  report date ranges and trend windows. Search text is not added to URLs.
+- Settings prioritizes backups and appearance, remembers System/Light/Dark themes, and
+  recovers from failed account checks. Bulk data controls remain behind disclosures.
+- Login particles use restrained depth-aware parallax, retain positions during resize,
+  and stop when hidden or when reduced motion is enabled, including live preference changes.
+
 ### Fixed: Safe To Spend Can Go Negative
 Plan now displays the actual negative allowance in red instead of stopping at zero.
 The number includes your reserved cushion, and a negative allowance no longer produces a

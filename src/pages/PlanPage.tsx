@@ -1,11 +1,10 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
-import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot,
-} from "recharts";
+import CashFlowHorizon from "@/components/CashFlowHorizon";
+import { loadScenario, saveScenario } from "@/lib/planScenario";
 import { CalendarClock, TrendingUp, Sparkles, AlertTriangle, Wand2, EyeOff, Landmark, CalendarPlus, ChevronRight } from "lucide-react";
 import { motion } from "motion/react";
-import { formatCurrency, formatAxisCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import { staggerContainer, riseIn } from "@/lib/motionPresets";
 import {
   projectCashFlow, expandOccurrences, deriveNextActions, resolveForecastWindow,
@@ -34,19 +33,6 @@ const WINDOWS: { id: PlanWindow; label: string }[] = [
   { id: "nextMonth",  label: "Through next month" },
 ];
 
-const WINDOW_KEY = "compass_plan_window";
-const EXTRA_KEY = "compass_plan_extra";
-const BUFFER_KEY = "compass_plan_buffer";
-const DETECTED_KEY = "compass_plan_detected";
-const BASELINE_KEY = "compass_plan_baseline";
-
-const SLIDER_MAX = 200_000;
-
-function loadStoredCents(key: string): number {
-  const n = parseInt(localStorage.getItem(key) ?? "", 10);
-  return Number.isFinite(n) && n >= 0 && n <= SLIDER_MAX ? n : 0;
-}
-
 /** Events are expanded this far ahead regardless of window, so "to next paycheck" can find a
  *  paycheck further out than the window being shown, and "through next month" always reaches
  *  the end of a 31-day month. */
@@ -73,53 +59,66 @@ function EmptyState({ icon, title, children }: { icon: React.ReactNode; title: s
 export default function PlanPage() {
   const activeProfile = useProfileStore((s) => s.activeProfile);
   const profileId = activeProfile?.id ?? 1;
+  return <ProfilePlan key={profileId} profileId={profileId} />;
+}
+
+function ProfilePlan({ profileId }: { profileId: number }) {
+  const [stored] = useState(() => loadScenario(profileId));
 
   const [inputs, setInputs] = useState<ForecastInputs | null>(null);
   const [debtContext, setDebtContext] = useState<DebtContext | null>(null);
   const [payoffOpen, setPayoffOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [reloadTick, setReloadTick] = useState(0);
+  const loadSequence = useRef(0);
 
-  const [planWindow, setPlanWindow] = useState<PlanWindow>(() => {
-    const saved = localStorage.getItem(WINDOW_KEY) as PlanWindow | null;
-    return WINDOWS.some((w) => w.id === saved) ? saved! : "month";
-  });
+  const [planWindow, setPlanWindow] = useState<PlanWindow>(stored.window);
   // What-if controls. These feed straight back into the pure projection, which is why it has to
   // stay synchronous - they recompute on every drag with no DB round trip. Persisted so a
   // scenario survives navigating away and back.
-  const [extraSpendCents, setExtraSpendCents] = useState(() => loadStoredCents(EXTRA_KEY));
-  const [bufferCents, setBufferCents] = useState(() => loadStoredCents(BUFFER_KEY));
-  const [includeDetected, setIncludeDetected] = useState(() => localStorage.getItem(DETECTED_KEY) !== "0");
-  const [useBaseline, setUseBaseline] = useState(() => localStorage.getItem(BASELINE_KEY) === "1");
+  const [extraSpendCents, setExtraSpendCents] = useState(stored.extra);
+  const [bufferCents, setBufferCents] = useState(stored.buffer);
+  const [includeDetected, setIncludeDetected] = useState(stored.detected);
+  const [useBaseline, setUseBaseline] = useState(stored.typical);
+  const [purchase, setPurchase] = useState(stored.purchase);
+  const [holdScale, setHoldScale] = useState(false);
+  useEffect(() => {
+    const release = () => setHoldScale(false);
+    window.addEventListener("pointerup", release);
+    window.addEventListener("pointercancel", release);
+    window.addEventListener("blur", release);
+    return () => { window.removeEventListener("pointerup", release); window.removeEventListener("pointercancel", release); window.removeEventListener("blur", release); };
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem(EXTRA_KEY, String(extraSpendCents));
-    localStorage.setItem(BUFFER_KEY, String(bufferCents));
-    localStorage.setItem(DETECTED_KEY, includeDetected ? "1" : "0");
-    localStorage.setItem(BASELINE_KEY, useBaseline ? "1" : "0");
-  }, [extraSpendCents, bufferCents, includeDetected, useBaseline]);
+    saveScenario(profileId, { version: 1, window: planWindow, extra: extraSpendCents, buffer: bufferCents, detected: includeDetected, typical: useBaseline, purchase });
+  }, [profileId, planWindow, extraSpendCents, bufferCents, includeDetected, useBaseline, purchase]);
 
   const load = useCallback(async () => {
+    const sequence = ++loadSequence.current;
     setLoading(true);
     const [data, debts] = await Promise.all([
       getForecastInputs(profileId),
       getDebtContext(profileId),
     ]);
+    if (sequence !== loadSequence.current) return;
     setInputs(data);
     setDebtContext(debts);
     setLoading(false);
   }, [profileId]);
 
   useEffect(() => {
+    let cancelled = false;
     load().catch((err) => {
+      if (cancelled) return;
       setLoading(false);
       reportLoadError("your forecast", () => setReloadTick((t) => t + 1))(err);
     });
+    return () => { cancelled = true; loadSequence.current++; };
   }, [load, reloadTick]);
 
   const setWindowPersisted = (w: PlanWindow) => {
     setPlanWindow(w);
-    localStorage.setItem(WINDOW_KEY, w);
   };
 
   const hiddenCount = listHiddenCharges(profileId).length;
@@ -198,9 +197,10 @@ export default function PlanPage() {
     // Per-day outflow = the user's typical spending (when opted in) plus whatever extra they're
     // simulating - the forecast still never invents a rate the user hasn't accepted.
     const baselineDaily = useBaseline && baselineIsUsable(inputs.baseline) ? inputs.baseline.dailySpendCents : 0;
-    const dailySpendCents = baselineDaily + Math.round(extraSpendCents / days);
+    const dailySpendCents = baselineDaily;
 
     return {
+      current: projectCashFlow({ startingBalanceCents: inputs.startingBalanceCents, startDate: start, days, events, dailySpendCents, bufferCents }),
       result: projectCashFlow({
         startingBalanceCents: inputs.startingBalanceCents,
         startDate: start,
@@ -208,6 +208,8 @@ export default function PlanPage() {
         events,
         dailySpendCents,
         bufferCents,
+        extraSpendCents,
+        purchase,
       }),
       days,
       endDate,
@@ -217,18 +219,7 @@ export default function PlanPage() {
       /** Scheduled items falling just outside the window, so the UI can point at the next one. */
       laterEvents: allEvents.filter((e) => e.date > endDate),
     };
-  }, [inputs, planWindow, extraSpendCents, bufferCents, includeDetected, useBaseline]);
-
-  // Kept in cents: formatAxisCurrency and formatCurrency both expect cents, and converting to
-  // dollars here made the axis render $1,500 as "$15".
-  const chartData = useMemo(
-    () => forecast?.result.days.map((d) => ({
-      date: d.date,
-      balance: d.balanceCents,
-      committed: d.committedCents,
-    })) ?? [],
-    [forecast]
-  );
+  }, [inputs, planWindow, extraSpendCents, bufferCents, includeDetected, useBaseline, purchase]);
 
   const nextActions = useMemo(() => {
     if (!forecast || !inputs) return [];
@@ -269,7 +260,7 @@ export default function PlanPage() {
   }, [debtContext, monthlySurplusCents]);
 
   if (loading) {
-    return <div className="p-8 max-w-5xl mx-auto"><CardListSkeleton /></div>;
+    return <div className="workspace-page"><CardListSkeleton /></div>;
   }
 
   const header = (
@@ -286,7 +277,7 @@ export default function PlanPage() {
 
   if (!inputs || inputs.checkingAccountCount === 0) {
     return (
-      <div className="p-8 max-w-5xl mx-auto space-y-6">
+      <div className="workspace-page space-y-6">
         {header}
         <EmptyState icon={<CalendarClock size={24} className="text-[hsl(var(--muted-foreground))]" />} title="No checking account yet">
           <p>
@@ -302,6 +293,7 @@ export default function PlanPage() {
   }
 
   const result = forecast!.result;
+  const incomplete = inputs.balanceSources.some((source) => source.balance === null);
   const low = result.lowPoint;
   const short = result.firstShortfall;
   const windowDays = forecast!.days;
@@ -319,6 +311,7 @@ export default function PlanPage() {
   return (
     <motion.div
       className="workspace-page plan-workspace"
+      onPointerDownCapture={(event) => { if (event.target instanceof HTMLInputElement && event.target.type === "range" && event.target.closest(".plan-scenarios")) setHoldScale(true); }}
       variants={staggerContainer} initial="hidden" animate="show"
     >
       <div className="workspace-heading plan-heading">
@@ -369,7 +362,7 @@ export default function PlanPage() {
           </span>
           <div className="min-w-0">
             <h2 className="text-xl font-semibold">
-              {short
+              {incomplete ? "Account balances need attention" : short
                 ? `Cash shortfall on ${formatDate(short.date)}`
                 : result.safeToSpendCents < 0 ? "Your reserved cushion is at risk"
                 : `Covered through ${windowLabel}`}
@@ -389,10 +382,10 @@ export default function PlanPage() {
           <div className="plan-primary-metric">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">Safe to spend</p>
             <p className="plan-available tabular-nums" data-testid="safe-to-spend" style={{ color: result.safeToSpendCents < 0 ? "hsl(var(--error))" : undefined }}>
-              {formatCurrency(result.safeToSpendCents)}
+              {incomplete ? "Unavailable" : formatCurrency(result.safeToSpendCents)}
             </p>
             <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">
-              {result.safeToSpendCents < 0 ? "Short of your cash cushion" : "Above your reserved cushion"}
+              {incomplete ? "Missing a recorded checking balance" : result.safeToSpendCents < 0 ? "Short of your cash cushion" : "Above your reserved cushion"}
             </p>
           </div>
           <div>
@@ -438,6 +431,13 @@ export default function PlanPage() {
 
         {/* Starts from the real balance so it lands on the projected end figure - a flow-only
             version reads as a huge deficit even when the account never goes near zero. */}
+        <details className="workspace-disclosure mt-5">
+          <summary>Source balances</summary>
+          {inputs.balanceSources.map((source) => <div key={source.id} className="flex justify-between gap-4 py-2 text-sm flex-wrap">
+            <span>{source.name}</span><span>{source.balance === null ? "No recorded balance" : formatCurrency(source.balance)}{source.date ? ` as of ${formatDate(source.date)}` : ""}</span>
+          </div>)}
+          {incomplete && <p role="status" className="text-xs text-[hsl(var(--warning))]">Projection includes known balances only. Import or confirm missing balances before relying on it.</p>}
+        </details>
         <details className="workspace-disclosure mt-5">
         <summary>Balance breakdown</summary>
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 pt-4 text-sm tabular-nums">
@@ -530,6 +530,17 @@ export default function PlanPage() {
           </label>
         </div>
 
+        <fieldset className="border-t pt-4 space-y-3">
+          <legend className="text-sm font-medium">Purchase preview</legend>
+          <label className="block text-xs">Amount
+            <input aria-label="Hypothetical purchase amount" type="number" min="0" max="1000000" step="0.01" value={purchase.amountCents / 100 || ""} onChange={(event) => setPurchase({ ...purchase, amountCents: Math.max(0, Math.min(100_000_000, Math.round(Number(event.target.value) * 100))) })} className="w-full border rounded-md bg-[hsl(var(--background))] px-3 py-2 mt-1" />
+          </label>
+          <label className="block text-xs">Date
+            <input aria-label="Hypothetical purchase date" type="date" min={toISODate(new Date())} max={forecast!.endDate} value={purchase.date} onChange={(event) => setPurchase({ ...purchase, date: event.target.value })} className="w-full border rounded-md bg-[hsl(var(--background))] px-3 py-2 mt-1" />
+          </label>
+          {purchase.amountCents > 0 && (!purchase.date || purchase.date < toISODate(new Date()) || purchase.date > forecast!.endDate) && <p role="status" className="text-xs text-[hsl(var(--warning))]">Preview inactive: choose a date inside this forecast window.</p>}
+        </fieldset>
+
         <div className="flex items-start justify-between gap-3 border-t pt-4">
           <div className="space-y-2.5">
             {inputs.baseline && (
@@ -553,9 +564,9 @@ export default function PlanPage() {
               Include {inputs.detected.length} detected bills
             </label>}
           </div>
-          {(extraSpendCents > 0 || bufferCents > 0) && (
+          {(extraSpendCents > 0 || bufferCents > 0 || purchase.amountCents > 0) && (
             <button
-              onClick={() => { setExtraSpendCents(0); setBufferCents(0); }}
+              onClick={() => { setExtraSpendCents(0); setBufferCents(0); setPurchase({ date: "", amountCents: 0 }); }}
               className="text-xs font-semibold px-3 py-1.5 rounded-lg text-black transition-opacity hover:opacity-90 shrink-0"
               style={{ backgroundColor: "var(--gold)" }}
             >
@@ -567,76 +578,11 @@ export default function PlanPage() {
 
       {/* ── Projection chart ────────────────────────────────────────────── */}
       <motion.section variants={riseIn} className="plan-chart" id="plan-chart">
-        <h2 className="font-semibold text-sm mb-1">Projected checking balance</h2>
-        <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">
-          {result.nextIncome ? `Next income: ${formatCurrency(result.nextIncome.amountCents)} on ${formatDate(result.nextIncome.date)}` : "No income scheduled"}
-        </p>
-        <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData} margin={{ top: 5, right: 8, left: 4, bottom: 0 }}>
-              <defs>
-                <linearGradient id="planFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.28} />
-                  <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0.02} />
-                </linearGradient>
-                <linearGradient id="committedFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="hsl(var(--error))" stopOpacity={0.22} />
-                  <stop offset="100%" stopColor="hsl(var(--error))" stopOpacity={0.04} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-              <XAxis
-                dataKey="date" tickFormatter={(d: string) => formatDate(d)}
-                tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" minTickGap={28}
-              />
-              <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" width={60} />
-              <Tooltip
-                formatter={(v, name) => [formatCurrency(v as number), name === "committed" ? "Bills still due" : "Balance"]}
-                labelFormatter={(l) => formatDate(String(l))}
-                contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
-              />
-              <ReferenceLine y={0} stroke="hsl(var(--error))" strokeDasharray="4 4" />
-              {bufferCents > 0 && (
-                <ReferenceLine
-                  y={bufferCents} stroke="var(--gold)" strokeDasharray="4 4"
-                  label={{ value: "set aside", position: "insideTopRight", fontSize: 10, fill: "var(--gold)" }}
-                />
-              )}
-              <Area
-                type="stepAfter" dataKey="committed" stroke="hsl(var(--error))" strokeWidth={1}
-                strokeDasharray="3 3" fill="url(#committedFill)"
-              />
-              <Area type="monotone" dataKey="balance" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#planFill)" fillOpacity={0.35} />
-              {low && (
-                <ReferenceDot
-                  x={low.date} y={low.balanceCents} r={4}
-                  fill={low.balanceCents < 0 ? "hsl(var(--error))" : "hsl(var(--warning))"} stroke="none"
-                />
-              )}
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-[11px] text-[hsl(var(--muted-foreground))]">
-          <span className="flex items-center gap-1.5">
-            <span className="w-3 h-0.5 rounded" style={{ backgroundColor: "hsl(var(--primary))" }} />
-            Projected balance
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-3 h-0.5 rounded" style={{ backgroundColor: "hsl(var(--error))" }} />
-            Bills still due
-            <InfoTooltip text="Scheduled bills remaining in this window. This is not available cash: future income and everyday spending also affect your balance." />
-          </span>
-          {bufferCents > 0 && (
-            <span className="flex items-center gap-1.5">
-              <span className="w-3 h-0.5 rounded" style={{ backgroundColor: "var(--gold)" }} />
-              Set aside
-            </span>
-          )}
-        </div>
+        <CashFlowHorizon key={planWindow} current={forecast!.current} scenario={result} bufferCents={bufferCents} typicalDailyCents={baselineDaily} holdScale={holdScale} />
       </motion.section>
 
       {/* ── What to do next ─────────────────────────────────────────────── */}
-      {nextActions.length > 0 && (
+      {!incomplete && nextActions.length > 0 && (
         <motion.section variants={riseIn} className="plan-actions">
           <h2 className="font-semibold text-sm mb-3">Next steps</h2>
           <div className="space-y-2">

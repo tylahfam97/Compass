@@ -498,7 +498,7 @@ dependencies = [
 
 [[package]]
 name = "compass"
-version = "1.0.2"
+version = "1.1.0"
 dependencies = [
  "hex",
  "keyring",

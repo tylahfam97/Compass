@@ -15,6 +15,7 @@ import type { DebtPayoffPlan } from "./types";
  */
 
 export interface ForecastInputs {
+  balanceSources: { id: number; name: string; balance: number | null; date: string | null }[];
   startingBalanceCents: number;
   checkingAccountCount: number;
   /** Bills and income the user entered themselves. */
@@ -37,8 +38,9 @@ export async function getForecastInputs(profileId: number): Promise<ForecastInpu
   })();
 
   const [balanceRows, ruleRows, detectedCharges, spendRows] = await Promise.all([
-    db.select<{ total: number; n: number }[]>(
-      `SELECT COALESCE(SUM(${latestBalancePerAccountSql("a")}),0) as total, COUNT(*) as n
+    db.select<{ id: number; name: string; balance: number | null; date: string | null }[]>(
+      `SELECT a.id, a.name, ${latestBalancePerAccountSql("a")} as balance,
+       (SELECT t.date FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL ORDER BY t.date DESC,t.id DESC LIMIT 1) as date
        FROM accounts a
        WHERE a.profile_id=? AND a.account_type='checking' AND a.excluded_from_insights=0`,
       [profileId]
@@ -88,8 +90,9 @@ export async function getForecastInputs(profileId: number): Promise<ForecastInpu
   );
 
   return {
-    startingBalanceCents: balanceRows[0]?.total ?? 0,
-    checkingAccountCount: balanceRows[0]?.n ?? 0,
+    balanceSources: balanceRows,
+    startingBalanceCents: balanceRows.reduce((sum, account) => sum + (account.balance ?? 0), 0),
+    checkingAccountCount: balanceRows.length,
     rules,
     detected,
     hasIncomeRule: activeRules.some((r) => r.amount_cents > 0),

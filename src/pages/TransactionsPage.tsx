@@ -7,7 +7,6 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
 import type { Transaction } from "@/lib/types";
 import { TRANSFER_CATEGORY_ID, EXCLUDED_CATEGORY_ID, EXCLUSION_DISCLAIMER_TEXT } from "@/lib/types";
-import { useAutoMonth } from "@/hooks/useAutoMonth";
 import CategoryOptions from "@/components/CategoryOptions";
 import { useProfileStore } from "@/stores/profileStore";
 import { toast, handleLoadFailure } from "@/stores/toastStore";
@@ -18,6 +17,7 @@ import TransactionDetailModal from "@/components/TransactionDetailModal";
 import { setPendingImportFiles } from "@/lib/pendingImport";
 import InfoTooltip from "@/components/InfoTooltip";
 import { TableSkeleton } from "@/components/Skeleton";
+import { loadTransactionView, saveTransactionView } from "@/lib/transactionView";
 
 const MAX_ROWS = 500;
 const ALL_TIME_LIMIT = 10000;
@@ -57,6 +57,7 @@ function buildQueryParts(opts: {
   profileId: number;
   allTime: boolean;
   month: string;
+  range: { start: string; end: string } | null;
   search: string;
   filterCategory: string;          // "" = all, "uncategorized", or stringified id
   filterType: "all" | "income" | "expense";
@@ -72,7 +73,10 @@ function buildQueryParts(opts: {
   ];
   const params: unknown[] = [opts.profileId];
 
-  if (!opts.allTime) {
+  if (opts.range) {
+    conditions.push("t.date>=? AND t.date<?");
+    params.push(opts.range.start, opts.range.end);
+  } else if (!opts.allTime) {
     const [start, end] = monthBounds(opts.month);
     conditions.push("t.date>=? AND t.date<?");
     params.push(start, end);
@@ -113,21 +117,35 @@ function extractMerchantKey(description: string): string {
 }
 
 export default function TransactionsPage() {
+  const profileId = useProfileStore((state) => state.activeProfile?.id ?? 1);
+  return <ProfileTransactions key={profileId} profileId={profileId} />;
+}
+
+function ProfileTransactions({ profileId }: { profileId: number }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const navState = location.state as { month?: string; category?: number | null } | null;
-  const initialMonth = navState?.month;
+  const navState = location.state as { month?: string; category?: number | null; range?: { start: string; end: string } } | null;
+  const [saved] = useState(() => loadTransactionView(profileId));
+  useEffect(() => {
+    if (location.state) navigate(location.pathname, { replace: true, state: null });
+  }, [location.state, location.pathname, navigate]);
+  const initialMonth = navState?.month ?? saved.month;
   const initialCategory = navState?.category;
-  const [month, setMonth] = useAutoMonth("transactions", initialMonth);
-  const [allTime, setAllTime] = useState(false);
+  const [month, setMonth] = useState(() => {
+    const now = new Date();
+    return initialMonth ?? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const [allTime, setAllTime] = useState(navState ? false : saved.allTime);
+  const [range, setRange] = useState(navState?.range ?? (navState ? null : saved.range));
 
   const navMonth = (dir: -1 | 1) => {
+    setRange(null);
     const [y, m] = month.split("-").map(Number);
     const d = new Date(y, m - 1 + dir, 1);
     setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
   };
-  const [search, setSearch] = useState("");
-  const [view, setView] = useState<"activity" | "table">("activity");
+  const [search, setSearch] = useState(navState ? "" : saved.search);
+  const [view, setView] = useState(saved.view);
   const [rows, setRows] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [showTransferNotice, setShowTransferNotice] = useState(false);
@@ -147,18 +165,16 @@ export default function TransactionsPage() {
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [bulkRecatOpen, setBulkRecatOpen] = useState(false);
   const categories = useCategoryStore((s) => s.categories);
-  const activeProfile = useProfileStore((s) => s.activeProfile);
-  const profileId = activeProfile?.id ?? 1;
 
   // Extended filters
   const [filterCategory, setFilterCategory] = useState(() => {  // "" | "uncategorized" | "<id>"
-    if (initialCategory === undefined) return "";
+    if (initialCategory === undefined) return navState ? "" : saved.category;
     return initialCategory === null ? "uncategorized" : String(initialCategory);
   });
-  const [filterType, setFilterType]         = useState<"all" | "income" | "expense">("all");
-  const [filterAmountMin, setFilterAmountMin] = useState("");
-  const [filterAmountMax, setFilterAmountMax] = useState("");
-  const [filterAccount, setFilterAccount] = useState(""); // "" | "<accountId>"
+  const [filterType, setFilterType] = useState(navState ? "all" as const : saved.type);
+  const [filterAmountMin, setFilterAmountMin] = useState(navState ? "" : saved.minimum);
+  const [filterAmountMax, setFilterAmountMax] = useState(navState ? "" : saved.maximum);
+  const [filterAccount, setFilterAccount] = useState(navState ? "" : saved.account);
   const [accountOptions, setAccountOptions] = useState<{ id: number; name: string }[]>([]);
   // Advanced filters start expanded if one is already active (e.g. arriving via a
   // "View all" link from another page with a category pre-filled) so nothing feels hidden.
@@ -167,8 +183,29 @@ export default function TransactionsPage() {
   );
 
   // Column sort state — null = default (date DESC)
-  const [sortCol, setSortCol] = useState<SortCol | null>(null);
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [sortCol, setSortCol] = useState<SortCol | null>(saved.sort);
+  const [sortDir, setSortDir] = useState<SortDir>(saved.direction);
+  const scroll = useRef(navState ? 0 : saved.scroll);
+  const restoreScroll = useRef(true);
+  const loadSequence = useRef(0);
+  useEffect(() => {
+    const main = document.querySelector("main");
+    const rememberScroll = () => { if (!restoreScroll.current) scroll.current = main?.scrollTop ?? 0; };
+    main?.addEventListener("scroll", rememberScroll);
+    return () => { main?.removeEventListener("scroll", rememberScroll); };
+  }, []);
+  useEffect(() => {
+    const persist = () => saveTransactionView(profileId, { month, allTime, range, search, view, category: filterCategory, account: filterAccount, type: filterType, minimum: filterAmountMin, maximum: filterAmountMax, sort: sortCol, direction: sortDir, scroll: scroll.current });
+    persist();
+    window.addEventListener("pagehide", persist);
+    return () => { persist(); window.removeEventListener("pagehide", persist); };
+  }, [profileId, month, allTime, range, search, view, filterCategory, filterAccount, filterType, filterAmountMin, filterAmountMax, sortCol, sortDir]);
+  useEffect(() => {
+    if (!loading && restoreScroll.current) {
+      const frame = requestAnimationFrame(() => { document.querySelector("main")?.scrollTo(0, scroll.current); restoreScroll.current = false; });
+      return () => cancelAnimationFrame(frame);
+    }
+  }, [loading]);
 
   const handleSort = (col: SortCol) => {
     if (sortCol === col) {
@@ -189,6 +226,7 @@ export default function TransactionsPage() {
       .filter(Boolean).length;
 
   const clearFilters = () => {
+    setRange(null);
     setFilterCategory(""); setFilterType("all");
     setFilterAmountMin(""); setFilterAmountMax(""); setFilterAccount("");
   };
@@ -205,10 +243,11 @@ export default function TransactionsPage() {
   }, [profileId]);
 
   const loadRows = useCallback(async () => {
+    const sequence = ++loadSequence.current;
     setLoading(true);
     const db = await getDb();
     const { where, params } = buildQueryParts({
-      profileId, allTime, month, search,
+      profileId, allTime, month, range, search,
       filterCategory, filterType, filterAmountMin, filterAmountMax, filterAccount,
     });
     const orderBy = sortCol
@@ -223,13 +262,15 @@ export default function TransactionsPage() {
        LIMIT ${allTime ? ALL_TIME_LIMIT + 1 : MAX_ROWS + 1}`,
       params
     );
+    if (sequence !== loadSequence.current) return;
     setSelectedIds(new Set());
     setRows(data);
     setLoading(false);
-  }, [month, allTime, search, profileId, filterCategory, filterType, filterAmountMin, filterAmountMax, filterAccount, sortCol, sortDir]);
+  }, [month, range, allTime, search, profileId, filterCategory, filterType, filterAmountMin, filterAmountMax, filterAccount, sortCol, sortDir]);
 
   useEffect(() => {
     loadRows().catch(handleLoadFailure("your transactions", setLoading, () => void loadRows()));
+    return () => { loadSequence.current++; };
   }, [loadRows]);
 
   const deleteTransaction = async (id: number) => {
@@ -336,7 +377,7 @@ export default function TransactionsPage() {
   const exportCsv = async () => {
     const db = await getDb();
     const { where, params } = buildQueryParts({
-      profileId, allTime, month, search,
+      profileId, allTime, month, range, search,
       filterCategory, filterType, filterAmountMin, filterAmountMax, filterAccount,
     });
     const data = await db.select<Transaction[]>(
@@ -548,6 +589,7 @@ export default function TransactionsPage() {
 
       {/* Filters */}
       <div className="space-y-2 mb-4">
+        {range && <div className="flex flex-wrap items-center gap-3 text-sm" role="status"><span>{formatDate(range.start)} to {formatDate(range.end)} (end exclusive)</span><button className="text-[hsl(var(--primary))]" onClick={() => setRange(null)}>Clear date range</button></div>}
         {/* Row 1 — the essentials, always visible */}
         <div className="flex gap-3 flex-wrap items-center">
           {!allTime && (
@@ -558,7 +600,7 @@ export default function TransactionsPage() {
                 ref={monthInputRef}
                 type="month"
                 value={month}
-                onChange={(e) => setMonth(e.target.value)}
+                onChange={(e) => { setRange(null); setMonth(e.target.value); }}
                 onClick={() => { try { monthInputRef.current?.showPicker(); } catch { /* unsupported */ } }}
                 className="cursor-pointer border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))]
                            text-[hsl(var(--foreground))]"
@@ -568,7 +610,7 @@ export default function TransactionsPage() {
             </div>
           )}
           <button
-            onClick={() => setAllTime((v) => !v)}
+            onClick={() => { setRange(null); setAllTime((value) => !value); }}
             className={`text-sm px-3 py-1.5 border rounded-lg transition-colors ${
               allTime
                 ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent"

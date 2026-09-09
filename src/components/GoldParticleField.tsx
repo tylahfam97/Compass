@@ -5,6 +5,7 @@ import { useAppReducedMotion } from "@/hooks/useAppReducedMotion";
 const GOLD_SHADES = ["201, 149, 43", "212, 168, 50", "230, 200, 105"];
 
 interface Particle {
+  depth: number;
   homeX: number;
   homeY: number;
   x: number;
@@ -55,16 +56,18 @@ function randomHomePosition(width: number, height: number): { x: number; y: numb
 
 function makeParticle(width: number, height: number): Particle {
   const { x, y } = randomHomePosition(width, height);
+  const depth = 0.2 + Math.random() * 0.8;
   return {
+    depth,
     homeX: x,
     homeY: y,
     x,
     y,
     vx: 0,
     vy: 0,
-    radius: 0.8 + Math.random() * 1.6,
+    radius: 0.8 + depth * 1.6,
     color: GOLD_SHADES[Math.floor(Math.random() * GOLD_SHADES.length)],
-    baseAlpha: 0.25 + Math.random() * 0.45,
+    baseAlpha: 0.25 + depth * 0.45,
     twinkleSpeed: 0.6 + Math.random() * 1.2,
     twinklePhase: Math.random() * Math.PI * 2,
     wanderRadius: 4 + Math.random() * 10,
@@ -85,58 +88,72 @@ export default function GoldParticleField() {
   const reducedMotion = useAppReducedMotion();
 
   useEffect(() => {
-    if (reducedMotion) return; // a perpetually drifting 420-particle field is the definition of what this setting turns off
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    if (reducedMotion) { ctx.clearRect(0, 0, canvas.width, canvas.height); return; }
 
     let width = window.innerWidth;
     let height = window.innerHeight;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    let particles: Particle[] = [];
+    const content = canvas.nextElementSibling;
+    let excluded = content?.getBoundingClientRect();
+    const measureContent = () => { excluded = content?.getBoundingClientRect(); };
+    const observer = new ResizeObserver(measureContent);
+    if (content) observer.observe(content);
 
     const resize = () => {
+      const scaleX = window.innerWidth / Math.max(1, width);
+      const scaleY = window.innerHeight / Math.max(1, height);
+      for (const particle of particles) {
+        particle.homeX *= scaleX;
+        particle.homeY *= scaleY;
+        particle.x *= scaleX;
+        particle.y *= scaleY;
+      }
       width = window.innerWidth;
       height = window.innerHeight;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
       canvas.width = width * dpr;
       canvas.height = height * dpr;
       canvas.style.width = `${width}px`;
       canvas.style.height = `${height}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      measureContent();
     };
     resize();
 
-    let particles: Particle[] = Array.from({ length: PARTICLE_COUNT }, () => makeParticle(width, height));
-
-    const rebuildParticles = () => {
-      particles = Array.from({ length: PARTICLE_COUNT }, () => makeParticle(width, height));
-    };
-
-    let resizeTimeout: ReturnType<typeof setTimeout>;
-    const handleResize = () => {
-      resize();
-      clearTimeout(resizeTimeout);
-      resizeTimeout = setTimeout(rebuildParticles, 150);
-    };
-    window.addEventListener("resize", handleResize);
+    particles = Array.from({ length: PARTICLE_COUNT }, () => makeParticle(width, height));
+    window.addEventListener("resize", resize);
 
     // Mouse far off-screen by default so nothing repels until the user actually moves it.
     const mouse = { x: -9999, y: -9999 };
-    const handlePointerMove = (e: PointerEvent) => { mouse.x = e.clientX; mouse.y = e.clientY; };
-    const handlePointerLeave = () => { mouse.x = -9999; mouse.y = -9999; };
+    const camera = { x: 0, y: 0, targetX: 0, targetY: 0 };
+    const handlePointerMove = (event: PointerEvent) => {
+      if (event.pointerType === "touch") return;
+      mouse.x = event.clientX;
+      mouse.y = event.clientY;
+      camera.targetX = Math.max(-1, Math.min(1, event.clientX / width * 2 - 1)) * 22;
+      camera.targetY = Math.max(-1, Math.min(1, event.clientY / height * 2 - 1)) * 16;
+    };
+    const handlePointerLeave = () => { mouse.x = -9999; mouse.y = -9999; camera.targetX = 0; camera.targetY = 0; };
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerleave", handlePointerLeave);
     window.addEventListener("blur", handlePointerLeave);
 
-    let rafId: number;
+    let rafId = 0;
     let elapsed = 0;
     let lastTime = performance.now();
 
     const tick = (now: number) => {
+      if (document.hidden) return;
       const deltaMs = now - lastTime;
       lastTime = now;
       const dt = Math.min(deltaMs / 16.67, 2); // normalize to ~60fps steps, cap for tab-switch gaps
       elapsed += deltaMs;
+      camera.x += (camera.targetX - camera.x) * (1 - Math.pow(0.93, dt));
+      camera.y += (camera.targetY - camera.y) * (1 - Math.pow(0.93, dt));
 
       ctx.clearRect(0, 0, width, height);
 
@@ -144,8 +161,8 @@ export default function GoldParticleField() {
         // Slowly orbiting/jiggling target instead of a fixed point, so particles
         // never sit perfectly still even with no cursor interaction at all.
         const t = elapsed * 0.001 * p.wanderSpeed + p.wanderPhase;
-        const targetX = p.homeX + Math.cos(t) * p.wanderRadius;
-        const targetY = p.homeY + Math.sin(t * 1.3) * p.wanderRadius;
+        const targetX = p.homeX + Math.cos(t) * p.wanderRadius + camera.x * p.depth;
+        const targetY = p.homeY + Math.sin(t * 1.3) * p.wanderRadius + camera.y * p.depth;
 
         // Repulsion away from the cursor.
         const dx = p.x - mouse.x;
@@ -172,6 +189,7 @@ export default function GoldParticleField() {
         const twinkle = Math.sin(elapsed * 0.001 * p.twinkleSpeed + p.twinklePhase) * 0.25;
         const alpha = Math.max(0.05, Math.min(1, p.baseAlpha + twinkle));
 
+        if (excluded && p.x > excluded.left - 16 && p.x < excluded.right + 16 && p.y > excluded.top - 16 && p.y < excluded.bottom + 16) continue;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
         ctx.fillStyle = `rgba(${p.color}, ${alpha})`;
@@ -181,11 +199,19 @@ export default function GoldParticleField() {
       rafId = requestAnimationFrame(tick);
     };
     rafId = requestAnimationFrame(tick);
+    const handleVisibility = () => {
+      cancelAnimationFrame(rafId);
+      handlePointerLeave();
+      lastTime = performance.now();
+      if (!document.hidden) rafId = requestAnimationFrame(tick);
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
       cancelAnimationFrame(rafId);
-      clearTimeout(resizeTimeout);
-      window.removeEventListener("resize", handleResize);
+      observer.disconnect();
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("resize", resize);
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerleave", handlePointerLeave);
       window.removeEventListener("blur", handlePointerLeave);

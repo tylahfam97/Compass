@@ -58,6 +58,7 @@ interface CreditAccountMeta {
    *  headline number must never depend on whether the current month happens to have any
    *  activity/statement for this account (see loadData for why). */
   balanceCents: number | null;
+  balanceDate: string | null;
 }
 
 interface CreditBalanceRow {
@@ -172,10 +173,11 @@ export default function DashboardPage() {
         [start, end, profileId]
       ),
       db.select<{ n: number }[]>("SELECT COUNT(*) as n FROM transactions WHERE profile_id=?", [profileId]),
-      db.select<{ account_id: number; balance_cents: number | null }[]>(
+      db.select<{ account_id: number; balance_cents: number | null; balance_date: string | null }[]>(
         `SELECT a.id as account_id,
            (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
-            ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents
+            ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents,
+           (SELECT t.date FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL ORDER BY t.date DESC,t.id DESC LIMIT 1) as balance_date
          FROM accounts a WHERE a.profile_id=? AND a.account_type IN ('checking','credit')`,
         [profileId]
       ),
@@ -247,11 +249,13 @@ export default function DashboardPage() {
     // recent statement falls outside the selected month (e.g. right after a historical batch
     // import) would wrongly show $0 instead of its real balance.
     const latestBalanceById = new Map(balanceRow.map((r) => [r.account_id, r.balance_cents]));
+    const balanceDates = new Map(balanceRow.map((row) => [row.account_id, row.balance_date]));
     const creditAccountsMeta = balanceAcctRows
       .filter((a) => a.account_type === "credit")
       .map((a, i) => ({
         id: a.id, name: a.name, color: accountChartColor(i), hidden: !!a.hidden_from_dashboard,
         interestRateBps: a.interest_rate_bps, minimumPaymentCents: a.minimum_payment_cents, balanceCents: latestBalanceById.get(a.id) ?? null,
+        balanceDate: balanceDates.get(a.id) ?? null,
       }));
     setCreditBalanceAccounts(creditAccountsMeta);
     // Checking accounts combine into one line (there's usually just one); credit cards stay
@@ -267,6 +271,7 @@ export default function DashboardPage() {
       .map((a, i) => ({
         id: a.id, name: a.name, color: accountChartColor(i), hidden: false,
         interestRateBps: null, minimumPaymentCents: null, balanceCents: latestBalanceById.get(a.id) ?? null,
+        balanceDate: balanceDates.get(a.id) ?? null,
       }));
     setBankAccountsMeta(checkingAccountsMeta);
     const separatedChecking = separateAccountBalances(balancePointRows.filter((r) => checkingIds.has(r.account_id)));
@@ -401,7 +406,7 @@ export default function DashboardPage() {
   const hasData = stats.income !== 0 || stats.expenses !== 0;
 
   return (
-    <div className="p-8 space-y-6 max-w-6xl mx-auto w-full">
+    <div className="workspace-page space-y-6 dashboard-workspace">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
         <div className="flex items-center gap-1">
@@ -647,8 +652,9 @@ export default function DashboardPage() {
                         )}
                       </div>
                       <p className={`text-xl font-bold mb-2 ${lastCents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
-                        {formatCurrency(lastCents)}
+                        {acc.balanceCents === null ? "No recorded balance" : formatCurrency(lastCents)}
                       </p>
+                      {acc.balanceDate && <p className="text-xs text-[hsl(var(--muted-foreground))] mb-2">Recorded {formatDate(acc.balanceDate)}</p>}
                       {series.length > 1 && (
                         <div className="h-10 -mx-1">
                           <ResponsiveContainer width="100%" height="100%">
@@ -757,8 +763,9 @@ export default function DashboardPage() {
                         </span>
                       </div>
                       <p className={`text-xl font-bold mb-2 ${lastCents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
-                        {formatCurrency(lastCents)}
+                        {acc.balanceCents === null ? "No recorded balance" : formatCurrency(lastCents)}
                       </p>
+                      {acc.balanceDate && <p className="text-xs text-[hsl(var(--muted-foreground))] mb-2">Recorded {formatDate(acc.balanceDate)}</p>}
                       {series.length > 1 && (
                         <div className="h-10 -mx-1">
                           <ResponsiveContainer width="100%" height="100%">
@@ -1028,8 +1035,8 @@ export default function DashboardPage() {
 
       {/* ── MANAGE DATA — only shown when there is something to clear ── */}
       {(monthTxnCount > 0 || totalTxnCount > 0) && (
-        <div className="border rounded-xl p-4">
-          <p className="text-sm font-medium text-[hsl(var(--muted-foreground))] mb-3">Manage Data</p>
+        <details className="workspace-disclosure border-t pt-3">
+          <summary>Manage Data</summary>
           {confirmClear === null ? (
             <div className="flex gap-4 text-sm flex-wrap">
               {monthTxnCount > 0 && (
@@ -1075,7 +1082,7 @@ export default function DashboardPage() {
               </button>
             </div>
           )}
-        </div>
+        </details>
       )}
 
       {loanModal && (

@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Plus, Pencil, Trash2, RotateCcw, Globe, Wallet } from "lucide-react";
 import { getDb } from "@/lib/db";
-import { categorySpendSql } from "@/lib/reportingSql";
+import { categorySpendSql, categoryNetSql } from "@/lib/reportingSql";
+import { budgetCarryCents, evaluateBudgetPeriod, type BudgetDefinition } from "@/lib/budgetMetrics";
 import { formatCurrency, formatMonthLabel, formatDate } from "@/lib/utils";
 import { detectNewMilestones } from "@/lib/milestones";
 import { useCategoryStore } from "@/stores/categoryStore";
@@ -32,15 +33,10 @@ interface BudgetRow {
   rollover: number;
   /** Unspent amount carried forward from prior months (0 unless `rollover` is enabled and
    *  this is a monthly budget) - added to `amount_cents` to get the effective limit for the
-   *  currently-viewed month. See `computeRolloverCents`. */
+  *  currently-viewed month. */
   rolloverCents: number;
   weeklyAmounts: number[];
 }
-
-/** Safety cap on how many months of history a rollover computation will walk back through -
- *  rollover chains compound month over month, so this bounds the query cost for a budget
- *  that's existed a very long time instead of walking back indefinitely. */
-const MAX_ROLLOVER_MONTHS = 36;
 
 function viewModeKey(profileId: number) {
   return `compass_budget_view_${profileId}`;
@@ -52,12 +48,6 @@ function monthBounds(ym: string): [string, string] {
     `${y}-${String(m).padStart(2, "0")}-01`,
     new Date(y, m, 1).toISOString().split("T")[0],
   ];
-}
-
-function nextYM(ym: string): string {
-  const [y, m] = ym.split("-").map(Number);
-  const d = new Date(y, m, 1); // m is 1-indexed here, so this already advances one month
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
 /** The most recent month that has actually finished - the only period a "you held your budget"
@@ -98,40 +88,6 @@ function daysElapsed(ym: string): number {
   return now.getDate();
 }
 
-
-/** Walks month-by-month from a rollover-enabled budget's creation month up to (but excluding)
- *  the currently-viewed month, compounding each month's leftover (`amountCents - spent`,
- *  floored at 0 - overspending never creates a "debt" that reduces future months, it just
- *  resets that month's carry to 0) into the next month's available amount. Returns the total
- *  carried into the currently-viewed month, added to `amountCents` for the effective limit.
- *  Capped at `MAX_ROLLOVER_MONTHS` months of history to bound query cost. */
-async function computeRolloverCents(
-  db: Awaited<ReturnType<typeof getDb>>,
-  categoryId: number,
-  amountCents: number,
-  startDate: string,
-  currentMonthYM: string,
-  spendProfileIds: number[]
-): Promise<number> {
-  const ph = spendProfileIds.map(() => "?").join(",");
-  let cursor = startDate.slice(0, 7); // "YYYY-MM" of the budget's own creation month
-  let carry = 0;
-  let iterations = 0;
-  while (cursor < currentMonthYM && iterations < MAX_ROLLOVER_MONTHS) {
-    const [s, e] = monthBounds(cursor);
-    const [row] = await db.select<{ spent: number }[]>(
-      `SELECT COALESCE(${categorySpendSql()},0) as spent
-       FROM transactions t LEFT JOIN accounts a ON a.id=t.account_id
-       WHERE t.category_id=? AND t.date>=? AND t.date<? AND t.profile_id IN (${ph})`,
-      [categoryId, s, e, ...spendProfileIds]
-    );
-    const available = amountCents + carry - (row?.spent ?? 0);
-    carry = Math.max(0, available);
-    cursor = nextYM(cursor);
-    iterations++;
-  }
-  return carry;
-}
 
 interface ScopeToggleProps {
   isGlobal: boolean;
@@ -262,7 +218,7 @@ export default function BudgetsPage() {
         `SELECT b.id, b.category_id, c.parent_id as category_parent_id,
                 c.name as category_name, c.color as category_color,
                 b.amount_cents, b.period, b.start_date, b.is_global, b.rollover,
-                COALESCE(${categorySpendSql("t", "acc")},0) as spent_cents,
+                ${categoryNetSql("t", "acc")} as spent_cents,
                 COALESCE(SUM(CASE WHEN t.amount_cents>0 AND (acc.account_type IS NULL OR acc.account_type NOT IN ('credit','loan')) THEN t.amount_cents ELSE 0 END),0) as earned_cents
          FROM budgets b
          JOIN categories c ON b.category_id=c.id
@@ -275,10 +231,10 @@ export default function BudgetsPage() {
         [weekStart, start, weekEnd, end, ...ids]
       );
       weeklyRows = await db.select<{ category_id: number; dow: number; total: number }[]>(
-        `SELECT category_id, (strftime('%w',date)+6)%7 as dow, SUM(ABS(amount_cents)) as total
-         FROM transactions
-         WHERE date>=? AND date<? AND profile_id IN (${ph}) AND amount_cents<0
-         GROUP BY category_id, dow`,
+        `SELECT t.category_id, (strftime('%w',t.date)+6)%7 as dow, ${categoryNetSql()} as total
+         FROM transactions t LEFT JOIN accounts a ON a.id=t.account_id
+         WHERE t.date>=? AND t.date<? AND t.profile_id IN (${ph})
+         GROUP BY t.category_id, dow`,
         [weekStart, weekEnd, ...ids]
       );
     } else {
@@ -286,7 +242,7 @@ export default function BudgetsPage() {
         `SELECT b.id, b.category_id, c.parent_id as category_parent_id,
                 c.name as category_name, c.color as category_color,
                 b.amount_cents, b.period, b.start_date, b.is_global, b.rollover,
-                COALESCE(${categorySpendSql("t", "acc")},0) as spent_cents,
+                ${categoryNetSql("t", "acc")} as spent_cents,
                 COALESCE(SUM(CASE WHEN t.amount_cents>0 AND (acc.account_type IS NULL OR acc.account_type NOT IN ('credit','loan')) THEN t.amount_cents ELSE 0 END),0) as earned_cents
          FROM budgets b
          JOIN categories c ON b.category_id=c.id
@@ -299,10 +255,10 @@ export default function BudgetsPage() {
         [weekStart, start, weekEnd, end, profileId, profileId]
       );
       weeklyRows = await db.select<{ category_id: number; dow: number; total: number }[]>(
-        `SELECT category_id, (strftime('%w',date)+6)%7 as dow, SUM(ABS(amount_cents)) as total
-         FROM transactions
-         WHERE date>=? AND date<? AND profile_id=? AND amount_cents<0
-         GROUP BY category_id, dow`,
+        `SELECT t.category_id, (strftime('%w',t.date)+6)%7 as dow, ${categoryNetSql()} as total
+         FROM transactions t LEFT JOIN accounts a ON a.id=t.account_id
+         WHERE t.date>=? AND t.date<? AND t.profile_id=?
+         GROUP BY t.category_id, dow`,
         [weekStart, weekEnd, profileId]
       );
     }
@@ -316,12 +272,11 @@ export default function BudgetsPage() {
     const spendProfileIds = viewMode === "global"
       ? (unlockedProfileIds.length > 0 ? unlockedProfileIds : [profileId])
       : [profileId];
-    const currentMonthYM = month;
     const rolloverCentsById = new Map<number, number>();
     for (const b of rawBudgets) {
       if (b.rollover && b.period === "monthly") {
-        const cents = await computeRolloverCents(db, b.category_id, b.amount_cents, b.start_date, currentMonthYM, spendProfileIds);
-        rolloverCentsById.set(b.id, cents);
+        const period = await evaluateBudgetPeriod(db, { ...b, profile_id: profileId }, spendProfileIds, start, end);
+        rolloverCentsById.set(b.id, period.available - b.amount_cents);
       }
     }
 
@@ -347,29 +302,25 @@ export default function BudgetsPage() {
       const month = lastCompletedYM();
       const [start, end] = monthBounds(month);
       const db = await getDb();
-      const rows = await db.select<{ id: number; category_name: string; amount_cents: number; spent_cents: number }[]>(
-        `SELECT b.id, c.name as category_name, b.amount_cents,
-                COALESCE(${categorySpendSql("t", "acc")},0) as spent_cents
+      const rows = await db.select<BudgetDefinition[]>(
+        `SELECT b.*, c.name as category_name, c.parent_id as category_parent_id
          FROM budgets b
          JOIN categories c ON b.category_id=c.id
-         LEFT JOIN transactions t ON t.category_id=b.category_id
-           AND t.date>=? AND t.date<? AND t.profile_id=?
-         LEFT JOIN accounts acc ON acc.id=t.account_id
-         WHERE b.profile_id=? AND b.period='monthly' AND b.start_date<=?
-           AND c.id!=1 AND (c.parent_id IS NULL OR c.parent_id!=1)
-         GROUP BY b.id`,
-        [start, end, profileId, profileId, start]
+         WHERE b.profile_id=? AND b.is_global=0 AND b.period='monthly' AND b.start_date<=?
+           AND c.id!=1 AND (c.parent_id IS NULL OR c.parent_id!=1)`,
+        [profileId, start]
       );
+      const evaluated = await Promise.all(rows.map(async (budget) => ({ budget, period: await evaluateBudgetPeriod(db, budget, [profileId], start, end) })));
       if (cancelled) return;
       enqueueMilestones(
         detectNewMilestones(profileId, {
-          budgets: rows.map((r) => ({
-            id: r.id,
-            name: r.category_name,
+          budgets: evaluated.filter(({ period }) => period.covered).map(({ budget, period }) => ({
+            id: budget.id,
+            name: budget.category_name,
             month,
             monthLabel: formatMonthLabel(month),
-            spentCents: r.spent_cents,
-            limitCents: r.amount_cents,
+            spentCents: period.net,
+            limitCents: period.available,
           })),
         })
       );
@@ -855,7 +806,7 @@ export default function BudgetsPage() {
         {!loading && budgets.filter((budget) => !onlyOver || isOverLimit(budget)).map((b) => {
           const isIncome = b.category_id === 1 || b.category_parent_id === 1;
           const displayCents = isIncome ? b.earned_cents : b.spent_cents;
-          const displayLabel = isIncome ? "earned" : "spent";
+          const displayLabel = isIncome ? "earned" : "net used";
           const effectiveLimit = b.amount_cents + (b.rolloverCents || 0);
           const usedPct = effectiveLimit > 0 ? Math.round((displayCents / effectiveLimit) * 100) : 0;
           const pct = Math.max(0, Math.min(100, usedPct));
@@ -863,7 +814,7 @@ export default function BudgetsPage() {
           const under = isIncome && displayCents < effectiveLimit;
 
           const totalDays = b.period === "weekly" ? 7 : daysInMonth(month);
-          const [weekStart] = currentWeekBounds(month);
+          const [weekStart, weekEnd] = currentWeekBounds(month);
           const elapsed = b.period === "weekly"
             ? Math.max(0, Math.min(7, Math.floor((new Date().getTime() - new Date(`${weekStart}T00:00:00`).getTime()) / 86_400_000) + 1))
             : daysElapsed(month);
@@ -1018,7 +969,7 @@ export default function BudgetsPage() {
                   <span
                     className="text-2xl font-semibold tabular-nums"
                     style={{
-                      color: over ? "hsl(var(--error))" : under ? "hsl(var(--warning))" : "hsl(var(--muted-foreground))",
+                      color: displayCents < 0 ? "hsl(var(--success))" : over ? "hsl(var(--error))" : under ? "hsl(var(--warning))" : "hsl(var(--muted-foreground))",
                     }}
                   >
                     {formatCurrency(displayCents)}{" "}
@@ -1036,6 +987,16 @@ export default function BudgetsPage() {
                   </span>
                 </div>
 
+                {!isIncome && <details className="workspace-disclosure mt-2 text-xs">
+                  <summary>Debits and credits</summary>
+                  <div className="flex gap-6 flex-wrap py-3">
+                    <span>Debits {formatCurrency(b.spent_cents + b.earned_cents)}</span>
+                    <span>Credits {formatCurrency(b.earned_cents)}</span>
+                    {displayCents < 0 && <span className="text-[hsl(var(--success))]">Credits exceed debits</span>}
+                    {!!b.rollover && <span>Next carry: {formatCurrency(budgetCarryCents(effectiveLimit, displayCents))}</span>}
+                    {viewMode === "profile" ? <button className="text-[hsl(var(--primary))]" onClick={() => navigate("/transactions", { state: { month, category: b.category_id, range: b.period === "weekly" ? { start: weekStart, end: weekEnd } : undefined } })}>View transactions</button> : <span>Global totals include unlocked profiles. View each profile's transactions for detail.</span>}
+                  </div>
+                </details>}
                 {!isIncome && elapsed > 0 && effectiveLimit > 0 && (() => {
                   const ToneIcon = over || projectedOver ? AlertTriangle : CheckCircle;
                   const toneColor = over || projectedOver ? "hsl(var(--warning))" : "hsl(var(--muted-foreground))";
@@ -1049,11 +1010,11 @@ export default function BudgetsPage() {
               </div>
 
               {/* Footer: daily remaining + weekly bar */}
-              {!isIncome && !over && remaining > 0 && (
+              {!isIncome && (
                 <div
                   className="pb-4 flex items-center justify-between gap-4"
                 >
-                  <div>
+                  {displayCents >= 0 && !over && remaining > 0 ? <div>
                     <p className="text-xs text-[hsl(var(--muted-foreground))] mb-0.5">Daily allowance · {remaining} days left</p>
                     <p
                       className="text-sm font-semibold"
@@ -1061,10 +1022,12 @@ export default function BudgetsPage() {
                     >
                       {formatCurrency(Math.max(0, dailyRemaining))}/day
                     </p>
-                  </div>
+                  </div> : <p className="text-xs text-[hsl(var(--muted-foreground))]">Week of {formatDate(weekStart)}</p>}
                   <WeeklyMiniBar
                     dailyAmounts={b.weeklyAmounts}
                     dailyTarget={dailyLimit}
+                    signed
+                    weekStart={weekStart}
                     overIsBad={true}
                     className="w-28 shrink-0"
                   />

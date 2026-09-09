@@ -324,7 +324,7 @@ export default function InvestmentsPage() {
 
   if (!asOfDate && activity.length === 0) {
     return (
-      <div className="p-6 max-w-3xl mx-auto w-full text-center py-16">
+      <div className="workspace-page text-center py-16">
         <div className="flex justify-center mb-4 text-[hsl(var(--muted-foreground))]"><TrendingUp size={48} /></div>
         <p className="font-medium mb-1">No investments yet</p>
         <p className="text-sm text-[hsl(var(--muted-foreground))] mb-6">
@@ -345,7 +345,7 @@ export default function InvestmentsPage() {
   ];
 
   return (
-    <div className="p-8 space-y-6 max-w-6xl mx-auto w-full">
+    <div className="workspace-page space-y-6 investments-workspace">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold">Investments</h1>

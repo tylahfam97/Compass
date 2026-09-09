@@ -20,6 +20,7 @@ import type { Profile } from "@/lib/types";
 import { EXCLUSION_DISCLAIMER_TEXT } from "@/lib/types";
 
 interface ProfileData {
+  sources: { name: string; date: string | null }[];
   profileId: number;
   /** Sum of bank (checking) account balances only - excludes credit card debt and investments,
    *  so this card shows spendable/liquid cash rather than a blended net-worth figure (the
@@ -143,10 +144,11 @@ export default function OverviewPage() {
       const entries = await Promise.all(
         visibleProfiles.map(async (p) => {
           const [balRow, incRow, expRow, txRow, sparkRows, portfolioRow, hiddenRow] = await Promise.all([
-            db.select<{ account_id: number; account_type: string; name: string; balance_cents: number | null }[]>(
+            db.select<{ account_id: number; account_type: string; name: string; balance_cents: number | null; balance_date: string | null }[]>(
               `SELECT a.id as account_id, a.account_type, a.name,
                  (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
-                  ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents
+                  ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents,
+                 (SELECT t.date FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL ORDER BY t.date DESC,t.id DESC LIMIT 1) as balance_date
                FROM accounts a WHERE a.profile_id=? AND a.account_type IN ('checking','credit') AND a.hidden_from_dashboard=0`,
               [p.id]
             ),
@@ -187,6 +189,7 @@ export default function OverviewPage() {
           const creditAccounts = balRow.filter((r) => r.account_type === "credit").map((r) => ({ id: r.account_id, name: r.name }));
           const trackedBankAccounts = trackedAccounts.filter((r) => r.account_type === "checking");
           return [p.id, {
+            sources: balRow.map((row) => ({ name: row.name, date: row.balance_date })),
             profileId: p.id,
             liquidCents: trackedBankAccounts.length > 0 ? trackedBankAccounts.reduce((s, r) => s + (r.balance_cents ?? 0), 0) : null,
             income: incRow[0]?.total ?? 0,
@@ -238,7 +241,7 @@ export default function OverviewPage() {
   };
 
   return (
-    <div className="p-8 space-y-6 max-w-[1320px] mx-auto w-full">
+    <div className="workspace-page space-y-6 overview-workspace">
       {pinTarget && (
         <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />
       )}
@@ -389,6 +392,10 @@ export default function OverviewPage() {
                   </p>
                 ) : (
                   <>
+                    <details className="workspace-disclosure mb-3" onClick={(event) => event.stopPropagation()}>
+                      <summary>Recorded balances</summary>
+                      {d.sources.map((source) => <p key={source.name} className="text-xs py-1">{source.name}: {source.date ? formatDate(source.date) : "No recorded balance"}</p>)}
+                    </details>
                     {d.liquidCents !== null && (
                       <div className="mb-3">
                         <p className="text-xs text-[hsl(var(--muted-foreground))] mb-0.5">Liquid</p>

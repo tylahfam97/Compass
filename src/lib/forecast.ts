@@ -44,6 +44,8 @@ export interface ForecastRule extends RecurringSchedule {
 }
 
 export interface ForecastDay {
+  scenarioSpendCents?: number;
+  purchaseCents?: number;
   date: string;
   /** Projected balance at the end of this day. */
   balanceCents: number;
@@ -82,6 +84,8 @@ export interface ForecastResult {
 }
 
 export interface ProjectCashFlowInput {
+  extraSpendCents?: number;
+  purchase?: { date: string; amountCents: number };
   startingBalanceCents: number;
   /** YYYY-MM-DD, normally today. */
   startDate: string;
@@ -202,6 +206,10 @@ export function projectCashFlow(input: ProjectCashFlowInput): ForecastResult {
   let balance = startingBalanceCents;
   let totalIncome = 0;
   let totalBills = 0;
+  let assumedSpend = 0;
+  const extra = Math.max(0, Math.round(input.extraSpendCents ?? 0));
+  const dailyExtra = days > 0 ? Math.floor(extra / days) : 0;
+  const remainder = days > 0 ? extra % days : 0;
 
   for (let i = 0; i < days; i++) {
     const date = toISODate(addDays(start, i));
@@ -212,9 +220,12 @@ export function projectCashFlow(input: ProjectCashFlowInput): ForecastResult {
       if (e.amountCents > 0) totalIncome += e.amountCents;
       else totalBills += Math.abs(e.amountCents);
     }
-    balance -= dailySpendCents;
+    const purchaseCents = input.purchase?.date === date ? Math.max(0, Math.round(input.purchase.amountCents)) : 0;
+    const scenarioSpendCents = dailyExtra + (i < remainder ? 1 : 0) + purchaseCents;
+    balance -= dailySpendCents + scenarioSpendCents;
+    assumedSpend += dailySpendCents + scenarioSpendCents;
 
-    out.push({ date, balanceCents: balance, events: dayEvents, committedCents: 0 });
+    out.push({ date, balanceCents: balance, events: dayEvents, committedCents: 0, scenarioSpendCents, purchaseCents });
   }
 
   // Reverse pass: what's still owed after each day. Has to run backwards because a day's
@@ -250,7 +261,7 @@ export function projectCashFlow(input: ProjectCashFlowInput): ForecastResult {
     makesItToPayday,
     totalIncomeCents: totalIncome,
     totalBillsCents: totalBills,
-    assumedSpendCents: dailySpendCents * days,
+    assumedSpendCents: assumedSpend,
     afterBillsCents: totalIncome - totalBills,
     endingBalanceCents: out.length > 0 ? out[out.length - 1].balanceCents : startingBalanceCents,
     safeToSpendCents: (lowPoint?.balanceCents ?? startingBalanceCents) - buffer,

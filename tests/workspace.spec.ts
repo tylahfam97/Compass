@@ -38,7 +38,7 @@ const test = base.extend<{ database: DatabaseSync }>({
         metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
       };
       localStorage.setItem("compass_onboarding_dismissed_forever", "1");
-      localStorage.setItem("compass_milestones_seen_1", JSON.stringify(["goal_complete_1", "goal_complete_2", "goal_complete_3"]));
+      localStorage.setItem("compass_milestones_seen_1", JSON.stringify(["goal_complete_1", "goal_complete_2", "goal_complete_3", "networth_positive", "networth_100000"]));
       localStorage.setItem("compass_transfer_disclaimer_dismissed", "1");
       localStorage.setItem("compass_plan_window", "nextMonth");
       localStorage.setItem("sidebarOpen", "false");
@@ -100,6 +100,175 @@ test("Plan preserves red deficits and updates the scenario immediately", async (
   await expect(amount).toHaveText("-$500.00");
   await page.getByText("Manage scheduled bills & income", { exact: true }).click();
   await expect(page.locator(".plan-rules")).toHaveAttribute("open", "");
+});
+
+test("Plan purchase preview is inspectable and never writes transactions", async ({ page, database }, testInfo) => {
+  const before = database.prepare('SELECT COUNT(*) AS total FROM transactions').get()?.total;
+  await page.reload();
+  await page.getByLabel('Hypothetical purchase amount').fill('250.01');
+  const today = await page.evaluate(() => {
+    const date = new Date();
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  });
+  await page.getByLabel('Hypothetical purchase date').fill(today);
+  await expect(page.getByTestId('safe-to-spend')).toHaveText('-$750.01');
+  await expect(page.locator('.horizon-inspector')).toContainText('Hypothetical, not recorded');
+  await expect(page.locator('.horizon-inspector')).toContainText('-$250.01');
+  await expect(page.locator('aside a[title="Insights"] span')).toBeVisible();
+  await expect(page.locator('.plan-rules').getByTitle('Edit', { exact: true })).toHaveCount(2);
+  await page.evaluate(() => {
+    const host = window as unknown as { previewQueries: number; __TAURI_INTERNALS__: { invoke: (command: string, args: unknown) => Promise<unknown> } };
+    host.previewQueries = 0;
+    const original = host.__TAURI_INTERNALS__.invoke;
+    host.__TAURI_INTERNALS__.invoke = (command, args) => { if (command.startsWith('db_')) host.previewQueries++; return original(command, args); };
+  });
+  const responseMs = await page.getByLabel('Hypothetical purchase amount').evaluate(async (input: HTMLInputElement) => {
+    const start = performance.now();
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '300.01');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    return performance.now() - start;
+  });
+  await expect(page.getByTestId('safe-to-spend')).toHaveText('-$800.01');
+  await testInfo.attach('scenario-response-ms', { body: String(responseMs), contentType: 'text/plain' });
+  expect(responseMs).toBeLessThan(250);
+  await page.getByLabel('Hypothetical purchase amount').fill('250.01');
+  await page.getByRole('slider', { name: 'Inspect forecast date' }).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('.horizon-inspector')).toContainText('Rent');
+  expect(await page.evaluate(() => (window as unknown as { previewQueries: number }).previewQueries)).toBe(0);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.locator('.cash-horizon').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath(`horizon-preview-${width}.png`) });
+  }
+  await page.reload();
+  await expect(page.getByLabel('Hypothetical purchase amount')).toHaveValue('250.01');
+  expect(database.prepare('SELECT COUNT(*) AS total FROM transactions').get()?.total).toBe(before);
+});
+
+test("Plan marks missing balances and respects playback motion preferences", async ({ page, database }) => {
+  database.prepare("INSERT INTO accounts (name,account_type,profile_id) VALUES ('Unrecorded checking','checking',1)").run();
+  await page.reload();
+  await expect(page.getByTestId('safe-to-spend')).toHaveText('Unavailable');
+  await page.getByText('Source balances', { exact: true }).click();
+  await expect(page.getByText('No recorded balance', { exact: true })).toBeVisible();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.getByRole('button', { name: 'Play forecast', exact: true }).click();
+  await expect.poll(() => page.getByRole('slider', { name: 'Inspect forecast date' }).inputValue()).not.toBe('0');
+  await page.getByRole('button', { name: 'Pause forecast', exact: true }).click();
+  await page.getByRole('button', { name: 'Reset forecast playback' }).click();
+  await expect(page.getByRole('slider', { name: 'Inspect forecast date' })).toHaveValue('0');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect(page.getByRole('button', { name: 'Play forecast', exact: true })).toHaveCount(0);
+  await page.getByRole('slider', { name: 'Inspect forecast date' }).focus();
+  await page.keyboard.press('End');
+  await expect(page.getByRole('slider', { name: 'Inspect forecast date' })).not.toHaveValue('0');
+});
+
+test("Plan keeps profile scenarios separate while an old load is pending", async ({ page, database }) => {
+  database.prepare("INSERT INTO profiles(id,name,avatar_color) VALUES (2,'Second profile','#0284c7')").run();
+  database.prepare("INSERT INTO accounts(id,name,account_type,profile_id) VALUES (2,'Second checking','checking',2)").run();
+  database.prepare("INSERT INTO transactions(account_id,profile_id,date,description,amount_cents,balance_cents,import_hash) VALUES (2,2,date('now'),'Second balance',0,200000,'second-balance')").run();
+  await page.reload();
+  await page.getByRole('button', { name: /Preview profile/ }).click();
+  await page.getByLabel('Hypothetical purchase amount').fill('125');
+  await page.getByTitle('Transactions', { exact: true }).click();
+  await page.evaluate(() => {
+    const host = window as unknown as { releaseForecast?: () => void; __TAURI_INTERNALS__: { invoke: (command: string, args: { sql?: string; params?: unknown[] }) => Promise<unknown> } };
+    const original = host.__TAURI_INTERNALS__.invoke;
+    host.__TAURI_INTERNALS__.invoke = async (command, args) => {
+      const result = await original(command, args);
+      if (args?.sql?.includes("a.account_type='checking' AND a.excluded_from_insights=0") && args.params?.[0] === 1) await new Promise<void>((resolve) => { host.releaseForecast = resolve; });
+      return result;
+    };
+  });
+  await page.getByTitle('Plan', { exact: true }).click();
+  await expect.poll(() => page.evaluate(() => typeof (window as unknown as { releaseForecast?: () => void }).releaseForecast)).toBe('function');
+  await page.evaluate(async (profile) => {
+    const path = '/src/stores/profileStore.ts';
+    const store = await import(path);
+    store.useProfileStore.getState().setActiveProfile(profile);
+  }, database.prepare('SELECT * FROM profiles WHERE id=2').get());
+  await expect(page.getByLabel('Hypothetical purchase amount')).toHaveValue('');
+  await expect(page.getByTestId('safe-to-spend')).toHaveText('$2,000.00');
+  await page.evaluate(() => (window as unknown as { releaseForecast: () => void }).releaseForecast());
+  await expect(page.getByTestId('safe-to-spend')).toHaveText('$2,000.00');
+  await page.getByLabel('Hypothetical purchase amount').fill('50');
+  const amounts = await page.evaluate(() => [1, 2].map((profile) => JSON.parse(localStorage.getItem(`compass_plan_scenario_${profile}`)!).purchase.amountCents));
+  expect(amounts).toEqual([12500, 5000]);
+});
+
+test("Settings restores theme preference and recovers from account-check failure", async ({ page, database }) => {
+  expect(database.isOpen).toBe(true);
+  await page.goto('/settings');
+  await page.getByLabel('Theme', { exact: true }).selectOption('dark');
+  await page.reload();
+  await expect(page.getByLabel('Theme', { exact: true })).toHaveValue('dark');
+  await expect(page.locator('html')).toHaveClass(/dark/);
+  await page.getByText('Account diagnostics', { exact: true }).click();
+  await page.evaluate(() => {
+    const bridge = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args: { sql?: string }) => Promise<unknown> } }).__TAURI_INTERNALS__;
+    const original = bridge.invoke;
+    let fail = true;
+    bridge.invoke = (command, args) => {
+      if (fail && args?.sql?.includes('manual_txn_count')) { fail = false; return Promise.reject(new Error('Test failure')); }
+      return original(command, args);
+    };
+  });
+  await page.getByRole('button', { name: 'Check My Accounts' }).click();
+  await expect(page.getByRole('alert')).toContainText('Account check failed');
+  await expect(page.getByRole('button', { name: 'Check My Accounts' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Check My Accounts' }).click();
+  await expect(page.getByText('No accounts match the risk pattern.')).toBeVisible();
+});
+
+test("Transactions restores private view context and still changes month", async ({ page, database }) => {
+  expect(database.isOpen).toBe(true);
+  await page.goto('/transactions');
+  await page.getByLabel('Search transactions').fill('Green Market');
+  await page.getByRole('button', { name: 'Table', exact: true }).click();
+  await page.getByTitle('Plan', { exact: true }).click();
+  await page.getByTitle('Transactions', { exact: true }).click();
+  await expect(page.getByLabel('Search transactions')).toHaveValue('Green Market');
+  await expect(page.getByRole('table')).toBeVisible();
+  const before = await page.locator('input[type="month"]').inputValue();
+  await page.getByRole('button', { name: 'Previous month' }).click();
+  await expect(page.locator('input[type="month"]')).not.toHaveValue(before);
+  expect(page.url()).not.toContain('Green');
+});
+
+test("Insights retains available sections with limited history", async ({ page, database }) => {
+  database.exec("DELETE FROM transactions WHERE date < date('now','start of month')");
+  await page.goto('/agent');
+  await expect(page.getByRole('status').filter({ hasText: 'Limited history' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Items to review' })).toBeVisible();
+  await expect(page.getByText('Not enough data yet', { exact: true })).toHaveCount(0);
+});
+
+test("login particles render, move, resize and stop for reduced motion", async ({ page, database }, testInfo) => {
+  database.prepare("INSERT INTO profiles(name,avatar_color) VALUES ('Second profile','#0284c7')").run();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.reload();
+  const canvas = page.locator('canvas');
+  await expect(canvas).toBeVisible();
+  const pixels = () => canvas.evaluate((element: HTMLCanvasElement) => {
+    const data = element.getContext('2d')!.getImageData(0, 0, element.width, element.height).data;
+    let count = 0;
+    for (let index = 3; index < data.length; index += 4) if (data[index] > 0) count++;
+    return count;
+  });
+  await expect.poll(pixels).toBeGreaterThan(100);
+  const before = await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL());
+  await page.mouse.move(1100, 300);
+  await expect.poll(() => canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL())).not.toBe(before);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect.poll(pixels).toBeGreaterThan(100);
+    await page.screenshot({ path: testInfo.outputPath(`particles-${width}.png`) });
+  }
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect.poll(pixels).toBe(0);
 });
 
 test("Transactions supports activity, table, search and editing", async ({ page, database }) => {
@@ -202,6 +371,26 @@ test("Budgets compares weekly spending to a weekly limit and keeps editing avail
   await expect(weekly).toContainText("$125.00");
   await page.getByRole("button", { name: "Over limit", exact: true }).click();
   await expect(weekly).toBeHidden();
+  await page.getByRole("button", { name: "All budgets", exact: true }).click();
+  await weekly.getByText('Debits and credits', { exact: true }).click();
+  await weekly.getByRole('button', { name: 'View transactions', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Clear date range' })).toBeVisible();
+  await expect(page.locator('.activity-row')).toHaveCount(1);
+  await expect(page.locator('.activity-row')).toContainText('$25.00');
+});
+
+test("Budgets shows negative net usage without rolling over net credits", async ({ page, database }) => {
+  const categoryId = Number(database.prepare("SELECT id FROM categories WHERE name='Gambling'").get()?.id);
+  const budgetId = Number(database.prepare("INSERT INTO budgets (category_id,amount_cents,profile_id,rollover,start_date) VALUES (?,20000,1,1,date('now','start of month'))").run(categoryId).lastInsertRowid);
+  database.prepare("INSERT INTO transactions (account_id,profile_id,date,description,amount_cents,category_id,import_hash) VALUES (1,1,date('now'),'Debit',-10000,?,'net-debit'),(1,1,date('now'),'Credit',15000,?,'net-credit')").run(categoryId, categoryId);
+  await page.goto('/budgets');
+  const budget = page.locator(`[data-budget-id="${budgetId}"]`);
+  await expect(budget).toContainText('-$50.00');
+  await expect(budget).toContainText('$250.00 remaining');
+  await budget.getByText('Debits and credits', { exact: true }).click();
+  await expect(budget).toContainText('Next carry: $200.00');
+  await expect(budget).toContainText('Credits exceed debits');
+  await expect(budget).not.toContainText('Daily allowance');
 });
 
 test("Reports uses exact selected dates and opens expense details", async ({ page, database }) => {
@@ -219,13 +408,37 @@ test("Reports uses exact selected dates and opens expense details", async ({ pag
   await expect(page.getByRole("dialog")).toBeVisible();
 });
 
-for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+test("workspace follows restored and maximized widths", async ({ page, database }) => {
+  expect(database.isOpen).toBe(true);
+  await page.goto("/budgets");
+  for (const width of [2560, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await expect.poll(() => page.evaluate(() => {
+      const main = document.querySelector("main")!;
+      const workspace = document.querySelector(".workspace-page")!;
+      return Math.abs(main.clientWidth - workspace.getBoundingClientRect().width);
+    })).toBeLessThanOrEqual(1);
+  }
+  await page.getByTitle('Plan', { exact: true }).click();
+  for (const width of [2560, 1024, 1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.getByTitle('Expand sidebar', { exact: true }).click();
+    await expect.poll(() => page.evaluate(() => {
+      const main = document.querySelector('main')!;
+      return main.scrollWidth <= main.clientWidth + 1;
+    })).toBe(true);
+    if (width === 390) await expect(page.getByRole('button', { name: 'Close navigation' })).toBeVisible();
+    await page.getByTitle('Collapse sidebar', { exact: true }).click();
+  }
+});
+
+for (const viewport of [390, 768, 1024, 1440, 1920, 2560].map((width) => ({ width, height: width < 720 ? 844 : 1000 }))) {
   test(`workspace layouts at ${viewport.width}px`, async ({ page, database }, testInfo) => {
     expect(database.isOpen).toBe(true);
     await page.setViewportSize(viewport);
     for (const theme of ["light", "dark"] as const) {
       await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
-      for (const route of ["plan", "transactions", "goals", "budgets", "reports"]) {
+      for (const route of ["overview", "", "plan", "transactions", "goals", "budgets", "reports", "import", "trends", "investments", "agent", "settings"]) {
         await page.goto(`/${route}`);
         await expect(page.locator(".workspace-page")).toBeVisible();
         if (route === "plan") {
@@ -238,6 +451,12 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
         if (route === "reports") await expect(page.locator(".report-summary")).toBeVisible();
         await expect(page.getByText("Something went wrong displaying this page")).toHaveCount(0);
         await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+        await expect.poll(() => page.evaluate(() => {
+          const main = document.querySelector('main')!;
+          const workspace = document.querySelector('.workspace-page')!;
+          if (main.scrollWidth <= main.clientWidth + 1 && Math.abs(main.clientWidth - workspace.getBoundingClientRect().width) <= 1) return [];
+          return [...workspace.querySelectorAll('*')].filter((element) => element.getBoundingClientRect().right > main.getBoundingClientRect().right + 1).slice(0, 8).map((element) => ({ tag: element.tagName, class: element.getAttribute('class'), width: Math.round(element.getBoundingClientRect().width) }));
+        }), { message: `${route || 'dashboard'} ${theme} ${viewport.width}` }).toEqual([]);
         await page.screenshot({ path: testInfo.outputPath(`${route}-${theme}-${viewport.width}.png`), fullPage: true });
       }
     }
