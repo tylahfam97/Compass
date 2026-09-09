@@ -1,3 +1,4 @@
+import ScopeToggle from "@/components/ScopeToggle";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Plus, Pencil, Trash2, RotateCcw, Globe, Wallet } from "lucide-react";
@@ -88,53 +89,6 @@ function daysElapsed(ym: string): number {
   return now.getDate();
 }
 
-
-interface ScopeToggleProps {
-  isGlobal: boolean;
-  onToggle: () => void;
-  size?: "sm" | "md";
-}
-function ScopeToggle({ isGlobal, onToggle, size = "md" }: ScopeToggleProps) {
-  const trackW = size === "sm" ? 40 : 52;
-  const trackH = size === "sm" ? 22 : 28;
-  const thumbS = size === "sm" ? 16 : 22;
-  const travel = trackW - 6 - thumbS;
-  return (
-    <button
-      role="switch"
-      aria-label="Global budget scope"
-      aria-checked={isGlobal}
-      onClick={onToggle}
-      style={{
-        width: trackW,
-        height: trackH,
-        borderRadius: trackH / 2,
-        padding: 3,
-        backgroundColor: isGlobal ? "var(--gold)" : "hsl(var(--primary))",
-        transition: "background-color 0.3s",
-        cursor: "pointer",
-        display: "inline-flex",
-        alignItems: "center",
-        border: "none",
-        flexShrink: 0,
-        boxShadow: "inset 0 1px 3px rgba(0,0,0,0.18)",
-      }}
-    >
-      <div
-        style={{
-          width: thumbS,
-          height: thumbS,
-          borderRadius: thumbS / 2,
-          backgroundColor: "white",
-          transition: "transform 0.25s cubic-bezier(0.4,0,0.2,1)",
-          transform: isGlobal ? `translateX(${travel}px)` : "translateX(0)",
-          boxShadow: "0 1px 4px rgba(0,0,0,0.28)",
-          flexShrink: 0,
-        }}
-      />
-    </button>
-  );
-}
 
 export default function BudgetsPage() {
   const [month, setMonth] = useAutoMonth("budgets");
@@ -549,6 +503,7 @@ export default function BudgetsPage() {
           <ScopeToggle
             isGlobal={isGlobalActive}
             onToggle={() => isGlobalActive ? handleSwitchToProfile() : handleSwitchToGlobal()}
+            ariaLabel="Global budget scope"
           />
           <span
             className="text-sm font-semibold select-none"
@@ -662,6 +617,7 @@ export default function BudgetsPage() {
                   isGlobal={formIsGlobal}
                   onToggle={() => setFormIsGlobal((v) => !v)}
                   size="sm"
+                  ariaLabel="Global budget scope"
                 />
                 <span
                   className="text-xs font-semibold select-none"
@@ -855,7 +811,7 @@ export default function BudgetsPage() {
                     ) : (
                       <span
                         className="text-xs px-2 py-0.5 rounded-full font-semibold"
-                        style={{ backgroundColor: "hsl(var(--primary)/0.12)", color: "hsl(var(--primary))" }}
+                        style={{ backgroundColor: "hsl(var(--primary)/0.12)", color: "hsl(var(--gold-ink))" }}
                       >
                         Profile
                       </span>
@@ -994,7 +950,7 @@ export default function BudgetsPage() {
                     <span>Credits {formatCurrency(b.earned_cents)}</span>
                     {displayCents < 0 && <span className="text-[hsl(var(--success))]">Credits exceed debits</span>}
                     {!!b.rollover && <span>Next carry: {formatCurrency(budgetCarryCents(effectiveLimit, displayCents))}</span>}
-                    {viewMode === "profile" ? <button className="text-[hsl(var(--primary))]" onClick={() => navigate("/transactions", { state: { month, category: b.category_id, range: b.period === "weekly" ? { start: weekStart, end: weekEnd } : undefined } })}>View transactions</button> : <span>Global totals include unlocked profiles. View each profile's transactions for detail.</span>}
+                    {viewMode === "profile" ? <button className="text-[hsl(var(--gold-ink))]" onClick={() => navigate("/transactions", { state: { month, category: b.category_id, range: b.period === "weekly" ? { start: weekStart, end: weekEnd } : undefined } })}>View transactions</button> : <span>Global totals include unlocked profiles. View each profile's transactions for detail.</span>}
                   </div>
                 </details>}
                 {!isIncome && elapsed > 0 && effectiveLimit > 0 && (() => {

@@ -257,7 +257,7 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
                           onClick={() => toggleCategory(c.categoryId)}
                           className={`w-full flex items-center gap-2 text-sm rounded-lg px-1.5 py-1 -mx-1.5 transition-colors ${selected ? "" : "opacity-45"} hover:bg-[hsl(var(--muted))]`}
                         >
-                          {selected ? <CheckCircle2 size={14} className="text-[hsl(var(--primary))] shrink-0" /> : <Circle size={14} className="text-[hsl(var(--muted-foreground))] shrink-0" />}
+                          {selected ? <CheckCircle2 size={14} className="text-[hsl(var(--gold-ink))] shrink-0" /> : <Circle size={14} className="text-[hsl(var(--muted-foreground))] shrink-0" />}
                           <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
                           <span className="flex-1 truncate text-left">{c.name}</span>
                           <span className="font-medium">{formatCurrency(c.avgMonthlyCents)}/mo</span>
@@ -328,7 +328,7 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
                 settles a moment after dragging stops instead of flickering mid-drag. */}
             {plan.simDebts.length > 1 && (
               <div className="flex items-center gap-2 text-xs rounded-xl px-3 py-2.5 min-h-[52px] bg-[hsl(var(--primary)/0.06)] border border-[hsl(var(--primary)/0.25)]">
-                <Sparkles size={14} className="shrink-0 text-[hsl(var(--primary))]" />
+                <Sparkles size={14} className="shrink-0 text-[hsl(var(--gold-ink))]" />
                 <p>
                   {quickWin ? (
                     <>

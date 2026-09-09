@@ -118,7 +118,7 @@ function PaceMeter({ paceMonthly, avgMonthly }: { paceMonthly: number; avgMonthl
         />
       </div>
       <div className="flex justify-between text-[10px]">
-        <span className="text-[hsl(var(--primary))] font-semibold">
+        <span className="text-[hsl(var(--gold-ink))] font-semibold">
           avg: {formatCurrency(avgMonthly)}
         </span>
         <span className="text-[hsl(var(--warning))] font-semibold">
@@ -236,12 +236,12 @@ export default function SpotlightCard({ insight, onApply }: SpotlightCardProps) 
     : isWarning
     ? "border-[hsl(var(--warning)/0.3)] dark:border-[hsl(var(--warning)/0.35)] bg-[hsl(var(--warning)/0.06)] dark:bg-[hsl(var(--warning)/0.12)]"
     : "border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.4)]";
-  const accentCls = isSuccess ? "text-[hsl(var(--success))]" : isWarning ? "text-[hsl(var(--warning))]" : "text-[hsl(var(--primary))]";
+  const accentCls = isSuccess ? "text-[hsl(var(--success))]" : isWarning ? "text-[hsl(var(--warning))]" : "text-[hsl(var(--gold-ink))]";
   const actionCls = isSuccess
     ? "border border-[hsl(var(--success)/0.5)] text-[hsl(var(--success))] hover:bg-[hsl(var(--success)/0.12)] dark:hover:bg-[hsl(var(--success)/0.18)]"
     : isWarning
     ? "border border-[hsl(var(--warning)/0.5)] text-[hsl(var(--warning))] hover:bg-[hsl(var(--warning)/0.12)] dark:hover:bg-[hsl(var(--warning)/0.18)]"
-    : "border border-[hsl(var(--primary)/0.5)] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.12)] dark:hover:bg-[hsl(var(--primary)/0.18)]";
+    : "border border-[hsl(var(--primary)/0.5)] text-[hsl(var(--gold-ink))] hover:bg-[hsl(var(--primary)/0.12)] dark:hover:bg-[hsl(var(--primary)/0.18)]";
 
   function Viz(r: NonNullable<Insight["richData"]>) {
     switch (insight.type) {

@@ -1,4 +1,5 @@
-﻿import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import ScopeToggle from "@/components/ScopeToggle";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ChevronDown, ChevronRight, CheckCircle, Target, Info, HelpCircle, TrendingUp, TrendingDown, SlidersHorizontal, EyeOff } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -108,28 +109,6 @@ function loadGroupState(): Record<string, boolean> {
     const s = localStorage.getItem("compass_insight_groups");
     return s ? JSON.parse(s) : {};
   } catch { return {}; }
-}
-
-// ── Scope toggle ──────────────────────────────────────────────────────────────
-interface ScopeToggleProps { isGlobal: boolean; onToggle: () => void; }
-function ScopeToggle({ isGlobal, onToggle }: ScopeToggleProps) {
-  return (
-    <button role="switch" aria-checked={isGlobal} onClick={onToggle}
-      style={{
-        width: 52, height: 28, borderRadius: 14, padding: 3,
-        backgroundColor: isGlobal ? "var(--gold)" : "hsl(var(--primary))",
-        transition: "background-color 0.3s", cursor: "pointer",
-        display: "inline-flex", alignItems: "center",
-        border: "none", flexShrink: 0, boxShadow: "inset 0 1px 3px rgba(0,0,0,0.18)",
-      }}>
-      <div style={{
-        width: 22, height: 22, borderRadius: 11, backgroundColor: "white",
-        transition: "transform 0.25s cubic-bezier(0.4,0,0.2,1)",
-        transform: isGlobal ? "translateX(24px)" : "translateX(0)",
-        boxShadow: "0 1px 4px rgba(0,0,0,0.28)", flexShrink: 0,
-      }} />
-    </button>
-  );
 }
 
 // ── Insights account-exclusion dropdown (sits next to the Profile/Global scope toggle) ────────
@@ -256,9 +235,9 @@ function InsightGroup({ label, severity, items, onApply, open, onToggle }: Insig
       badgeCls:   "bg-[hsl(var(--success)/0.12)] text-[hsl(var(--success))]",
     },
     info: {
-      iconWrap:   "bg-[hsl(var(--primary)/0.12)] text-[hsl(var(--primary))]",
+      iconWrap:   "bg-[hsl(var(--primary)/0.12)] text-[hsl(var(--gold-ink))]",
       chevronCls: "text-[hsl(var(--primary)/0.8)]",
-      badgeCls:   "bg-[hsl(var(--primary)/0.12)] text-[hsl(var(--primary))]",
+      badgeCls:   "bg-[hsl(var(--primary)/0.12)] text-[hsl(var(--gold-ink))]",
     },
     warning: {
       iconWrap:   "bg-[hsl(var(--warning)/0.12)] text-[hsl(var(--warning))]",
@@ -1091,7 +1070,7 @@ export default function AgentPage() {
       <div className="workspace-page space-y-6 insights-workspace">
         {!hasEnoughData && <div role="status" className="insights-readiness border-b pb-4 text-sm">
           <p>Limited history. Trends need at least two months; available balances and review items are shown below.</p>
-          <Link to="/import" className="inline-block mt-2 text-[hsl(var(--primary))]">Import transactions</Link>
+          <Link to="/import" className="inline-block mt-2 text-[hsl(var(--gold-ink))]">Import transactions</Link>
         </div>}
 
         <section className="insights-context" aria-label="Financial context and scores">
@@ -1206,7 +1185,7 @@ export default function AgentPage() {
                       {topRoi[type]!.map((h) => (
                         <div key={`${type}-${h.symbol ?? h.description}`} className="flex items-center justify-between gap-3 text-sm">
                           <span className="truncate flex-1">{h.symbol ?? h.description}</span>
-                          <span className={`font-mono font-semibold flex items-center gap-1 shrink-0 ${h.roiPct >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
+                          <span className={`font-semibold flex items-center gap-1 shrink-0 ${h.roiPct >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
                             {h.roiPct >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
                             {h.roiPct >= 0 ? "+" : ""}{h.roiPct.toFixed(1)}%
                           </span>
@@ -1358,8 +1337,8 @@ export default function AgentPage() {
                         {r.category_name}
                       </div>
                     </td>
-                    <td className="px-5 py-2.5 text-right font-mono">{formatCurrency(r.this_month)}</td>
-                    <td className="px-5 py-2.5 text-right font-mono text-[hsl(var(--muted-foreground))]">
+                    <td className="px-5 py-2.5 text-right">{formatCurrency(r.this_month)}</td>
+                    <td className="px-5 py-2.5 text-right text-[hsl(var(--muted-foreground))]">
                       {r.last_month > 0 ? formatCurrency(r.last_month) : "—"}
                     </td>
                     <td className={`px-5 py-2.5 text-right font-semibold ${
@@ -1394,7 +1373,7 @@ export default function AgentPage() {
                     <td className="px-5 py-2.5 text-[hsl(var(--muted-foreground))]">
                       {s.patternLabel} · {s.month_count} months running
                     </td>
-                    <td className="px-5 py-2.5 text-right font-mono text-[hsl(var(--error))]">
+                    <td className="px-5 py-2.5 text-right text-[hsl(var(--error))]">
                       {formatCurrency(Math.abs(s.amount_cents))}/mo
                     </td>
                     <td className="pr-4 py-2.5 text-right">

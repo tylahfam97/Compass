@@ -68,7 +68,7 @@ export default function CashFlowHorizon({ current, scenario, bufferCents, typica
       <button className="flex items-center gap-2 text-xs px-3 py-2 border rounded-md" onClick={() => choose(Math.max(0, scenario.days.findIndex((value) => value.date === scenario.lowPoint?.date)))}><Crosshair size={14} /> Inspect low point</button>
     </div>
     <div className="horizon-legend">
-      <span><i style={{ background: "hsl(var(--primary))" }} />Current projection</span>
+      <span><i style={{ background: "hsl(var(--sea))" }} />Current projection</span>
       <span><i style={{ borderTop: "2px dashed var(--gold)", background: "none" }} />With changes</span>
       <span>Cash cushion {formatCurrency(bufferCents)}</span>
     </div>
@@ -86,9 +86,9 @@ export default function CashFlowHorizon({ current, scenario, bufferCents, typica
           <ReferenceLine y={0} stroke="hsl(var(--error))" strokeDasharray="3 4" />
           {bufferCents > 0 && <ReferenceLine y={bufferCents} stroke="hsl(var(--muted-foreground))" strokeDasharray="8 4" />}
           {hasChanges && <Area type="stepAfter" dataKey="difference" stroke="none" fill={`url(#${fillId})`} isAnimationActive={false} />}
-          <Area type="stepAfter" dataKey="current" stroke="hsl(var(--primary))" strokeWidth={2} fill="none" isAnimationActive={false} />
+          <Area type="stepAfter" dataKey="current" stroke="hsl(var(--sea))" strokeWidth={2} fill="none" isAnimationActive={false} />
           {hasChanges && <Area type="stepAfter" dataKey="changed" stroke="var(--gold)" strokeWidth={2.5} strokeDasharray="7 3" fill="none" isAnimationActive={false} />}
-          {scenario.days.filter((value) => value.events.length > 0 && value.date !== day.date).map((value) => <ReferenceDot key={value.date} x={value.date} y={Math.max(domain[0], Math.min(domain[1], value.balanceCents))} r={3} fill="hsl(var(--primary))" stroke="hsl(var(--background))" />)}
+          {scenario.days.filter((value) => value.events.length > 0 && value.date !== day.date).map((value) => <ReferenceDot key={value.date} x={value.date} y={Math.max(domain[0], Math.min(domain[1], value.balanceCents))} r={3} fill="hsl(var(--sea))" stroke="hsl(var(--background))" />)}
           <ReferenceLine x={day.date} stroke="hsl(var(--foreground))" strokeOpacity={0.4} />
           <ReferenceDot x={day.date} y={Math.max(domain[0], Math.min(domain[1], day.balanceCents))} r={5} stroke="hsl(var(--background))" strokeWidth={2} fill={day.balanceCents < 0 ? "hsl(var(--error))" : "var(--gold)"} />
         </AreaChart>

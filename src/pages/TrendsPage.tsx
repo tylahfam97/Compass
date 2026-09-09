@@ -1,3 +1,4 @@
+import ScopeToggle from "@/components/ScopeToggle";
 import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -26,15 +27,6 @@ interface CreditAccountMeta { id: number; name: string; color: string; }
 
 const RANGE_OPTIONS = [3, 6, 12];
 const VIEW_KEY = "compass_trends_view";
-
-function ScopeToggle({ isGlobal, onToggle }: { isGlobal: boolean; onToggle: () => void }) {
-  return (
-    <button role="switch" aria-checked={isGlobal} onClick={onToggle}
-      style={{ width:52,height:28,borderRadius:14,padding:3,backgroundColor:isGlobal?"var(--gold)":"hsl(var(--primary))",transition:"background-color 0.3s",cursor:"pointer",display:"inline-flex",alignItems:"center",border:"none",flexShrink:0,boxShadow:"inset 0 1px 3px rgba(0,0,0,0.18)" }}>
-      <div style={{ width:22,height:22,borderRadius:11,backgroundColor:"white",transition:"transform 0.25s cubic-bezier(0.4,0,0.2,1)",transform:isGlobal?"translateX(24px)":"translateX(0)",boxShadow:"0 1px 4px rgba(0,0,0,0.28)",flexShrink:0 }} />
-    </button>
-  );
-}
 
 export default function TrendsPage() {
   const profileId = useProfileStore((state) => state.activeProfile?.id ?? 1);
@@ -305,7 +297,7 @@ function ProfileTrends() {
           <div className="flex items-center gap-3 flex-wrap">
             {/* Scope toggle */}
             <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold select-none" style={{ color: viewMode !== "profile" ? "hsl(var(--muted-foreground))" : "hsl(var(--primary))", transition:"color 0.3s" }}>Profile</span>
+              <span className="text-sm font-semibold select-none" style={{ color: viewMode !== "profile" ? "hsl(var(--muted-foreground))" : "hsl(var(--gold-ink))", transition:"color 0.3s" }}>Profile</span>
               <ScopeToggle isGlobal={viewMode === "global"} onToggle={() => viewMode === "global" ? handleSwitchToProfile() : handleSwitchToGlobal()} />
               <span className="text-sm font-semibold select-none" style={{ color: viewMode === "global" ? "var(--gold)" : "hsl(var(--muted-foreground))", transition:"color 0.3s" }}>Global</span>
             </div>
@@ -395,7 +387,7 @@ function ProfileTrends() {
                     <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize:11 }} />
                     <Tooltip contentStyle={tooltipStyle} labelFormatter={(l) => formatMonthLabel(String(l))} formatter={v => formatCurrency(v as number)} />
                     <ReferenceLine y={0} stroke="hsl(var(--border))" strokeDasharray="3 3" />
-                    <Line type="monotone" dataKey="balance" name="Balance" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="balance" name="Balance" stroke="hsl(var(--sea))" strokeWidth={2} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -510,7 +502,7 @@ function ProfileTrends() {
                     <div className="mt-1 pt-3 border-t">
                       <div className="flex items-center justify-between mb-2">
                         <p className="text-xs font-semibold">Top categories - {formatMonthLabel(expandedMonth)}</p>
-                        <Link to="/transactions" state={{ month: expandedMonth }} className="text-[11px] text-[hsl(var(--primary))] hover:underline">
+                        <Link to="/transactions" state={{ month: expandedMonth }} className="text-[11px] text-[hsl(var(--gold-ink))] hover:underline">
                           View month →
                         </Link>
                       </div>
@@ -526,7 +518,7 @@ function ProfileTrends() {
                                 <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
                                 {c.name}
                               </span>
-                              <span className="font-mono">{formatCurrency(c.total)}</span>
+                              <span>{formatCurrency(c.total)}</span>
                             </div>
                           ))}
                         </div>
@@ -583,7 +575,7 @@ function ProfileTrends() {
                             <Link
                               to="/transactions"
                               state={{ category: catIds[expandedCatName] }}
-                              className="text-[11px] text-[hsl(var(--primary))] hover:underline"
+                              className="text-[11px] text-[hsl(var(--gold-ink))] hover:underline"
                             >
                               View all ?
                             </Link>
@@ -596,7 +588,7 @@ function ProfileTrends() {
                             return (
                               <div key={row.month} className="flex items-center justify-between text-xs py-1">
                                 <span className="text-[hsl(var(--muted-foreground))]">{formatMonthLabel(row.month)}</span>
-                                <span className="font-mono">{formatCurrency(amt)}</span>
+                                <span>{formatCurrency(amt)}</span>
                               </div>
                             );
                           })}

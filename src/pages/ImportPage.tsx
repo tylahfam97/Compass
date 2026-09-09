@@ -1500,7 +1500,7 @@ export default function ImportPage() {
                 onClick={() => setImportKind(k.id)}
                 className="border rounded-xl p-5 text-center hover:border-[hsl(var(--primary))] hover:bg-[hsl(var(--muted))] transition-colors chart-clickable"
               >
-                <div className="flex justify-center mb-2 text-[hsl(var(--primary))]"><k.Icon size={26} /></div>
+                <div className="flex justify-center mb-2 text-[hsl(var(--gold-ink))]"><k.Icon size={26} /></div>
                 <p className="font-medium text-sm">{k.label}</p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">{k.hint}</p>
               </button>
@@ -1509,7 +1509,7 @@ export default function ImportPage() {
               onClick={() => setShowLoanUploader(true)}
               className="border rounded-xl p-5 text-center hover:border-[hsl(var(--primary))] hover:bg-[hsl(var(--muted))] transition-colors chart-clickable"
             >
-              <div className="flex justify-center mb-2 text-[hsl(var(--primary))]"><HandCoins size={26} /></div>
+              <div className="flex justify-center mb-2 text-[hsl(var(--gold-ink))]"><HandCoins size={26} /></div>
               <p className="font-medium text-sm">Loan Statement</p>
               <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">Car, student, personal loan, or mortgage - balance snapshot, not itemized transactions</p>
             </button>
@@ -1520,7 +1520,7 @@ export default function ImportPage() {
       {(step === "upload" || step === "checking") && importKind !== null && (
         <div>
           {step === "upload" && (
-            <button onClick={() => setImportKind(null)} className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))] mb-2">
+            <button onClick={() => setImportKind(null)} className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--gold-ink))] mb-2">
               ‹ Change type
             </button>
           )}
@@ -1637,12 +1637,12 @@ export default function ImportPage() {
         <div key="wizard:account" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "hsl(var(--primary)/0.1)" }}>
-              {importKind === "credit" ? <CreditCard size={18} className="text-[hsl(var(--primary))]" />
-                : importKind === "investment" ? <TrendingUp size={18} className="text-[hsl(var(--primary))]" />
-                : <Landmark size={18} className="text-[hsl(var(--primary))]" />}
+              {importKind === "credit" ? <CreditCard size={18} className="text-[hsl(var(--gold-ink))]" />
+                : importKind === "investment" ? <TrendingUp size={18} className="text-[hsl(var(--gold-ink))]" />
+                : <Landmark size={18} className="text-[hsl(var(--gold-ink))]" />}
             </div>
             <div>
-              <h2 className="text-lg font-bold leading-tight">Which <span className="text-[hsl(var(--primary))]">account</span> is this?</h2>
+              <h2 className="text-lg font-bold leading-tight">Which <span className="text-[hsl(var(--gold-ink))]">account</span> is this?</h2>
               <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">
                 Compass tracks each account's balance separately - pick the right one so nothing gets mixed up or overwritten.
               </p>
@@ -1659,7 +1659,7 @@ export default function ImportPage() {
             )}
             {accountChoice?.mode === "new" && existingAccountsForType.length > 0 && (
               <div className="px-3 py-2.5 rounded-lg text-sm border border-[hsl(var(--primary)/0.4)] bg-[hsl(var(--primary)/0.08)]
-                              text-[hsl(var(--primary))] dark:border-[hsl(var(--primary)/0.5)] dark:bg-[hsl(var(--primary)/0.15)] flex items-start gap-2">
+                              text-[hsl(var(--gold-ink))] dark:border-[hsl(var(--primary)/0.5)] dark:bg-[hsl(var(--primary)/0.15)] flex items-start gap-2">
                 <Info size={14} className="shrink-0 mt-0.5" />
                 <span>This looks like a new account - we'll create <strong>{accountChoice.name || "it"}</strong>.</span>
               </div>
@@ -1791,7 +1791,7 @@ export default function ImportPage() {
           {/* Header-only display - centered column pills */}
           <div className="border rounded-xl overflow-hidden">
             <div className="text-center py-2 bg-[hsl(var(--primary)/0.08)] border-b">
-              <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
+              <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--gold-ink))]">
                 Header row (row {skipRows + 1})
               </span>
             </div>
@@ -1848,10 +1848,10 @@ export default function ImportPage() {
         <div key="wizard:date" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "hsl(var(--primary)/0.1)" }}>
-              <Calendar size={18} className="text-[hsl(var(--primary))]" />
+              <Calendar size={18} className="text-[hsl(var(--gold-ink))]" />
             </div>
             <div>
-              <h2 className="text-lg font-bold leading-tight">Which column is the <span className="text-[hsl(var(--primary))]">Date</span>?</h2>
+              <h2 className="text-lg font-bold leading-tight">Which column is the <span className="text-[hsl(var(--gold-ink))]">Date</span>?</h2>
               <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">Pick the column that contains the transaction date.</p>
             </div>
           </div>
@@ -1864,7 +1864,7 @@ export default function ImportPage() {
 
           <div className="border rounded-xl overflow-hidden">
             <div className="text-center py-2.5 bg-[hsl(var(--primary)/0.08)] border-b">
-              <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
+              <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--gold-ink))]">
                 {parsed.headers[colMap.dateCol] || `Column ${colMap.dateCol + 1}`}
               </span>
             </div>
@@ -1910,10 +1910,10 @@ export default function ImportPage() {
         <div key="wizard:desc" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "hsl(var(--primary)/0.1)" }}>
-              <Tag size={18} className="text-[hsl(var(--primary))]" />
+              <Tag size={18} className="text-[hsl(var(--gold-ink))]" />
             </div>
             <div>
-              <h2 className="text-lg font-bold leading-tight">Which column is the <span className="text-[hsl(var(--primary))]">Description</span>?</h2>
+              <h2 className="text-lg font-bold leading-tight">Which column is the <span className="text-[hsl(var(--gold-ink))]">Description</span>?</h2>
               <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">The merchant or payee name - used for auto-categorization.</p>
             </div>
           </div>
@@ -1926,7 +1926,7 @@ export default function ImportPage() {
 
             <div className="border rounded-xl overflow-hidden">
               <div className="text-center py-2.5 bg-[hsl(var(--primary)/0.08)] border-b">
-                <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
+                <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--gold-ink))]">
                   {parsed.headers[colMap.descCol] || `Column ${colMap.descCol + 1}`}
                 </span>
               </div>
@@ -1964,10 +1964,10 @@ export default function ImportPage() {
         <div key="wizard:amount" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "hsl(var(--primary)/0.1)" }}>
-              <DollarSign size={18} className="text-[hsl(var(--primary))]" />
+              <DollarSign size={18} className="text-[hsl(var(--gold-ink))]" />
             </div>
             <div>
-              <h2 className="text-lg font-bold leading-tight">Which column is the <span className="text-[hsl(var(--primary))]">Amount</span>?</h2>
+              <h2 className="text-lg font-bold leading-tight">Which column is the <span className="text-[hsl(var(--gold-ink))]">Amount</span>?</h2>
               <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">Expenses should be negative, income positive.</p>
             </div>
           </div>
@@ -1980,7 +1980,7 @@ export default function ImportPage() {
 
             <div className="border rounded-xl overflow-hidden">
               <div className="text-center py-2.5 bg-[hsl(var(--primary)/0.08)] border-b">
-                <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
+                <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--gold-ink))]">
                   {parsed.headers[colMap.amountCol] || `Column ${colMap.amountCol + 1}`}
                 </span>
               </div>
@@ -2001,7 +2001,7 @@ export default function ImportPage() {
                         )}
                         <p className="font-mono text-xs text-[hsl(var(--muted-foreground))] truncate">{raw}</p>
                       </div>
-                      <p className={`font-mono text-base font-semibold shrink-0 ${amt < 0 ? "text-[hsl(var(--error))]" : amt > 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--warning))]"}`}>
+                      <p className={`text-base font-semibold shrink-0 ${amt < 0 ? "text-[hsl(var(--error))]" : amt > 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--warning))]"}`}>
                         {formatCurrency(Math.round(amt * 100))}
                       </p>
                     </div>
@@ -2155,10 +2155,10 @@ export default function ImportPage() {
         <div key="wizard:balance" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "hsl(var(--primary)/0.1)" }}>
-              <BarChart2 size={18} className="text-[hsl(var(--primary))]" />
+              <BarChart2 size={18} className="text-[hsl(var(--gold-ink))]" />
             </div>
             <div>
-              <h2 className="text-lg font-bold leading-tight">Is there a <span className="text-[hsl(var(--primary))]">Balance</span> column? <span className="text-sm font-normal text-[hsl(var(--muted-foreground))]">Optional</span></h2>
+              <h2 className="text-lg font-bold leading-tight">Is there a <span className="text-[hsl(var(--gold-ink))]">Balance</span> column? <span className="text-sm font-normal text-[hsl(var(--muted-foreground))]">Optional</span></h2>
               <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">Running account balance - unlocks balance charts and low-balance alerts.</p>
             </div>
           </div>
@@ -2190,7 +2190,7 @@ export default function ImportPage() {
                 </select>
                 <div className="border rounded-xl overflow-hidden">
                   <div className="text-center py-2.5 bg-[hsl(var(--primary)/0.08)] border-b">
-                    <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--primary))]">
+                    <span className="text-xs font-bold uppercase tracking-widest text-[hsl(var(--gold-ink))]">
                       {parsed.headers[colMap.balanceCol] || `Column ${colMap.balanceCol + 1}`}
                     </span>
                   </div>
@@ -2201,7 +2201,7 @@ export default function ImportPage() {
                       return (
                         <div key={i} className="py-3 text-center">
                           <p className="font-mono text-sm text-[hsl(var(--muted-foreground))]">{raw}</p>
-                          <p className="font-mono text-base font-semibold mt-0.5 text-[hsl(var(--foreground))]">
+                          <p className="text-base font-semibold mt-0.5 text-[hsl(var(--foreground))]">
                             {formatCurrency(Math.round(amt * 100))}
                           </p>
                         </div>
@@ -2221,7 +2221,7 @@ export default function ImportPage() {
                   Know your real account balance today, after these transactions? Enter it and Compass will calculate each transaction's running balance by working backward from today's date. Leave it blank and Compass will still calculate a relative running total starting from $0.
                 </p>
                 {parsedStatementBalance && (
-                  <p className="text-xs text-[hsl(var(--primary))]">Pre-filled from your statement - double-check it before continuing.</p>
+                  <p className="text-xs text-[hsl(var(--gold-ink))]">Pre-filled from your statement - double-check it before continuing.</p>
                 )}
                 <div className="relative max-w-xs">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[hsl(var(--muted-foreground))]">$</span>
@@ -2269,7 +2269,7 @@ export default function ImportPage() {
 
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "hsl(var(--primary)/0.1)" }}>
-              <TrendingUp size={18} className="text-[hsl(var(--primary))]" />
+              <TrendingUp size={18} className="text-[hsl(var(--gold-ink))]" />
             </div>
             <div>
               <h2 className="text-lg font-bold leading-tight">
@@ -2322,7 +2322,7 @@ export default function ImportPage() {
                 <div className="flex items-center gap-3">
                   <span>{formatCurrency(Math.round(section.totalMarketValue * 100))}</span>
                   <button onClick={() => toggleFixColumns(section.title)}
-                    className="text-[hsl(var(--primary))] hover:underline normal-case font-normal">
+                    className="text-[hsl(var(--gold-ink))] hover:underline normal-case font-normal">
                     {isFixOpen ? "Done" : "Fix columns"}
                   </button>
                 </div>
@@ -2368,10 +2368,10 @@ export default function ImportPage() {
                   {section.rows.slice(0, 8).map((row, i) => (
                     <tr key={i} className="border-t">
                       <td className="px-4 py-2 max-w-xs truncate text-xs">{row.description}</td>
-                      <td className="px-4 py-2 text-xs font-mono">{row.symbol ?? "-"}</td>
-                      <td className="px-4 py-2 text-right text-xs font-mono">{row.shares ?? "-"}</td>
-                      <td className="px-4 py-2 text-right text-xs font-mono">{row.marketValue !== null ? formatCurrency(Math.round(row.marketValue * 100)) : "-"}</td>
-                      <td className="px-4 py-2 text-right text-xs font-mono text-[hsl(var(--muted-foreground))]">{row.tradeDate ? formatDate(row.tradeDate) : "-"}</td>
+                      <td className="px-4 py-2 text-xs">{row.symbol ?? "-"}</td>
+                      <td className="px-4 py-2 text-right text-xs">{row.shares ?? "-"}</td>
+                      <td className="px-4 py-2 text-right text-xs">{row.marketValue !== null ? formatCurrency(Math.round(row.marketValue * 100)) : "-"}</td>
+                      <td className="px-4 py-2 text-right text-xs text-[hsl(var(--muted-foreground))]">{row.tradeDate ? formatDate(row.tradeDate) : "-"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -2412,7 +2412,7 @@ export default function ImportPage() {
                   .filter(([, v]) => v !== null)
                   .map(([label, v]) => (
                     <div key={label} className="bg-[hsl(var(--background))] px-4 py-3">
-                      <p className="text-sm font-semibold font-mono">{formatCurrency(Math.round((v as number) * 100))}</p>
+                      <p className="text-sm font-semibold">{formatCurrency(Math.round((v as number) * 100))}</p>
                       <p className="text-[hsl(var(--muted-foreground))] text-xs mt-0.5">{label}</p>
                     </div>
                   ))}
@@ -2438,11 +2438,11 @@ export default function ImportPage() {
                 <tbody>
                   {invParsed.activity.slice(0, 8).map((act, i) => (
                     <tr key={i} className="border-t">
-                      <td className="px-4 py-2 text-xs font-mono whitespace-nowrap">{formatDate(act.date)}</td>
+                      <td className="px-4 py-2 text-xs whitespace-nowrap">{formatDate(act.date)}</td>
                       <td className="px-4 py-2 text-xs">{ACTIVITY_TYPE_LABELS[act.activityType]}</td>
                       <td className="px-4 py-2 max-w-xs truncate text-xs">{act.description}</td>
-                      <td className="px-4 py-2 text-right text-xs font-mono">{act.quantity ?? "-"}</td>
-                      <td className={`px-4 py-2 text-right text-xs font-mono ${act.amount < 0 ? "text-[hsl(var(--error))]" : ""}`}>
+                      <td className="px-4 py-2 text-right text-xs">{act.quantity ?? "-"}</td>
+                      <td className={`px-4 py-2 text-right text-xs ${act.amount < 0 ? "text-[hsl(var(--error))]" : ""}`}>
                         {formatCurrency(Math.round(act.amount * 100))}
                       </td>
                     </tr>
@@ -2619,11 +2619,11 @@ export default function ImportPage() {
                         {formatDate(parseDate(row[colMap.dateCol] ?? ""))}
                       </td>
                       <td className="px-4 py-2 max-w-xs truncate text-xs">{row[colMap.descCol]}</td>
-                      <td className={`px-4 py-2 text-right font-mono text-xs ${amt < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
+                      <td className={`px-4 py-2 text-right text-xs ${amt < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
                         {formatCurrency(Math.round(amt * 100))}
                       </td>
                       {colMap.balanceCol >= 0 && (
-                        <td className="px-4 py-2 text-right font-mono text-xs text-[hsl(var(--muted-foreground))]">
+                        <td className="px-4 py-2 text-right text-xs text-[hsl(var(--muted-foreground))]">
                           {balRaw ? formatCurrency(Math.round(parseAmount(balRaw) * 100)) : "-"}
                         </td>
                       )}
@@ -2641,7 +2641,7 @@ export default function ImportPage() {
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {allMonths.map((ym) => (
                   <span key={ym} className="text-xs px-2.5 py-0.5 rounded-full font-medium"
-                    style={{ backgroundColor: "hsl(var(--primary)/0.12)", color: "hsl(var(--primary))" }}>
+                    style={{ backgroundColor: "hsl(var(--primary)/0.12)", color: "hsl(var(--gold-ink))" }}>
                     {ym}
                   </span>
                 ))}
@@ -2654,7 +2654,7 @@ export default function ImportPage() {
               <input type="month" value={targetMonth} onChange={(e) => setTargetMonth(e.target.value)}
                 className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]" />
               {detectedMonth && detectedMonth !== targetMonth && (
-                <button onClick={() => setTargetMonth(detectedMonth)} className="text-xs text-[hsl(var(--primary))] hover:underline">
+                <button onClick={() => setTargetMonth(detectedMonth)} className="text-xs text-[hsl(var(--gold-ink))] hover:underline">
                   Reset to detected ({detectedMonth})
                 </button>
               )}
@@ -2680,7 +2680,7 @@ export default function ImportPage() {
                   handleImport();
                 }}
                 disabled={importSubmitting}
-                className="px-5 py-2 bg-[hsl(var(--primary)/0.15)] text-[hsl(var(--primary))]
+                className="px-5 py-2 bg-[hsl(var(--primary)/0.15)] text-[hsl(var(--gold-ink))]
                            border border-[hsl(var(--primary)/0.4)] rounded-lg text-sm font-medium
                            hover:bg-[hsl(var(--primary)/0.25)] transition-colors disabled:opacity-50"
                 title="Import this file then automatically import all remaining files using the same column settings"
@@ -2695,7 +2695,7 @@ export default function ImportPage() {
 
       {step === "importing" && (
         <div className="text-center py-16">
-              <div className="flex justify-center mb-4 text-[hsl(var(--primary))]"><Loader2 size={48} className="animate-spin" /></div>
+              <div className="flex justify-center mb-4 text-[hsl(var(--gold-ink))]"><Loader2 size={48} className="animate-spin" /></div>
           {batchAutoMode && totalBatchCount > 1 ? (
             <>
               <p className="font-medium mb-1">
@@ -2721,7 +2721,7 @@ export default function ImportPage() {
         <div className="text-center py-12 wizard-enter-done">
           {summary.imported === 0 ? (
             <>
-              <div className="flex justify-center mb-4 text-[hsl(var(--primary))]"><Info size={48} /></div>
+              <div className="flex justify-center mb-4 text-[hsl(var(--gold-ink))]"><Info size={48} /></div>
               <p className="text-xl font-semibold mb-2">Already imported</p>
               <p className="text-[hsl(var(--muted-foreground))] mb-6">
                 All {summary.skipped} rows from <strong>{currentFilename}</strong> already exist
@@ -2849,9 +2849,9 @@ export default function ImportPage() {
                     <td className="px-4 py-2 font-mono text-xs max-w-[200px] truncate" title={s.filename}>
                       <span className="inline-flex items-center gap-1.5">
                         {s.kind === "investment"
-                          ? <TrendingUp size={12} className="shrink-0 text-[hsl(var(--primary))]" />
+                          ? <TrendingUp size={12} className="shrink-0 text-[hsl(var(--gold-ink))]" />
                           : s.kind === "loan"
-                          ? <HandCoins size={12} className="shrink-0 text-[hsl(var(--primary))]" />
+                          ? <HandCoins size={12} className="shrink-0 text-[hsl(var(--gold-ink))]" />
                           : <Landmark size={12} className="shrink-0 text-[hsl(var(--muted-foreground))]" />}
                         {s.filename}
                       </span>

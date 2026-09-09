@@ -40,8 +40,8 @@ const SORT_EXPR: Record<SortCol, string> = {
 function SortIndicator({ col, sortCol, sortDir }: { col: SortCol; sortCol: SortCol | null; sortDir: SortDir }) {
   if (sortCol !== col) return <ArrowUpDown size={13} className="opacity-30 shrink-0" />;
   return sortDir === "asc"
-    ? <ArrowUp size={13} className="text-[hsl(var(--primary))] shrink-0" />
-    : <ArrowDown size={13} className="text-[hsl(var(--primary))] shrink-0" />;
+    ? <ArrowUp size={13} className="text-[hsl(var(--gold-ink))] shrink-0" />
+    : <ArrowDown size={13} className="text-[hsl(var(--gold-ink))] shrink-0" />;
 }
 
 function monthBounds(ym: string): [string, string] {
@@ -510,8 +510,8 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center
                         bg-black/20 backdrop-blur-sm border-2 border-dashed
                         border-[hsl(var(--primary))] rounded-xl pointer-events-none">
-          <Upload size={40} className="text-[hsl(var(--primary))] mb-3" />
-          <p className="font-semibold text-[hsl(var(--primary))] text-lg">Drop CSV to import</p>
+          <Upload size={40} className="text-[hsl(var(--gold-ink))] mb-3" />
+          <p className="font-semibold text-[hsl(var(--gold-ink))] text-lg">Drop CSV to import</p>
           <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">Opens the import wizard</p>
         </div>
       )}
@@ -589,7 +589,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
 
       {/* Filters */}
       <div className="space-y-2 mb-4">
-        {range && <div className="flex flex-wrap items-center gap-3 text-sm" role="status"><span>{formatDate(range.start)} to {formatDate(range.end)} (end exclusive)</span><button className="text-[hsl(var(--primary))]" onClick={() => setRange(null)}>Clear date range</button></div>}
+        {range && <div className="flex flex-wrap items-center gap-3 text-sm" role="status"><span>{formatDate(range.start)} to {formatDate(range.end)} (end exclusive)</span><button className="text-[hsl(var(--gold-ink))]" onClick={() => setRange(null)}>Clear date range</button></div>}
         {/* Row 1 — the essentials, always visible */}
         <div className="flex gap-3 flex-wrap items-center">
           {!allTime && (
@@ -632,7 +632,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
             onClick={() => setShowMoreFilters((v) => !v)}
             aria-expanded={showMoreFilters}
             className={`text-sm px-3 py-1.5 border rounded-lg transition-colors flex items-center gap-1.5 ${
-              hasActiveFilters ? "bg-[hsl(var(--primary)/0.1)] border-[hsl(var(--primary)/0.4)] text-[hsl(var(--primary))]" : "hover:bg-[hsl(var(--muted))]"
+              hasActiveFilters ? "bg-[hsl(var(--primary)/0.1)] border-[hsl(var(--primary)/0.4)] text-[hsl(var(--gold-ink))]" : "hover:bg-[hsl(var(--muted))]"
             }`}
           >
             <SlidersHorizontal size={14} />
@@ -975,10 +975,10 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
                       </button>
                     )}
                   </td>
-                  <td className={`px-4 py-3 text-right font-mono ${t.amount_cents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
+                  <td className={`px-4 py-3 text-right ${t.amount_cents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
                     {formatCurrency(t.amount_cents)}
                   </td>
-                  <td className="px-4 py-3 text-right font-mono text-[hsl(var(--muted-foreground))]">
+                  <td className="px-4 py-3 text-right text-[hsl(var(--muted-foreground))]">
                     {t.balance_cents != null ? formatCurrency(t.balance_cents) : "—"}
                   </td>
                   <td className="px-2 py-3 text-center">

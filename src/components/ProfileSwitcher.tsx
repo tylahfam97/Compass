@@ -330,7 +330,7 @@ export default function ProfileSwitcher() {
                             </svg>
                           )}
                           {isActive && (
-                            <span className="text-xs text-[hsl(var(--primary))] font-medium">Active</span>
+                            <span className="text-xs text-[hsl(var(--gold-ink))] font-medium">Active</span>
                           )}
                         </div>
                         {pStats && (

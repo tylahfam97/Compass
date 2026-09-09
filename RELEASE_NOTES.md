@@ -2,6 +2,57 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.2.0 — Night Navigation 🧭
+
+This release gives Compass a visual identity of its own. The logo, the navy-and-gold palette,
+every page, and every keyboard shortcut are where you left them; what changed is how it all
+looks, plus one new planning view.
+
+### New: Planned payments against planned income
+- Plan now shows the money you have scheduled as one bar: planned income as the track,
+  planned payments filling it from the left, and the remainder labelled **Left for unplanned**.
+  It replaces the two separate "Scheduled margin" and "In vs out" figures, which said the same
+  thing twice. Detected recurring charges count when the existing "Include detected bills"
+  toggle is on; budgets are not counted.
+- The Dashboard's new bearing bar shows the current month as spent, still due, and free
+  against expected income (income received so far plus scheduled deposits still to come),
+  with a marker for today. Past months show spent against actual income.
+
+### New: A typeface, a token system, and a night sky
+- Source Serif 4 sets page titles and the one hero figure on each page; Source Sans 3 sets
+  everything else, with tabular numerals for money. Both fonts ship inside the app, so nothing
+  is fetched from the network.
+- The palette is now Compass's own. Dark mode is the navy of the compass mark with a soft
+  moonlight gradient, a faint graticule of chart lines, and a fine grain; light mode is cool
+  chart paper with navy ink. Gold is the accent for anything you act on (active navigation,
+  buttons, focus, clickable charts, what-if values), and a sea blue is reserved for recorded
+  data such as balances and income.
+- Three corner radii, navy-tinted shadows, and one chart language (grid, ticks, tooltips,
+  series colors) replace the mix of defaults that had accumulated.
+- Category and account colors are harmonized at paint time: each keeps its hue but sits in
+  the same lightness band as its neighbours, in both themes. Nothing in your data changes.
+
+### Changed: Dashboard, Overview, Investments, Import, and Insights
+- These pages move to the rule-and-space layout the other pages already used: stat rows
+  instead of bordered tiles, account rows instead of card grids, ranked bars instead of a
+  bar chart, and the same ledger rows as Transactions for recent activity.
+- The Dashboard opens with the month's net figure, income and spending with their
+  comparison to last month, and the bearing bar. Insight cards sit below it.
+- Insights' header joins the page instead of floating over it; the score is the page's hero
+  figure and every section is a plain disclosure.
+- Empty states share one calm pattern with a one-sentence explanation and a single action.
+
+### Changed: Icons, chrome, and copy
+- Icons are now Phosphor. The sidebar is the instrument panel: navy in both themes, the
+  compass mark in the rail, a gold bearing mark on the active item, and a compass-needle
+  loading indicator.
+- Copy is sentence case throughout; arrows, middle dots, and exclamation marks are gone from
+  buttons and labels, and two garbled strings on Overview and Trends are fixed.
+
+### Website
+- privatecompass.app mirrors the new palette and fonts, uses the vector mark instead of a
+  bitmap, and now honours the reduce-motion setting.
+
 ## Compass 1.0.2 — A Plan That Knows How You Actually Spend ✨
 
 This release simplifies Plan, Transactions, and Goals while preserving Compass's colors,

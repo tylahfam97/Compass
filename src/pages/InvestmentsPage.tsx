@@ -370,7 +370,7 @@ export default function InvestmentsPage() {
               onClick={() => setTab(t.id)}
               className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
                 tab === t.id
-                  ? "border-[hsl(var(--primary))] text-[hsl(var(--primary))]"
+                  ? "border-[hsl(var(--primary))] text-[hsl(var(--gold-ink))]"
                   : "border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
               }`}
             >
@@ -409,7 +409,7 @@ export default function InvestmentsPage() {
               .filter(([, v]) => v !== null)
               .map(([label, v, signed]) => (
                 <div key={label} className="bg-[hsl(var(--background))] px-4 py-3">
-                  <p className={`text-sm font-semibold font-mono ${
+                  <p className={`text-sm font-semibold ${
                     signed ? ((v as number) >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]") : ""
                   }`}>
                     {formatCurrency(v as number)}
@@ -458,13 +458,13 @@ export default function InvestmentsPage() {
               <tbody>
                 {filteredActivity.map((a) => (
                   <tr key={a.id} className="border-t">
-                    <td className="px-4 py-2 text-xs font-mono whitespace-nowrap">{formatDate(a.trade_date)}</td>
+                    <td className="px-4 py-2 text-xs whitespace-nowrap">{formatDate(a.trade_date)}</td>
                     <td className="px-4 py-2 text-xs">{ACTIVITY_LABELS[a.activity_type]}</td>
                     <td className="px-4 py-2 max-w-xs truncate text-xs">{a.description}</td>
-                    <td className="px-4 py-2 text-xs font-mono">{a.symbol ?? "-"}</td>
-                    <td className="px-4 py-2 text-right text-xs font-mono">{a.quantity ?? "-"}</td>
-                    <td className="px-4 py-2 text-right text-xs font-mono">{a.price_cents !== null ? formatCurrency(a.price_cents) : "-"}</td>
-                    <td className={`px-4 py-2 text-right text-xs font-mono ${a.amount_cents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
+                    <td className="px-4 py-2 text-xs">{a.symbol ?? "-"}</td>
+                    <td className="px-4 py-2 text-right text-xs">{a.quantity ?? "-"}</td>
+                    <td className="px-4 py-2 text-right text-xs">{a.price_cents !== null ? formatCurrency(a.price_cents) : "-"}</td>
+                    <td className={`px-4 py-2 text-right text-xs ${a.amount_cents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
                       {formatCurrency(a.amount_cents)}
                     </td>
                   </tr>
@@ -542,13 +542,13 @@ export default function InvestmentsPage() {
                 <tbody>
                   {realizedLots.map((a) => (
                     <tr key={a.id} className="border-t">
-                      <td className="px-4 py-2 text-xs font-mono whitespace-nowrap">{formatDate(a.trade_date)}</td>
-                      <td className="px-4 py-2 text-xs font-mono whitespace-nowrap">{a.acquired_date ? formatDate(a.acquired_date) : "-"}</td>
+                      <td className="px-4 py-2 text-xs whitespace-nowrap">{formatDate(a.trade_date)}</td>
+                      <td className="px-4 py-2 text-xs whitespace-nowrap">{a.acquired_date ? formatDate(a.acquired_date) : "-"}</td>
                       <td className="px-4 py-2 max-w-xs truncate text-xs">{a.description}</td>
                       <td className="px-4 py-2 text-xs capitalize">{a.term ?? "-"}</td>
-                      <td className="px-4 py-2 text-right text-xs font-mono">{formatCurrency(a.amount_cents)}</td>
-                      <td className="px-4 py-2 text-right text-xs font-mono">{a.cost_basis_cents !== null ? formatCurrency(a.cost_basis_cents) : "-"}</td>
-                      <td className={`px-4 py-2 text-right text-xs font-mono ${(a.realized_gain_cents ?? 0) >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
+                      <td className="px-4 py-2 text-right text-xs">{formatCurrency(a.amount_cents)}</td>
+                      <td className="px-4 py-2 text-right text-xs">{a.cost_basis_cents !== null ? formatCurrency(a.cost_basis_cents) : "-"}</td>
+                      <td className={`px-4 py-2 text-right text-xs ${(a.realized_gain_cents ?? 0) >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
                         {formatCurrency(a.realized_gain_cents ?? 0)}
                       </td>
                     </tr>
@@ -593,9 +593,9 @@ export default function InvestmentsPage() {
                     {a.name}
                     {a.institution && <span className="text-[hsl(var(--muted-foreground))]"> · {a.institution}</span>}
                   </td>
-                  <td className="px-4 py-2 text-xs font-mono text-[hsl(var(--muted-foreground))]">{formatDate(a.as_of_date)}</td>
-                  <td className="px-4 py-2 text-right text-xs font-mono">{a.positions}</td>
-                  <td className="px-4 py-2 text-right text-xs font-mono">{formatCurrency(a.total)}</td>
+                  <td className="px-4 py-2 text-xs text-[hsl(var(--muted-foreground))]">{formatDate(a.as_of_date)}</td>
+                  <td className="px-4 py-2 text-right text-xs">{a.positions}</td>
+                  <td className="px-4 py-2 text-right text-xs">{formatCurrency(a.total)}</td>
                 </tr>
               ))}
             </tbody>
@@ -721,13 +721,13 @@ export default function InvestmentsPage() {
                           {hasLots && (isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
                         </td>
                         <td className="px-4 py-2 max-w-xs truncate text-xs">{g.description}</td>
-                        <td className="px-4 py-2 text-xs font-mono">{g.symbol ?? "-"}</td>
-                        <td className="px-4 py-2 text-right text-xs font-mono">{g.totalShares !== null ? g.totalShares.toLocaleString() : "-"}</td>
-                        <td className="px-4 py-2 text-right text-xs font-mono">{formatCurrency(g.totalMarketValueCents)}</td>
-                        <td className={`px-4 py-2 text-right text-xs font-mono ${roiPct === null ? "text-[hsl(var(--muted-foreground))]" : roiPct >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
+                        <td className="px-4 py-2 text-xs">{g.symbol ?? "-"}</td>
+                        <td className="px-4 py-2 text-right text-xs">{g.totalShares !== null ? g.totalShares.toLocaleString() : "-"}</td>
+                        <td className="px-4 py-2 text-right text-xs">{formatCurrency(g.totalMarketValueCents)}</td>
+                        <td className={`px-4 py-2 text-right text-xs ${roiPct === null ? "text-[hsl(var(--muted-foreground))]" : roiPct >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
                           {roiPct !== null ? `${roiPct >= 0 ? "+" : ""}${roiPct.toFixed(1)}%` : "-"}
                         </td>
-                        <td className="px-4 py-2 text-right text-xs font-mono text-[hsl(var(--muted-foreground))]">
+                        <td className="px-4 py-2 text-right text-xs text-[hsl(var(--muted-foreground))]">
                           {g.estAnnualIncomeCents > 0 ? formatCurrency(g.estAnnualIncomeCents) : "-"}
                         </td>
                       </tr>
@@ -739,14 +739,14 @@ export default function InvestmentsPage() {
                             {lot.trade_date ? ` - purchased ${formatDate(lot.trade_date)}` : ""}
                             {lot.cost_basis_cents !== null ? ` - cost basis ${formatCurrency(lot.cost_basis_cents)}` : ""}
                           </td>
-                          <td className="px-4 py-1.5 text-right font-mono">{lot.shares ?? "-"}</td>
-                          <td className="px-4 py-1.5 text-right font-mono">{lot.market_value_cents !== null ? formatCurrency(lot.market_value_cents) : "-"}</td>
-                          <td className="px-4 py-1.5 text-right font-mono">
+                          <td className="px-4 py-1.5 text-right">{lot.shares ?? "-"}</td>
+                          <td className="px-4 py-1.5 text-right">{lot.market_value_cents !== null ? formatCurrency(lot.market_value_cents) : "-"}</td>
+                          <td className="px-4 py-1.5 text-right">
                             {holdingRoiPct(lot.market_value_cents, lot.cost_basis_cents) !== null
                               ? `${holdingRoiPct(lot.market_value_cents, lot.cost_basis_cents)! >= 0 ? "+" : ""}${holdingRoiPct(lot.market_value_cents, lot.cost_basis_cents)!.toFixed(1)}%`
                               : "-"}
                           </td>
-                          <td className="px-4 py-1.5 text-right font-mono">-</td>
+                          <td className="px-4 py-1.5 text-right">-</td>
                         </tr>
                       ))}
                     </Fragment>

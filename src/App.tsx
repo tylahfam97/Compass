@@ -1,10 +1,12 @@
 import { BrowserRouter, Routes, Route, NavLink, useLocation } from "react-router-dom";
-import logoUrl from "@/assets/logo.svg";
 import { useState, useEffect, Suspense, lazy } from "react";
 import {
-  LayoutDashboard, ArrowLeftRight, Upload, TrendingUp, LineChart,
-  Wallet, Target, BarChart2, Lightbulb, Globe, ChevronLeft, ChevronRight, MessageSquare, Sparkles, CalendarClock, Settings as SettingsIcon,
-} from "lucide-react";
+  SquaresFourIcon, ArrowsLeftRightIcon, UploadSimpleIcon, TrendUpIcon, ChartLineIcon,
+  WalletIcon, TargetIcon, ChartBarIcon, LightbulbIcon, GlobeIcon, CaretLeftIcon, CaretRightIcon, ChatCircleIcon, SparkleIcon, CalendarCheckIcon, GearSixIcon, LockKeyIcon,
+  IconContext,
+} from "@phosphor-icons/react";
+import CompassMark from "@/components/CompassMark";
+import { useIsDark } from "@/hooks/useIsDark";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { MotionConfig, motion } from "motion/react";
 import DashboardPage from "@/pages/DashboardPage";
@@ -89,21 +91,25 @@ import { useSettingsStore } from "@/stores/settingsStore";
 import { getDb } from "@/lib/db";
 import { generateInsights } from "@/lib/agent";
 import type { Category, Profile } from "@/lib/types";
+// Self-hosted variable fonts (the Tauri CSP is font-src 'self'); imported ahead of the
+// stylesheet so Vite emits the woff2 files before any rule references them.
+import "@fontsource-variable/source-sans-3";
+import "@fontsource-variable/source-serif-4/standard.css";
 import "./index.css";
 
 const NAV_ITEMS = [
-  { to: "/overview",      label: "Overview",      Icon: Globe,            showBadge: false, tourId: undefined },
-  { to: "/",             label: "Dashboard",     Icon: LayoutDashboard,  showBadge: false, tourId: undefined },
-  { to: "/transactions", label: "Transactions",  Icon: ArrowLeftRight,   showBadge: false, tourId: undefined },
-  { to: "/import",       label: "Import",        Icon: Upload,           showBadge: false, tourId: undefined },
-  { to: "/trends",       label: "Trends",        Icon: TrendingUp,       showBadge: false, tourId: undefined },
-  { to: "/investments",  label: "Investments",   Icon: LineChart,        showBadge: false, tourId: undefined },
-  { to: "/budgets",      label: "Budgets",       Icon: Wallet,           showBadge: false, tourId: undefined },
-  { to: "/goals",        label: "Goals",         Icon: Target,           showBadge: false, tourId: undefined },
-  { to: "/plan",         label: "Plan",          Icon: CalendarClock,    showBadge: false, tourId: undefined },
-  { to: "/reports",      label: "Reports",       Icon: BarChart2,        showBadge: false, tourId: undefined },
-  { to: "/agent",        label: "Insights",      Icon: Lightbulb,        showBadge: true,  tourId: "nav-agent" },
-  { to: "/settings",     label: "Settings",      Icon: SettingsIcon,     showBadge: false, tourId: undefined },
+  { to: "/overview",      label: "Overview",      Icon: GlobeIcon,            showBadge: false, tourId: undefined },
+  { to: "/",             label: "Dashboard",     Icon: SquaresFourIcon,      showBadge: false, tourId: undefined },
+  { to: "/transactions", label: "Transactions",  Icon: ArrowsLeftRightIcon,  showBadge: false, tourId: undefined },
+  { to: "/import",       label: "Import",        Icon: UploadSimpleIcon,     showBadge: false, tourId: undefined },
+  { to: "/trends",       label: "Trends",        Icon: TrendUpIcon,          showBadge: false, tourId: undefined },
+  { to: "/investments",  label: "Investments",   Icon: ChartLineIcon,        showBadge: false, tourId: undefined },
+  { to: "/budgets",      label: "Budgets",       Icon: WalletIcon,           showBadge: false, tourId: undefined },
+  { to: "/goals",        label: "Goals",         Icon: TargetIcon,           showBadge: false, tourId: undefined },
+  { to: "/plan",         label: "Plan",          Icon: CalendarCheckIcon,    showBadge: false, tourId: undefined },
+  { to: "/reports",      label: "Reports",       Icon: ChartBarIcon,         showBadge: false, tourId: undefined },
+  { to: "/agent",        label: "Insights",      Icon: LightbulbIcon,        showBadge: true,  tourId: "nav-agent" },
+  { to: "/settings",     label: "Settings",      Icon: GearSixIcon,          showBadge: false, tourId: undefined },
 ];
 
 function greeting(): string {
@@ -118,19 +124,9 @@ function initials(name: string): string {
 }
 
 function App() {
-  const theme = useSettingsStore((state) => state.theme);
   const setTheme = useSettingsStore((state) => state.setTheme);
-  const [systemDark, setSystemDark] = useState(() =>
-    window.matchMedia("(prefers-color-scheme: dark)").matches
-  );
-  const dark = theme === "dark" || (theme === "system" && systemDark);
+  const dark = useIsDark();
   const setDark = (value: boolean) => setTheme(value ? "dark" : "light");
-  useEffect(() => {
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const update = () => setSystemDark(media.matches);
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
   const setCategories = useCategoryStore((s) => s.setCategories);
   const { profiles, setProfiles, setActiveProfile } = useProfileStore();
   const restartOnboarding = useOnboardingStore((s) => s.restart);
@@ -194,6 +190,7 @@ function App() {
 
   return (
     <MotionConfig reducedMotion={motionPref === "reduced" ? "always" : "user"}>
+    <IconContext.Provider value={{ size: 16, weight: "regular" }}>
     <BrowserRouter>
       {/* ── Launch profile picker ─────────────────────────────────── */}
       {launchReady && !profileSelected && (
@@ -201,8 +198,11 @@ function App() {
                         bg-[hsl(var(--background))] wizard-enter-forward overflow-hidden">
           <GoldParticleField />
           <div className="relative z-10 flex flex-col items-center">
-            <img src={logoUrl} alt="Compass" className="h-12 mb-8 opacity-90" />
-            <h1 className="text-2xl font-semibold mb-1 text-gradient-primary">{greeting()}</h1>
+            <div className="flex items-center gap-3 mb-8">
+              <CompassMark size={44} title="Compass" />
+              <span className="font-serif text-[28px] font-medium tracking-tight">Compass</span>
+            </div>
+            <h1 className="font-serif text-[34px] font-medium leading-tight mb-1">{greeting()}</h1>
             <p className="text-sm text-[hsl(var(--muted-foreground))] mb-8">
               {profiles.length > 1 ? "Who's tracking today?" : "Enter your PIN to continue"}
             </p>
@@ -226,7 +226,9 @@ function App() {
                   </div>
                   <span className="font-medium text-sm w-full text-center truncate" title={p.name}>{p.name}</span>
                   {p.pin_hash && (
-                    <span className="text-xs text-[hsl(var(--muted-foreground))]">🔒 PIN</span>
+                    <span className="text-xs text-[hsl(var(--muted-foreground))] inline-flex items-center gap-1">
+                      <LockKeyIcon size={12} /> PIN protected
+                    </span>
                   )}
                 </button>
               ))}
@@ -247,16 +249,25 @@ function App() {
       <ToastHost />
       <div className="flex h-screen overflow-hidden">
         {/* Sidebar */}
+        {/* The instrument panel: always night navy, in both themes, so the brand is present
+            on the paper theme too. Tokens are re-scoped here so every descendant (profile
+            switcher, theme button, update checker) inherits the night palette. */}
         <aside
-          className={`app-sidebar shrink-0 flex flex-col overflow-y-auto bg-[hsl(var(--muted))] transition-all duration-200
-                      ${sidebarOpen ? "w-52" : "w-12"}`}
+          className={`app-sidebar shrink-0 flex flex-col overflow-y-auto bg-[hsl(var(--sidebar))] border-r transition-all duration-200
+                      ${sidebarOpen ? "w-60" : "w-14"}`}
           data-expanded={sidebarOpen}
           onKeyDown={(event) => { if (event.key === "Escape") setSidebarOpen(false); }}
-          style={{ borderRight: '1.5px solid hsl(var(--primary) / 0.25)' }}
         >
-          {/* Logo row + collapse toggle */}
+          {/* Mark + wordmark, collapse toggle */}
           <div className={`border-b flex items-center ${sidebarOpen ? "px-4 py-3 justify-between" : "py-3 justify-center"}`}>
-            {sidebarOpen && <img src={logoUrl} alt="Compass" className="h-9 w-auto" />}
+            {sidebarOpen ? (
+              <span className="flex items-center gap-2.5 min-w-0">
+                <CompassMark size={28} />
+                <span className="font-serif text-[20px] font-medium tracking-tight truncate">Compass</span>
+              </span>
+            ) : (
+              <CompassMark size={26} title="Compass" />
+            )}
             <button
               onClick={() => setSidebarOpen((v) => {
                 const next = !v;
@@ -265,16 +276,28 @@ function App() {
               })}
               title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
               aria-expanded={sidebarOpen}
-              className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]
-                         hover:bg-[hsl(var(--border))] rounded-md p-1 transition-colors"
+              className={`text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]
+                         hover:bg-[hsl(var(--muted))] rounded-md p-1 transition-colors ${sidebarOpen ? "" : "hidden"}`}
             >
               {sidebarOpen
-                ? <ChevronLeft size={16} />
-                : <ChevronRight size={16} />}
+                ? <CaretLeftIcon size={16} />
+                : <CaretRightIcon size={16} />}
             </button>
           </div>
+          {!sidebarOpen && (
+            <button
+              onClick={() => { setSidebarOpen(true); localStorage.setItem("sidebarOpen", "true"); }}
+              title="Expand sidebar"
+              aria-expanded={false}
+              className="mx-auto mt-1 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]
+                         hover:bg-[hsl(var(--muted))] rounded-md p-1 transition-colors"
+            >
+              <CaretRightIcon size={16} />
+            </button>
+          )}
 
-          {/* Nav — icon+label when open, icon-only with tooltip when collapsed */}
+          {/* Nav — icon+label when open, icon-only with tooltip when collapsed. The active item
+              carries a 2px gold bearing mark on its leading edge and a filled icon. */}
           <nav className="flex-1 py-3 space-y-0.5 px-2">
             {NAV_ITEMS.map(({ to, label, Icon, showBadge, tourId }) => (
               <NavLink
@@ -285,25 +308,29 @@ function App() {
                 data-tour={tourId}
                 title={!sidebarOpen ? label : undefined}
                 className={({ isActive }) =>
-                  `flex items-center gap-2.5 px-2 py-2 rounded-md text-sm font-medium transition-colors
+                  `relative flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium transition-colors
                    ${sidebarOpen ? "" : "justify-center"}
                    ${isActive
-                     ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
-                     : "hover:bg-[hsl(var(--border))] text-[hsl(var(--foreground))]"
+                     ? "nav-active bg-[hsl(var(--primary)/0.08)] text-[hsl(var(--gold-ink))]"
+                     : "text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--foreground)/0.05)]"
                    }`
                 }
               >
-                <Icon size={16} className="shrink-0" />
-                {sidebarOpen && (
-                  <span className="flex-1 flex items-center justify-between">
-                    {label}
-                    {showBadge && insightWarnings > 0 && (
-                      <span className="w-2 h-2 rounded-full bg-[hsl(var(--warning))]" />
+                {({ isActive }) => (
+                  <>
+                    <Icon size={18} weight={isActive ? "fill" : "regular"} className="shrink-0" />
+                    {sidebarOpen && (
+                      <span className="flex-1 flex items-center justify-between">
+                        {label}
+                        {showBadge && insightWarnings > 0 && (
+                          <span className="w-2 h-2 rounded-full bg-[hsl(var(--warning))]" />
+                        )}
+                      </span>
                     )}
-                  </span>
-                )}
-                {!sidebarOpen && showBadge && insightWarnings > 0 && (
-                  <span className="absolute ml-3 -mt-3 w-2 h-2 rounded-full bg-[hsl(var(--warning))]" />
+                    {!sidebarOpen && showBadge && insightWarnings > 0 && (
+                      <span className="absolute ml-3 -mt-3 w-2 h-2 rounded-full bg-[hsl(var(--warning))]" />
+                    )}
+                  </>
                 )}
               </NavLink>
             ))}
@@ -326,7 +353,7 @@ function App() {
                            hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--border))]
                            transition-colors flex items-center justify-center gap-1.5"
               >
-                <Sparkles size={12} />
+                <SparkleIcon size={12} />
                 Replay tour
               </button>
               <button
@@ -335,7 +362,7 @@ function App() {
                            hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--border))]
                            transition-colors flex items-center justify-center gap-1.5"
               >
-                <MessageSquare size={12} />
+                <ChatCircleIcon size={12} />
                 Report an issue
               </button>
               {appVersion && (
@@ -362,6 +389,7 @@ function App() {
         </>
       )}
     </BrowserRouter>
+    </IconContext.Provider>
     </MotionConfig>
   );
 }

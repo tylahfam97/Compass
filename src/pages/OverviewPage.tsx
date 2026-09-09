@@ -1,3 +1,4 @@
+import ScopeToggle from "@/components/ScopeToggle";
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { LineChart, Line, XAxis, ResponsiveContainer, Tooltip } from "recharts";
@@ -52,27 +53,6 @@ function monthBounds(ym: string): [string, string] {
     `${y}-${String(m).padStart(2, "0")}-01`,
     new Date(y, m, 1).toISOString().split("T")[0],
   ];
-}
-
-interface ScopeToggleProps { isGlobal: boolean; onToggle: () => void; }
-function ScopeToggle({ isGlobal, onToggle }: ScopeToggleProps) {
-  return (
-    <button role="switch" aria-checked={isGlobal} onClick={onToggle}
-      style={{
-        width: 52, height: 28, borderRadius: 14, padding: 3,
-        backgroundColor: isGlobal ? "var(--gold)" : "hsl(var(--primary))",
-        transition: "background-color 0.3s", cursor: "pointer",
-        display: "inline-flex", alignItems: "center",
-        border: "none", flexShrink: 0, boxShadow: "inset 0 1px 3px rgba(0,0,0,0.18)",
-      }}>
-      <div style={{
-        width: 22, height: 22, borderRadius: 11, backgroundColor: "white",
-        transition: "transform 0.25s cubic-bezier(0.4,0,0.2,1)",
-        transform: isGlobal ? "translateX(24px)" : "translateX(0)",
-        boxShadow: "0 1px 4px rgba(0,0,0,0.28)", flexShrink: 0,
-      }} />
-    </button>
-  );
 }
 
 export default function OverviewPage() {

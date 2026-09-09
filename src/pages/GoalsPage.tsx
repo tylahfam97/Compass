@@ -711,7 +711,7 @@ export default function GoalsPage() {
                 ) : (
                   <span className="flex items-center gap-1">
                     <button onClick={() => startEdit(g)}
-                      title="Edit goal" aria-label={`Edit ${g.name}`} className="workspace-icon text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))]">
+                      title="Edit goal" aria-label={`Edit ${g.name}`} className="workspace-icon text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--gold-ink))]">
                       <Pencil size={15} />
                     </button>
                     <button onClick={() => setConfirmDeleteId(g.id)}

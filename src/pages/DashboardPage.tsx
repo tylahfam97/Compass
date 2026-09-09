@@ -503,7 +503,7 @@ export default function DashboardPage() {
               ))}
               <Link
                 to="/agent"
-                className="block text-xs text-[hsl(var(--primary))] hover:opacity-80 transition-opacity"
+                className="block text-xs text-[hsl(var(--gold-ink))] hover:opacity-80 transition-opacity"
               >
                 See all Agent insights →
               </Link>
@@ -585,8 +585,8 @@ export default function DashboardPage() {
                     <AreaChart data={checkingBalancePoints} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
                       <defs>
                         <linearGradient id="balGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.2} />
-                          <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                          <stop offset="5%" stopColor="hsl(var(--sea))" stopOpacity={0.2} />
+                          <stop offset="95%" stopColor="hsl(var(--sea))" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <XAxis dataKey="date" hide />
@@ -601,7 +601,7 @@ export default function DashboardPage() {
                         formatter={(v) => [`$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "Balance"]}
                         labelFormatter={(l) => formatDate(String(l))}
                       />
-                      <Area type="monotone" dataKey="balance" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#balGrad)" dot={false} />
+                      <Area type="monotone" dataKey="balance" stroke="hsl(var(--sea))" strokeWidth={2} fill="url(#balGrad)" dot={false} />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -970,7 +970,7 @@ export default function DashboardPage() {
                         <Link
                           to="/transactions"
                           state={{ month, category: expandedCat.categoryId }}
-                          className="text-[11px] text-[hsl(var(--primary))] hover:underline"
+                          className="text-[11px] text-[hsl(var(--gold-ink))] hover:underline"
                         >
                           View all →
                         </Link>
@@ -982,7 +982,7 @@ export default function DashboardPage() {
                           {expandedCatTxns.map((t) => (
                             <div key={t.id} className="flex items-center justify-between text-xs py-1">
                               <span className="truncate flex-1 text-[hsl(var(--muted-foreground))]">{t.description}</span>
-                              <span className="font-mono ml-3 shrink-0">{formatCurrency(Math.abs(t.amount_cents))}</span>
+                              <span className="ml-3 shrink-0">{formatCurrency(Math.abs(t.amount_cents))}</span>
                             </div>
                           ))}
                         </div>
@@ -999,7 +999,7 @@ export default function DashboardPage() {
             <div className="border rounded-xl overflow-hidden">
               <div className="px-5 py-3 border-b bg-[hsl(var(--muted))] flex items-center justify-between">
                 <h2 className="font-semibold">Recent Transactions</h2>
-                <Link to="/transactions" className="text-sm text-[hsl(var(--primary))]">
+                <Link to="/transactions" className="text-sm text-[hsl(var(--gold-ink))]">
                   View all →
                 </Link>
               </div>
@@ -1020,7 +1020,7 @@ export default function DashboardPage() {
                         </span>
                       </td>
                       <td
-                        className={`px-5 py-3 text-right font-mono ${t.amount_cents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}
+                        className={`px-5 py-3 text-right ${t.amount_cents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}
                       >
                         {formatCurrency(t.amount_cents)}
                       </td>

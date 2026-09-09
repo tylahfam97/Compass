@@ -333,13 +333,13 @@ function ProfileReports({ profileId }: { profileId: number }) {
           </div>
 
           {monthTotals.length > 0 && <section>
-            <div className="workspace-heading mb-4"><h2 className="font-semibold">Income &amp; spending trend</h2><div className="flex gap-4 text-xs text-[hsl(var(--muted-foreground))]"><span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-[hsl(var(--primary))]" />Income</span><span className="flex items-center gap-1.5"><span className="w-2 h-2" style={{ background: "var(--gold)" }} />Spending</span></div></div>
+            <div className="workspace-heading mb-4"><h2 className="font-semibold">Income &amp; spending trend</h2><div className="flex gap-4 text-xs text-[hsl(var(--muted-foreground))]"><span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-[hsl(var(--sea))]" />Income</span><span className="flex items-center gap-1.5"><span className="w-2 h-2" style={{ background: "var(--gold)" }} />Spending</span></div></div>
             <div className="h-56"><ResponsiveContainer width="100%" height="100%"><BarChart data={monthTotals} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
               <XAxis dataKey="month" tickFormatter={formatMonthLabel} tick={{ fontSize: 11 }} minTickGap={35} />
               <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize: 11 }} width={55} />
               <Tooltip labelFormatter={(value) => formatMonthLabel(String(value))} formatter={(value, name) => [formatCurrency(Number(value)), name === "income_cents" ? "Income" : "Spending"]} contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: 8 }} />
-              <Bar dataKey="income_cents" fill="hsl(var(--primary))" maxBarSize={28} radius={[3, 3, 0, 0]} />
+              <Bar dataKey="income_cents" fill="hsl(var(--sea))" maxBarSize={28} radius={[3, 3, 0, 0]} />
               <Bar dataKey="expense_cents" fill="var(--gold)" maxBarSize={28} radius={[3, 3, 0, 0]} />
             </BarChart></ResponsiveContainer></div>
             <p className="text-xs text-[hsl(var(--muted-foreground))] mt-2">{rangeMode === "month" ? "Up to six months of recorded activity" : "Monthly totals within the selected dates"} · open months are partial</p>
@@ -403,10 +403,10 @@ function ProfileReports({ profileId }: { profileId: number }) {
                               {cat.category_name}
                             </span>
                           </td>
-                          <td className="px-4 py-2.5 text-right font-mono">
+                          <td className="px-4 py-2.5 text-right">
                             {formatCurrency(cat.total_cents)}
                           </td>
-                          {rangeMode === "month" && <><td className="px-4 py-2.5 text-right font-mono text-[hsl(var(--muted-foreground))]">
+                          {rangeMode === "month" && <><td className="px-4 py-2.5 text-right text-[hsl(var(--muted-foreground))]">
                             {prev > 0 ? formatCurrency(prev) : "—"}
                           </td>
                           <td className={`px-4 py-2.5 text-right font-medium
@@ -440,13 +440,13 @@ function ProfileReports({ profileId }: { profileId: number }) {
                     {monthTotals.map((r) => (
                       <tr key={r.month} className="border-t hover:bg-[hsl(var(--muted))]">
                         <td className="px-4 py-2.5 font-medium">{formatMonthLabel(r.month)}</td>
-                        <td className="px-4 py-2.5 text-right font-mono text-[hsl(var(--success))]">
+                        <td className="px-4 py-2.5 text-right text-[hsl(var(--success))]">
                           {formatCurrency(r.income_cents)}
                         </td>
-                        <td className="px-4 py-2.5 text-right font-mono text-[hsl(var(--error))]">
+                        <td className="px-4 py-2.5 text-right text-[hsl(var(--error))]">
                           {formatCurrency(r.expense_cents)}
                         </td>
-                        <td className={`px-4 py-2.5 text-right font-mono font-medium
+                        <td className={`px-4 py-2.5 text-right font-medium
                           ${r.net_cents >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
                           {formatCurrency(r.net_cents)}
                         </td>
@@ -468,8 +468,8 @@ function ProfileReports({ profileId }: { profileId: number }) {
                   <AreaChart data={balanceTrend} margin={{ top: 4, right: 16, bottom: 4, left: 16 }}>
                     <defs>
                       <linearGradient id="balTrendGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.2} />
-                        <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                        <stop offset="5%" stopColor="hsl(var(--sea))" stopOpacity={0.2} />
+                        <stop offset="95%" stopColor="hsl(var(--sea))" stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <XAxis dataKey="month" tick={{ fontSize: 11 }} tickFormatter={formatMonthLabel} />
@@ -488,7 +488,7 @@ function ProfileReports({ profileId }: { profileId: number }) {
                       labelFormatter={(l) => formatMonthLabel(String(l))}
                       formatter={(v) => [formatCurrency(Number(v)), "Balance"]}
                     />
-                    <Area type="monotone" dataKey="balance" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#balTrendGrad)" dot={{ r: 3 }} />
+                    <Area type="monotone" dataKey="balance" stroke="hsl(var(--sea))" strokeWidth={2} fill="url(#balTrendGrad)" dot={{ r: 3 }} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
@@ -533,10 +533,10 @@ function ProfileReports({ profileId }: { profileId: number }) {
                           </span>
                         </td>
                         <td className="px-4 py-2.5 text-right">{r.count}×</td>
-                        <td className="px-4 py-2.5 text-right font-mono text-[hsl(var(--muted-foreground))]">
+                        <td className="px-4 py-2.5 text-right text-[hsl(var(--muted-foreground))]">
                           {formatCurrency(r.avg_cents)}
                         </td>
-                        <td className="px-4 py-2.5 text-right font-mono">
+                        <td className="px-4 py-2.5 text-right">
                           {formatCurrency(r.total_cents)}
                         </td>
                       </tr>

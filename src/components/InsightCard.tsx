@@ -74,7 +74,7 @@ const ACCENT_BAR_CLS: Record<string, string> = {
 };
 const ICON_CLS: Record<string, string> = {
   warning: "text-[hsl(var(--warning))]",
-  info:    "text-[hsl(var(--primary))]",
+  info:    "text-[hsl(var(--gold-ink))]",
   success: "text-[hsl(var(--success))]",
 };
 const TITLE_CLS: Record<string, string> = {
@@ -84,7 +84,7 @@ const TITLE_CLS: Record<string, string> = {
 };
 const ACTION_CLS: Record<string, string> = {
   warning: "border border-[hsl(var(--warning)/0.5)] text-[hsl(var(--warning))] hover:bg-[hsl(var(--warning)/0.12)] dark:hover:bg-[hsl(var(--warning)/0.18)]",
-  info:    "border border-[hsl(var(--primary)/0.5)] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.12)] dark:hover:bg-[hsl(var(--primary)/0.18)]",
+  info:    "border border-[hsl(var(--primary)/0.5)] text-[hsl(var(--gold-ink))] hover:bg-[hsl(var(--primary)/0.12)] dark:hover:bg-[hsl(var(--primary)/0.18)]",
   success: "border border-[hsl(var(--success)/0.5)] text-[hsl(var(--success))] hover:bg-[hsl(var(--success)/0.12)] dark:hover:bg-[hsl(var(--success)/0.18)]",
 };
 const CARD_ICONS: Record<string, React.ElementType> = {
