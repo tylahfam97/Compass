@@ -109,6 +109,7 @@ export default function MonthRolloverModal() {
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}
           onClick={onBackdropClick} ref={containerRef}
+          role="dialog" aria-modal="true" aria-label="Month in review"
           className="fixed inset-0 z-[300] flex items-center justify-center bg-black/40 backdrop-blur-sm"
         >
           <motion.div

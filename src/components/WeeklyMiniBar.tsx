@@ -23,9 +23,14 @@ export default function WeeklyMiniBar({
 }: WeeklyMiniBarProps) {
   const today = todayDow();
   const max = Math.max(dailyTarget * 1.5, ...dailyAmounts, 1);
+  const weekTotal = dailyAmounts.slice(0, today + 1).reduce((s, v) => s + v, 0);
 
   return (
-    <div className={`flex gap-1 items-end h-10 ${className}`}>
+    <div
+      className={`flex gap-1 items-end h-10 ${className}`}
+      role="img"
+      aria-label={`This week so far: $${Math.round(weekTotal / 100).toLocaleString("en-US")} against a $${Math.round(dailyTarget / 100).toLocaleString("en-US")} daily ${overIsBad ? "limit" : "target"}`}
+    >
       {dailyAmounts.map((amount, i) => {
         const isFuture = i > today;
         const heightPct = isFuture ? 0 : Math.min(100, (amount / max) * 100);

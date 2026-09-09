@@ -5,6 +5,8 @@ import { Eye, EyeOff, ChevronLeft, ChevronRight } from "lucide-react";
 import { getDb, setAccountHiddenFromDashboard } from "@/lib/db";
 import { incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
 import { formatCurrency, formatDate, formatMonthLabel, separateAccountBalances, accountChartColor } from "@/lib/utils";
+import { motion } from "motion/react";
+import { staggerContainer, riseIn } from "@/lib/motionPresets";
 import { computeNetWorth, latestHoldingPerAccount, type NetWorthSnapshot } from "@/lib/netWorth";
 import { useProfileStore } from "@/stores/profileStore";
 import { toast, handleLoadFailure } from "@/stores/toastStore";
@@ -13,6 +15,7 @@ import PinModal from "@/components/PinModal";
 import ManageAccountsPanel from "@/components/ManageAccountsPanel";
 import { Skeleton } from "@/components/Skeleton";
 import InfoTooltip from "@/components/InfoTooltip";
+import CountUp from "@/components/CountUp";
 import type { Profile } from "@/lib/types";
 import { EXCLUSION_DISCLAIMER_TEXT } from "@/lib/types";
 
@@ -358,11 +361,11 @@ export default function OverviewPage() {
           {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-48 rounded-2xl" />)}
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
+        <motion.div className="grid grid-cols-2 gap-4 xl:grid-cols-3" variants={staggerContainer} initial="hidden" animate="show">
           {visibleProfiles.map((profile) => {
             const d = data.get(profile.id);
             return (
-              <button key={profile.id} onClick={() => handleSwitch(profile)}
+              <motion.button key={profile.id} variants={riseIn} onClick={() => handleSwitch(profile)}
                 className="border rounded-2xl p-5 text-left hover:shadow-md hover:border-[var(--gold)] transition-all duration-150
                            bg-[hsl(var(--background))] active:scale-[0.99] chart-clickable"
               >
@@ -389,8 +392,8 @@ export default function OverviewPage() {
                     {d.liquidCents !== null && (
                       <div className="mb-3">
                         <p className="text-xs text-[hsl(var(--muted-foreground))] mb-0.5">Liquid</p>
-                        <p className={`text-2xl font-bold ${d.liquidCents >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
-                          {formatCurrency(d.liquidCents)}
+                        <p className={`text-2xl font-bold tabular-nums ${d.liquidCents >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
+                          <CountUp value={d.liquidCents} format={(v) => formatCurrency(Math.round(v))} />
                         </p>
                       </div>
                     )}
@@ -398,7 +401,7 @@ export default function OverviewPage() {
                     {((d.bankAccounts.length > 0 && d.bankSparkline.length > 1) || (d.creditAccounts.length > 0 && d.creditSparkline.length > 1)) && (
                       <div className="mb-3 -mx-1">
                         {d.bankAccounts.length > 0 && d.bankSparkline.length > 1 && (
-                          <div className="h-14">
+                          <div className="h-14" role="img" aria-label={`Balance history for ${d.bankAccounts.length} bank account${d.bankAccounts.length === 1 ? "" : "s"}`}>
                             <ResponsiveContainer width="100%" height="100%">
                               <LineChart data={d.bankSparkline} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
                                 <XAxis dataKey="date" hide />
@@ -432,7 +435,7 @@ export default function OverviewPage() {
                           </div>
                         )}
                         {d.creditAccounts.length > 0 && d.creditSparkline.length > 1 && (
-                          <div className="h-8 mt-0.5">
+                          <div className="h-8 mt-0.5" role="img" aria-label={`Balance history for ${d.creditAccounts.length} credit account${d.creditAccounts.length === 1 ? "" : "s"}`}>
                             <ResponsiveContainer width="100%" height="100%">
                               <LineChart data={d.creditSparkline} margin={{ top: 1, right: 2, bottom: 1, left: 2 }}>
                                 <XAxis dataKey="date" hide />
@@ -485,7 +488,7 @@ export default function OverviewPage() {
                     )}
                   </>
                 )}
-              </button>
+              </motion.button>
             );
           })}
           {isGlobalActive && lockedExcluded.map((profile) => (
@@ -508,7 +511,7 @@ export default function OverviewPage() {
               </p>
             </button>
           ))}
-        </div>
+        </motion.div>
       )}
     </div>
   );

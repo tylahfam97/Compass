@@ -45,11 +45,13 @@ interface RecurringRulesPanelProps {
   profileId: number;
   /** Fired after any create/edit/pause/delete so a parent forecast can be recomputed. */
   onChanged?: () => void;
+  /** Bump `tick` to open a blank add form from outside (e.g. a "schedule your paycheck" action). */
+  openFormRequest?: { tick: number; income: boolean } | null;
 }
 
 /** CRUD for user-defined recurring bills and income. These are reminder-and-forecast only -
  *  nothing here ever posts a real transaction automatically. */
-export default function RecurringRulesPanel({ profileId, onChanged }: RecurringRulesPanelProps) {
+export default function RecurringRulesPanel({ profileId, onChanged, openFormRequest }: RecurringRulesPanelProps) {
   const categories = useCategoryStore((s) => s.categories);
   const [rules, setRules] = useState<RecurringRule[]>([]);
   const [loadingRules, setLoadingRules] = useState(true);
@@ -85,6 +87,14 @@ export default function RecurringRulesPanel({ profileId, onChanged }: RecurringR
     .sort((a, b) => a.next.getTime() - b.next.getTime());
 
   const openNewForm = () => { setForm(blankForm()); setSignIsExpense(true); setFormError(null); };
+
+  useEffect(() => {
+    if (!openFormRequest || openFormRequest.tick === 0) return;
+    setForm(blankForm());
+    setSignIsExpense(!openFormRequest.income);
+    setFormError(null);
+  }, [openFormRequest]);
+
   const openEditForm = (r: RecurringRule) => {
     setForm({
       id: r.id,

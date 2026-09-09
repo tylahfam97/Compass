@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, Fragment } from "react";
 import { Link } from "react-router-dom";
 import {
-  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
   BarChart, Bar,
 } from "recharts";
 import { TrendingUp, TrendingDown, ChevronRight, ChevronDown, Info } from "lucide-react";
@@ -655,42 +655,32 @@ export default function InvestmentsPage() {
           {allocationData.length > 0 && (
             <div className="border rounded-xl p-5">
               <h2 className="font-semibold mb-4">Allocation</h2>
-              <div className="flex items-center gap-4">
-                <ResponsiveContainer width="50%" height={200}>
-                  <PieChart>
-                    <Pie
-                      data={allocationData}
-                      dataKey="value"
-                      nameKey="name"
-                      innerRadius={50}
-                      outerRadius={80}
-                      paddingAngle={2}
-                      strokeWidth={0}
-                    >
-                      {allocationData.map((entry) => (
-                        <Cell key={entry.type} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={tooltipStyle}
-                      formatter={(v, _n, item) => [
-                        formatCurrency(v as number),
-                        item?.payload?.name ?? "",
-                      ]}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="flex-1 space-y-2 min-w-0">
-                  {allocationData.map((entry) => (
-                    <div key={entry.type} className="flex items-center gap-2 text-xs">
-                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
-                      <span className="truncate flex-1">{entry.name}</span>
-                      <span className="font-medium text-[hsl(var(--muted-foreground))] shrink-0">
-                        {kpis.marketValue > 0 ? Math.round((entry.value / kpis.marketValue) * 100) : 0}%
-                      </span>
+              {/* Ranked bars instead of a donut: shares compare by length, not arc angle. */}
+              <div className="space-y-3">
+                {allocationData.map((entry) => {
+                  const pct = kpis.marketValue > 0 ? (entry.value / kpis.marketValue) * 100 : 0;
+                  return (
+                    <div key={entry.type}>
+                      <div className="flex items-center justify-between gap-2 text-xs mb-1">
+                        <span className="truncate flex items-center gap-1.5 min-w-0">
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
+                          <span className="truncate">{entry.name}</span>
+                        </span>
+                        <span className="shrink-0 tabular-nums">
+                          <span className="font-medium">{formatCurrency(entry.value)}</span>
+                          <span className="text-[hsl(var(--muted-foreground))]"> · {Math.round(pct)}%</span>
+                        </span>
+                      </div>
+                      <div
+                        className="h-2 rounded-full bg-[hsl(var(--muted))] overflow-hidden"
+                        role="img"
+                        aria-label={`${entry.name}: ${formatCurrency(entry.value)}, ${Math.round(pct)}% of portfolio`}
+                      >
+                        <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: entry.color }} />
+                      </div>
                     </div>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
             </div>
           )}

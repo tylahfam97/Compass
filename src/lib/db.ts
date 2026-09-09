@@ -1295,6 +1295,12 @@ async function runMigrations(db: CompassDb): Promise<void> {
       { sql: "PRAGMA user_version = 30" },
     ]);
   }
+  if (version < 31) {
+    if (!(await colExists(db, "categories", "sort_order"))) {
+      await db.execute("ALTER TABLE categories ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0");
+    }
+    await db.execute("PRAGMA user_version = 31");
+  }
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────

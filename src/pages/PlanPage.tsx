@@ -1,19 +1,23 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot,
 } from "recharts";
-import { CalendarClock, TrendingUp, Sparkles, AlertTriangle, Wand2, EyeOff, Landmark } from "lucide-react";
+import { CalendarClock, TrendingUp, Sparkles, AlertTriangle, Wand2, EyeOff, Landmark, CalendarPlus, ChevronRight } from "lucide-react";
+import { motion } from "motion/react";
 import { formatCurrency, formatAxisCurrency, formatDate } from "@/lib/utils";
+import { staggerContainer, riseIn } from "@/lib/motionPresets";
 import {
   projectCashFlow, expandOccurrences, deriveNextActions, resolveForecastWindow,
-  groupUpcomingEvents, monthlyEquivalentCents, toISODate, daysFromToday,
-  type NextActionTone, type ForecastWindowMode,
+  groupUpcomingEvents, monthlyEquivalentCents, toISODate, baselineIsUsable,
+  type NextAction, type NextActionTone, type ForecastWindowMode,
 } from "@/lib/forecast";
 import { simulateCustomDebtPayoff } from "@/lib/agent";
+import { createRecurringRule } from "@/lib/db";
 import { getForecastInputs, getDebtContext, type ForecastInputs, type DebtContext } from "@/lib/forecastData";
 import { hideCharge, unhideCharge, listHiddenCharges, clearHiddenCharges } from "@/lib/hiddenCharges";
 import { useProfileStore } from "@/stores/profileStore";
+import { useCategoryStore } from "@/stores/categoryStore";
 import { reportLoadError, toast } from "@/stores/toastStore";
 import RecurringRulesPanel from "@/components/RecurringRulesPanel";
 import DebtPayoffModal from "@/components/DebtPayoffModal";
@@ -31,6 +35,17 @@ const WINDOWS: { id: PlanWindow; label: string }[] = [
 ];
 
 const WINDOW_KEY = "compass_plan_window";
+const EXTRA_KEY = "compass_plan_extra";
+const BUFFER_KEY = "compass_plan_buffer";
+const DETECTED_KEY = "compass_plan_detected";
+const BASELINE_KEY = "compass_plan_baseline";
+
+const SLIDER_MAX = 200_000;
+
+function loadStoredCents(key: string): number {
+  const n = parseInt(localStorage.getItem(key) ?? "", 10);
+  return Number.isFinite(n) && n >= 0 && n <= SLIDER_MAX ? n : 0;
+}
 
 /** Events are expanded this far ahead regardless of window, so "to next paycheck" can find a
  *  paycheck further out than the window being shown, and "through next month" always reaches
@@ -69,11 +84,20 @@ export default function PlanPage() {
     const saved = localStorage.getItem(WINDOW_KEY) as PlanWindow | null;
     return WINDOWS.some((w) => w.id === saved) ? saved! : "month";
   });
-  // What-if controls. Both feed straight back into the pure projection, which is why it has to
-  // stay synchronous - these recompute on every drag with no DB round trip.
-  const [extraSpendCents, setExtraSpendCents] = useState(0);
-  const [bufferCents, setBufferCents] = useState(0);
-  const [includeDetected, setIncludeDetected] = useState(true);
+  // What-if controls. These feed straight back into the pure projection, which is why it has to
+  // stay synchronous - they recompute on every drag with no DB round trip. Persisted so a
+  // scenario survives navigating away and back.
+  const [extraSpendCents, setExtraSpendCents] = useState(() => loadStoredCents(EXTRA_KEY));
+  const [bufferCents, setBufferCents] = useState(() => loadStoredCents(BUFFER_KEY));
+  const [includeDetected, setIncludeDetected] = useState(() => localStorage.getItem(DETECTED_KEY) !== "0");
+  const [useBaseline, setUseBaseline] = useState(() => localStorage.getItem(BASELINE_KEY) === "1");
+
+  useEffect(() => {
+    localStorage.setItem(EXTRA_KEY, String(extraSpendCents));
+    localStorage.setItem(BUFFER_KEY, String(bufferCents));
+    localStorage.setItem(DETECTED_KEY, includeDetected ? "1" : "0");
+    localStorage.setItem(BASELINE_KEY, useBaseline ? "1" : "0");
+  }, [extraSpendCents, bufferCents, includeDetected, useBaseline]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -117,6 +141,47 @@ export default function PlanPage() {
     toast.success("Restored every hidden charge.");
   };
 
+  const categories = useCategoryStore((s) => s.categories);
+
+  /** Promotes a detected charge to a real rule; the loose-match dedup in getForecastInputs
+   *  drops the detected copy on the next load, so nothing is projected twice. */
+  const handleConfirm = async (description: string) => {
+    const rule = inputs?.detected.find((r) => r.description === description);
+    if (!rule) return;
+    try {
+      await createRecurringRule({
+        profileId,
+        accountId: null,
+        description: rule.description,
+        amountCents: rule.amount_cents,
+        categoryId: categories.find((c) => c.name === rule.category_name)?.id ?? null,
+        cadence: "monthly",
+        dayOfMonth: rule.day_of_month ?? 1,
+        dayOfWeek: null,
+        startDate: rule.start_date,
+      });
+      toast.success(<>Scheduled <span className="font-semibold">{rule.description}</span> - edit the date or amount below if the guess is off.</>);
+      setReloadTick((t) => t + 1);
+    } catch (err) {
+      console.error(err);
+      toast.error("Couldn't schedule that charge.");
+    }
+  };
+
+  const upcomingRef = useRef<HTMLElement | null>(null);
+  const rulesRef = useRef<HTMLDetailsElement | null>(null);
+  const [ruleFormRequest, setRuleFormRequest] = useState<{ tick: number; income: boolean }>({ tick: 0, income: false });
+
+  const handleAction = (a: NextAction) => {
+    if (a.anchor === "payoff" && debtContext) setPayoffOpen(true);
+    else if (a.anchor === "detected") upcomingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    else if (a.anchor === "rules") {
+      if (rulesRef.current) rulesRef.current.open = true;
+      setRuleFormRequest((r) => ({ tick: r.tick + 1, income: a.key === "add_income" }));
+      rulesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
+
   const forecast = useMemo(() => {
     if (!inputs) return null;
     const today = new Date();
@@ -130,9 +195,10 @@ export default function PlanPage() {
     const { days, endDate, usedFallback } = resolveForecastWindow(allEvents, today, planWindow);
     const events = allEvents.filter((e) => e.date <= endDate);
 
-    // The only per-day outflow is whatever the user is explicitly simulating - the forecast
-    // never invents a spending rate of its own.
-    const dailySpendCents = Math.round(extraSpendCents / days);
+    // Per-day outflow = the user's typical spending (when opted in) plus whatever extra they're
+    // simulating - the forecast still never invents a rate the user hasn't accepted.
+    const baselineDaily = useBaseline && baselineIsUsable(inputs.baseline) ? inputs.baseline.dailySpendCents : 0;
+    const dailySpendCents = baselineDaily + Math.round(extraSpendCents / days);
 
     return {
       result: projectCashFlow({
@@ -147,10 +213,11 @@ export default function PlanPage() {
       endDate,
       usedFallback,
       events,
+      baselineDailyCents: baselineDaily,
       /** Scheduled items falling just outside the window, so the UI can point at the next one. */
       laterEvents: allEvents.filter((e) => e.date > endDate),
     };
-  }, [inputs, planWindow, extraSpendCents, bufferCents, includeDetected]);
+  }, [inputs, planWindow, extraSpendCents, bufferCents, includeDetected, useBaseline]);
 
   // Kept in cents: formatAxisCurrency and formatCurrency both expect cents, and converting to
   // dollars here made the axis render $1,500 as "$15".
@@ -238,6 +305,10 @@ export default function PlanPage() {
   const low = result.lowPoint;
   const short = result.firstShortfall;
   const windowDays = forecast!.days;
+  const baselineDaily = forecast!.baselineDailyCents;
+  /** Whole-window totals for the waterfall; extra absorbs the per-day rounding remainder. */
+  const typicalSpendTotal = baselineDaily * windowDays;
+  const extraSpendTotal = result.assumedSpendCents - typicalSpendTotal;
   const incomeCount = forecast!.events.filter((e) => e.amountCents > 0).length;
   const billCount = forecast!.events.filter((e) => e.amountCents < 0).length;
   const windowLabel =
@@ -246,78 +317,99 @@ export default function PlanPage() {
     : "the rest of this month";
 
   return (
-    <div className="p-8 max-w-5xl mx-auto space-y-6">
-      {header}
+    <motion.div
+      className="workspace-page plan-workspace"
+      variants={staggerContainer} initial="hidden" animate="show"
+    >
+      <div className="workspace-heading plan-heading">
+        <div>
+          <h1 className="text-2xl font-semibold">Plan</h1>
+          <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1 max-w-lg">
+            {formatDate(toISODate(new Date()))} to {formatDate(forecast!.endDate)}
+          </p>
+        </div>
+        <div className="shrink-0">
+          <div className="flex gap-1 border rounded-lg p-1 w-fit" role="group" aria-label="Forecast window">
+            {WINDOWS.map((w) => (
+              <button
+                key={w.id}
+                onClick={() => setWindowPersisted(w.id)}
+                aria-pressed={planWindow === w.id}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                  planWindow === w.id
+                    ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
+                    : "hover:bg-[hsl(var(--muted))]"
+                }`}
+              >
+                {w.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-1.5 text-right">
+            {windowDays} days · {inputs.checkingAccountCount} checking account{inputs.checkingAccountCount === 1 ? "" : "s"}
+          </p>
+        </div>
+      </div>
 
       {/* ── Headline ─────────────────────────────────────────────────────── */}
-      <section
-        className="border rounded-2xl p-6"
-        style={{ borderColor: short ? "hsl(var(--error))" : "hsl(var(--success))" }}
+      {/* All-good stays quiet (default border) so the red shortfall state is salient by scarcity. */}
+      <motion.section
+        variants={riseIn}
+        className="plan-summary"
+        style={{ borderColor: short ? "hsl(var(--error))" : undefined }}
       >
         <div className="flex items-start gap-4">
           <span
             className="w-11 h-11 rounded-full flex items-center justify-center shrink-0"
-            style={{ backgroundColor: short ? "hsl(var(--error)/0.12)" : "hsl(var(--success)/0.12)" }}
+            style={{ backgroundColor: result.safeToSpendCents < 0 ? "hsl(var(--error)/0.12)" : "hsl(var(--muted))" }}
           >
-            {short
+            {result.safeToSpendCents < 0
               ? <AlertTriangle size={22} style={{ color: "hsl(var(--error))" }} />
-              : <TrendingUp size={22} style={{ color: "hsl(var(--success))" }} />}
+              : <TrendingUp size={22} style={{ color: "hsl(var(--muted-foreground))" }} />}
           </span>
           <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1">
-              {formatDate(toISODate(new Date()))} – {formatDate(forecast!.endDate)} · {windowDays} day{windowDays === 1 ? "" : "s"}
-            </p>
             <h2 className="text-xl font-semibold">
               {short
-                ? `You're projected to run short on ${formatDate(short.date)}`
-                : `You stay above zero through ${windowLabel}`}
+                ? `Cash shortfall on ${formatDate(short.date)}`
+                : result.safeToSpendCents < 0 ? "Your reserved cushion is at risk"
+                : `Covered through ${windowLabel}`}
             </h2>
             {forecast!.usedFallback && (
               <p className="text-xs mt-1" style={{ color: "hsl(var(--warning))" }}>
-                No income is scheduled yet, so this is showing the rest of the month instead.
+                No paycheck scheduled. Showing month-end.
               </p>
             )}
             <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">
-              {short ? (
-                <>
-                  That's {daysFromToday(short.date)} days out, at about {formatCurrency(short.balanceCents)}.
-                  Scheduling more of your income below, or moving a bill, changes this.
-                </>
-              ) : result.nextIncome ? (
-                <>
-                  Your next scheduled income is {formatCurrency(result.nextIncome.amountCents)} on{" "}
-                  {formatDate(result.nextIncome.date)} - and you reach it with room to spare.
-                </>
-              ) : (
-                <>Add your paycheck below and this becomes a real answer to "will I make it to payday".</>
-              )}
+              {baselineDaily > 0 ? "Includes typical spending" : "Bills-only forecast · everyday spending excluded"}
             </p>
           </div>
         </div>
 
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
-          <div>
+        <div className="plan-metrics">
+          <div className="plan-primary-metric">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">Safe to spend</p>
-            <p className="text-2xl font-bold tabular-nums mt-1">{formatCurrency(result.safeToSpendCents)}</p>
+            <p className="plan-available tabular-nums" data-testid="safe-to-spend" style={{ color: result.safeToSpendCents < 0 ? "hsl(var(--error))" : undefined }}>
+              {formatCurrency(result.safeToSpendCents)}
+            </p>
             <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">
-              Today, without dipping below your cushion
+              {result.safeToSpendCents < 0 ? "Short of your cash cushion" : "Above your reserved cushion"}
             </p>
           </div>
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] flex items-center gap-1">
-              After bills
-              <InfoTooltip text="The income arriving in this window minus the bills scheduled against it - what's left over to live on and save. Compass doesn't guess at your day-to-day spending, so nothing else is subtracted here." />
+              Scheduled margin
+              <InfoTooltip text="Scheduled income minus bills in this window, before everyday spending." />
             </p>
             <p
               className="text-2xl font-bold tabular-nums mt-1"
-              style={{ color: result.afterBillsCents < 0 ? "hsl(var(--error))" : "hsl(var(--success))" }}
+              style={{ color: result.afterBillsCents < 0 ? "hsl(var(--error))" : undefined }}
             >
               {formatCurrency(result.afterBillsCents)}
             </p>
             <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">
               {result.afterBillsCents < 0
                 ? "Bills exceed the income arriving"
-                : "Income left over to live on and save"}
+                : "Income less bills, before spending"}
             </p>
           </div>
           <div>
@@ -346,7 +438,9 @@ export default function PlanPage() {
 
         {/* Starts from the real balance so it lands on the projected end figure - a flow-only
             version reads as a huge deficit even when the account never goes near zero. */}
-        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 mt-5 pt-4 border-t text-sm tabular-nums">
+        <details className="workspace-disclosure mt-5">
+        <summary>Balance breakdown</summary>
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 pt-4 text-sm tabular-nums">
           <span>{formatCurrency(inputs.startingBalanceCents)}</span>
           <span className="text-[hsl(var(--muted-foreground))] text-xs">now</span>
           <span className="text-[hsl(var(--muted-foreground))]">+</span>
@@ -355,10 +449,17 @@ export default function PlanPage() {
           <span className="text-[hsl(var(--muted-foreground))]">−</span>
           <span style={{ color: "hsl(var(--error))" }}>{formatCurrency(result.totalBillsCents)}</span>
           <span className="text-[hsl(var(--muted-foreground))] text-xs">bills</span>
-          {result.assumedSpendCents > 0 && (
+          {typicalSpendTotal > 0 && (
             <>
               <span className="text-[hsl(var(--muted-foreground))]">−</span>
-              <span style={{ color: "var(--gold)" }}>{formatCurrency(result.assumedSpendCents)}</span>
+              <span>{formatCurrency(typicalSpendTotal)}</span>
+              <span className="text-[hsl(var(--muted-foreground))] text-xs">typical spending</span>
+            </>
+          )}
+          {extraSpendTotal > 0 && (
+            <>
+              <span className="text-[hsl(var(--muted-foreground))]">−</span>
+              <span style={{ color: "var(--gold)" }}>{formatCurrency(extraSpendTotal)}</span>
               <span className="text-[hsl(var(--muted-foreground))] text-xs">what-if spending</span>
             </>
           )}
@@ -386,46 +487,19 @@ export default function PlanPage() {
             . Widen the window to include it.
           </p>
         )}
-      </section>
+        </details>
+      </motion.section>
 
-      {/* ── What-if ──────────────────────────────────────────────────────── */}
-      <section className="border rounded-2xl p-5 space-y-5">
+      {/* ── What-if ────────────────────────────────────────────────────── */}
+      <motion.section variants={riseIn} className="plan-scenarios space-y-5">
         <div>
-          <h2 className="font-semibold text-sm flex items-center gap-1.5"><Wand2 size={14} /> What if…</h2>
-          <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1 max-w-lg">
-            Change the window or try a scenario - the numbers above and the chart below both
-            react. Nothing here is saved or touches your data.
-          </p>
+          <h2 className="font-semibold text-sm flex items-center gap-1.5"><Wand2 size={14} /> Your scenario</h2>
         </div>
 
-        <div>
-          <span className="text-xs font-medium">…I look at</span>
-          <div className="flex gap-1 border rounded-lg p-1 mt-2 w-fit">
-            {WINDOWS.map((w) => (
-              <button
-                key={w.id}
-                onClick={() => setWindowPersisted(w.id)}
-                aria-pressed={planWindow === w.id}
-                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                  planWindow === w.id
-                    ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
-                    : "hover:bg-[hsl(var(--muted))]"
-                }`}
-              >
-                {w.label}
-              </button>
-            ))}
-          </div>
-          <span className="block text-[11px] text-[hsl(var(--muted-foreground))] mt-1.5">
-            Sets the window every number on this page is calculated over - currently{" "}
-            {formatDate(toISODate(new Date()))} to {formatDate(forecast!.endDate)}.
-          </span>
-        </div>
-
-        <div className="grid sm:grid-cols-2 gap-5">
+        <div className="grid gap-6">
           <label className="block">
             <span className="text-xs font-medium">
-              …I spend an extra{" "}
+              Extra spending{" "}
               <span className="tabular-nums" style={{ color: "var(--gold)" }}>{formatCurrency(extraSpendCents)}</span>
             </span>
             <input
@@ -435,16 +509,13 @@ export default function PlanPage() {
               className="w-full mt-2 accent-[hsl(var(--primary))]"
             />
             <span className="text-[11px] text-[hsl(var(--muted-foreground))]">
-              Day-to-day spending isn't in the forecast at all, so use this to try some
-              {extraSpendCents > 0
-                ? <> - {formatCurrency(Math.round(extraSpendCents / windowDays))} a day across the {windowDays}-day window</>
-                : <> across the whole {windowDays}-day window</>}.
+              {formatCurrency(Math.round(extraSpendCents / windowDays))}/day over {windowDays} days
             </span>
           </label>
 
           <label className="block">
             <span className="text-xs font-medium">
-              …I set aside{" "}
+              Keep in reserve{" "}
               <span className="tabular-nums" style={{ color: "var(--gold)" }}>{formatCurrency(bufferCents)}</span>
             </span>
             <input
@@ -454,17 +525,34 @@ export default function PlanPage() {
               className="w-full mt-2 accent-[hsl(var(--primary))]"
             />
             <span className="text-[11px] text-[hsl(var(--muted-foreground))]">
-              Money you're saving rather than spending. Comes off "safe to spend" and shows as a
-              line on the chart; it doesn't change the projection itself.
+              Protected cash, not an expense
             </span>
           </label>
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t pt-4">
-          <label className="flex items-center gap-2 text-xs font-medium cursor-pointer select-none">
-            <input type="checkbox" checked={includeDetected} onChange={(e) => setIncludeDetected(e.target.checked)} />
-            Include {inputs.detected.length} charge{inputs.detected.length === 1 ? "" : "s"} detected from my history
-          </label>
+        <div className="flex items-start justify-between gap-3 border-t pt-4">
+          <div className="space-y-2.5">
+            {inputs.baseline && (
+              <label className={`flex items-center gap-2 text-xs font-medium select-none ${baselineIsUsable(inputs.baseline) ? "cursor-pointer" : "opacity-60"}`}>
+                <input
+                  type="checkbox"
+                  checked={useBaseline && baselineIsUsable(inputs.baseline)}
+                  disabled={!baselineIsUsable(inputs.baseline)}
+                  onChange={(e) => setUseBaseline(e.target.checked)}
+                />
+                <span>
+                  Include my typical spending
+                  {baselineIsUsable(inputs.baseline)
+                    ? <> <span className="tabular-nums">({formatCurrency(inputs.baseline.dailySpendCents)}/day)</span></>
+                    : <span className="text-[hsl(var(--muted-foreground))]"> - needs about a month of imported history first</span>}
+                </span>
+              </label>
+            )}
+            {inputs.detected.length > 0 && <label className="flex items-center gap-2 text-xs font-medium cursor-pointer select-none">
+              <input type="checkbox" checked={includeDetected} onChange={(e) => setIncludeDetected(e.target.checked)} />
+              Include {inputs.detected.length} detected bills
+            </label>}
+          </div>
           {(extraSpendCents > 0 || bufferCents > 0) && (
             <button
               onClick={() => { setExtraSpendCents(0); setBufferCents(0); }}
@@ -475,14 +563,13 @@ export default function PlanPage() {
             </button>
           )}
         </div>
-      </section>
+      </motion.section>
 
-      {/* ── Projection chart ─────────────────────────────────────────────── */}
-      <section className="border rounded-2xl p-5" id="plan-chart">
+      {/* ── Projection chart ────────────────────────────────────────────── */}
+      <motion.section variants={riseIn} className="plan-chart" id="plan-chart">
         <h2 className="font-semibold text-sm mb-1">Projected checking balance</h2>
         <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">
-          The blue line drops at bills and jumps at income. The red band is the bills still ahead
-          of you - it only steps when one is actually due.
+          {result.nextIncome ? `Next income: ${formatCurrency(result.nextIncome.amountCents)} on ${formatDate(result.nextIncome.date)}` : "No income scheduled"}
         </p>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
@@ -537,7 +624,7 @@ export default function PlanPage() {
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-0.5 rounded" style={{ backgroundColor: "hsl(var(--error))" }} />
             Bills still due
-            <InfoTooltip text="At any point on the chart, the total of scheduled bills still to be paid before the window ends. It steps down only when a bill is actually due. Where the blue line sits above this band, the gap is what's left to live on and save." />
+            <InfoTooltip text="Scheduled bills remaining in this window. This is not available cash: future income and everyday spending also affect your balance." />
           </span>
           {bufferCents > 0 && (
             <span className="flex items-center gap-1.5">
@@ -546,53 +633,58 @@ export default function PlanPage() {
             </span>
           )}
         </div>
-        <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-2">
-          Built only from the scheduled bills and income below - Compass never assumes spending
-          you haven't told it about. Add anything missing under What's coming.
-        </p>
-      </section>
+      </motion.section>
 
-      {/* ── What to do next ──────────────────────────────────────────────── */}
+      {/* ── What to do next ─────────────────────────────────────────────── */}
       {nextActions.length > 0 && (
-        <section className="border rounded-2xl p-5">
-          <h2 className="font-semibold text-sm mb-1">What to do next</h2>
-          <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">
-            The rest of Compass tells you what happened. This is what you could do about it.
-          </p>
+        <motion.section variants={riseIn} className="plan-actions">
+          <h2 className="font-semibold text-sm mb-3">Next steps</h2>
           <div className="space-y-2">
-            {nextActions.map((a) => (
-              <div key={a.key} className="border rounded-xl px-4 py-3 flex items-start gap-3">
-                <span
-                  className="w-1.5 h-1.5 rounded-full shrink-0 mt-2"
-                  style={{ backgroundColor: ACTION_TONE[a.tone].color }}
-                />
-                <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: ACTION_TONE[a.tone].color }}>
-                    {ACTION_TONE[a.tone].label}
-                  </p>
-                  <p className="text-sm font-medium mt-0.5">{a.title}</p>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1 leading-relaxed">{a.detail}</p>
-                </div>
-              </div>
-            ))}
+            {nextActions.map((a) => {
+              const clickable = !!a.anchor && (a.anchor !== "payoff" || !!debtContext);
+              const inner = (
+                <>
+                  <span
+                    className="w-1.5 h-1.5 rounded-full shrink-0 mt-2"
+                    style={{ backgroundColor: ACTION_TONE[a.tone].color }}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: ACTION_TONE[a.tone].color }}>
+                      {ACTION_TONE[a.tone].label}
+                    </p>
+                    <p className="text-sm font-medium mt-0.5">{a.title}</p>
+                  </div>
+                  {clickable && <ChevronRight size={16} className="shrink-0 self-center text-[hsl(var(--muted-foreground))]" />}
+                </>
+              );
+              return <div key={a.key} className="plan-action-row">{clickable ? (
+                <button
+                  onClick={() => handleAction(a)}
+                  className="w-full text-left py-3 flex items-start gap-3 transition-colors
+                             hover:bg-[hsl(var(--muted))] active:scale-[0.99]"
+                >
+                  {inner}
+                </button>
+              ) : (
+                <div className="py-3 flex items-start gap-3">{inner}</div>
+              )}<details className="workspace-disclosure text-xs"><summary>Why this matters</summary><p className="py-2 text-[hsl(var(--muted-foreground))]">{a.detail}</p></details></div>;
+            })}
           </div>
-        </section>
+        </motion.section>
       )}
 
-      {/* ── Put the surplus to work ──────────────────────────────────────── */}
+      {/* ── Put the surplus to work ────────────────────────────────────── */}
       {payoff && debtContext && (
-        <section className="border rounded-2xl p-5" style={{ borderColor: "var(--gold)" }}>
+        <motion.section variants={riseIn} className="plan-payoff">
           <h2 className="font-semibold text-sm flex items-center gap-1.5">
             <Landmark size={14} style={{ color: "var(--gold)" }} /> Put your spare money to work
           </h2>
           <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1 max-w-xl">
-            Your scheduled income and bills leave about{" "}
+            Scheduled monthly margin:{" "}
             <span className="font-semibold" style={{ color: "var(--gold)" }}>
               {formatCurrency(monthlySurplusCents)}
             </span>{" "}
-            a month spare. You owe {formatCurrency(debtContext.plan.totalDebtCents)} across{" "}
-            {debtContext.debts.length} account{debtContext.debts.length === 1 ? "" : "s"} - here's what
-            happens if that spare money goes there instead.
+            before everyday spending. Debt: {formatCurrency(debtContext.plan.totalDebtCents)}.
           </p>
 
           <div className="grid sm:grid-cols-3 gap-4 mt-5">
@@ -605,7 +697,7 @@ export default function PlanPage() {
             </div>
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--gold)" }}>
-                Adding your surplus
+                Redirecting that margin
               </p>
               <p className="text-xl font-bold tabular-nums mt-1" style={{ color: "var(--gold)" }}>
                 {payoff.withSurplus.payoffDate ?? "Never"}
@@ -634,14 +726,14 @@ export default function PlanPage() {
           >
             Build a payoff plan
           </button>
-        </section>
+        </motion.section>
       )}
 
-      {/* ── Bill calendar ────────────────────────────────────────────────── */}
-      <section className="border rounded-2xl p-5">
-        <h2 className="font-semibold text-sm mb-1">What's coming</h2>
+      {/* ── Bill calendar ──────────────────────────────────────────────── */}
+      <motion.section variants={riseIn} className="plan-upcoming" ref={upcomingRef}>
+        <h2 className="font-semibold text-sm mb-1">Upcoming cash flow</h2>
         <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">
-          Everything the forecast above is counting on, in order.
+          {incomeCount} deposits · {billCount} bills
         </p>
 
         {forecast!.events.length === 0 ? (
@@ -657,7 +749,7 @@ export default function PlanPage() {
                 </p>
                 <div className="space-y-1.5">
                   {group.events.map((e) => (
-                    <div key={e.key} className="flex items-center gap-3 border rounded-lg px-3 py-2 group">
+                    <div key={e.key} className="flex items-center gap-3 border-b py-3 group">
                       <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: e.categoryColor ?? "hsl(var(--neutral))" }} />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate">{e.description}</p>
@@ -665,7 +757,7 @@ export default function PlanPage() {
                           {formatDate(e.date)}
                           {e.source === "detected" && (
                             <span className="ml-1.5 inline-flex items-center gap-1 text-[hsl(var(--warning))]">
-                              <Sparkles size={9} /> detected, not confirmed
+                              <Sparkles size={12} /> Estimated
                             </span>
                           )}
                         </p>
@@ -678,17 +770,26 @@ export default function PlanPage() {
                       </span>
                       {/* Space is reserved on every row, not just hideable ones, so amounts stay
                           aligned down the column. */}
-                      <span className="w-4 shrink-0 flex justify-end">
+                      <span className="w-16 shrink-0 flex justify-end gap-1">
                         {e.source === "detected" && (
-                          <button
-                            onClick={() => handleHide(e.description)}
-                            aria-label={`Hide ${e.description}`}
-                            title="Not a real bill - hide it from the forecast and subscriptions"
-                            className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))]
-                                       opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
-                          >
-                            <EyeOff size={14} />
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handleConfirm(e.description)}
+                              aria-label={`Confirm ${e.description} as a scheduled bill`}
+                              title="This is a real bill - schedule it so the forecast stops guessing"
+                              className="workspace-icon text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--success))]"
+                            >
+                              <CalendarPlus size={14} />
+                            </button>
+                            <button
+                              onClick={() => handleHide(e.description)}
+                              aria-label={`Hide ${e.description}`}
+                              title="Not a real bill - hide it from the forecast and subscriptions"
+                              className="workspace-icon text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))]"
+                            >
+                              <EyeOff size={14} />
+                            </button>
+                          </>
                         )}
                       </span>
                     </div>
@@ -707,9 +808,16 @@ export default function PlanPage() {
             </button>
           </p>
         )}
-      </section>
+      </motion.section>
 
-      <RecurringRulesPanel profileId={profileId} onChanged={() => setReloadTick((t) => t + 1)} />
+      <motion.details variants={riseIn} ref={rulesRef} className="workspace-disclosure plan-rules">
+        <summary>Manage scheduled bills &amp; income</summary>
+        <RecurringRulesPanel
+          profileId={profileId}
+          onChanged={() => setReloadTick((t) => t + 1)}
+          openFormRequest={ruleFormRequest}
+        />
+      </motion.details>
 
       {payoffOpen && debtContext && (
         <DebtPayoffModal
@@ -720,6 +828,6 @@ export default function PlanPage() {
           onClose={() => setPayoffOpen(false)}
         />
       )}
-    </div>
+    </motion.div>
   );
 }

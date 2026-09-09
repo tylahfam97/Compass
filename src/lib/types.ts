@@ -170,6 +170,7 @@ export interface Transaction {
 
 export interface Category {
   id: number;
+  sort_order?: number;
   name: string;
   parent_id: number | null;
   color: string;

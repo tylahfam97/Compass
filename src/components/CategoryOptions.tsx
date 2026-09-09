@@ -3,7 +3,7 @@ import { TRANSFER_CATEGORY_ID, EXCLUDED_CATEGORY_ID } from "@/lib/types";
 
 /**
  * Renders <optgroup> sections for excluded, user-created, and system categories, each
- * sorted alphabetically. Drop this inside any <select> that shows a category list —
+ * sorted by saved order, then alphabetically. Drop this inside any <select> that shows a category list —
  * pass the already-filtered category array.
  *
  * Accepts the full Category type or any subset that includes id, name,
@@ -13,6 +13,7 @@ interface CategoryItem {
   id: number;
   name: string;
   is_system?: boolean;
+  sort_order?: number;
 }
 
 interface CategoryOptionsProps {
@@ -21,7 +22,7 @@ interface CategoryOptionsProps {
 
 export default function CategoryOptions({ categories }: CategoryOptionsProps) {
   const sorted = (arr: CategoryItem[]) =>
-    [...arr].sort((a, b) => a.name.localeCompare(b.name));
+    [...arr].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name));
 
   const items = categories as CategoryItem[];
   const isExcluded = (c: CategoryItem) => c.id === TRANSFER_CATEGORY_ID || c.id === EXCLUDED_CATEGORY_ID;

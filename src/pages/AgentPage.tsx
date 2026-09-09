@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ChevronDown, ChevronRight, CheckCircle, Target, Info, HelpCircle, TrendingUp, TrendingDown, SlidersHorizontal, EyeOff } from "lucide-react";
-import { motion, AnimatePresence, animate, useMotionValue } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
@@ -22,6 +22,8 @@ import type { Insight, Profile, HealthScore, SecurityType, CreditCardHealthScore
 import InsightCarousel from "@/components/InsightCarousel";
 import InfoTooltip from "@/components/InfoTooltip";
 import ClickHint from "@/components/ClickHint";
+import CountUp from "@/components/CountUp";
+import TrendChip from "@/components/TrendChip";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import SpotlightCard from "@/components/SpotlightCard";
 import PinModal from "@/components/PinModal";
@@ -35,21 +37,6 @@ const ROI_SECTION_LABELS: Record<SecurityType, string> = {
   stock: "Stocks", etf: "ETFs", mutual_fund: "Mutual Funds", cash: "Cash", other: "Other",
 };
 const ROI_SECTION_ORDER: SecurityType[] = ["stock", "etf", "mutual_fund", "other", "cash"];
-
-/** Animates a number counting up to `value` on change/mount, using motion's imperative animate(). */
-function CountUp({ value, format }: { value: number; format: (v: number) => string }) {
-  const mv = useMotionValue(0);
-  const [display, setDisplay] = useState(() => format(0));
-  useEffect(() => {
-    const controls = animate(mv, value, {
-      duration: 0.7, ease: "easeOut",
-      onUpdate: (v) => setDisplay(format(v)),
-    });
-    return () => controls.stop();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value]);
-  return <>{display}</>;
-}
 
 /** Small standalone benchmark-based score card (Credit Card Health / Investment Health). */
 function MiniScoreCard({
@@ -384,8 +371,6 @@ function NetWorthCard({
   const first = history[0]?.netWorthCents ?? netWorth.netWorthCents;
   const changeCents = netWorth.netWorthCents - first;
   const changePct = first !== 0 ? (changeCents / Math.abs(first)) * 100 : 0;
-  const isGrowing = changeCents > 0;
-  const isFlat = Math.abs(changeCents) < 100; // under $1 - treat as flat
   const selected = history.find((h) => h.month === selectedMonth) ?? null;
 
   return (
@@ -400,11 +385,8 @@ function NetWorthCard({
               <CountUp value={netWorth.netWorthCents} format={(v) => formatCurrency(Math.round(v))} />
             </p>
           </div>
-          {history.length >= 2 && !isFlat && (
-            <div className={`flex items-center gap-1 text-sm font-semibold ${isGrowing ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
-              {isGrowing ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
-              {formatCurrency(Math.abs(changeCents))} ({Math.abs(Math.round(changePct))}%) this year
-            </div>
+          {history.length >= 2 && (
+            <TrendChip deltaCents={changeCents} pct={changePct} compareLabel="this year" />
           )}
         </div>
 

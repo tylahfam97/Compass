@@ -163,6 +163,12 @@ export default function InsightCard({ insight, onApply, compact = false, variant
   return (
     <div
       onClick={() => setExpanded((v) => !v)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setExpanded((v) => !v); }
+      }}
+      role="button"
+      tabIndex={0}
+      aria-expanded={expanded}
       title={expanded ? "Click to collapse" : "Click for full details"}
       className={`insight-card-hover relative h-full rounded-2xl pl-4 pr-3.5 py-3.5 flex items-start gap-3 shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden cursor-pointer ${CARD_STYLES[insight.severity]}`}
     >

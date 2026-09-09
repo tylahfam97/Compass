@@ -6,7 +6,7 @@ import {
   Wallet, Target, BarChart2, Lightbulb, Globe, ChevronLeft, ChevronRight, MessageSquare, Sparkles, CalendarClock, Settings as SettingsIcon,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { MotionConfig } from "motion/react";
+import { MotionConfig, motion } from "motion/react";
 import DashboardPage from "@/pages/DashboardPage";
 import TransactionsPage from "@/pages/TransactionsPage";
 import TrendsPage from "@/pages/TrendsPage";
@@ -56,7 +56,15 @@ function RoutedContent() {
   const location = useLocation();
   return (
     <ErrorBoundary key={location.pathname}>
-      <Routes>
+      {/* Keyed remount gives an entrance-only fade/rise; no AnimatePresence so navigation is never
+          delayed by an exit animation. MotionConfig suppresses it under reduced motion. */}
+      <motion.div
+        key={location.pathname}
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.16, ease: [0.25, 0.1, 0.25, 1] }}
+      >
+        <Routes>
         <Route path="/overview" element={<div className="py-6"><OverviewPage /></div>} />
         <Route path="/" element={<DashboardPage />} />
         <Route path="/transactions" element={<div className="py-6"><TransactionsPage /></div>} />
@@ -70,6 +78,7 @@ function RoutedContent() {
         <Route path="/agent" element={<div className="py-6"><AgentPage /></div>} />
         <Route path="/settings" element={<div className="py-6"><SettingsPage /></div>} />
       </Routes>
+      </motion.div>
     </ErrorBoundary>
   );
 }

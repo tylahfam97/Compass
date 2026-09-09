@@ -10,6 +10,8 @@ import {
   groupUpcomingEvents,
   toISODate,
   daysFromToday,
+  computeSpendingBaseline,
+  baselineIsUsable,
   type ForecastRule,
   type ForecastEvent,
 } from "./forecast";
@@ -235,9 +237,14 @@ describe("projectCashFlow", () => {
     expect(r.safeToSpendCents).toBe(30_000);
   });
 
-  it("subtracts the buffer from safe-to-spend and never returns a negative", () => {
+  it("shows the signed gap when the low point falls below the buffer", () => {
     const r = projectCashFlow({ ...base, events: [event("2026-08-10", -70_000)], bufferCents: 50_000 });
-    expect(r.safeToSpendCents).toBe(0);
+    expect(r.safeToSpendCents).toBe(-20_000);
+  });
+
+  it("preserves a shortfall below zero without a buffer", () => {
+    const result = projectCashFlow({ ...base, events: [event("2026-08-10", -150_000)] });
+    expect(result.safeToSpendCents).toBe(-50_000);
   });
 
   it("survives an empty window without throwing", () => {
@@ -581,6 +588,15 @@ describe("deriveNextActions", () => {
     expect(actions.some((a) => a.key === "surplus")).toBe(true);
   });
 
+  it("does not suggest moving money reserved by the cushion", () => {
+    const result = projectCashFlow({
+      startingBalanceCents: 500_000, startDate: "2026-08-01", days: 30,
+      events: [], bufferCents: 600_000,
+    });
+    expect(result.safeToSpendCents).toBe(-100_000);
+    expect(deriveNextActions(result, ctx).some((action) => action.key === "surplus")).toBe(false);
+  });
+
   it("names the debt a surplus could go to when there is one", () => {
     const actions = deriveNextActions(forecastWith([], 5_000_000), {
       ...ctx,
@@ -612,5 +628,97 @@ describe("deriveNextActions", () => {
       startingBalanceCents: 100_000, startDate: "2026-08-01", days: 30, events: [], dailySpendCents: 0,
     });
     expect(() => deriveNextActions(r, { ...ctx, dailyOutflowCents: 0 })).not.toThrow();
+  });
+});
+
+describe("computeSpendingBaseline", () => {
+  const today = new Date(2026, 7, 31); // Aug 31 2026
+
+  /** One `amount` expense every `everyDays` days, walking back from yesterday. */
+  function steadySpending(amountCents: number, everyDays: number, totalDays: number) {
+    const txns: { date: string; amount_cents: number }[] = [];
+    for (let d = 1; d <= totalDays; d += everyDays) {
+      const dt = new Date(today);
+      dt.setDate(dt.getDate() - d);
+      txns.push({ date: toISODate(dt), amount_cents: -amountCents });
+    }
+    return txns;
+  }
+
+  it("returns null with no history", () => {
+    expect(computeSpendingBaseline([], today)).toBeNull();
+  });
+
+  it("ignores income rows entirely", () => {
+    expect(computeSpendingBaseline([{ date: "2026-08-15", amount_cents: 250_000 }], today)).toBeNull();
+  });
+
+  it("derives a steady daily rate from steady spending", () => {
+    // $70 every day for 13 weeks -> every week totals $490 -> $70/day.
+    const b = computeSpendingBaseline(steadySpending(7_000, 1, 91), today);
+    expect(b?.dailySpendCents).toBe(7_000);
+    expect(b?.weeksCovered).toBe(13);
+  });
+
+  it("is not dragged up by a single outlier week", () => {
+    const txns = steadySpending(7_000, 1, 91);
+    txns.push({ date: toISODate(new Date(2026, 7, 28)), amount_cents: -90_000 }); // one-off repair
+    const withOutlier = computeSpendingBaseline(txns, today)!;
+    expect(withOutlier.dailySpendCents).toBe(7_000); // median week unchanged
+  });
+
+  it("does not collapse to zero for someone who shops every few days", () => {
+    // $150 every 3 days: a median of DAILY totals would be $0; weekly windows must not be.
+    const b = computeSpendingBaseline(steadySpending(15_000, 3, 91), today)!;
+    expect(b.dailySpendCents).toBeGreaterThan(4_000);
+  });
+
+  it("caps weeksCovered by the history actually present", () => {
+    const b = computeSpendingBaseline(steadySpending(7_000, 1, 21), today)!;
+    expect(b.weeksCovered).toBe(3);
+  });
+
+  it("excludes today's partial day from every window", () => {
+    const quiet = steadySpending(7_000, 1, 91);
+    const withToday = [...quiet, { date: toISODate(today), amount_cents: -500_000 }];
+    expect(computeSpendingBaseline(withToday, today)?.dailySpendCents).toBe(
+      computeSpendingBaseline(quiet, today)?.dailySpendCents
+    );
+  });
+
+  it("gates usability on sample size and coverage", () => {
+    expect(baselineIsUsable(null)).toBe(false);
+    expect(baselineIsUsable({ dailySpendCents: 1_000, txCount: 5, weeksCovered: 13 })).toBe(false);
+    expect(baselineIsUsable({ dailySpendCents: 1_000, txCount: 50, weeksCovered: 2 })).toBe(false);
+    expect(baselineIsUsable({ dailySpendCents: 1_000, txCount: 50, weeksCovered: 6 })).toBe(true);
+  });
+});
+
+describe("deriveNextActions anchors", () => {
+  const today = new Date(2026, 7, 1);
+  const base = projectCashFlow({
+    startingBalanceCents: 5_000_000, startDate: "2026-08-01", days: 30, events: [], dailySpendCents: 2_000,
+  });
+
+  it("points scheduling income at the rules panel", () => {
+    const a = deriveNextActions(base, { hasIncomeRule: false, detectedCount: 0, dailyOutflowCents: 2_000, today });
+    expect(a.find((x) => x.key === "add_income")?.anchor).toBe("rules");
+  });
+
+  it("points detected charges at the calendar", () => {
+    const a = deriveNextActions(base, { hasIncomeRule: true, detectedCount: 2, dailyOutflowCents: 2_000, today });
+    expect(a.find((x) => x.key === "confirm_detected")?.anchor).toBe("detected");
+  });
+
+  it("points a surplus at the payoff flow only when debt exists", () => {
+    const withDebt = deriveNextActions(base, {
+      hasIncomeRule: true, detectedCount: 0, dailyOutflowCents: 2_000, today,
+      topDebt: { name: "Visa", balanceCents: 100_000 },
+    });
+    expect(withDebt.find((x) => x.key === "surplus")?.anchor).toBe("payoff");
+    const noDebt = deriveNextActions(base, {
+      hasIncomeRule: true, detectedCount: 0, dailyOutflowCents: 2_000, today, topDebt: null,
+    });
+    expect(noDebt.find((x) => x.key === "surplus")?.anchor).toBeUndefined();
   });
 });
