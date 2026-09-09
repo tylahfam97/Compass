@@ -1,552 +1,156 @@
 <p align="center">
-  <img src="src-tauri/icons/128x128@2x.png" width="128" alt="Compass" />
+  <img src="src-tauri/icons/128x128@2x.png" width="96" alt="Compass app icon" />
 </p>
 
-# $${\color{#58a6ff}Compass}$$
+# Compass
 
-<p align="center">
-  <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?logo=windows&logoColor=white" alt="Windows 10/11" />
-  <img src="https://img.shields.io/badge/macOS-beta%20%7C%20unsigned-999999?logo=apple&logoColor=white" alt="macOS beta, unsigned" />
-  <img src="https://img.shields.io/badge/built%20with-Tauri%20%7C%20React%20%7C%20Rust%20%7C%20SQLite-informational" alt="Tech stack" />
-  <img src="https://img.shields.io/badge/data-local%20only-brightgreen" alt="Local only" />
-  <img src="https://img.shields.io/badge/telemetry-none-brightgreen" alt="No telemetry" />
-  <img src="https://img.shields.io/badge/account-not%20required-brightgreen" alt="No account" />
-  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT" />
-</p>
+**Personal finance, kept on your computer.**
 
-<p align="center"><i>Export a CSV from your bank. Drop it in. See where your money went.<br>No account. No cloud. No subscription. No judgment.</i></p>
+Import your statements, understand your spending, and plan ahead. Compass is a free, open-source desktop app with no bank login, subscription, or cloud account required.
 
----
+[Download](https://github.com/tylahfam97/Compass/releases/latest) · [Website](https://privatecompass.app) · [Release notes](RELEASE_NOTES.md) · [Report an issue](https://github.com/tylahfam97/Compass/issues)
 
-## 🧭 $${\color{#2ea043}Compass \space 1.0 \space is \space here}$$
+## Get Started
 
-Compass is out of pre-release. The headline of v1.0 is that **Compass now looks forward**: the new
-**[Plan](#-plan--cash-flow-forecast)** tab projects your checking balance to the end of the month,
-to your next paycheck, or 30 days out
-and answers the question people actually have — *do I make it to payday?* It comes with
-what-if sliders, a bill calendar, and a short list of what you could actually do about it.
+1. Install Compass from the [latest release](https://github.com/tylahfam97/Compass/releases/latest).
+2. Try **Demo Mode** to explore with sample data, or create a profile for your own finances.
+3. Export transactions from your bank, open **Import**, and review the detected columns and preview.
+4. Check your categories, set a budget or goal, and add upcoming bills and income in **Plan**.
 
-Alongside it: celebrations when you pay off a debt or hit a net worth milestone, a real recap of
-the month that just ended, full reduce-motion and keyboard-focus support, a way to erase a
-profile's data on request, and errors that no longer fail silently. Full details in
-[RELEASE_NOTES.md](RELEASE_NOTES.md).
+Compass works offline after installation. No bank connection is needed; import another statement whenever you want to bring your data up to date.
 
----
+### Platforms
 
-## 🎉 $${\color{#2ea043}macOS \space is \space HERE!}$$ (Beta)
-
-**Huge one:** Compass now runs on **macOS** — Intel and Apple Silicon, one universal build! 🍎✨
-
-It's brand new and currently **unsigned** (a real Apple Developer ID is on the way), so macOS will throw up a Gatekeeper warning on first launch. Don't worry — it's a two-second fix: right-click the app → **Open** (or run `xattr -cr Compass.app` in Terminal), and you're in. Windows users: nothing changes for you, your builds stay fully signed as always.
-
-Grab it from the [Downloads section below](#installation) or the [website](https://privatecompass.app) — and if you hit anything weird on macOS, [open an issue](../../issues), this is a beta and your feedback shapes how fast it gets rock-solid (and signed!).
-
----
-
-## $${\color{#2ea043}Try \space Demo \space Mode \space —}$$ No Import Needed
-
-**The fastest way to see what Compass does:**
-
-1. [Download and install Compass](#installation) (< 5 MB installer)
-2. Open the app → click **✦ Try Demo Mode** on the dashboard
-3. ~55 realistic sample transactions load instantly across ~3 months, on a demo checking and credit card account
-4. Every feature is fully explorable — including the Plan forecast — with no real data, no risk, no commitment
-
-> *"Try Compass safely with demo data. No account. No import. No commitment."*
-
----
-
-## $${\color{#C08A1C}Why \space Compass \space Exists}$$
-
-Most finance apps ask for your bank login, upload your transactions to their servers, and charge you monthly for the privilege. If you cancel, your data disappears.
-
-**Compass does the opposite.**
-
-Every bank lets you export a CSV of your transactions. Compass reads that file, categorizes your spending, and shows you exactly where your money went — entirely on your own machine. No data ever leaves your device.
-
-- No account to create
-- No subscription to pay
-- No bank login to give
-- No cloud server receiving your transactions
-- No telemetry, no analytics, no tracking of any kind
-
-If you've been avoiding finance apps because you don't trust them with your bank credentials, Compass was built for you.
-
-![Profile selection and app overview](https://github.com/user-attachments/assets/b544e724-ce78-40bd-8146-8a24eaa7d1c0)
-
----
-
-## $${\color{#C08A1C}How \space It \space Compares}$$
-
-| | **Compass** | Monarch / Simplifi | Actual Budget | Firefly III | HomeBank |
-|---|:---:|:---:|:---:|:---:|:---:|
-| **Local-only data** | ✅ | ❌ Cloud | ✅ | ✅ Self-hosted | ✅ |
-| **No account required** | ✅ | ❌ | ❌ | ❌ | ✅ |
-| **Free, no subscription** | ✅ | ❌ $10–20/mo | ✅ Open-source | ✅ Open-source | ✅ |
-| **No bank login** | ✅ | ❌ Required | ❌ Required | ❌ Required | ✅ |
-| **Windows desktop app** | ✅ | ❌ Web only | ✅ | ❌ Web only | ✅ |
-| **Modern UI** | ✅ | ✅ | ✅ | ⚠️ | ❌ |
-| **Guided 6-step import** | ✅ | N/A | ⚠️ | ⚠️ | ⚠️ |
-| **Ghost subscription detection** | ✅ | ⚠️ | ❌ | ❌ | ❌ |
-| **Cash flow forecast** | ✅ | ✅ | ⚠️ | ❌ | ❌ |
-| **Demo mode** | ✅ | ❌ | ❌ | ❌ | ❌ |
-
-**The lane Compass owns:** Simpler than Firefly. Less budgeting-dogmatic than Actual. More modern than HomeBank. More private than Monarch.
-
----
-
-## $${\color{#C08A1C}How \space It \space Works}$$
-
-```
-1. Log into your bank's website → Transactions → Download / Export → CSV
-2. Open Compass → Import → drop in the file
-3. Compass auto-detects date, description, and amount columns
-4. Transactions are imported and categorized automatically
-5. Navigate Dashboard, Reports, Budgets, Goals, and Insights
-```
-
-On your second import from the same bank, Compass remembers the column layout and skips straight to the preview — one click.
-
----
-
-## $${\color{#C08A1C}Key \space Features}$$
-
-### 📥 6-Step Import Wizard
-
-![Step-by-step import wizard](https://github.com/user-attachments/assets/48af06bd-c936-412d-aaf0-eb6297f6c9f9)
-
-A guided import flow that handles any bank's CSV format:
-
-Before the column-mapping steps, Compass asks what you're importing: **Bank Statement**, **Credit Card Statement**, or **Investment / Brokerage**. Bank and credit card statements share the wizard below. Investment statements skip straight to a grouped preview — see [Investments](#-investments) below.
-
-Column detection also recognizes distinctive export formats automatically — American Express's activity export (with its `Extended Details` / `Appears On Your Statement As` columns) is auto-matched and sign-corrected without needing to click the preset button. For credit card imports, Compass also checks whether another profile already tracks a credit card (or has a plausibly-named profile) and offers to switch there instead of mixing it into your current profile — the same smart suggestion used for investments below.
-
-| Step | What happens |
-|---|---|
-| **1 · Find Data** | Auto-detects your header row; adjust with +/− if needed. **Skip to Preview ↗** is always available once you're happy with the columns |
-| **2 · Date** | Pick the date column; Compass parses dates live and warns on invalid values |
-| **3 · Description** | Pick the merchant/payee column with sample values shown |
-| **4 · Amount** | Pick the amount column; supports banks that use separate Debit/Credit columns |
-| **5 · Balance** *(optional)* | Import your running balance to unlock sparklines and balance charts. No balance column in your export? Enter your current balance (as of today, after these transactions) and Compass calculates a running balance backward from it — or leave it blank for a relative running total from $0 |
-| **6 · Preview** | Row count, detected month, 5-row preview — then import |
-
-Returning users whose bank layout was previously saved skip straight to Preview. Duplicate transactions are silently skipped using a content hash. **Batch import:** drop multiple CSVs at once — Compass queues them. At the Preview step, **"⚡ Import All (N files)"** applies your current column settings to every remaining file and imports them automatically without further wizard interaction.
-
-### 🏷️ Automatic Categorization
-
-150+ built-in rules cover Amazon, Walmart, DoorDash, Instacart, Coinbase, Fidelity, DraftKings, and more. Bank-format noise is stripped automatically. Rules now support optional **amount conditions** (min/max dollar value) so you can create precise rules like "ZELLE over $1,000 → Rent". Re-categorize any transaction with one click, and optionally save that correction as a new rule.
-
-The **⚙ Rules** modal has a two-tier editor: a simple "contains" field for everyday use, and an expandable Advanced section with regex support and a cheat-sheet for power users. All your rules can be edited inline.
-
-**Transfers** are reserved for same-institution internal moves (checking ↔ savings). Zelle, Venmo, and Cash App are intentionally left uncategorized so you can create rules that match your actual usage. Credit card payment descriptions ("___ PAYMENT - THANK YOU", used by Amex, Chase, Discover, and others) are automatically filed under Transfers too, so paying off a card balance never inflates your income totals. **Excluded** is a second, general-purpose category for anything else you want left out of your totals (reimbursements, one-off adjustments) without mislabeling it as a transfer - the category picker groups both under their own "Excluded from Debits and Credits" section, above your own categories and the built-in system list.
-
-### 📅 Dashboard & Trends
-
-Your home screen for any month: income, expenses, and net savings as summary cards, a top categories chart, and the 10 most recent transactions. Navigate freely between months. The **Trends** page shows 3, 6, or 12-month income vs. expenses and per-category spending breakdowns, with a **Profile / Global scope toggle** to aggregate across all profiles. Three all-time KPI tiles (Income, Expenses, Net) are always visible regardless of the selected range. A **Cumulative Net** line chart shows the running total of savings month-by-month across all imported history.
-
-### 📋 Reports
-
-Five reports that run automatically — no setup required:
-
-| Report | What it shows |
-|---|---|
-| **Spending by Category** | This period vs last period, with % change, color-coded |
-| **Month over Month** | Income, expenses, and net across your selected date range |
-| **Top Expenses** | Ranked list of the biggest individual transactions |
-| **Most Recurring Payees** | Frequency, average cost, and total paid to each merchant |
-| **👻 Ghost Subscriptions** | Charges landing on the same day of month (or the same "Nth weekday", e.g. 3rd Thursday) 2+ months in a row — your recurring charges, sorted by cost with nothing cut off |
-
-"Spending by Category" also includes a donut chart (top categories plus an "Other" slice) alongside the month-over-month table, so you can see where your money went at a glance instead of only scanning numbers.
-
-Reports support **month navigation** or a **custom date range** with presets: This quarter, Last quarter, Year to date, Last 12 months.
-
-### 💰 Budgets
-
-Set soft spending limits per category — monthly or weekly. Each budget shows a live progress bar, amount spent vs. limit, and an **On pace for $X** projection so you can see a potential overspend before the month ends. No enforcement, no penalties — just awareness. Budgets can be edited in place at any time (category, amount, period, rollover) via the **Edit** button on any budget card — no need to delete and recreate.
-
-**Rollover:** Monthly budgets can opt in to carrying unspent money into the next month, envelope-budgeting style — toggle it on when creating a budget, or flip it later with the **↻ Rollover** button on any existing budget card. Any leftover under your limit shows as a **+$X rolled over** badge and raises that month's effective limit; overspending never carries forward as a debt, it simply resets to zero the next month.
-
-**Global vs. Profile budgets:** A **Profile / Global toggle** at the top-right of the Budgets page lets you switch between views. Profile budgets track spending for the active profile only. Global budgets aggregate transactions across all profiles and are visible to every profile — useful for shared household expenses. Any budget can be flipped between the two scopes after creation with the **↑ Global / ↓ Profile** button on its card. When switching to Global view, Compass walks you through unlocking any PIN-protected profiles so their data is included in the totals.
-
-Budgets and Goals both require a two-step **Delete? / Cancel** confirmation before removing anything.
-
-> **Transfers** (same-institution internal moves) are excluded from all budget totals regardless of scope.
-
-### 🎯 Goals
-
-| Goal Type | Tracks |
-|---|---|
-| **Net Savings** | Monthly net (income − expenses) at or above your target |
-| **Spending Limit** | Category spending at or below your target |
-| **Income Target** | Income at or above your target |
-| **Balance Floor (Buffer)** | Combined checking balance staying at or above a cushion amount |
-| **Debt Paydown** | A specific credit card/loan - or all of them combined - paid down to (or below) a target balance, $0 for full payoff |
-| **Savings Target** | Cumulative positive monthly net saved since the goal was created, toward a lump-sum target |
-
-Each goal shows a progress bar, current vs. target amount, and an "On track ✓" or "Needs attention ⚠" status badge. Goals can be edited in place at any time (name, type, category, target, timeframe) via the **Edit** button on any goal card — no need to delete and recreate.
-
-**🎉 Milestones:** Compass celebrates a handful of real milestones the first time they happen — your net worth going positive, a loan or credit card reaching a $0 balance, or a goal hitting its target — with a small gold confetti burst and a banner. Each one only celebrates once.
-
-### 💡 Insights
-
-![Insights page](https://github.com/user-attachments/assets/962bdee8-a336-43b7-8dca-78c0755576b3)
-
-Automatic analysis surfaced from your data — no configuration required. The page opens with your most vital insights front-and-center.
-
-**Financial Health Score** — A 0–100 score computed from four signals: savings rate (40 pts), budget adherence (30 pts), account balance runway (20 pts), and income stability (10 pts). The score hero card and header pill reflect the **currently active view** (Global = all-profiles aggregated, Profile = active profile only). On first visit each session a tabbed modal opens — the **🌐 Global** tab (golden) and **👤 Profile** tab (blue) let you compare both scores side-by-side before dismissing. Grades: A Excellent · B Good · C Building · D Developing.
-
-**Spotlight Cards** — Up to two of your most actionable insights are promoted to full-width featured cards with inline data visualizations:
-- **StreakTrack** — dot row showing consecutive under-budget months
-- **RateGauge** — gradient track with your recent savings rate (a 3-month average of complete months) vs. the 20% target
-- **PaceMeter** — bar showing this month’s spend pace vs. your normal
-- **BeforeAfterBars** — side-by-side bar comparison for category improvements
-- **RunwaySegments** — segmented track showing months of expenses covered by your balance
-
-Each spotlight card includes a forward-looking **“↗ potential” callout** computed from your actual data — e.g. “Cut expenses by 12% → savings rate reaches 20%”.
-
-**Grouped Accordions (Wins first)** — Insights are grouped into three collapsible sections ordered by psychology, not severity: **Wins** (emerald, expanded by default when you have wins) → **Observations** → **Action Items** (amber, constructive tone). Adaptive expansion ensures you never open the page to a wall of warnings.
-
-**Type-specific icons** — Each insight type has a distinct icon so you can scan at a glance: `Target` for budgets, `%` for rate insights, trend arrows for directional changes, `RefreshCw` for subscriptions, `Calendar` for timing alerts, `Shield` for account safety.
-
-**30+ insight types** including: budget pace, unusual spend spikes, savings rate, overspend streaks, under-budget streaks, ghost subscriptions, redundant spending, top merchants, food delivery %, subscription inventory, paycheck prediction, overdraft alerts, category creep, year-end savings projection, most-improved category, weekend spending pattern, spending velocity, emergency fund runway, bill due soon, expense ratio drift, credit card & loan debt tracking, net worth trend, investment performance, investment income received, and realized gains.
-
-> Your savings rate counts every dollar that went out, including credit card purchases — the card payment itself is treated as a transfer so nothing is counted twice.
-
-Insight wording also varies over time and references your recent history (e.g. "up from $1,200 last month") instead of repeating the exact same sentence every time the same insight fires.
-
-### 🧭 Plan — Cash Flow Forecast
-
-Every other view in Compass describes the past. **Plan** describes what's coming.
-
-It projects your checking balance forward from the bills and income you've
-scheduled, the recurring charges Compass spots in your history, and an estimate of everyday
-spending drawn from your last 3 months — then answers the question people actually have: **do I
-make it to payday?**
-
-Pick the window that matches the question you're asking — **rest of month** (the default), **to
-your next paycheck**, or **the next 30 days**. Every figure on the page recalculates against it,
-and the headline states the exact date range it used so no number is ambiguous.
-
-- **Safe to spend** — what you can spend today without pushing your projected low point below your cushion
-- **Lowest point** — the smallest balance you're projected to hit, and the date you hit it
-- **What to do next** — the one part of Compass that recommends rather than observes: how much to find before a shortfall and what that is per day, a nudge to schedule your paycheck, a warning when your cushion is thin, or a prompt to put a surplus to work
-- **What if…** — change the window, add unplanned spending, or set a cushion aside, and watch the whole projection respond instantly. Nothing is saved
-- **What's coming** — every scheduled bill and paycheck grouped by week, with charges Compass inferred from your history clearly marked as detected rather than confirmed. Hide any that aren't real bills and they drop out of the forecast, the subscription totals and the insights
-- **Scheduled Bills & Income** — add rent, your paycheck, subscriptions; monthly, weekly or every 2 weeks. Reminder-only: nothing ever auto-posts a real transaction
-
-Deliberate limits: checking/debit accounts only (spendable cash is the question being answered),
-at least 2 months of history required before a forecast appears, scheduled bills are removed
-from the everyday-spending estimate so nothing is counted twice, and a detected charge not seen
-for 2 months is treated as cancelled until it reappears.
-
-### 💳 Debt Payoff Dashboard
-
-For any loan or credit card with a balance, Compass builds a full payoff plan instead of just tracking the number. Rank every debt by **Avalanche** (highest interest rate first — saves the most money), **Snowball** (smallest balance first — the fastest visible win), or **Cash-flow First** (highest minimum payment first — frees up monthly cash soonest), then click any account to open its interactive plan:
-
-- **Live redirect slider** — toggle which discretionary categories (Entertainment, Shopping, Subscriptions, and more) to redirect toward debt and drag a slider to see your payoff date, total interest, and monthly cushion recompute instantly — no more picking between three fixed presets
-- **Payoff timeline** — a chart showing each account hitting $0 in sequence under your current plan
-- **Quick-win callout** — a plain-language comparison of avalanche vs. snowball for your specific debts, so you can weigh "cheapest" against "fastest visible progress" for yourself
-- **Progress badges** — "X% paid off since you started tracking this" for any account with enough history, plus 25/50/75% milestone celebrations on the way to $0
-
-### 🔍 Transactions
-
-Full searchable, filterable transaction list. Filter by month or view all-time history (no row cap). Re-categorize in one click, view the running account balance alongside each transaction, and delete a transaction directly from its row (hover to reveal a delete icon, with an inline confirm step) without opening the Edit modal first.
-
-**Sortable column headers** — Click Date, Description, Category, Amount, or Balance to sort. Click again to reverse. An arrow shows the active column and direction.
-
-**Net summary** — Three tiles above the table show **Income**, **Expenses**, and **Net** for the current filtered view.
-
-**Transfers excluded** — Selecting the Transfers or Excluded category shows an inline notice that neither counts toward income or expense totals anywhere in the app, and an info tooltip next to every Income/Expenses total spells out why (so a credit card payment is never confused with a double withdrawal).
-
-**Filter row 1 — date & search:**
-- Filter by month or toggle to **All time**
-- Free-text description search (case-insensitive contains match)
-
-**Filter row 2 — advanced filters:**
-- **Category** — narrow to any specific category, or Uncategorized
-- **All / Income / Expenses** toggle — quickly isolate credits or debits
-- **Amount range** — Min $ and Max $ to find transactions by dollar value
-- **× Clear filters** resets all in one click
-
-**Other actions:**
-- **Edit** any transaction’s date, description, amount, category, or notes
-- **Delete** transactions you don’t need
-- **＋ Add** manual transactions for cash, Venmo, or anything not in a bank export
-- **↓ Export** opens an OS save dialog — choose filename and location; exports exactly the current filtered view as CSV (respects active sort)
-- **✦ Apply Rules to All Transactions** re-checks every transaction against your current rules, including ones already categorized, so a new or edited rule applies retroactively - then system rules fill any remaining uncategorized ones
-- **Drag a CSV or XLSX** onto the Transactions page to jump straight to the import wizard
-
-### 💼 All Accounts Overview
-
-Aggregates all profiles in one place. Each account card shows current balance, a 60-day sparkline, and this month's income/expenses/net. Click any card to jump to that account's dashboard. A **+ Investments** toggle folds each profile's latest portfolio value into a combined net worth figure, or hides it to show liquid cash only.
-
-### 📈 Investments
-
-Import a brokerage portfolio-positions export or a full monthly/quarterly statement — Wells Fargo Advisors (`.csv`/`.xlsx`/`.xls`), Fidelity and Thrivent (`.csv`), Principal 401(k) quarterly statements (`.pdf`), and E\*TRADE / Morgan Stanley client statements (`.pdf`) — and Compass will:
-
-- Detect every section of the statement (Stocks, ETFs, Mutual Funds, Cash, Other) along with each security's individual tax lots, scanning every tab in the workbook to find the one that actually contains the positions table
-- Read the statement's own as-of or period-end date, so importing an older statement files it under the date it actually covers rather than today
-- Pull the period's **transaction activity** — buys, sells, dividends, interest, fees, deposits, withdrawals and transfers — plus the statement's **period totals** (beginning/ending value, change in value, cash balance, realized and unrealized gain)
-- Show a grouped preview with per-section totals before anything is imported, with a **Fix columns** control per section if any field was detected wrong — each option shows how many rows actually have data in it, so you're never guessing
-- Check whether another profile already tracks investments, or has a plausibly-named profile, before offering to create a dedicated **Investments** profile — so brokerage holdings never mix into everyday spending totals
-- Track holdings as dated snapshots, so re-importing a later statement builds a value-over-time history instead of overwriting it — and warn you before re-importing a statement date you already have, instead of silently double-counting it
-
-The Investments page shows KPI tiles (portfolio value, cost basis, unrealized gain/loss, estimated annual dividend income), an allocation donut chart (Stocks/ETFs/Mutual Funds/Cash/Other) with a percentage legend, holdings grouped by symbol with expandable tax-lot detail, and a portfolio value chart once two or more statements have been imported. **Activity** and **Income & Gains** tabs list the statement's own transactions and show dividends and interest actually received by month alongside realized gains.
-
-> "Est. Annual Income" figures reflect the brokerage's projected estimates as of the statement date — not a history of dividends actually paid. Income actually received lives on the **Income & Gains** tab.
-
-### 🔄 In-App Auto-Updates
-
-Check for updates from the sidebar. Updates are cryptographically signed, verified before applying, and never run automatically without your confirmation.
-
----
-
-## $${\color{#C08A1C}Security \space and \space Privacy}$$
-
-This section answers every question a new user should ask before importing financial data into any app.
-
-### Where is my data stored?
-
-Compass stores two files in your OS user profile - the exact folder depends on platform, but the layout is identical:
-
-| File | What it is |
-|---|---|
-| `%APPDATA%\com.compass.app\compass.db` (Windows) or `~/Library/Application Support/com.compass.app/compass.db` (macOS) | Encrypted SQLite database (all your transactions, budgets, goals, and categories) |
-| `%APPDATA%\com.compass.app\compass.key` (Windows) or `~/Library/Application Support/com.compass.app/compass.key` (macOS) | Backup copy of the database encryption key |
-
-Both files are accessible only to your OS user account.
-
-### Is the database encrypted?
-
-Yes. The database is encrypted at rest using **SQLCipher (AES-256)**. The encryption key is a 32-byte random value generated on first launch and stored in your OS's native secure credential store - **Windows Credential Manager** (DPAPI-backed) on Windows, or **Keychain** on macOS - which ties it to your OS user account. The key is never visible to you or to the app's UI — it is loaded by the Rust backend at startup (via the cross-platform `keyring` crate, which picks the right backend automatically) and used only to open the database connection.
-
-A copy of the key is also written to `compass.key` in the app's data folder as a fallback in case the OS credential store loses the entry (e.g. after a profile migration or credential reset). If you delete this file and the credential store entry is also gone, the existing database cannot be reopened — treat it like any other encryption key backup.
-
-### What data leaves my device?
-
-**Nothing financial.** The only network activity Compass performs is:
-
-- **Update check:** A request to the GitHub Releases API to compare version numbers. No personal or financial data is included.
-- **Auto-update download:** The installer binary is downloaded from GitHub Releases if you choose to update.
-
-There is no telemetry, no crash reporting, no analytics, no usage tracking of any kind. The app runs fully offline after installation.
-
-### Does Compass collect telemetry?
-
-No. There is no telemetry SDK, no analytics library, no error reporting service. Compass has zero background network calls except the optional update check described above.
-
-### How do I back up my data?
-
-The easiest way: go to **Settings → Backup & Restore → Export Backup**. This bundles the
-database and its encryption key into a single `.compassbackup` file - restoring it (Settings →
-Restore Backup) validates the file before touching your live data and relaunches the app
-automatically to complete the swap.
-
-Prefer doing it manually? Copy **both** files from the app's data folder (`%APPDATA%\com.compass.app\` on Windows, `~/Library/Application Support/com.compass.app/` on macOS):
-
-- `compass.db` — the encrypted database
-- `compass.key` — the encryption key needed to open it
-
-Keep them together. Restoring only the `.db` file without the matching key file on a machine where the OS credential store no longer has the entry will result in an unreadable database. You can also export all transactions as CSV from the Transactions page (toggle **All time** → **↓ Export CSV**) for a plaintext backup that works anywhere.
-
-### What happens when I uninstall?
-
-The installer removes the application files. Your data file at `%APPDATA%\com.compass.app\` is **not** automatically deleted by the uninstaller — your history is preserved unless you manually delete that folder.
-
-### How do I export all my data?
-
-From the **Transactions** page, toggle **All time** and click **↓ Export CSV**. This exports every transaction across all months in the current profile. Run this for each profile if you have multiple. For a complete, restorable copy (not just transactions), use **Settings → Backup & Restore → Export Backup** instead.
-
-### How do I delete all my data?
-
-**Settings → Erase this profile's data** permanently deletes every transaction, account, budget, goal, scheduled item and custom category for the active profile, leaving your other profiles untouched. It requires a typed confirmation and cannot be undone. To remove everything including the profiles themselves, delete the app's data folder (see above).
-
-### Can the developer see my data?
-
-No. There is no server, no sync, no account, and no mechanism by which anyone other than you can access data stored on your own machine. The developer has no visibility into your financial data at any time.
-
----
-
-## $${\color{#C08A1C}Installation}$$
-
-### Requirements
-- Windows 10 or Windows 11 (64-bit), or macOS 10.15+ (Intel or Apple Silicon) — **macOS builds are beta and currently unsigned** (see note below)
-- No additional software required — WebView2 is installed automatically if missing on Windows
-
-### Download
-Download the latest installer from the [Releases page](../../releases):
-
-| File | Type | Use when |
+| Platform | Download | Requirements |
 |---|---|---|
-| `Compass_x.x.x_x64-setup.exe` | NSIS EXE | Standard interactive installer with directory picker |
-| `Compass_x.x.x_x64_en-US.msi` | Windows Installer | Enterprise/IT deployment, Group Policy |
-| `Compass_x.x.x_universal.dmg` | macOS disk image (beta) | Intel or Apple Silicon Mac |
+| Windows | `.exe` installer or `.msi` package | Windows 10/11, 64-bit; WebView2 is installed if missing |
+| macOS (beta) | Universal `.dmg` | macOS 10.15+; Intel or Apple Silicon |
 
-> **macOS is unsigned for now** — Gatekeeper will say the app "can't be opened" or "is damaged". Right-click the app → **Open**, or run `xattr -cr Compass.app` in Terminal, to launch it anyway. This goes away once Compass is signed with an Apple Developer ID (in progress).
+Check the release notes for signing status and platform-specific installation instructions. Unsigned macOS builds may require approval in **System Settings > Privacy & Security** after the first launch attempt. Only approve a download you trust from the official release page.
 
-### Silent / Automated Installation
-```
-# NSIS EXE — completely silent
-Compass_0.9.0_x64-setup.exe /S
+## What You Can Do
 
-# MSI — silent, no reboot prompt
-msiexec /i Compass_0.9.0_x64_en-US.msi /quiet /norestart
-```
-
----
-
-## $${\color{#C08A1C}How \space To \space Use}$$
-
-### 1 — Try Demo Mode first
-
-Click **✦ Try Demo Mode** on the empty dashboard for an instant, no-risk tour of every feature. Clear it anytime with one click from the Dashboard's *Manage Data* section.
-
-### 2 — Import your first statement
-
-1. Log into your bank's website and export a CSV (usually under *Transactions → Download / Export*)
-2. Open Compass → **Import** → drag and drop the `.csv` file (or browse for it)
-3. The 6-step wizard walks you through column mapping with live previews
-4. Click **Import** — categories are applied automatically
-
-> On your second import from the same bank, the column layout is remembered and pre-filled.
-
-### 3 — Review and correct categories
-
-Go to **Transactions** → click any colored category badge → select the correct category. The change saves instantly. Compass will ask if you want to save a rule so future transactions from the same payee are auto-categorized.
-
-### 4 — Check your Dashboard
-
-- Shows income, expenses, and net savings for the selected month
-- Navigate freely between months with `‹` `›` arrows
-- Top categories chart and recent transactions update live
-
-### 5 — Explore Reports and Insights
-
-**Reports** runs five automatic analyses on your imported data — no setup. **Insights** surfaces patterns like budget pace warnings, detected ghost subscriptions, and top merchant spend. Neither page requires any configuration.
-
-### 6 — Set Budgets and Goals
-
-- **Budgets:** Go to Budgets → pick a category → set a monthly limit. The progress bar fills as you spend, with an on-pace projection. On an empty Budgets page, **Suggest budgets from my spending** builds a starter set from your last 3 months.
-- **Goals:** Go to Goals → pick one of eight goal types (net savings, spending limit, income target, savings target, balance floor, under-budget streak, savings rate habit, or debt paydown) → set a target. Status updates automatically each month.
-
-### 7 — Look ahead with Plan
-
-Go to **Plan** and add your rent, your paycheck and any bill you know is coming under
-*Scheduled Bills & Income*. The forecast above updates immediately, showing your projected
-checking balance, what's safe to spend, and whether you make it to your next payday. Adding your
-income matters most — without it the projection only ever slopes downward.
-
-### 8 — Clear Data
-
-On the **Dashboard**, scroll to the *Manage Data* section:
-- **Clear [month]** — removes all transactions for the selected month only
-- **Clear all transactions** — removes everything (confirmation required)
-
-To erase a profile completely — accounts, budgets, goals, scheduled items and custom categories,
-not just transactions — use **Settings → Erase this profile's data**. It requires a typed
-confirmation and cannot be undone, so export a backup first.
-
----
-
-## $${\color{#C08A1C}Known \space Limitations}$$
-
-Being transparent about what Compass does not do helps you decide if it's the right tool.
-
-| Limitation | Notes |
+| Workspace | Purpose |
 |---|---|
-| **macOS is beta/unsigned** | Windows builds are signed; macOS builds aren't code-signed or notarized yet — right-click → Open (or `xattr -cr`) on first launch. Linux isn't supported yet. |
-| **Bank/credit import is CSV or XLSX** | No direct bank connections, no OFX/QIF. Loan statements and investment/brokerage statements also accept PDF (Wells Fargo Advisors, Fidelity, Thrivent, Principal, and E\*TRADE / Morgan Stanley). |
-| **No mobile app** | Desktop only |
-| **Single currency** | Multi-currency not supported |
-| **No shared accounts** | No collaborative or family access features |
-| **Manual cash entries** | Cash transactions must be added individually |
-| **Recurring transactions are reminder-only** | Scheduling a bill/income ahead of time (Plan → Scheduled Bills & Income) feeds the forecast but never auto-posts a real transaction - you still add/edit it yourself |
-| **The forecast covers checking/debit only** | Credit card balances aren't projected - Plan answers "will I make it to payday", which is a question about spendable cash |
+| **Dashboard** | Review the selected month's income, expenses, savings, and recent activity. |
+| **Transactions** | Search, filter, sort, edit, and categorize transactions; make bulk changes or export the filtered view as CSV. |
+| **Trends & Reports** | Compare periods, examine category and merchant spending, and review recurring charges. |
+| **Budgets & Goals** | Set weekly or monthly limits, enable monthly rollover, and track savings, spending, balance, and debt targets. |
+| **Insights** | Start with expanded, full-width financial context and scores, followed by Action Items, Observations, and Wins. |
+| **Plan** | Forecast checking cash flow, review upcoming bills and income, and explore what-if spending and cushion adjustments. |
+| **Investments** | Track dated portfolio snapshots, allocation, holdings, statement activity, and income and gains. |
+| **All Accounts** | Review balances across profiles, with an option to include investments. |
 
-If a limitation is blocking you, [open an issue](../../issues) — user feedback directly shapes the roadmap.
+The desktop workspace supports light and dark themes, keyboard navigation, and reduced motion. Profiles keep financial histories separate; supported **Global** views combine unlocked profiles.
 
----
+### Statement Import
 
-## $${\color{#C08A1C}Building \space from \space Source}$$
+- **Bank and credit card transactions:** CSV and spreadsheet imports with guided column mapping, previews, saved layouts, and duplicate detection. Batch import handles multiple files.
+- **Automatic categorization:** Built-in rules plus editable custom rules, including optional amount conditions and advanced matching.
+- **Investments:** Supported exports include Wells Fargo Advisors, Fidelity, and Thrivent; supported PDF statements include Principal 401(k) and E*TRADE / Morgan Stanley. Format support varies by institution and statement type.
+- **Loans:** Import supported loan statements or manage account details such as interest rate and minimum payment.
+
+Review imported balances and categories against your statement. Transfers and the **Excluded** category do not count toward income or expenses; credit card payments are treated as transfers to avoid counting them twice.
+
+### Financial Context and Planning
+
+Insights brings financial context and health scores to the top of the page, with review items underneath. Scores and patterns are calculated locally from your available data, not by a cloud AI service. Limited history is identified rather than treated as a complete assessment.
+
+Plan projects spendable checking cash over the rest of the month, to your next paycheck, or for the next 30 days. It combines scheduled bills and income, detected recurring charges, and historical spending to estimate **safe to spend** and your **projected lowest balance**. A forecast requires at least two months of history.
+
+Debt payoff tools compare **Avalanche**, **Snowball**, and **Cash-flow First** strategies and let you explore redirecting spending toward repayment. These are estimates, not promises or financial advice.
+
+## Privacy and Data Safety
+
+Your financial records stay local. Compass has no telemetry, analytics, or cloud sync. Update checks and downloads contact GitHub; they do not upload your financial records. Installing an update requires your confirmation.
+
+### Storage and Encryption
+
+Compass uses an encrypted SQLite database through **SQLCipher (AES-256)**. The Rust backend retrieves the encryption key from Windows Credential Manager or macOS Keychain, with a fallback key file in the app data directory.
+
+| Platform | App data directory |
+|---|---|
+| Windows | `%APPDATA%\com.compass.app\` |
+| macOS | `~/Library/Application Support/com.compass.app/` |
+
+The directory contains `compass.db` and `compass.key`. **The key file can unlock the database: protect both files and any backups.** Database encryption is not a substitute for securing your OS account and device.
+
+### Backup, Export, and Restore
+
+- **Full backup:** Use **Settings > Backup & Restore > Export Backup** to create a `.compassbackup` file. It includes the database and its encryption key, so treat it as sensitive financial data and store it securely.
+- **Restore:** Use **Restore Backup** in Settings. Compass validates the backup and relaunches to complete restoration.
+- **CSV export:** In Transactions, select **All time**, clear filters, and export. Repeat for each profile. CSV exports are plaintext and do not include all app settings or account data.
+- **Manual backup:** Close Compass before copying both `compass.db` and `compass.key`. The database alone is not a portable backup without its matching key.
+
+**Settings > Erase this profile's data** permanently removes the active profile's financial data after typed confirmation, without erasing other profiles. Back up first. Uninstalling is not a data-erasure method; remove the app data directory separately if you intend to delete the local files.
+
+## Current Limits
+
+- Desktop only: Windows and macOS beta; no mobile app or supported Linux release.
+- No live bank connections, cloud sync, or collaborative access.
+- Single-currency tracking; no multi-currency conversion.
+- Bank transaction imports do not support OFX/QIF or arbitrary statement PDFs.
+- Scheduled bills and income feed the forecast but never create real transactions automatically.
+- Cash-flow forecasts cover checking/debit accounts, not projected credit card balances.
+- Results depend on statement coverage, correct categories, and up-to-date balances. Always verify important figures with your financial institution.
+
+## Development
+
+Built with **Tauri 2, React 19, TypeScript, Rust, and SQLite**, using Vite, Tailwind CSS, Zustand, and Recharts.
 
 ### Prerequisites
-- [Node.js v20+](https://nodejs.org)
-- [Rust](https://rustup.rs)
 
-```bash
+- [Node.js 24+](https://nodejs.org/) and npm.
+- [Rust](https://rustup.rs/) with the stable toolchain.
+- [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/), including C++ Build Tools and WebView2 on Windows, or Xcode Command Line Tools on macOS.
+
+```sh
 git clone https://github.com/tylahfam97/Compass.git
 cd Compass
-npm install
-npm run tauri dev       # development mode with hot reload
-npm run tauri build     # production build → src-tauri/target/release/bundle/
+npm ci
+npm run tauri dev
 ```
 
----
+Use the Tauri command for the working desktop app. `npm run dev` starts only the Vite frontend; native database and OS integrations require Tauri.
 
-## $${\color{#C08A1C}Roadmap}$$
+### Build and Test
 
-Compass is focused on one thing: making it easy to understand your personal finances privately, locally, and without friction.
+```sh
+# Type-check and build the frontend
+npm run build
 
-### ✅ Phase 1 — Core *(complete)*
-Statement import · Import history + undo · Auto-categorization · Edit/add/delete transactions · CSV export · Spending trends · Budgets with on-pace projection · Goals · Reports with custom date ranges · Insights · Ghost subscriptions · Running balance · All-accounts overview · Smart categorization rules · In-app auto-updates · Demo mode · Batch import · Collapsible sidebar · Profile switcher on launch · Investment portfolio tracking with net worth toggle
+# Unit tests
+npm test
 
-### ✅ Phase 2 — AI Insights *(complete)*
-Automatic insight generation (budget gaps, unusual spending, savings rate, overspend streaks, low balance alerts) with varied, history-aware phrasing · Categorization rules engine with priority ordering · Interactive Debt Payoff Dashboard with Avalanche/Snowball/Cash-flow ranking, a live redirect slider, payoff timeline, and quick-win snowball/avalanche comparisons · Budget rollover · Investment allocation & category spending donut charts · Milestone celebrations, including partial debt-payoff progress
+# Install the browser once, then run end-to-end tests
+npx playwright install chromium
+npm run test:e2e
 
-### ✅ Phase 3 — v1.0 *(complete)*
-The goal was to round out the app's remaining rough edges and make it a financial companion rather than a budgeting tool.
+# Build the desktop application and installers
+npm run tauri build
+```
 
-**The headline: Compass looks forward.**
-- **Plan** — a cash flow forecast projecting your checking balance 30/60/90 days out, with safe-to-spend, your projected low point, what-if sliders, a bill calendar, and a "what to do next" list that recommends rather than just observes
-- **Last month in review** — the new-month greeting now recaps the month that ended: in, out, what you kept, how spending compared, where it went, and how many budgets you held
-- **Milestone celebrations** — debts paid off, net worth milestones from $1K to $1M, goals reached, budgets held for a full month, and Health Score grade improvements, each celebrated once
+Desktop bundles are written to `src-tauri/target/release/bundle/`. Distribution signing and release publishing require additional credentials and release configuration.
 
-**Trust and polish:**
-- **Failures are no longer silent** — a page that fails to load now says so and offers to retry, instead of showing an empty screen
-- **Accessibility** — full reduce-motion support (system setting plus an in-app override), keyboard focus trapped in dialogs and restored on close, and labelled icon buttons
-- **Erase a profile's data** — permanently delete everything belonging to one profile, with a typed confirmation
-- **Faster on long histories** — added the database indexes that were missing for profile-scoped queries
-- **Suggested budgets** — build a starter set from your last 3 months instead of facing a blank page
+### Repository Layout
 
-**Earlier in the v1.0 cycle:**
-- **E\*TRADE / Morgan Stanley statement import** — reads a full client statement PDF: holdings, the period's trade/dividend/transfer activity, and the statement's own period totals, dated by the statement rather than by today
-- **Investment activity & income tracking** — Activity and Income & Gains views showing what actually happened in an account, including dividends and interest genuinely received rather than only the brokerage's projection
-- **Multi-account investment fix** — accounts on different statement schedules (a quarterly 401(k) alongside a monthly brokerage) no longer hide one another from the Investments page, portfolio value, or net worth
-- **Savings rate accuracy** — credit card spending now counts toward the savings rate, the figure is calculated from actual dollars rather than an average of monthly percentages, and it no longer blends in the current half-finished month
-- **One definition per number** — income, expense, category-spend and account-balance totals now come from a single shared definition, fixing several places where two pages showed different values for the same thing
-- **Statement re-import protection** — re-importing a statement you already have prompts before replacing it instead of silently double-counting every position
-- **Automated test suite** — unit tests (Vitest) covering the core formatting/balance-combining, recurring-schedule, statement-parsing, forecast and savings-rate math
-- **In-app backup & restore** — one-click encrypted export/import of the full database as a single `.compassbackup` file
-- **Bulk transaction operations** — multi-select rows on the Transactions page for bulk delete/recategorize
-- **Visual refresh** — gold now marks specifically clickable/interactive elements, blue carries navigation and everything else, and the tiled background texture was replaced with a subtle gradient
-- **Balance integrity fixes** — several edge cases where manually adding a transaction (or importing right after one) could throw off an account's running balance, plus a Settings diagnostic to flag any account worth double-checking
-- **Import duplicate detection** — the import wizard catches likely duplicates of manually-added transactions before they're saved
-- **Editable interest rate & minimum payment** — no longer write-once during import; update either anytime from an account's detail view
-- **Backup reminder** — Settings shows how long it's been since your last backup, with a nudge if it's gotten stale
+| Directory | Contents |
+|---|---|
+| `src/` | React pages, components, stores, and financial logic |
+| `src-tauri/` | Rust backend, native integrations, and desktop packaging |
+| `tests/` | Playwright end-to-end tests |
+| `sample-data/` | Import format fixtures |
+| `scripts/` | Build, signing, and release utilities |
+| `website/` | Public website |
 
-### 🔭 Beyond v1.0 *(planned)*
-- **Bank-specific import presets** — one-click setup for more banks beyond the current Chase, Capital One, Wells Fargo, Bank of America, Navy Federal, Discover, Amex, Venmo, Cash App, and PayPal
-- **Emergency fund tracker widget** — a dedicated view built on the existing runway insight and Balance Floor goal, rather than only surfacing as an insight card
-- **Forecast beyond checking** — an optional full net-cash-position view including credit card balances
-- **Spending habit analysis** — natural-language answers to questions like *"Where did most of my money go last quarter?"*
-- **Wider bank format coverage** — edge case handling, better error messages, and import reliability improvements
+## Contributing and Support
 
----
+See [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md). For bugs or feature requests, [open an issue](https://github.com/tylahfam97/Compass/issues) with your Compass version, OS, steps to reproduce, and expected behavior.
 
-## $${\color{#C08A1C}Reporting \space Import \space Issues}$$
+For import issues, include the institution name, file type, and the step that failed. A header row and a few rows of **invented data** are usually enough to demonstrate a format problem. Never attach real statements, account numbers, databases, encryption keys, or backups.
 
-If Compass can't parse your bank's CSV correctly, [open an issue](../../issues) and include:
+Release history lives in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
-- The name of your bank
-- Which step the wizard fails at (or which columns it mis-detects)
-- A small sample of the CSV with real data removed (the header row + 2–3 rows with fake values)
+## License
 
-Import reliability is a top priority. Every format fixed helps everyone using the same bank.
-
----
-
-## $${\color{#C08A1C}License}$$
-
-MIT — see [LICENSE.txt](LICENSE.txt)
-
-> *Compass is provided as-is. Financial data shown is only as accurate as the statements you import. Always verify important figures with your bank.*
+[MIT](LICENSE.txt). Compass is provided as-is and is not financial advice.

@@ -1478,7 +1478,7 @@ export default function ImportPage() {
   };
 
   return (
-    <div className="p-8 max-w-4xl mx-auto w-full">
+    <div className="workspace-page import-workspace">
       <h1 className="text-2xl font-semibold mb-2">Import Statements</h1>
       <p className="text-sm text-[hsl(var(--muted-foreground))] mb-6">
         Your data never leaves this device.

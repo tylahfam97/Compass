@@ -44,6 +44,8 @@ export interface ForecastRule extends RecurringSchedule {
 }
 
 export interface ForecastDay {
+  scenarioSpendCents?: number;
+  purchaseCents?: number;
   date: string;
   /** Projected balance at the end of this day. */
   balanceCents: number;
@@ -82,6 +84,8 @@ export interface ForecastResult {
 }
 
 export interface ProjectCashFlowInput {
+  extraSpendCents?: number;
+  purchase?: { date: string; amountCents: number };
   startingBalanceCents: number;
   /** YYYY-MM-DD, normally today. */
   startDate: string;
@@ -202,6 +206,10 @@ export function projectCashFlow(input: ProjectCashFlowInput): ForecastResult {
   let balance = startingBalanceCents;
   let totalIncome = 0;
   let totalBills = 0;
+  let assumedSpend = 0;
+  const extra = Math.max(0, Math.round(input.extraSpendCents ?? 0));
+  const dailyExtra = days > 0 ? Math.floor(extra / days) : 0;
+  const remainder = days > 0 ? extra % days : 0;
 
   for (let i = 0; i < days; i++) {
     const date = toISODate(addDays(start, i));
@@ -212,9 +220,12 @@ export function projectCashFlow(input: ProjectCashFlowInput): ForecastResult {
       if (e.amountCents > 0) totalIncome += e.amountCents;
       else totalBills += Math.abs(e.amountCents);
     }
-    balance -= dailySpendCents;
+    const purchaseCents = input.purchase?.date === date ? Math.max(0, Math.round(input.purchase.amountCents)) : 0;
+    const scenarioSpendCents = dailyExtra + (i < remainder ? 1 : 0) + purchaseCents;
+    balance -= dailySpendCents + scenarioSpendCents;
+    assumedSpend += dailySpendCents + scenarioSpendCents;
 
-    out.push({ date, balanceCents: balance, events: dayEvents, committedCents: 0 });
+    out.push({ date, balanceCents: balance, events: dayEvents, committedCents: 0, scenarioSpendCents, purchaseCents });
   }
 
   // Reverse pass: what's still owed after each day. Has to run backwards because a day's
@@ -250,10 +261,10 @@ export function projectCashFlow(input: ProjectCashFlowInput): ForecastResult {
     makesItToPayday,
     totalIncomeCents: totalIncome,
     totalBillsCents: totalBills,
-    assumedSpendCents: dailySpendCents * days,
+    assumedSpendCents: assumedSpend,
     afterBillsCents: totalIncome - totalBills,
     endingBalanceCents: out.length > 0 ? out[out.length - 1].balanceCents : startingBalanceCents,
-    safeToSpendCents: Math.max(0, (lowPoint?.balanceCents ?? startingBalanceCents) - buffer),
+    safeToSpendCents: (lowPoint?.balanceCents ?? startingBalanceCents) - buffer,
   };
 }
 
@@ -262,6 +273,77 @@ export function daysFromToday(iso: string, from: Date = new Date()): number {
   const a = toLocalDate(iso).getTime();
   const b = new Date(from.getFullYear(), from.getMonth(), from.getDate()).getTime();
   return Math.round((a - b) / MS_PER_DAY);
+}
+
+/** How much history the spending baseline looks back over. */
+export const BASELINE_WEEKS = 13;
+/** Below these, the baseline is too thin to trust and the toggle is disabled. */
+export const BASELINE_MIN_TX = 20;
+export const BASELINE_MIN_WEEKS = 4;
+
+export interface SpendingBaseline {
+  /** Typical everyday spending per day: median of trailing 7-day totals, divided by 7. */
+  dailySpendCents: number;
+  txCount: number;
+  /** Full 7-day windows the history actually covers, capped at BASELINE_WEEKS. */
+  weeksCovered: number;
+}
+
+/** Whether a baseline has enough history behind it to project forward honestly. */
+export function baselineIsUsable(b: SpendingBaseline | null): b is SpendingBaseline {
+  return !!b && b.txCount >= BASELINE_MIN_TX && b.weeksCovered >= BASELINE_MIN_WEEKS;
+}
+
+/**
+ * Derives "what I typically spend per day" from discretionary expense transactions (callers
+ * must pre-filter out scheduled bills - those are already projected as events).
+ *
+ * Median of 7-day-window totals rather than of daily totals: most days have zero spending, so
+ * a daily median collapses to $0, and a plain mean lets one $900 repair inflate "typical" for
+ * three months. Weekly windows with a median keep one bad week from moving the number.
+ */
+export function computeSpendingBaseline(
+  transactions: { date: string; amount_cents: number }[],
+  today: Date = new Date()
+): SpendingBaseline | null {
+  const expenses = transactions.filter((t) => t.amount_cents < 0);
+  if (expenses.length === 0) return null;
+
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  let earliest = Infinity;
+  const byDaysAgo = new Map<number, number>();
+  for (const t of expenses) {
+    // daysFromToday is negative for past dates.
+    const daysAgo = -daysFromToday(t.date, startOfToday);
+    if (daysAgo < 0) continue;
+    earliest = Math.min(earliest, -daysAgo);
+    byDaysAgo.set(daysAgo, (byDaysAgo.get(daysAgo) ?? 0) + Math.abs(t.amount_cents));
+  }
+  if (!isFinite(earliest)) return null;
+
+  const historyDays = -earliest + 1;
+  const weeksCovered = Math.min(BASELINE_WEEKS, Math.floor(historyDays / 7));
+  if (weeksCovered === 0) return { dailySpendCents: 0, txCount: expenses.length, weeksCovered: 0 };
+
+  // Window w covers daysAgo [7w+1 .. 7w+7]: yesterday backwards, so today's partial day never
+  // drags the most recent window down.
+  const weekTotals: number[] = [];
+  for (let w = 0; w < weeksCovered; w++) {
+    let total = 0;
+    for (let d = 7 * w + 1; d <= 7 * w + 7; d++) total += byDaysAgo.get(d) ?? 0;
+    weekTotals.push(total);
+  }
+
+  weekTotals.sort((a, b) => a - b);
+  const mid = Math.floor(weekTotals.length / 2);
+  const medianWeek =
+    weekTotals.length % 2 === 1 ? weekTotals[mid] : Math.round((weekTotals[mid - 1] + weekTotals[mid]) / 2);
+
+  return {
+    dailySpendCents: Math.round(medianWeek / 7),
+    txCount: expenses.length,
+    weeksCovered,
+  };
 }
 
 export interface EventGroup {
@@ -356,11 +438,15 @@ export function resolveForecastWindow(
 /** How pressing an action is - drives ordering and colour, nothing else. */
 export type NextActionTone = "urgent" | "suggested" | "positive";
 
+/** Where on the Plan page an action can take the user, so recommendations are clickable. */
+export type NextActionAnchor = "rules" | "detected" | "payoff";
+
 export interface NextAction {
   key: string;
   title: string;
   detail: string;
   tone: NextActionTone;
+  anchor?: NextActionAnchor;
 }
 
 export interface NextActionContext {
@@ -411,6 +497,7 @@ export function deriveNextActions(result: ForecastResult, context: NextActionCon
         "With no income scheduled, this forecast only ever slopes downward. Adding your pay " +
         "makes every number here meaningful.",
       tone: result.firstShortfall ? "suggested" : "urgent",
+      anchor: "rules",
     });
   }
 
@@ -422,6 +509,7 @@ export function deriveNextActions(result: ForecastResult, context: NextActionCon
         "Compass spotted these repeating in your history and is guessing at their timing. " +
         "Adding them as scheduled items pins them to the right date.",
       tone: "suggested",
+      anchor: "detected",
     });
   }
 
@@ -441,7 +529,7 @@ export function deriveNextActions(result: ForecastResult, context: NextActionCon
     });
   }
 
-  if (!result.firstShortfall && cushionDays !== null && cushionDays > COMFORTABLE_CUSHION_DAYS) {
+  if (!result.firstShortfall && result.safeToSpendCents > 0 && cushionDays !== null && cushionDays > COMFORTABLE_CUSHION_DAYS) {
     const debt = context.topDebt;
     actions.push({
       key: "surplus",
@@ -453,6 +541,7 @@ export function deriveNextActions(result: ForecastResult, context: NextActionCon
         : "Even at the lowest point in this window you stay well ahead. That surplus could go " +
           "toward a goal instead of sitting still.",
       tone: "positive",
+      anchor: debt ? "payoff" : undefined,
     });
   }
 

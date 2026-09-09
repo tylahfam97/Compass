@@ -1,23 +1,23 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowUpDown, ArrowUp, ArrowDown, Plus, Sparkles, Download, Tag, Settings, SlidersHorizontal, ChevronDown, ChevronUp, Upload, Pencil, StickyNote, Trash2 } from "lucide-react";
+import { ArrowUpDown, ArrowUp, ArrowDown, Plus, Sparkles, Download, Tag, Settings, SlidersHorizontal, ChevronDown, ChevronUp, Upload, Pencil, StickyNote, Trash2, List, Table2, MoreHorizontal, ArrowDownLeft, ArrowUpRight } from "lucide-react";
 import { getDb, reapplyCategorizationRules } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
 import type { Transaction } from "@/lib/types";
 import { TRANSFER_CATEGORY_ID, EXCLUDED_CATEGORY_ID, EXCLUSION_DISCLAIMER_TEXT } from "@/lib/types";
-import { useAutoMonth } from "@/hooks/useAutoMonth";
 import CategoryOptions from "@/components/CategoryOptions";
 import { useProfileStore } from "@/stores/profileStore";
 import { toast, handleLoadFailure } from "@/stores/toastStore";
-import CategoryModal from "@/components/CategoryModal";
+import CategoryManagerModal from "@/components/CategoryManagerModal";
 import CategorizationRulesModal from "@/components/CategorizationRulesModal";
 import EditTransactionModal from "@/components/EditTransactionModal";
 import TransactionDetailModal from "@/components/TransactionDetailModal";
 import { setPendingImportFiles } from "@/lib/pendingImport";
 import InfoTooltip from "@/components/InfoTooltip";
 import { TableSkeleton } from "@/components/Skeleton";
+import { loadTransactionView, saveTransactionView } from "@/lib/transactionView";
 
 const MAX_ROWS = 500;
 const ALL_TIME_LIMIT = 10000;
@@ -57,6 +57,7 @@ function buildQueryParts(opts: {
   profileId: number;
   allTime: boolean;
   month: string;
+  range: { start: string; end: string } | null;
   search: string;
   filterCategory: string;          // "" = all, "uncategorized", or stringified id
   filterType: "all" | "income" | "expense";
@@ -72,7 +73,10 @@ function buildQueryParts(opts: {
   ];
   const params: unknown[] = [opts.profileId];
 
-  if (!opts.allTime) {
+  if (opts.range) {
+    conditions.push("t.date>=? AND t.date<?");
+    params.push(opts.range.start, opts.range.end);
+  } else if (!opts.allTime) {
     const [start, end] = monthBounds(opts.month);
     conditions.push("t.date>=? AND t.date<?");
     params.push(start, end);
@@ -113,20 +117,35 @@ function extractMerchantKey(description: string): string {
 }
 
 export default function TransactionsPage() {
+  const profileId = useProfileStore((state) => state.activeProfile?.id ?? 1);
+  return <ProfileTransactions key={profileId} profileId={profileId} />;
+}
+
+function ProfileTransactions({ profileId }: { profileId: number }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const navState = location.state as { month?: string; category?: number | null } | null;
-  const initialMonth = navState?.month;
+  const navState = location.state as { month?: string; category?: number | null; range?: { start: string; end: string } } | null;
+  const [saved] = useState(() => loadTransactionView(profileId));
+  useEffect(() => {
+    if (location.state) navigate(location.pathname, { replace: true, state: null });
+  }, [location.state, location.pathname, navigate]);
+  const initialMonth = navState?.month ?? saved.month;
   const initialCategory = navState?.category;
-  const [month, setMonth] = useAutoMonth("transactions", initialMonth);
-  const [allTime, setAllTime] = useState(false);
+  const [month, setMonth] = useState(() => {
+    const now = new Date();
+    return initialMonth ?? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const [allTime, setAllTime] = useState(navState ? false : saved.allTime);
+  const [range, setRange] = useState(navState?.range ?? (navState ? null : saved.range));
 
   const navMonth = (dir: -1 | 1) => {
+    setRange(null);
     const [y, m] = month.split("-").map(Number);
     const d = new Date(y, m - 1 + dir, 1);
     setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
   };
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(navState ? "" : saved.search);
+  const [view, setView] = useState(saved.view);
   const [rows, setRows] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [showTransferNotice, setShowTransferNotice] = useState(false);
@@ -146,18 +165,16 @@ export default function TransactionsPage() {
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [bulkRecatOpen, setBulkRecatOpen] = useState(false);
   const categories = useCategoryStore((s) => s.categories);
-  const activeProfile = useProfileStore((s) => s.activeProfile);
-  const profileId = activeProfile?.id ?? 1;
 
   // Extended filters
   const [filterCategory, setFilterCategory] = useState(() => {  // "" | "uncategorized" | "<id>"
-    if (initialCategory === undefined) return "";
+    if (initialCategory === undefined) return navState ? "" : saved.category;
     return initialCategory === null ? "uncategorized" : String(initialCategory);
   });
-  const [filterType, setFilterType]         = useState<"all" | "income" | "expense">("all");
-  const [filterAmountMin, setFilterAmountMin] = useState("");
-  const [filterAmountMax, setFilterAmountMax] = useState("");
-  const [filterAccount, setFilterAccount] = useState(""); // "" | "<accountId>"
+  const [filterType, setFilterType] = useState(navState ? "all" as const : saved.type);
+  const [filterAmountMin, setFilterAmountMin] = useState(navState ? "" : saved.minimum);
+  const [filterAmountMax, setFilterAmountMax] = useState(navState ? "" : saved.maximum);
+  const [filterAccount, setFilterAccount] = useState(navState ? "" : saved.account);
   const [accountOptions, setAccountOptions] = useState<{ id: number; name: string }[]>([]);
   // Advanced filters start expanded if one is already active (e.g. arriving via a
   // "View all" link from another page with a category pre-filled) so nothing feels hidden.
@@ -166,8 +183,29 @@ export default function TransactionsPage() {
   );
 
   // Column sort state — null = default (date DESC)
-  const [sortCol, setSortCol] = useState<SortCol | null>(null);
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [sortCol, setSortCol] = useState<SortCol | null>(saved.sort);
+  const [sortDir, setSortDir] = useState<SortDir>(saved.direction);
+  const scroll = useRef(navState ? 0 : saved.scroll);
+  const restoreScroll = useRef(true);
+  const loadSequence = useRef(0);
+  useEffect(() => {
+    const main = document.querySelector("main");
+    const rememberScroll = () => { if (!restoreScroll.current) scroll.current = main?.scrollTop ?? 0; };
+    main?.addEventListener("scroll", rememberScroll);
+    return () => { main?.removeEventListener("scroll", rememberScroll); };
+  }, []);
+  useEffect(() => {
+    const persist = () => saveTransactionView(profileId, { month, allTime, range, search, view, category: filterCategory, account: filterAccount, type: filterType, minimum: filterAmountMin, maximum: filterAmountMax, sort: sortCol, direction: sortDir, scroll: scroll.current });
+    persist();
+    window.addEventListener("pagehide", persist);
+    return () => { persist(); window.removeEventListener("pagehide", persist); };
+  }, [profileId, month, allTime, range, search, view, filterCategory, filterAccount, filterType, filterAmountMin, filterAmountMax, sortCol, sortDir]);
+  useEffect(() => {
+    if (!loading && restoreScroll.current) {
+      const frame = requestAnimationFrame(() => { document.querySelector("main")?.scrollTo(0, scroll.current); restoreScroll.current = false; });
+      return () => cancelAnimationFrame(frame);
+    }
+  }, [loading]);
 
   const handleSort = (col: SortCol) => {
     if (sortCol === col) {
@@ -188,6 +226,7 @@ export default function TransactionsPage() {
       .filter(Boolean).length;
 
   const clearFilters = () => {
+    setRange(null);
     setFilterCategory(""); setFilterType("all");
     setFilterAmountMin(""); setFilterAmountMax(""); setFilterAccount("");
   };
@@ -204,10 +243,11 @@ export default function TransactionsPage() {
   }, [profileId]);
 
   const loadRows = useCallback(async () => {
+    const sequence = ++loadSequence.current;
     setLoading(true);
     const db = await getDb();
     const { where, params } = buildQueryParts({
-      profileId, allTime, month, search,
+      profileId, allTime, month, range, search,
       filterCategory, filterType, filterAmountMin, filterAmountMax, filterAccount,
     });
     const orderBy = sortCol
@@ -222,13 +262,15 @@ export default function TransactionsPage() {
        LIMIT ${allTime ? ALL_TIME_LIMIT + 1 : MAX_ROWS + 1}`,
       params
     );
+    if (sequence !== loadSequence.current) return;
     setSelectedIds(new Set());
     setRows(data);
     setLoading(false);
-  }, [month, allTime, search, profileId, filterCategory, filterType, filterAmountMin, filterAmountMax, filterAccount, sortCol, sortDir]);
+  }, [month, range, allTime, search, profileId, filterCategory, filterType, filterAmountMin, filterAmountMax, filterAccount, sortCol, sortDir]);
 
   useEffect(() => {
     loadRows().catch(handleLoadFailure("your transactions", setLoading, () => void loadRows()));
+    return () => { loadSequence.current++; };
   }, [loadRows]);
 
   const deleteTransaction = async (id: number) => {
@@ -335,7 +377,7 @@ export default function TransactionsPage() {
   const exportCsv = async () => {
     const db = await getDb();
     const { where, params } = buildQueryParts({
-      profileId, allTime, month, search,
+      profileId, allTime, month, range, search,
       filterCategory, filterType, filterAmountMin, filterAmountMax, filterAccount,
     });
     const data = await db.select<Transaction[]>(
@@ -457,7 +499,7 @@ export default function TransactionsPage() {
 
   return (
     <div
-      className="p-8 flex flex-col h-full relative"
+      className="workspace-page transactions-workspace flex flex-col relative"
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={(e) => e.preventDefault()}
@@ -473,10 +515,10 @@ export default function TransactionsPage() {
           <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">Opens the import wizard</p>
         </div>
       )}
-      <div className="sticky top-0 z-20 -mt-8 -mx-8 pt-8 px-8 pb-3 bg-[hsl(var(--background))] border-b">
+      <div className="pb-3 bg-[hsl(var(--background))]">
       <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
         <h1 className="text-2xl font-semibold">Transactions</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => setAddingTxn(true)}
             className="text-sm px-3 py-1.5 rounded-lg bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
@@ -484,16 +526,16 @@ export default function TransactionsPage() {
           >
             <Plus size={14} /> Add
           </button>
+          <details className="transaction-tools">
+            <summary className="workspace-icon" aria-label="Transaction tools" title="Transaction tools"><MoreHorizontal size={18} /></summary>
+            <div className="transaction-tools-menu">
           <button
             onClick={() => runAutoCategorize("uncategorized")}
             disabled={autoCatRunning}
-            title="Re-checks every transaction against your current rules - including ones already categorized - so new or edited rules apply retroactively"
-            className="text-base px-5 py-2.5 rounded-xl text-white font-semibold shadow-md
-                       bg-gradient-to-r from-[hsl(var(--primary))] to-violet-500
-                       hover:shadow-lg hover:opacity-95 transition-all
-                       disabled:opacity-50 flex items-center gap-2"
+            title="Apply current rules to uncategorized transactions"
+            className="disabled:opacity-50 flex items-center gap-2"
           >
-            <Sparkles size={18} /> {autoCatRunning ? "Running…" : "Apply Rules to All Transactions"}
+            <Sparkles size={16} /> {autoCatRunning ? "Running…" : "Categorize unreviewed"}
           </button>
           <button
             onClick={exportCsv}
@@ -519,6 +561,8 @@ export default function TransactionsPage() {
           >
             <Settings size={14} /> Rules Manager
           </button>
+            </div>
+          </details>
         </div>
       </div>
 
@@ -545,6 +589,7 @@ export default function TransactionsPage() {
 
       {/* Filters */}
       <div className="space-y-2 mb-4">
+        {range && <div className="flex flex-wrap items-center gap-3 text-sm" role="status"><span>{formatDate(range.start)} to {formatDate(range.end)} (end exclusive)</span><button className="text-[hsl(var(--primary))]" onClick={() => setRange(null)}>Clear date range</button></div>}
         {/* Row 1 — the essentials, always visible */}
         <div className="flex gap-3 flex-wrap items-center">
           {!allTime && (
@@ -555,7 +600,7 @@ export default function TransactionsPage() {
                 ref={monthInputRef}
                 type="month"
                 value={month}
-                onChange={(e) => setMonth(e.target.value)}
+                onChange={(e) => { setRange(null); setMonth(e.target.value); }}
                 onClick={() => { try { monthInputRef.current?.showPicker(); } catch { /* unsupported */ } }}
                 className="cursor-pointer border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))]
                            text-[hsl(var(--foreground))]"
@@ -565,7 +610,7 @@ export default function TransactionsPage() {
             </div>
           )}
           <button
-            onClick={() => setAllTime((v) => !v)}
+            onClick={() => { setRange(null); setAllTime((value) => !value); }}
             className={`text-sm px-3 py-1.5 border rounded-lg transition-colors ${
               allTime
                 ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent"
@@ -576,6 +621,7 @@ export default function TransactionsPage() {
           </button>
           <input
             type="text"
+            aria-label="Search transactions"
             placeholder="Search descriptions…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -584,12 +630,13 @@ export default function TransactionsPage() {
           />
           <button
             onClick={() => setShowMoreFilters((v) => !v)}
+            aria-expanded={showMoreFilters}
             className={`text-sm px-3 py-1.5 border rounded-lg transition-colors flex items-center gap-1.5 ${
               hasActiveFilters ? "bg-[hsl(var(--primary)/0.1)] border-[hsl(var(--primary)/0.4)] text-[hsl(var(--primary))]" : "hover:bg-[hsl(var(--muted))]"
             }`}
           >
             <SlidersHorizontal size={14} />
-            More filters
+            Filters
             {hasActiveFilters && (
               <span className="w-4 h-4 rounded-full bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] text-[10px] font-bold flex items-center justify-center">
                 {activeFilterCount}
@@ -689,23 +736,49 @@ export default function TransactionsPage() {
 
       {/* Summary card */}
       {!loading && rows.length > 0 && (
-        <div className="grid grid-cols-3 gap-3 mb-4">
-          <div className="border rounded-xl px-4 py-3 text-center">
+        <div className="transaction-summary">
+          <div>
             <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-1 flex items-center justify-center gap-1">
               Income <InfoTooltip text={EXCLUSION_DISCLAIMER_TEXT} />
             </p>
-            <p className="text-lg font-bold text-[hsl(var(--success))]">{formatCurrency(totalIncome)}</p>
+            <p className="text-xl font-semibold">{formatCurrency(totalIncome)}</p>
           </div>
-          <div className="border rounded-xl px-4 py-3 text-center">
+          <div>
             <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-1 flex items-center justify-center gap-1">
               Expenses <InfoTooltip text={EXCLUSION_DISCLAIMER_TEXT} />
             </p>
-            <p className="text-lg font-bold text-[hsl(var(--error))]">{formatCurrency(Math.abs(totalExpenses))}</p>
+            <p className="text-xl font-semibold">{formatCurrency(Math.abs(totalExpenses))}</p>
           </div>
-          <div className="border rounded-xl px-4 py-3 text-center">
+          <div>
             <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-1">Net</p>
             <p className={`text-lg font-bold ${netAmount >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>{formatCurrency(netAmount)}</p>
           </div>
+        </div>
+      )}
+
+      <div className="transaction-viewbar">
+        <p className="text-xs text-[hsl(var(--muted-foreground))]">{rows.length.toLocaleString()} matching transactions · totals for loaded results</p>
+        <div className="workspace-segments" role="group" aria-label="Transaction view">
+          <button aria-pressed={view === "activity"} onClick={() => setView("activity")}><List size={15} /> Activity</button>
+          <button aria-pressed={view === "table"} onClick={() => setView("table")}><Table2 size={15} /> Table</button>
+        </div>
+      </div>
+
+      {!loading && rows.length > 0 && view === "activity" && (
+        <div className="transaction-viewbar">
+          <label className="text-xs flex items-center gap-3"><input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectAll} /> Select all</label>
+          <label className="text-xs flex items-center gap-2">Sort
+            <select aria-label="Sort activity" value={`${sortCol ?? "date"}:${sortCol ? sortDir : "desc"}`} onChange={(event) => {
+              const [column, direction] = event.target.value.split(":");
+              setSortCol(column as SortCol);
+              setSortDir(direction as SortDir);
+            }} className="bg-[hsl(var(--background))] border rounded-md p-1.5">
+              <option value="date:desc">Newest first</option><option value="date:asc">Oldest first</option>
+              <option value="description:asc">Description</option><option value="category:asc">Category</option>
+              <option value="amount:asc">Amount: low to high</option><option value="amount:desc">Amount: high to low</option>
+              <option value="balance:desc">Balance: high to low</option>
+            </select>
+          </label>
         </div>
       )}
 
@@ -799,7 +872,35 @@ export default function TransactionsPage() {
         </div>
       )}
 
-      {!loading && rows.length > 0 && (
+      {!loading && rows.length > 0 && view === "activity" && (
+        <div className="transaction-activity">
+          {rows.slice(0, allTime ? ALL_TIME_LIMIT : MAX_ROWS).map((transaction, index) => (
+            <div key={transaction.id}>
+              {(sortCol === "date" || sortCol === null) && (index === 0 || rows[index - 1].date !== transaction.date) && (
+                <h2 className="activity-date">{formatDate(transaction.date)}</h2>
+              )}
+              <div className="activity-row category-wash" data-selected={selectedIds.has(transaction.id)} style={{ "--category-color": transaction.category_color ?? "hsl(var(--muted-foreground))" } as CSSProperties}>
+                <input type="checkbox" checked={selectedIds.has(transaction.id)} onChange={() => toggleSelectOne(transaction.id)} aria-label={`Select ${transaction.description}`} />
+                <span className="activity-direction" aria-hidden="true">{transaction.amount_cents < 0 ? <ArrowUpRight size={18} /> : <ArrowDownLeft size={18} />}</span>
+                <button className="activity-description" onClick={() => setViewTxn(transaction)}>
+                  <span className="font-medium">{transaction.description}</span>
+                  <span className="text-xs text-[hsl(var(--muted-foreground))]">{transaction.account_name ?? formatDate(transaction.date)}{sortCol && sortCol !== "date" ? ` · ${formatDate(transaction.date)}` : ""}{transaction.notes ? ` · ${transaction.notes}` : ""}</span>
+                </button>
+                {editingId === transaction.id ? <select autoFocus onBlur={() => setEditingId(null)} aria-label={`Category for ${transaction.description}`} value={transaction.category_id ?? 15} onChange={(event) => recategorize(transaction, Number(event.target.value))} className="activity-category">
+                  <CategoryOptions categories={categories} />
+                </select> : <button onClick={() => setEditingId(transaction.id)} className="activity-category flex items-center gap-1 text-left" title="Change category" aria-label={`Change category for ${transaction.description}`}><span className="truncate flex-1">{transaction.category_name ?? "Uncategorized"}</span><ChevronDown size={12} /></button>}
+                <button onClick={() => setViewTxn(transaction)} className={`activity-amount ${transaction.amount_cents > 0 ? "text-[hsl(var(--success))]" : ""}`}>
+                  {formatCurrency(transaction.amount_cents)}
+                </button>
+                <button onClick={() => setEditTxn(transaction)} className="workspace-icon" title="Edit transaction" aria-label={`Edit ${transaction.description}`}><Pencil size={15} /></button>
+              </div>
+            </div>
+          ))}
+          {rows.length > (allTime ? ALL_TIME_LIMIT : MAX_ROWS) && <p className="text-xs py-4 text-[hsl(var(--muted-foreground))]">Showing the first {(allTime ? ALL_TIME_LIMIT : MAX_ROWS).toLocaleString()} results. Narrow your filters to see more.</p>}
+        </div>
+      )}
+
+      {!loading && rows.length > 0 && view === "table" && (
         <div className="border rounded-xl overflow-x-auto flex-1">
           <table className="w-full text-sm">
             <thead>
@@ -835,8 +936,8 @@ export default function TransactionsPage() {
             </thead>
             <tbody>
               {rows.slice(0, allTime ? ALL_TIME_LIMIT : MAX_ROWS).map((t) => (
-                <tr key={t.id} onClick={() => setViewTxn(t)}
-                  className="group border-b last:border-0 hover:bg-[hsl(var(--muted))] cursor-pointer">
+                <tr key={t.id} onClick={() => setViewTxn(t)} style={{ "--category-color": t.category_color ?? "hsl(var(--muted-foreground))" } as CSSProperties}
+                  className="category-wash group border-b last:border-0 cursor-pointer">
                   <td className="pl-4 pr-1 py-3" onClick={(e) => e.stopPropagation()}>
                     <input
                       type="checkbox"
@@ -867,9 +968,8 @@ export default function TransactionsPage() {
                       <button
                         onClick={(e) => { e.stopPropagation(); setEditingId(t.id); }}
                         title={`${t.category_name ?? "Uncategorized"} — click to change category`}
-                        className="inline-block max-w-[10rem] truncate align-bottom px-2 py-0.5 rounded-full text-xs text-white
+                        className="inline-block max-w-[10rem] truncate align-bottom px-2 py-0.5 text-xs text-[hsl(var(--muted-foreground))]
                                    hover:opacity-80 transition-opacity"
-                        style={{ backgroundColor: t.category_color ?? "hsl(var(--neutral))" }}
                       >
                         {t.category_name ?? "Uncategorized"}
                       </button>
@@ -937,7 +1037,10 @@ export default function TransactionsPage() {
 
       <AnimatePresence>
         {catModalOpen && (
-          <CategoryModal key="category-modal" onClose={() => setCatModalOpen(false)} profileId={profileId} />
+          <CategoryManagerModal key="category-modal" onClose={() => {
+            setCatModalOpen(false);
+            loadRows().catch(handleLoadFailure("your transactions", setLoading, () => void loadRows()));
+          }} profileId={profileId} />
         )}
       </AnimatePresence>
 

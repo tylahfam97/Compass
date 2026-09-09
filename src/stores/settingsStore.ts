@@ -7,6 +7,8 @@ const MOTION_KEY = "compass_motion_pref";
 export type MotionPref = "system" | "reduced";
 
 interface SettingsState {
+  theme: "system" | "light" | "dark";
+  setTheme: (theme: "system" | "light" | "dark") => void;
   motionPref: MotionPref;
   setMotionPref: (pref: MotionPref) => void;
 }
@@ -20,6 +22,13 @@ function loadMotionPref(): MotionPref {
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
+  theme: (() => {
+    try { const theme = localStorage.getItem("compass_theme"); return theme === "light" || theme === "dark" ? theme : "system"; } catch { return "system"; }
+  })(),
+  setTheme: (theme) => {
+    set({ theme });
+    try { localStorage.setItem("compass_theme", theme); } catch { return; }
+  },
   motionPref: loadMotionPref(),
   setMotionPref: (pref) => {
     try {

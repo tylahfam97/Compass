@@ -5,6 +5,8 @@ import { Eye, EyeOff, ChevronLeft, ChevronRight } from "lucide-react";
 import { getDb, setAccountHiddenFromDashboard } from "@/lib/db";
 import { incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
 import { formatCurrency, formatDate, formatMonthLabel, separateAccountBalances, accountChartColor } from "@/lib/utils";
+import { motion } from "motion/react";
+import { staggerContainer, riseIn } from "@/lib/motionPresets";
 import { computeNetWorth, latestHoldingPerAccount, type NetWorthSnapshot } from "@/lib/netWorth";
 import { useProfileStore } from "@/stores/profileStore";
 import { toast, handleLoadFailure } from "@/stores/toastStore";
@@ -13,10 +15,12 @@ import PinModal from "@/components/PinModal";
 import ManageAccountsPanel from "@/components/ManageAccountsPanel";
 import { Skeleton } from "@/components/Skeleton";
 import InfoTooltip from "@/components/InfoTooltip";
+import CountUp from "@/components/CountUp";
 import type { Profile } from "@/lib/types";
 import { EXCLUSION_DISCLAIMER_TEXT } from "@/lib/types";
 
 interface ProfileData {
+  sources: { name: string; date: string | null }[];
   profileId: number;
   /** Sum of bank (checking) account balances only - excludes credit card debt and investments,
    *  so this card shows spendable/liquid cash rather than a blended net-worth figure (the
@@ -140,10 +144,11 @@ export default function OverviewPage() {
       const entries = await Promise.all(
         visibleProfiles.map(async (p) => {
           const [balRow, incRow, expRow, txRow, sparkRows, portfolioRow, hiddenRow] = await Promise.all([
-            db.select<{ account_id: number; account_type: string; name: string; balance_cents: number | null }[]>(
+            db.select<{ account_id: number; account_type: string; name: string; balance_cents: number | null; balance_date: string | null }[]>(
               `SELECT a.id as account_id, a.account_type, a.name,
                  (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
-                  ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents
+                  ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents,
+                 (SELECT t.date FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL ORDER BY t.date DESC,t.id DESC LIMIT 1) as balance_date
                FROM accounts a WHERE a.profile_id=? AND a.account_type IN ('checking','credit') AND a.hidden_from_dashboard=0`,
               [p.id]
             ),
@@ -184,6 +189,7 @@ export default function OverviewPage() {
           const creditAccounts = balRow.filter((r) => r.account_type === "credit").map((r) => ({ id: r.account_id, name: r.name }));
           const trackedBankAccounts = trackedAccounts.filter((r) => r.account_type === "checking");
           return [p.id, {
+            sources: balRow.map((row) => ({ name: row.name, date: row.balance_date })),
             profileId: p.id,
             liquidCents: trackedBankAccounts.length > 0 ? trackedBankAccounts.reduce((s, r) => s + (r.balance_cents ?? 0), 0) : null,
             income: incRow[0]?.total ?? 0,
@@ -235,7 +241,7 @@ export default function OverviewPage() {
   };
 
   return (
-    <div className="p-8 space-y-6 max-w-[1320px] mx-auto w-full">
+    <div className="workspace-page space-y-6 overview-workspace">
       {pinTarget && (
         <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />
       )}
@@ -358,11 +364,11 @@ export default function OverviewPage() {
           {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-48 rounded-2xl" />)}
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
+        <motion.div className="grid grid-cols-2 gap-4 xl:grid-cols-3" variants={staggerContainer} initial="hidden" animate="show">
           {visibleProfiles.map((profile) => {
             const d = data.get(profile.id);
             return (
-              <button key={profile.id} onClick={() => handleSwitch(profile)}
+              <motion.button key={profile.id} variants={riseIn} onClick={() => handleSwitch(profile)}
                 className="border rounded-2xl p-5 text-left hover:shadow-md hover:border-[var(--gold)] transition-all duration-150
                            bg-[hsl(var(--background))] active:scale-[0.99] chart-clickable"
               >
@@ -386,11 +392,15 @@ export default function OverviewPage() {
                   </p>
                 ) : (
                   <>
+                    <details className="workspace-disclosure mb-3" onClick={(event) => event.stopPropagation()}>
+                      <summary>Recorded balances</summary>
+                      {d.sources.map((source) => <p key={source.name} className="text-xs py-1">{source.name}: {source.date ? formatDate(source.date) : "No recorded balance"}</p>)}
+                    </details>
                     {d.liquidCents !== null && (
                       <div className="mb-3">
                         <p className="text-xs text-[hsl(var(--muted-foreground))] mb-0.5">Liquid</p>
-                        <p className={`text-2xl font-bold ${d.liquidCents >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
-                          {formatCurrency(d.liquidCents)}
+                        <p className={`text-2xl font-bold tabular-nums ${d.liquidCents >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
+                          <CountUp value={d.liquidCents} format={(v) => formatCurrency(Math.round(v))} />
                         </p>
                       </div>
                     )}
@@ -398,7 +408,7 @@ export default function OverviewPage() {
                     {((d.bankAccounts.length > 0 && d.bankSparkline.length > 1) || (d.creditAccounts.length > 0 && d.creditSparkline.length > 1)) && (
                       <div className="mb-3 -mx-1">
                         {d.bankAccounts.length > 0 && d.bankSparkline.length > 1 && (
-                          <div className="h-14">
+                          <div className="h-14" role="img" aria-label={`Balance history for ${d.bankAccounts.length} bank account${d.bankAccounts.length === 1 ? "" : "s"}`}>
                             <ResponsiveContainer width="100%" height="100%">
                               <LineChart data={d.bankSparkline} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
                                 <XAxis dataKey="date" hide />
@@ -432,7 +442,7 @@ export default function OverviewPage() {
                           </div>
                         )}
                         {d.creditAccounts.length > 0 && d.creditSparkline.length > 1 && (
-                          <div className="h-8 mt-0.5">
+                          <div className="h-8 mt-0.5" role="img" aria-label={`Balance history for ${d.creditAccounts.length} credit account${d.creditAccounts.length === 1 ? "" : "s"}`}>
                             <ResponsiveContainer width="100%" height="100%">
                               <LineChart data={d.creditSparkline} margin={{ top: 1, right: 2, bottom: 1, left: 2 }}>
                                 <XAxis dataKey="date" hide />
@@ -485,7 +495,7 @@ export default function OverviewPage() {
                     )}
                   </>
                 )}
-              </button>
+              </motion.button>
             );
           })}
           {isGlobalActive && lockedExcluded.map((profile) => (
@@ -508,7 +518,7 @@ export default function OverviewPage() {
               </p>
             </button>
           ))}
-        </div>
+        </motion.div>
       )}
     </div>
   );

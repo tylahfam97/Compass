@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
 import {
-  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
+  AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
-import { Ghost } from "lucide-react";
+import { Repeat2, ChevronRight } from "lucide-react";
 import { getDb } from "@/lib/db";
 import { incomeSumSql, expenseSumSql, categorySpendSql } from "@/lib/reportingSql";
 import { detectRecurringCharges } from "@/lib/agent";
@@ -12,6 +12,7 @@ import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
 import { handleLoadFailure } from "@/stores/toastStore";
 import { Skeleton } from "@/components/Skeleton";
+import TransactionDetailModal from "@/components/TransactionDetailModal";
 
 interface BalanceTrendPoint {
   month: string;
@@ -19,6 +20,7 @@ interface BalanceTrendPoint {
 }
 
 interface CatRow {
+  category_id: number | null;
   category_name: string;
   category_color: string;
   total_cents: number;
@@ -60,16 +62,26 @@ function changePct(now: number, prev: number): number {
 }
 
 export default function ReportsPage() {
+  const profileId = useProfileStore((state) => state.activeProfile?.id ?? 1);
+  return <ProfileReports key={profileId} profileId={profileId} />;
+}
+
+function ProfileReports({ profileId }: { profileId: number }) {
+  const [saved] = useState(() => {
+    try { return JSON.parse(sessionStorage.getItem(`compass_reports_view_${profileId}`) ?? "{}") ?? {}; } catch { return {}; }
+  });
   const [month, setMonth] = useAutoMonth("reports");
-  const [rangeMode, setRangeMode] = useState<"month" | "custom">("month");
+  const [rangeMode, setRangeMode] = useState<"month" | "custom">(saved.mode === "custom" ? "custom" : "month");
   const [customStart, setCustomStart] = useState(() => {
+    if (typeof saved.start === "string" && /^\d{4}-\d{2}-\d{2}$/.test(saved.start) && Number.isFinite(Date.parse(saved.start))) return saved.start;
     const d = new Date(); d.setMonth(d.getMonth() - 2); d.setDate(1);
     return d.toISOString().split("T")[0];
   });
-  const [customEnd, setCustomEnd] = useState(() => new Date().toISOString().split("T")[0]);
+  const [customEnd, setCustomEnd] = useState(() => typeof saved.end === "string" && /^\d{4}-\d{2}-\d{2}$/.test(saved.end) && Number.isFinite(Date.parse(saved.end)) ? saved.end : new Date().toISOString().split("T")[0]);
+  useEffect(() => {
+    try { sessionStorage.setItem(`compass_reports_view_${profileId}`, JSON.stringify({ mode: rangeMode, start: customStart, end: customEnd })); } catch { return; }
+  }, [profileId, rangeMode, customStart, customEnd]);
   const [loading, setLoading] = useState(true);
-  const activeProfile = useProfileStore((s) => s.activeProfile);
-  const profileId = activeProfile?.id ?? 1;
 
   const [catThis, setCatThis] = useState<CatRow[]>([]);
   const [catPrev, setCatPrev] = useState<CatRow[]>([]);
@@ -78,6 +90,9 @@ export default function ReportsPage() {
   const [recurring, setRecurring] = useState<RecurringItem[]>([]);
   const [subscriptions, setSubscriptions] = useState<RecurringCharge[]>([]);
   const [balanceTrend, setBalanceTrend] = useState<BalanceTrendPoint[]>([]);
+  const [periodTotals, setPeriodTotals] = useState({ income_cents: 0, expense_cents: 0 });
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const validRange = rangeMode === "month" ? !!month : !!customStart && !!customEnd && customStart <= customEnd;
 
   // Compute effective [start, end) for all queries
   const effectiveRange = (): [string, string] => {
@@ -122,6 +137,7 @@ export default function ReportsPage() {
   useEffect(() => {
     let cancelled = false;
     async function load() {
+      if (!validRange) { setLoading(false); return; }
       setLoading(true);
       const db = await getDb();
       const [start, end] = effectiveRange();
@@ -131,15 +147,14 @@ export default function ReportsPage() {
 
       // Start date for totals chart — use selected range
       const chartStart = rangeMode === "custom" ? customStart : (() => {
-        const d6 = new Date();
-        d6.setMonth(d6.getMonth() - 5);
-        d6.setDate(1);
-        return d6.toISOString().split("T")[0];
+        const [year, monthNumber] = month.split("-").map(Number);
+        const chartDate = new Date(year, monthNumber - 6, 1);
+        return `${chartDate.getFullYear()}-${String(chartDate.getMonth() + 1).padStart(2, "0")}-01`;
       })();
 
-      const [thisMonthCats, prevMonthCats, totals, top, rec, subs, balTrend] = await Promise.all([
+      const [thisMonthCats, prevMonthCats, totals, top, rec, subs, balTrend, selectedTotals] = await Promise.all([
         db.select<CatRow[]>(
-          `SELECT c.name as category_name, c.color as category_color,
+          `SELECT t.category_id, c.name as category_name, c.color as category_color,
                   ${categorySpendSql()} as total_cents
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
            JOIN accounts a ON a.id=t.account_id
@@ -149,7 +164,7 @@ export default function ReportsPage() {
           [start, end, profileId]
         ),
         db.select<CatRow[]>(
-          `SELECT c.name as category_name, c.color as category_color,
+          `SELECT t.category_id, c.name as category_name, c.color as category_color,
                   ${categorySpendSql()} as total_cents
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
            JOIN accounts a ON a.id=t.account_id
@@ -191,15 +206,21 @@ export default function ReportsPage() {
         db.select<{ date: string; account_id: number; balance_cents: number }[]>(
           `SELECT t.date, t.account_id, t.balance_cents FROM transactions t
            JOIN accounts a ON a.id=t.account_id
-           WHERE t.profile_id=? AND t.balance_cents IS NOT NULL AND a.account_type IN ('checking','credit') AND a.hidden_from_dashboard=0
+           WHERE t.profile_id=? AND t.date<? AND t.balance_cents IS NOT NULL AND a.account_type IN ('checking','credit') AND a.hidden_from_dashboard=0
            ORDER BY t.date ASC, t.id ASC`,
-          [profileId]
+          [profileId, end]
+        ),
+        db.select<{ income_cents: number; expense_cents: number }[]>(
+          `SELECT COALESCE(${incomeSumSql()},0) as income_cents, COALESCE(${expenseSumSql()},0) as expense_cents
+           FROM transactions t JOIN accounts a ON a.id=t.account_id WHERE t.profile_id=? AND t.date>=? AND t.date<?`,
+          [profileId, start, end],
         ),
       ]);
 
       if (cancelled) return;
       setCatThis(thisMonthCats);
       setCatPrev(prevMonthCats);
+      setPeriodTotals(selectedTotals[0]);
       setMonthTotals(
         totals.map((r) => ({ ...r, net_cents: r.income_cents - r.expense_cents }))
       );
@@ -213,46 +234,42 @@ export default function ReportsPage() {
         [...lastPerMonth.entries()]
           .filter(([month]) => month >= chartStart.slice(0, 7))
           .sort(([a], [b]) => a.localeCompare(b))
-          .map(([month, balance_cents]) => ({ month, balance: balance_cents / 100 }))
+          .map(([month, balance_cents]) => ({ month, balance: balance_cents }))
       );
       setLoading(false);
     }
     load().catch(handleLoadFailure("this report", setLoading));
     return () => { cancelled = true; };
-  }, [month, rangeMode, customStart, customEnd, profileId]);
+  }, [month, rangeMode, customStart, customEnd, profileId, validRange]);
 
-  const prevMap = new Map(catPrev.map((r) => [r.category_name, r.total_cents]));
+  const prevMap = new Map(catPrev.map((r) => [r.category_id, r.total_cents]));
   const hasData = catThis.length > 0 || topExpenses.length > 0;
 
   const catChartData = useMemo(() => {
-    const TOP_N = 7;
-    const top = catThis.slice(0, TOP_N).map((c) => ({
+    return catThis.filter((category) => category.total_cents > 0).map((c) => ({
+      id: c.category_id,
       name: c.category_name ?? "Uncategorized",
       value: c.total_cents,
       color: c.category_color ?? "#9ca3af",
     }));
-    const rest = catThis.slice(TOP_N);
-    if (rest.length > 0) {
-      const restTotal = rest.reduce((sum, c) => sum + c.total_cents, 0);
-      top.push({ name: "Other", value: restTotal, color: "#9ca3af" });
-    }
-    return top;
   }, [catThis]);
   const catChartTotal = catChartData.reduce((sum, c) => sum + c.value, 0);
 
   return (
-    <div className="p-8 space-y-8 max-w-4xl mx-auto w-full">
+    <div className="workspace-page reports-workspace space-y-7">
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">Reports</h1>
+        <div className="workspace-heading">
+          <div><h1 className="text-2xl font-semibold">Reports</h1><p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">{rangeMode === "month" && month ? formatMonthLabel(month) : "Selected date range"}</p></div>
           {/* Mode toggle */}
           <div className="flex rounded-lg border overflow-hidden text-sm">
             <button
               onClick={() => setRangeMode("month")}
+              aria-pressed={rangeMode === "month"}
               className={`px-3 py-1.5 transition-colors ${rangeMode === "month" ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]" : "hover:bg-[hsl(var(--muted))]"}`}
             >Month</button>
             <button
               onClick={() => setRangeMode("custom")}
+              aria-pressed={rangeMode === "custom"}
               className={`px-3 py-1.5 border-l transition-colors ${rangeMode === "custom" ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]" : "hover:bg-[hsl(var(--muted))]"}`}
             >Custom</button>
           </div>
@@ -272,10 +289,10 @@ export default function ReportsPage() {
         {rangeMode === "custom" && (
           <div className="space-y-2">
             <div className="flex items-center gap-2 flex-wrap">
-              <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)}
+              <input type="date" aria-label="Report start date" value={customStart} onChange={(e) => setCustomStart(e.target.value)}
                 className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]" />
               <span className="text-[hsl(var(--muted-foreground))] text-sm">to</span>
-              <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)}
+              <input type="date" aria-label="Report end date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)}
                 className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]" />
             </div>
             <div className="flex gap-2 flex-wrap text-xs">
@@ -290,6 +307,8 @@ export default function ReportsPage() {
         )}
       </div>
 
+      {!validRange && <p role="alert" className="text-sm text-[hsl(var(--error))]">Choose a valid start and end date.</p>}
+
       {loading && (
         <div className="space-y-4">
           <div className="grid grid-cols-3 gap-4">
@@ -299,65 +318,84 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {!loading && !hasData && (
+      {!loading && validRange && !hasData && (
         <p className="text-[hsl(var(--muted-foreground))] text-center py-16">
           No data for this period. Import a bank statement to generate reports.
         </p>
       )}
 
-      {!loading && hasData && (
+      {!loading && validRange && hasData && (
         <>
+          <div className="goal-summary report-summary">
+            <div><p>Income · selected period</p><strong>{formatCurrency(periodTotals.income_cents)}</strong></div>
+            <div><p>Spending · selected period</p><strong>{formatCurrency(periodTotals.expense_cents)}</strong></div>
+            <div><p>Net · selected period</p><strong className={periodTotals.income_cents < periodTotals.expense_cents ? "text-[hsl(var(--error))]" : ""}>{formatCurrency(periodTotals.income_cents - periodTotals.expense_cents)}</strong></div>
+          </div>
+
+          {monthTotals.length > 0 && <section>
+            <div className="workspace-heading mb-4"><h2 className="font-semibold">Income &amp; spending trend</h2><div className="flex gap-4 text-xs text-[hsl(var(--muted-foreground))]"><span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-[hsl(var(--primary))]" />Income</span><span className="flex items-center gap-1.5"><span className="w-2 h-2" style={{ background: "var(--gold)" }} />Spending</span></div></div>
+            <div className="h-56"><ResponsiveContainer width="100%" height="100%"><BarChart data={monthTotals} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
+              <XAxis dataKey="month" tickFormatter={formatMonthLabel} tick={{ fontSize: 11 }} minTickGap={35} />
+              <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize: 11 }} width={55} />
+              <Tooltip labelFormatter={(value) => formatMonthLabel(String(value))} formatter={(value, name) => [formatCurrency(Number(value)), name === "income_cents" ? "Income" : "Spending"]} contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: 8 }} />
+              <Bar dataKey="income_cents" fill="hsl(var(--primary))" maxBarSize={28} radius={[3, 3, 0, 0]} />
+              <Bar dataKey="expense_cents" fill="var(--gold)" maxBarSize={28} radius={[3, 3, 0, 0]} />
+            </BarChart></ResponsiveContainer></div>
+            <p className="text-xs text-[hsl(var(--muted-foreground))] mt-2">{rangeMode === "month" ? "Up to six months of recorded activity" : "Monthly totals within the selected dates"} · open months are partial</p>
+          </section>}
           {/* ── CATEGORY BREAKDOWN ── */}
           <section>
             <h2 className="font-semibold mb-3">Spending by Category</h2>
-            <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-4">
+            <div className="space-y-4">
               {catChartData.length > 0 && (
-                <div className="border rounded-xl p-4 flex flex-col items-center justify-center">
-                  <ResponsiveContainer width="100%" height={180}>
-                    <PieChart>
-                      <Pie
-                        data={catChartData}
-                        dataKey="value"
-                        nameKey="name"
-                        innerRadius={45}
-                        outerRadius={75}
-                        paddingAngle={2}
-                        strokeWidth={0}
-                      >
-                        {catChartData.map((entry) => (
-                          <Cell key={entry.name} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }}
-                        formatter={(v, _n, item) => [
-                          `${formatCurrency(v as number)} (${catChartTotal > 0 ? Math.round(((v as number) / catChartTotal) * 100) : 0}%)`,
-                          item?.payload?.name ?? "",
-                        ]}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))] text-center -mt-2">
-                    {rangeMode === "custom" ? "Selected period" : "This month"}
-                  </p>
+                <div>
+                  {/* Ranked bars instead of a donut: shares compare by length, not arc angle. */}
+                  <div className="space-y-2.5 w-full">
+                    {catChartData.map((entry) => {
+                      const pct = catChartTotal > 0 ? (entry.value / catChartTotal) * 100 : 0;
+                      return (
+                        <div key={entry.id ?? "uncategorized"} className="report-category-row">
+                          <div className="flex items-center justify-between gap-2 text-[11px] mb-1">
+                            <span className="truncate flex items-center gap-1.5 min-w-0">
+                              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
+                              <span className="truncate">{entry.name}</span>
+                            </span>
+                            <span className="tabular-nums shrink-0">
+                              {formatCurrency(entry.value)} <span className="text-[hsl(var(--muted-foreground))]">· {Math.round(pct)}%</span>
+                            </span>
+                          </div>
+                          <div
+                            className="h-1.5 rounded-full bg-[hsl(var(--muted))] overflow-hidden"
+                            role="img"
+                            aria-label={`${entry.name}: ${formatCurrency(entry.value)}, ${Math.round(pct)}% of spending`}
+                          >
+                            <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: entry.color }} />
+                          </div>
+                          {rangeMode === "month" && <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">{(prevMap.get(entry.id) ?? 0) > 0 ? `${formatCurrency(prevMap.get(entry.id)!)} in ${formatMonthLabel(prevYM(month))} (full month)` : "No spending in the previous month"}</p>}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
-              <div className="border rounded-xl overflow-hidden">
+              <details className="workspace-disclosure report-table">
+                <summary>Exact category comparison</summary>
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-left text-[hsl(var(--muted-foreground))]">
                       <th className="px-4 py-2.5 font-medium">Category</th>
-                      <th className="px-4 py-2.5 font-medium text-right">{rangeMode === "custom" ? "Selected Period" : "This Month"}</th>
-                      <th className="px-4 py-2.5 font-medium text-right">{rangeMode === "custom" ? "" : "Last Month"}</th>
-                      <th className="px-4 py-2.5 font-medium text-right">{rangeMode === "custom" ? "" : "Change"}</th>
+                      <th className="px-4 py-2.5 font-medium text-right">{rangeMode === "custom" ? "Selected period" : formatMonthLabel(month)}</th>
+                      {rangeMode === "month" && <><th className="px-4 py-2.5 font-medium text-right">{formatMonthLabel(prevYM(month))} (full month)</th>
+                      <th className="px-4 py-2.5 font-medium text-right">Change</th></>}
                     </tr>
                   </thead>
                   <tbody>
                     {catThis.map((cat) => {
-                      const prev = prevMap.get(cat.category_name) ?? 0;
+                      const prev = prevMap.get(cat.category_id) ?? 0;
                       const pct = changePct(cat.total_cents, prev);
                       return (
-                        <tr key={cat.category_name} className="border-t hover:bg-[hsl(var(--muted))]">
+                        <tr key={cat.category_id ?? "uncategorized"} className="border-t hover:bg-[hsl(var(--muted))]">
                           <td className="px-4 py-2.5">
                             <span className="flex items-center gap-2">
                               <span className="w-2.5 h-2.5 rounded-full shrink-0"
@@ -368,27 +406,27 @@ export default function ReportsPage() {
                           <td className="px-4 py-2.5 text-right font-mono">
                             {formatCurrency(cat.total_cents)}
                           </td>
-                          <td className="px-4 py-2.5 text-right font-mono text-[hsl(var(--muted-foreground))]">
+                          {rangeMode === "month" && <><td className="px-4 py-2.5 text-right font-mono text-[hsl(var(--muted-foreground))]">
                             {prev > 0 ? formatCurrency(prev) : "—"}
                           </td>
                           <td className={`px-4 py-2.5 text-right font-medium
                             ${pct > 10 ? "text-[hsl(var(--error))]" : pct < -10 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--muted-foreground))]"}`}>
                             {prev > 0 ? `${pct > 0 ? "+" : ""}${pct}%` : "—"}
-                          </td>
+                          </td></>}
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
-              </div>
+              </details>
             </div>
           </section>
 
           {/* ── MONTHLY TOTALS ── */}
           {monthTotals.length > 0 && (
             <section>
-              <h2 className="font-semibold mb-3">Month over Month</h2>
-              <div className="border rounded-xl overflow-hidden">
+              <details className="workspace-disclosure report-table">
+                <summary>Monthly figures</summary>
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-left text-[hsl(var(--muted-foreground))]">
@@ -416,15 +454,16 @@ export default function ReportsPage() {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </details>
             </section>
           )}
 
           {/* ── BALANCE OVER TIME ── */}
           {balanceTrend.length > 1 && (
             <section>
-              <h2 className="font-semibold mb-3">Balance Over Time</h2>
-              <div className="border rounded-xl p-5">
+              <h2 className="font-semibold mb-1">Checking &amp; credit balance</h2>
+              <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">Latest recorded balance per month · through the selected end date</p>
+              <div>
                 <ResponsiveContainer width="100%" height={180}>
                   <AreaChart data={balanceTrend} margin={{ top: 4, right: 16, bottom: 4, left: 16 }}>
                     <defs>
@@ -447,7 +486,7 @@ export default function ReportsPage() {
                         fontSize: "12px",
                       }}
                       labelFormatter={(l) => formatMonthLabel(String(l))}
-                      formatter={(v) => [`$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "Balance"]}
+                      formatter={(v) => [formatCurrency(Number(v)), "Balance"]}
                     />
                     <Area type="monotone" dataKey="balance" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#balTrendGrad)" dot={{ r: 3 }} />
                   </AreaChart>
@@ -459,45 +498,21 @@ export default function ReportsPage() {
           {/* ── TOP EXPENSES ── */}
           {topExpenses.length > 0 && (
             <section>
-              <h2 className="font-semibold mb-3">Top Expenses This Month</h2>
-              <div className="border rounded-xl overflow-hidden">
-                <table className="w-full text-sm">
-                  <tbody>
-                    {topExpenses.map((t, i) => (
-                      <tr key={t.id} className="border-b last:border-0 hover:bg-[hsl(var(--muted))]">
-                        <td className="px-4 py-3 text-[hsl(var(--muted-foreground))] w-8 text-right">
-                          {i + 1}
-                        </td>
-                        <td className="px-4 py-3 text-[hsl(var(--muted-foreground))] whitespace-nowrap w-28">
-                          {formatDate(t.date)}
-                        </td>
-                        <td className="px-4 py-3 truncate max-w-xs">{t.description}</td>
-                        <td className="px-4 py-3">
-                          <span className="inline-block px-2 py-0.5 rounded-full text-xs text-white"
-                            style={{ backgroundColor: t.category_color ?? "hsl(var(--neutral))" }}>
-                            {t.category_name ?? "Uncategorized"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono text-[hsl(var(--error))]">
-                          {formatCurrency(Math.abs(t.amount_cents))}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <h2 className="font-semibold mb-3">Largest expenses · selected period</h2>
+              <div className="divide-y divide-[hsl(var(--border))]">
+                {topExpenses.map((transaction) => <button key={transaction.id} onClick={() => setSelectedTransaction(transaction)} className="flex items-center gap-3 py-3 w-full text-left hover:bg-[hsl(var(--muted))]">
+                  <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{transaction.description}</span><span className="text-xs text-[hsl(var(--muted-foreground))]">{formatDate(transaction.date)} · {transaction.category_name ?? "Uncategorized"}</span></span>
+                  <span className="text-sm font-semibold shrink-0">{formatCurrency(Math.abs(transaction.amount_cents))}</span><ChevronRight size={15} className="shrink-0" />
+                </button>)}
               </div>
             </section>
           )}
 
           {/* ── MOST RECURRING ── */}
           {recurring.length > 0 && (
-            <section>
-              <h2 className="font-semibold mb-1">Most Recurring Payees</h2>
-              <p className="text-sm text-[hsl(var(--muted-foreground))] mb-3">
-                Who you've paid most often across all time — counts every charge, whether or not
-                it follows a regular schedule. For active subscriptions specifically, see below.
-              </p>
-              <div className="border rounded-xl overflow-hidden">
+            <details className="workspace-disclosure">
+              <summary>Frequent payees · all time</summary>
+              <div className="report-table">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-left text-[hsl(var(--muted-foreground))]">
@@ -529,16 +544,13 @@ export default function ReportsPage() {
                   </tbody>
                 </table>
               </div>
-            </section>
+            </details>
           )}
 
           {/* ── GHOST SUBSCRIPTIONS ── */}
           {subscriptions.length > 0 && (
-            <section>
-              <h2 className="font-semibold mb-1 flex items-center gap-1.5"><Ghost size={16} className="text-[hsl(var(--muted-foreground))]" /> Ghost Subscriptions</h2>
-              <p className="text-sm text-[hsl(var(--muted-foreground))] mb-3">
-                Charges on a consistent monthly cadence (same day of month, or same "Nth weekday", 2+ months running) — likely recurring subscriptions.
-              </p>
+            <details className="workspace-disclosure">
+              <summary><Repeat2 size={14} className="inline mr-2" />Detected subscriptions · recent history</summary>
               <div className="space-y-3">
                 {subscriptions.map((s) => {
                   const yearly = s.amount_cents * 12;
@@ -569,10 +581,11 @@ export default function ReportsPage() {
                   );
                 })}
               </div>
-            </section>
+            </details>
           )}
         </>
       )}
+      {selectedTransaction && <TransactionDetailModal transaction={selectedTransaction} onClose={() => setSelectedTransaction(null)} />}
     </div>
   );
 }

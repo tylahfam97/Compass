@@ -7,6 +7,7 @@ import { composeInsightText } from "./voice";
 import { getRemembered, remember } from "./voiceMemory";
 import { getHiddenChargeKeys, chargeKey } from "./hiddenCharges";
 import { formatCurrencyWhole as formatCents } from "./utils";
+import { evaluateBudgetPeriod, type BudgetDefinition } from "./budgetMetrics";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -294,47 +295,38 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   }
 
   // ── INSIGHT: overspend_streak ────────────────────────────────────────────
+  const budgetHistory: { category_id: number; category_name: string; over_count: number; under_count: number; budget_cents: number }[] = [];
   if (monthCount >= 2) {
-    const budgetStreaks = await db.select<{
-      category_id: number;
-      category_name: string;
-      over_count: number;
-      budget_cents: number;
-    }[]>(
-      `SELECT b.category_id, c.name as category_name, b.amount_cents as budget_cents,
-              COUNT(*) as over_count
-       FROM budgets b
-       JOIN categories c ON b.category_id=c.id
-       JOIN (
-         SELECT tx.category_id, strftime('%Y-%m', tx.date) as month,
-                ${categorySpendSql("tx", "ac")} as spent
-         FROM transactions tx JOIN accounts ac ON ac.id=tx.account_id
-         WHERE tx.profile_id=?
-         GROUP BY tx.category_id, month
-       ) t ON t.category_id=b.category_id AND t.spent > b.amount_cents
-       WHERE b.profile_id=?
-       GROUP BY b.id HAVING over_count >= 2`,
-      [profileId, profileId]
-    );
+    const definitions = await db.select<BudgetDefinition[]>(
+      `SELECT b.*,c.name as category_name,c.parent_id as category_parent_id FROM budgets b JOIN categories c ON c.id=b.category_id
+       WHERE b.profile_id=? AND b.is_global=0 AND b.period='monthly' AND c.id!=1 AND (c.parent_id IS NULL OR c.parent_id!=1)`, [profileId]);
+    for (const budget of definitions) {
+      const periods = [];
+      const cursor = new Date();
+      cursor.setDate(1);
+      for (let offset = 0; offset < 12; offset++) {
+        cursor.setMonth(cursor.getMonth() - 1);
+        const month = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`;
+        const [start, end] = monthBounds(month);
+        if (start < budget.start_date) break;
+        periods.push(await evaluateBudgetPeriod(db, budget, [profileId], start, end, true));
+      }
+      budgetHistory.push({ category_id: budget.category_id, category_name: budget.category_name, budget_cents: budget.amount_cents,
+        over_count: periods.filter((period) => period.covered && !period.onTrack).length,
+        under_count: periods.filter((period) => period.covered && period.onTrack).length });
+    }
+  }
+  if (monthCount >= 2) {
+    const budgetStreaks = budgetHistory.filter((budget) => budget.over_count >= 2);
     for (const row of budgetStreaks) {
       const overspendMemKey = `overspend_streak_${profileId}_${row.category_id}`;
-      const overspendRemembered = getRemembered(profileId, overspendMemKey);
       const overspendLabel = `${row.over_count} month${row.over_count !== 1 ? "s" : ""}`;
-      const overspendDescription = composeInsightText({
-        type: "overspend_streak",
-        currentValue: row.over_count,
-        currentLabel: overspendLabel,
-        previousValue: overspendRemembered?.rawValue ?? null,
-        previousLabel: overspendRemembered?.label ?? null,
-        higherIsBetter: false,
-        variantSeed: `${profileId}:overspend_streak:${row.category_id}:${thisMonth}`,
-        fallback: `You've exceeded this budget ${row.over_count} months in a row. Consider adjusting the limit.`,
-      });
+      const overspendDescription = `Over the effective limit in ${row.over_count} covered, completed months within the last year. Includes only accounts enabled for insights.`;
       remember(profileId, overspendMemKey, row.over_count, overspendLabel, thisStart);
       insights.push({
         id: `overspend_streak_${row.category_id}`,
         type: "overspend_streak",
-        title: `Consistently over budget: ${row.category_name}`,
+        title: `Review the limit: ${row.category_name}`,
         description: overspendDescription,
         severity: "warning",
         dismissKey: `overspend_streak_${row.category_id}`,
@@ -349,55 +341,23 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
 
   // ── INSIGHT: positive_streak ─────────────────────────────────────────────
   if (monthCount >= 3) {
-    const underBudgetBudgets = await db.select<{
-      category_id: number;
-      category_name: string;
-      under_count: number;
-      budget_cents: number;
-    }[]>(
-      `SELECT b.category_id, c.name as category_name, COUNT(*) as under_count, b.amount_cents as budget_cents
-       FROM budgets b
-       JOIN categories c ON b.category_id=c.id
-       JOIN (
-         SELECT tx.category_id, strftime('%Y-%m', tx.date) as month,
-                ${categorySpendSql("tx", "ac")} as spent
-         FROM transactions tx JOIN accounts ac ON ac.id=tx.account_id
-         WHERE tx.profile_id=?
-         GROUP BY tx.category_id, month
-       ) t ON t.category_id=b.category_id AND t.spent <= b.amount_cents
-       WHERE b.profile_id=?
-       GROUP BY b.id HAVING under_count >= 3`,
-      [profileId, profileId]
-    );
+    const underBudgetBudgets = budgetHistory.filter((budget) => budget.under_count >= 3);
     for (const row of underBudgetBudgets) {
       const streakMemKey = `positive_streak_${profileId}_${row.category_id}`;
-      const streakRemembered = getRemembered(profileId, streakMemKey);
       const streakLabel = `${row.under_count} month${row.under_count !== 1 ? "s" : ""}`;
-      const streakDescription = composeInsightText({
-        type: "positive_streak",
-        currentValue: row.under_count,
-        currentLabel: streakLabel,
-        previousValue: streakRemembered?.rawValue ?? null,
-        previousLabel: streakRemembered?.label ?? null,
-        higherIsBetter: true,
-        variantSeed: `${profileId}:positive_streak:${row.category_id}:${thisMonth}`,
-        fallback: `Great discipline. Consider tightening the limit slightly to lock in more savings.`,
-      });
+      const streakDescription = `Within the effective limit in ${row.under_count} covered, completed months within the last year. Includes only accounts enabled for insights; these months need not be consecutive.`;
       remember(profileId, streakMemKey, row.under_count, streakLabel, thisStart);
       insights.push({
         id: `positive_streak_${row.category_id}`,
         type: "positive_streak",
-        title: `Under budget on ${row.category_name} — ${row.under_count} months running`,
+        title: `Within budget: ${row.category_name}`,
         description: streakDescription,
         severity: "success",
         dismissKey: `positive_streak_${row.category_id}`,
         richData: {
           streakMonths: row.under_count,
           budgetAmountCents: row.budget_cents,
-          potentialLabel: row.budget_cents > 0
-            ? `Tighten by 10% → save ~${formatCents(Math.round(row.budget_cents * 0.1 * 12))}/yr`
-            : undefined,
-          potentialValue: row.budget_cents > 0 ? Math.round(row.budget_cents * 0.1 * 12) : undefined,
+          potentialLabel: "Covered months, not a consecutive streak",
         },
       });
     }
@@ -1508,27 +1468,26 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
   const savingsScore = avgRate >= 0.20 ? 40 : avgRate >= 0.15 ? 30 : avgRate >= 0.10 ? 20 : avgRate >= 0.05 ? 10 : 0;
 
   // ── 2. Budget Health (30 pts) — this month ──────────────────────────────
-  const budgets = await db.select<{ category_id: number; amount_cents: number }[]>(
-    `SELECT category_id, amount_cents FROM budgets WHERE profile_id IN (${ph}) OR is_global=1`,
+  const budgets = await db.select<BudgetDefinition[]>(
+    `SELECT b.*,c.name as category_name,c.parent_id as category_parent_id FROM budgets b JOIN categories c ON c.id=b.category_id WHERE (b.profile_id IN (${ph}) AND b.is_global=0) OR b.is_global=1`,
     [...profileIds]
   );
   let budgetScore = 15;
   if (budgets.length > 0) {
-    // Counts credit-card purchases against the budget, matching what the Budgets page itself
-    // reports - money spent is money spent whichever card it went on. Credits/refunds filed
-    // under a category net against it, floored at $0.
-    const spendRows = await db.select<{ category_id: number; spent: number }[]>(
-      `SELECT t.category_id,
-              ${categorySpendSql()} as spent
-       FROM transactions t JOIN accounts a ON a.id=t.account_id
-       WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<? AND a.excluded_from_insights=0
-       GROUP BY t.category_id`,
-      [...profileIds, msStart, msEnd]
-    );
-    const sm = new Map(spendRows.map(s => [s.category_id, s.spent]));
-    const over = budgets.filter(b => (sm.get(b.category_id) ?? 0) > b.amount_cents).length;
-    const pct = (budgets.length - over) / budgets.length;
-    budgetScore = pct >= 1.0 ? 30 : pct >= 0.8 ? 24 : pct >= 0.6 ? 18 : pct >= 0.4 ? 12 : 6;
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - (now.getDay() + 6) % 7);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 7);
+    const localDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    const evaluations = await Promise.all(budgets.map((budget) => evaluateBudgetPeriod(db, budget,
+      budget.is_global ? profileIds : [budget.profile_id],
+      budget.period === "weekly" ? localDate(weekStart) : msStart,
+      budget.period === "weekly" ? localDate(weekEnd) : msEnd, true)));
+    const known = evaluations.filter((period) => period.covered);
+    if (known.length > 0) {
+      const pct = known.filter((period) => period.onTrack).length / known.length;
+      budgetScore = pct >= 1.0 ? 30 : pct >= 0.8 ? 24 : pct >= 0.6 ? 18 : pct >= 0.4 ? 12 : 6;
+    }
   }
 
   // ── 3. Balance Runway (20 pts) — liquid cash only, not credit card debt ──

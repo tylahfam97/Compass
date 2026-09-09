@@ -6,6 +6,8 @@ interface WeeklyMiniBarProps {
   /** If true, going OVER is bad (budget). If false, going over is good (income goal). */
   overIsBad?: boolean;
   className?: string;
+  weekStart?: string;
+  signed?: boolean;
 }
 
 const DOW_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
@@ -20,12 +22,37 @@ export default function WeeklyMiniBar({
   dailyTarget,
   overIsBad = true,
   className = "",
+  weekStart,
+  signed = false,
 }: WeeklyMiniBarProps) {
+  if (signed) {
+    const extent = Math.max(dailyTarget, ...dailyAmounts.map(Math.abs), 1);
+    const total = dailyAmounts.reduce((sum, amount) => sum + amount, 0);
+    return <div className={`flex gap-1 h-14 ${className}`} role="img" aria-label={`Week of ${weekStart}: net used $${(total / 100).toFixed(2)}`}>
+      {dailyAmounts.map((amount, index) => <div key={index} className="flex-1 min-w-0" title={`${DOW_LABELS[index]}: $${(amount / 100).toFixed(2)}`}>
+        <div className="relative h-10">
+          <div className="absolute top-1/2 w-full border-t" />
+          <div className="absolute w-full rounded-sm" style={{
+            height: `${Math.abs(amount) / extent * 48}%`,
+            top: amount < 0 ? "50%" : undefined,
+            bottom: amount >= 0 ? "50%" : undefined,
+            backgroundColor: amount < 0 ? "hsl(var(--success))" : amount > dailyTarget ? "hsl(var(--error))" : "hsl(var(--primary))",
+          }} />
+        </div>
+        <span className="block text-center text-[9px] text-[hsl(var(--muted-foreground))]">{DOW_LABELS[index]}</span>
+      </div>)}
+    </div>;
+  }
   const today = todayDow();
   const max = Math.max(dailyTarget * 1.5, ...dailyAmounts, 1);
+  const weekTotal = dailyAmounts.slice(0, today + 1).reduce((s, v) => s + v, 0);
 
   return (
-    <div className={`flex gap-1 items-end h-10 ${className}`}>
+    <div
+      className={`flex gap-1 items-end h-10 ${className}`}
+      role="img"
+      aria-label={`This week so far: $${Math.round(weekTotal / 100).toLocaleString("en-US")} against a $${Math.round(dailyTarget / 100).toLocaleString("en-US")} daily ${overIsBad ? "limit" : "target"}`}
+    >
       {dailyAmounts.map((amount, i) => {
         const isFuture = i > today;
         const heightPct = isFuture ? 0 : Math.min(100, (amount / max) * 100);

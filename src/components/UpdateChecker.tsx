@@ -82,7 +82,7 @@ export default function UpdateChecker({ autoCheck = false }: Props) {
   if (state.phase === "prompt") {
     const { update } = state;
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-label="Update available">
         <div className="bg-[hsl(var(--background))] border rounded-xl p-6 w-80 shadow-xl space-y-4">
           <div>
             <p className="font-semibold text-sm">Update available</p>

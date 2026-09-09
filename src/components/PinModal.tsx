@@ -117,6 +117,7 @@ export default function PinModal({ profile, onSuccess, onCancel }: PinModalProps
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
       onClick={onBackdropClick} ref={containerRef}
+      role="dialog" aria-modal="true" aria-label="PIN entry"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
     >
       <motion.div

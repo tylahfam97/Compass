@@ -6,7 +6,7 @@ import {
   Wallet, Target, BarChart2, Lightbulb, Globe, ChevronLeft, ChevronRight, MessageSquare, Sparkles, CalendarClock, Settings as SettingsIcon,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { MotionConfig } from "motion/react";
+import { MotionConfig, motion } from "motion/react";
 import DashboardPage from "@/pages/DashboardPage";
 import TransactionsPage from "@/pages/TransactionsPage";
 import TrendsPage from "@/pages/TrendsPage";
@@ -56,7 +56,15 @@ function RoutedContent() {
   const location = useLocation();
   return (
     <ErrorBoundary key={location.pathname}>
-      <Routes>
+      {/* Keyed remount gives an entrance-only fade/rise; no AnimatePresence so navigation is never
+          delayed by an exit animation. MotionConfig suppresses it under reduced motion. */}
+      <motion.div
+        key={location.pathname}
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.16, ease: [0.25, 0.1, 0.25, 1] }}
+      >
+        <Routes>
         <Route path="/overview" element={<div className="py-6"><OverviewPage /></div>} />
         <Route path="/" element={<DashboardPage />} />
         <Route path="/transactions" element={<div className="py-6"><TransactionsPage /></div>} />
@@ -70,6 +78,7 @@ function RoutedContent() {
         <Route path="/agent" element={<div className="py-6"><AgentPage /></div>} />
         <Route path="/settings" element={<div className="py-6"><SettingsPage /></div>} />
       </Routes>
+      </motion.div>
     </ErrorBoundary>
   );
 }
@@ -109,9 +118,19 @@ function initials(name: string): string {
 }
 
 function App() {
-  const [dark, setDark] = useState(() =>
+  const theme = useSettingsStore((state) => state.theme);
+  const setTheme = useSettingsStore((state) => state.setTheme);
+  const [systemDark, setSystemDark] = useState(() =>
     window.matchMedia("(prefers-color-scheme: dark)").matches
   );
+  const dark = theme === "dark" || (theme === "system" && systemDark);
+  const setDark = (value: boolean) => setTheme(value ? "dark" : "light");
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const update = () => setSystemDark(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
   const setCategories = useCategoryStore((s) => s.setCategories);
   const { profiles, setProfiles, setActiveProfile } = useProfileStore();
   const restartOnboarding = useOnboardingStore((s) => s.restart);
@@ -229,8 +248,10 @@ function App() {
       <div className="flex h-screen overflow-hidden">
         {/* Sidebar */}
         <aside
-          className={`shrink-0 flex flex-col overflow-y-auto bg-[hsl(var(--muted))] transition-all duration-200
+          className={`app-sidebar shrink-0 flex flex-col overflow-y-auto bg-[hsl(var(--muted))] transition-all duration-200
                       ${sidebarOpen ? "w-52" : "w-12"}`}
+          data-expanded={sidebarOpen}
+          onKeyDown={(event) => { if (event.key === "Escape") setSidebarOpen(false); }}
           style={{ borderRight: '1.5px solid hsl(var(--primary) / 0.25)' }}
         >
           {/* Logo row + collapse toggle */}
@@ -243,6 +264,7 @@ function App() {
                 return next;
               })}
               title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+              aria-expanded={sidebarOpen}
               className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]
                          hover:bg-[hsl(var(--border))] rounded-md p-1 transition-colors"
             >
@@ -258,6 +280,7 @@ function App() {
               <NavLink
                 key={to}
                 to={to}
+                onClick={() => { if (window.innerWidth < 720) setSidebarOpen(false); }}
                 end={to === "/"}
                 data-tour={tourId}
                 title={!sidebarOpen ? label : undefined}
@@ -291,7 +314,7 @@ function App() {
               <ProfileSwitcher />
               <button
                 data-tour="dark-mode-toggle"
-                onClick={() => setDark((d) => !d)}
+                onClick={() => setDark(!dark)}
                 className="w-full text-xs px-3 py-2 rounded-md border hover:bg-[hsl(var(--border))] transition-colors"
               >
                 {dark ? "Light mode" : "Dark mode"}
@@ -323,10 +346,11 @@ function App() {
             </div>
           )}
         </aside>
+        {sidebarOpen && <button className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} />}
 
         {/* Main content */}
-        <main className="flex-1 overflow-y-auto">
-          <div className="max-w-[1200px] mx-auto w-full min-h-full">
+        <main className="app-main flex-1 min-w-0 overflow-y-auto">
+          <div className="app-workspace w-full min-h-full">
             <RoutedContent />
           </div>
         </main>

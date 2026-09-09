@@ -1,14 +1,16 @@
-import { useReducedMotion } from "motion/react";
+import { useSyncExternalStore } from "react";
 import { useSettingsStore } from "@/stores/settingsStore";
 
-/**
- * True when animation should be suppressed - either because the OS asks for reduced motion or
- * because the user turned it on in Compass itself. Framer Motion's own `useReducedMotion` only
- * sees the OS media query, so anything driven by JS (the canvas particle effects) needs this
- * combined check rather than that hook directly.
- */
+function subscribe(listener: () => void) {
+  const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+  media.addEventListener("change", listener);
+  return () => media.removeEventListener("change", listener);
+}
+
+const snapshot = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 export function useAppReducedMotion(): boolean {
-  const systemPrefers = useReducedMotion();
+  const systemPrefers = useSyncExternalStore(subscribe, snapshot, () => false);
   const motionPref = useSettingsStore((s) => s.motionPref);
   return motionPref === "reduced" || systemPrefers === true;
 }

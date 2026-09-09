@@ -277,7 +277,7 @@ export default function ProfileSwitcher() {
 
       {/* Panel overlay */}
       {open && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Profiles">
           <div
             ref={panelRef}
             className="bg-[hsl(var(--background))] border rounded-2xl shadow-2xl w-96 max-h-[80vh]

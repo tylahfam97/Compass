@@ -2,6 +2,131 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.0.2 — A Plan That Knows How You Actually Spend ✨
+
+This release simplifies Plan, Transactions, and Goals while preserving Compass's colors,
+themes, and branding.
+
+### New: Cash-Flow Horizon
+- Compare the current projection with extra spending and one dated purchase preview.
+  Previews never create transactions or scheduled bills.
+- Inspect daily balances, scheduled events, detected estimates, and hypothetical changes
+  with the date scrubber or optional playback. The chart uses exact daily steps.
+- Scenario amounts allocate every cent exactly and stay separate for each profile.
+  A purchase outside the selected window remains saved but inactive.
+- Recorded checking-balance dates are available in source details. Missing balances make
+  safe-to-spend unavailable instead of treating unknown cash as a confirmed zero.
+
+### Fixed: Signed Budgets And Rollover
+- Category credits can produce negative net usage. A $200 budget with -$50 net used shows
+  $250 remaining; only the $200 allowance carries forward, plus any prior carry.
+- Weekly bars show signed daily values and drill into the exact labelled week.
+- Budget streak goals and celebrations use covered, completed months and effective limits.
+  Insights no longer describe a count of qualifying months as a consecutive streak.
+- Income targets and existing credit/loan account treatment remain unchanged.
+
+### Changed: A Workspace That Fits The Window
+- All pages use available width and reflow as the window or sidebar changes. Narrow-screen
+  navigation opens as a dismissible overlay.
+- Insights puts readable action rows first, with compact context and expandable scores.
+  Limited history no longer hides otherwise available sections.
+- Transaction filters, view and sort are remembered per profile for the session, along with
+  report date ranges and trend windows. Search text is not added to URLs.
+- Settings prioritizes backups and appearance, remembers System/Light/Dark themes, and
+  recovers from failed account checks. Bulk data controls remain behind disclosures.
+- Login particles use restrained depth-aware parallax, retain positions during resize,
+  and stop when hidden or when reduced motion is enabled, including live preference changes.
+
+### Fixed: Safe To Spend Can Go Negative
+Plan now displays the actual negative allowance in red instead of stopping at zero.
+The number includes your reserved cushion, and a negative allowance no longer produces a
+suggestion to move surplus cash.
+
+### Changed: Decision-First Workspaces
+- **Categories:** custom categories can be renamed, reordered, or removed from the manager.
+  Rename and reorder preserve IDs. Removal reassigns linked records atomically; conflicting
+  budgets or rules must be resolved first. System categories remain protected.
+- **Transaction colors:** category colors now provide a subtle whole-row gradient in both
+  activity and table views, with neutral category controls.
+- **Budgets:** the default view emphasizes limits and remaining amounts, with an over-limit
+  filter and an on-demand editor. Weekly limits now use spending from the labelled week.
+- **Reports:** exact selected-period totals, income/spending trends, category shares, and
+  expense drill-downs lead. Detailed tables and all-time payees expand on demand. Balance
+  charts use consistent currency units and stop at the selected end date.
+- **Plan:** cash outlook and forecast lead; scenario controls sit alongside the chart on wide
+  screens. Balance arithmetic, action explanations, and scheduled-rule setup expand on demand.
+- **Transactions:** a date-grouped activity view emphasizes merchant, account, category, and
+  amount. The full table remains available, along with search, filters, bulk actions, and editing.
+  Export and categorization tools now live in a compact menu.
+- **Goals:** progress, target gaps, and status filters lead. A compact editor opens when adding
+  or editing a goal, replacing the always-visible grid of goal types.
+
+### New: The Forecast Can Use Your Real Spending
+Plan projected your balance from scheduled bills and income only — everyday spending was
+always $0 unless you dragged a slider, so the picture was permanently rosier than reality.
+
+Turn on **"Include my typical spending"** and the forecast folds in what you actually spend
+day to day, derived from your last three months of transactions (with your scheduled bills
+excluded so nothing counts twice). It uses the median week — a one-off car repair won't
+inflate what "typical" means. With it on:
+
+- **Safe to spend** accounts for the selected everyday-spending baseline
+- The math breakdown shows **typical spending** as its own line, separate from what-if spending
+- The extra-spend slider becomes "on top of what you typically spend"
+
+It's opt-in and clearly labelled, and it needs about a month of imported history before it
+trusts itself enough to turn on.
+
+### New: Confirm Detected Charges In One Click
+Compass has always spotted charges repeating in your history, but the only thing you could do
+about one was hide it. Now every detected item in **Upcoming cash flow** has a confirm button that
+turns it into a real scheduled bill — pre-filled with its amount and usual date, editable
+in the schedule editor like any other rule. The forecast stops guessing about it, and the
+"Estimated" label disappears.
+
+### New: "What To Do Next" Actually Takes You There
+The suggested actions used to describe what you could do. Now they're buttons:
+
+- **Schedule your paycheck** scrolls you to the rules panel with the income form already open
+- **Confirm detected charges** jumps you to the list
+- **You have room to move $X** opens the debt payoff planner directly
+
+### Changed: Plan Remembers Your Scenario
+The what-if sliders, the set-aside amount, and the detected-charges toggle all survive
+navigating away and coming back — and the window selector has moved up to the page header,
+since it's how you *look at* the page, not a scenario you're trying.
+
+### Changed: Quieter When Things Are Fine
+The Plan headline no longer glows green when you're okay — a calm border is the good state, so
+the red shortfall warning stands out by being the only loud thing on the page. Same principle
+applied across the app: saturated color is reserved for things that need your attention.
+
+### Changed: Livelier, Smoother, Easier To Read
+- Headline numbers **count up** when they load or change (Dashboard, Overview, Insights).
+  Plan updates its safe-to-spend amount immediately as scenarios change.
+- Pages fade in on navigation; cards rise in with a gentle stagger
+- Dashboard's Income / Expenses / Net cards now show **how they compare to last month**
+- The Reports category donut and Investments allocation donut are now **horizontal bars** — shares
+  you compare by length at a glance instead of decoding arc angles
+- Updated metrics use tabular digits to keep columns aligned
+- Buttons have pressed-state feedback and shared keyboard focus styling
+
+### Changed: More Accessible Throughout
+- Added dialog semantics to shared modals and keyboard handlers to selected account and insight cards
+- Added text alternatives to selected sparklines and mini-charts
+- Deepened light-theme status colors and added labels alongside key status indicators
+
+### New: First End-To-End Test Suite
+`npm run test:e2e` runs isolated browser tests using an in-memory SQLite database; it does not
+read or modify your desktop data. Tests cover negative Plan values, scenario controls,
+transaction views and editing, goal filters, and desktop/mobile layouts in both themes.
+The optional native smoke suite runs when `COMPASS_CDP_URL` points at a Tauri debug window
+launched with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222`.
+
+All local, all offline, as always. 🧭
+
+---
+
 ## Compass 1.0.1 — Forecast Accuracy & Loading Feedback 🔧
 
 A fast follow-up to v1.0 fixing the things real use turned up immediately.
