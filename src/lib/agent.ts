@@ -2542,7 +2542,9 @@ export async function computeDebtPayoffPlan(profileIds: number[], debts: DebtPay
         incomeBasis: ffSummary.incomeBasis,
         incomeCents: ffSummary.avgIncomeCents,
         committedCents: ffSummary.avgBillsCents + ffSummary.avgRecurringCents,
-        flexibleCents: ffSummary.avgFlexibleCents,
+        // Kept arithmetically consistent with `cents` (income - committed - flexible), so the
+        // modal's derivation line always sums; the dedup happens inside the summary.
+        flexibleCents: Math.max(0, ffSummary.avgIncomeCents - (ffSummary.avgBillsCents + ffSummary.avgRecurringCents) - ffSummary.avgLeftCents),
         monthsAveraged: ffMonths.length,
       }
     : null;

@@ -35,19 +35,21 @@ export default function FixedFlexibleBar({ summary, monthsLabel, className }: Fi
   const planned = summary.incomeBasis === "planned";
   const income = summary.avgIncomeCents;
   const supplemental = Math.max(0, summary.avgActualIncomeCents - income);
-  const bills = summary.avgBillsCents;
+  // The two views never mix sources: plan view shows planned bills; measured view shows the
+  // payments actually matched to rules, so unmatched bills inside flexible aren't counted twice.
+  const bills = showFlexible ? summary.avgMeasuredBillsCents : summary.avgBillsCents;
   const recurring = summary.avgRecurringCents;
   const flexible = summary.avgFlexibleCents;
   const invested = summary.avgInvestedCents;
   const oneOff = summary.avgOneOffCents;
   const committed = bills + recurring;
-  const uncommitted = income - committed;
+  const uncommitted = income - (summary.avgBillsCents + recurring);
   const spentTotal = committed + flexible;
   const overPlanned = showFlexible && spentTotal > income;
   // Red only when even supplemental deposits didn't cover it; covered months get a plain note.
   const hardOver = overPlanned && spentTotal > Math.max(income, summary.avgActualIncomeCents);
   const overCovered = overPlanned && !hardOver;
-  const overCommitted = committed > income;
+  const overCommitted = summary.avgBillsCents + recurring > income;
   const left = showFlexible ? Math.max(0, income - spentTotal) : Math.max(0, uncommitted);
 
   // Segments never overflow the track: whatever is shown scales to fit the income track.
@@ -110,7 +112,7 @@ export default function FixedFlexibleBar({ summary, monthsLabel, className }: Fi
         className="mt-4"
         ariaLabel="Average month"
         items={showFlexible ? [
-          { label: "Scheduled bills", value: formatCurrencyWhole(bills), hint: planned ? "planned, as in Plan" : share(bills) },
+          { label: "Scheduled bills", value: formatCurrencyWhole(bills), hint: "matched from history" },
           { label: "Recurring, detected", value: formatCurrencyWhole(recurring), hint: share(recurring) },
           { label: "Flexible, measured", value: formatCurrencyWhole(flexible), hint: share(flexible) },
           hardOver
@@ -168,7 +170,7 @@ export default function FixedFlexibleBar({ summary, monthsLabel, className }: Fi
               {summary.flexibleTopCategories.length > 0 && (
                 <> Biggest flexible: {summary.flexibleTopCategories.map((c) => `${c.name} ${formatCurrencyWhole(c.cents)}`).join(", ")} a month.</>
               )}
-              <> Measured spending inherits your categorization - card payments or moves between your own accounts not marked as Transfers show up here as spending.</>
+              <> Bills shown here are the payments matched to your rules; a bill whose bank descriptor doesn't match its rule sits in flexible instead - as do card payments or moves between your own accounts not marked as Transfers.</>
             </>
           )}
         </p>

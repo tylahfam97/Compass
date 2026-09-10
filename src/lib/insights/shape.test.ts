@@ -72,7 +72,9 @@ describe("summarizeFixedFlexible", () => {
     expect(s.avgIncomeCents).toBe(400000);
     expect(s.avgActualIncomeCents).toBe(370000);
     expect(s.avgBillsCents).toBe(150000);
-    expect(s.avgLeftCents).toBe(400000 - 150000 - 1599 - 22700);
+    expect(s.avgMeasuredBillsCents).toBe(140000);
+    // $100 of planned bills went unmatched, so that much comes out of flexible before "left".
+    expect(s.avgLeftCents).toBe(400000 - 150000 - 1599 - (22700 - 10000));
     expect(s.committedShare).toBeCloseTo((150000 + 1599) / 400000, 6);
     expect(s.flexibleTopCategories[0]).toEqual({ name: "Uncategorized", cents: 22700 });
     const actual = summarizeFixedFlexible(august, [rent], [netflix], ["2026-08"], { incomeCents: 0, billsCents: 0 })!;

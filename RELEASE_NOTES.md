@@ -5,7 +5,16 @@
 ## Compass 1.2.2 — Money That Is Actually Yours 🧭
 
 This release makes Compass honest about which money is spoken for and which is genuinely free,
-and gives Trends a voice of its own.
+puts a report builder on the plotting table, and gives Trends a voice of its own.
+
+### New: The report builder
+- Reports opens with a plotting table: measure spending, income, net, or purchase counts;
+  slice by category, merchant, account, month, or weekday; look back 3, 6, 12 months or all
+  time; and draw the result as a line-by-line sheet, ranked bars, a wheel, or a line through
+  time. A month split turns the sheet into a pivot and the line into one series per slice.
+- Merchants fold on their cleaned identity ("SQ *BLUE BOTTLE 05/21…" and "BLUE BOTTLE #12"
+  are one row), a description search narrows any cut, and everything past the top rows folds
+  into one honest "Everything else" line. Name a cut and save it; presets live on the page.
 
 ### Your plan is the source of truth now
 - The "Fixed and flexible" instrument on Insights runs on your Plan schedule: planned income
@@ -21,6 +30,10 @@ and gives Trends a voice of its own.
 - Months that spend past planned income but are covered by supplemental deposits say so
   plainly; the track only turns red when spending passed all income. With no income scheduled
   yet, the instrument still works from averaged deposits, says so, and points at Plan.
+- The plan view and the measured view never mix: measured mode shows the bill payments actually
+  matched from history next to measured flexible spending, so a bill whose bank descriptor
+  doesn't match its rule is never counted twice - once as a planned bill and again as
+  "flexible" - which had been inflating both flexible spending and the over-income figure.
 - The "fixed costs take X% of income" insight runs on the same maths, so the row and the
   instrument can never disagree.
 

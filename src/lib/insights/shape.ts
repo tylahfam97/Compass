@@ -62,6 +62,9 @@ export interface FixedFlexibleSummary {
   /** Planned monthly equivalent of the user's bill rules when the basis is planned (matches
    *  the Plan page exactly); otherwise the average of actual payments matched to rules. */
   avgBillsCents: number;
+  /** Average of actual payments matched to bill rules - the measured counterpart, so a view
+   *  of what actually happened never mixes planned bills with measured spending. */
+  avgMeasuredBillsCents: number;
   avgRecurringCents: number;
   avgFlexibleCents: number;
   avgInvestedCents: number;
@@ -147,12 +150,17 @@ export function summarizeFixedFlexible(
   const usePlanned = planned !== null && planned.incomeCents > 0;
   const avgActualIncomeCents = avg((s) => s.incomeCents);
   const avgIncomeCents = usePlanned ? planned.incomeCents : avgActualIncomeCents;
-  const avgBillsCents = usePlanned ? planned.billsCents : avg((s) => s.billsCents);
+  const avgMeasuredBillsCents = avg((s) => s.billsCents);
+  const avgBillsCents = usePlanned ? planned.billsCents : avgMeasuredBillsCents;
   const avgRecurringCents = avg((s) => s.recurringCents);
   const avgFlexibleCents = avg((s) => s.flexibleCents);
   const avgInvestedCents = avg((s) => s.investedCents);
   const avgOneOffCents = avg((s) => s.oneOffCents);
-  const avgLeftCents = avgIncomeCents - avgBillsCents - avgRecurringCents - avgFlexibleCents;
+  // Bills that posted without matching their rule sit inside measured flexible; counting them
+  // AND the planned bills would double-count, so up to the planned-vs-matched gap comes out.
+  const presumedUnmatchedBills = usePlanned ? Math.max(0, avgBillsCents - avgMeasuredBillsCents) : 0;
+  const dedupedFlexibleCents = Math.max(0, avgFlexibleCents - presumedUnmatchedBills);
+  const avgLeftCents = avgIncomeCents - avgBillsCents - avgRecurringCents - dedupedFlexibleCents;
 
   const monthSet = new Set(months);
   const byCategory = new Map<string, number>();
@@ -170,7 +178,7 @@ export function summarizeFixedFlexible(
   const share = (cents: number) => (avgIncomeCents > 0 ? cents / avgIncomeCents : null);
   return {
     months: shapes,
-    avgIncomeCents, avgBillsCents, avgRecurringCents, avgFlexibleCents, avgInvestedCents, avgOneOffCents, avgLeftCents,
+    avgIncomeCents, avgBillsCents, avgMeasuredBillsCents, avgRecurringCents, avgFlexibleCents, avgInvestedCents, avgOneOffCents, avgLeftCents,
     avgActualIncomeCents,
     incomeBasis: usePlanned ? "planned" : "actual",
     flexibleTopCategories,

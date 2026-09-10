@@ -13,6 +13,7 @@ import { useProfileStore } from "@/stores/profileStore";
 import { handleLoadFailure } from "@/stores/toastStore";
 import { Skeleton } from "@/components/Skeleton";
 import TransactionDetailModal from "@/components/TransactionDetailModal";
+import ReportBuilder from "@/components/ReportBuilder";
 
 interface BalanceTrendPoint {
   month: string;
@@ -326,6 +327,8 @@ function ProfileReports({ profileId }: { profileId: number }) {
 
       {!loading && validRange && hasData && (
         <>
+          <ReportBuilder profileId={profileId} />
+
           <div className="goal-summary report-summary">
             <div><p>Income, selected period</p><strong>{formatCurrency(periodTotals.income_cents)}</strong></div>
             <div><p>Spending, selected period</p><strong>{formatCurrency(periodTotals.expense_cents)}</strong></div>
