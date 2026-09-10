@@ -1,67 +1,91 @@
-﻿import { useState } from "react";
+import { useId, useState } from "react";
 import type { Insight } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
-import { WarningIcon, CheckCircleIcon, TargetIcon, InfoIcon, XIcon, TrendUpIcon, TrendDownIcon, PercentIcon, LightningIcon, ArrowsClockwiseIcon, ShoppingBagIcon, CalendarBlankIcon, ShieldIcon, CurrencyDollarIcon, CreditCardIcon, BankIcon, ChartLineIcon, ChartPieIcon } from "@phosphor-icons/react";
+import { formatCurrencyWhole } from "@/lib/utils";
+import { insightActionLabel } from "@/lib/insightActions";
+import InsightDetail, { hasDetail } from "@/components/InsightDetail";
+import {
+  WarningIcon, CheckCircleIcon, TargetIcon, InfoIcon, XIcon, TrendUpIcon, TrendDownIcon, PercentIcon, LightningIcon,
+  ArrowsClockwiseIcon, ShoppingBagIcon, CalendarBlankIcon, ShieldIcon, CurrencyDollarIcon, CreditCardIcon, BankIcon,
+  ChartLineIcon, ChartPieIcon, CalendarCheckIcon, WarningCircleIcon, ReceiptIcon, SparkleIcon, CopyIcon, ScalesIcon,
+  TagIcon, ClockCounterClockwiseIcon, CoinsIcon, CaretDownIcon,
+} from "@phosphor-icons/react";
 
 // Maps insight type to a descriptive icon for row/scannable contexts.
-// Groups: budget (TargetIcon), rate/% (PercentIcon), trend-up (TrendUpIcon),
-// improved (TrendDownIcon), velocity (LightningIcon), recurring (ArrowsClockwiseIcon),
-// merchant/spend (ShoppingBag/$), time (CalendarBlankIcon), safety (ShieldIcon).
 const TYPE_ICONS: Record<string, React.ElementType> = {
-  // ━━ Budget discipline ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Budget discipline
   budget_gap:             TargetIcon,
   overspend_streak:       TargetIcon,
   positive_streak:        TargetIcon,
-  // ━━ Rate / percentage ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  budget_pace:            TargetIcon,
+  goal_off_track:         TargetIcon,
+  goal_projection:        TargetIcon,
+  // Rate / percentage
   savings_rate_low:       PercentIcon,
   expense_ratio_drift:    PercentIcon,
   weekend_spending:       PercentIcon,
-  // ━━ Trending up (notable / bad in spend context) ━━━━━━━━━━━━━━━━━━━━━━
+  interest_paid:          PercentIcon,
+  // Trending up (notable in a spend context)
   unusual_spike:          TrendUpIcon,
   category_creep:         TrendUpIcon,
   year_end_projection:    TrendUpIcon,
-  // ━━ Improved / trending down (good) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Improved / trending down (good)
   most_improved:          TrendDownIcon,
-  // ━━ Velocity / pace ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Velocity / pace
   spending_velocity:      LightningIcon,
-  // ━━ Recurring charges / subscriptions ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ghost_subscription:     ArrowsClockwiseIcon,
+  // Recurring charges
   subscription_total:     ArrowsClockwiseIcon,
-  redundant_spending:     ArrowsClockwiseIcon,
-  // ━━ Merchant / shopping spend ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  recurring_price_change: ReceiptIcon,
+  new_recurring_charge:   SparkleIcon,
+  annual_renewal:         CalendarBlankIcon,
+  duplicate_charge:       CopyIcon,
+  // Merchants
   top_merchants:          ShoppingBagIcon,
   food_delivery_spend:    ShoppingBagIcon,
-  // ━━ Cost / money ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  bill_due_soon:          CurrencyDollarIcon,
-  // ━━ Time / calendar ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  frequent_merchant:      ShoppingBagIcon,
+  large_purchase:         ShoppingBagIcon,
+  // Scheduled money
+  bills_this_week:        CalendarCheckIcon,
+  scheduled_missing:      WarningCircleIcon,
   income_expected:        CalendarBlankIcon,
   income_irregular:       CalendarBlankIcon,
-  // ━━ Account safety / health ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Shape of a month
+  fixed_costs_high:       ScalesIcon,
+  no_spend_days:          CalendarBlankIcon,
+  payday_burst:           CalendarBlankIcon,
+  // Housekeeping
+  uncategorized_share:    TagIcon,
+  stale_data:             ClockCounterClockwiseIcon,
+  // Account safety / health
   emergency_fund_runway:  ShieldIcon,
   overdraft_alert:        WarningIcon,
-  // ━━ Credit card debt ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Credit cards
   credit_card_debt_high:      CreditCardIcon,
   credit_card_debt_growing:   CreditCardIcon,
-  credit_card_debt_improving: CreditCardIcon,  // ━━ Loan debt / payoff planning ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  credit_card_debt_improving: CreditCardIcon,
+  card_paid_in_full:          CheckCircleIcon,
+  card_coverage_low:          CreditCardIcon,
+  // Loans / payoff planning
   loan_debt_high:              BankIcon,
   loan_debt_growing:           BankIcon,
   loan_debt_improving:         BankIcon,
   loan_payoff_projection:      CalendarBlankIcon,
   debt_payoff_priority:        BankIcon,
-  // ━━ Investments ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Investments
   investment_performance:      ChartLineIcon,
   dividend_income_projected:   CurrencyDollarIcon,
   investment_income_received:  CurrencyDollarIcon,
   realized_gains_ytd:          ChartLineIcon,
-  portfolio_concentration_risk: ChartPieIcon,};
+  portfolio_concentration_risk: ChartPieIcon,
+  investment_fees:             CoinsIcon,
+};
 
 const CARD_STYLES: Record<string, string> = {
   warning: "bg-gradient-to-br from-[hsl(var(--warning)/0.08)] to-[hsl(var(--warning)/0.02)] dark:from-[hsl(var(--warning)/0.12)] dark:to-[hsl(var(--warning)/0.04)]",
   info:    "bg-gradient-to-br from-[hsl(var(--primary)/0.08)] to-[hsl(var(--primary)/0.02)] dark:from-[hsl(var(--primary)/0.12)] dark:to-[hsl(var(--primary)/0.04)]",
   success: "bg-gradient-to-br from-[hsl(var(--success)/0.08)] to-[hsl(var(--success)/0.02)] dark:from-[hsl(var(--success)/0.12)] dark:to-[hsl(var(--success)/0.04)]",
 };
-// Short, rounded accent tick (not a full-height bar) - a lighter-touch severity cue that
-// reads as a deliberate premium detail rather than a hard boxy stripe.
+// Short, rounded accent tick (not a full-height bar) - a lighter-touch severity cue.
 const ACCENT_BAR_CLS: Record<string, string> = {
   warning: "bg-[hsl(var(--warning))]",
   info:    "bg-[hsl(var(--primary))]",
@@ -71,16 +95,6 @@ const ICON_CLS: Record<string, string> = {
   warning: "text-[hsl(var(--warning))]",
   info:    "text-[hsl(var(--gold-ink))]",
   success: "text-[hsl(var(--success))]",
-};
-const TITLE_CLS: Record<string, string> = {
-  warning: "text-[hsl(var(--foreground))]",
-  info:    "text-[hsl(var(--foreground))]",
-  success: "text-[hsl(var(--foreground))]",
-};
-const ACTION_CLS: Record<string, string> = {
-  warning: "border border-[hsl(var(--warning)/0.5)] text-[hsl(var(--warning))] hover:bg-[hsl(var(--warning)/0.12)] dark:hover:bg-[hsl(var(--warning)/0.18)]",
-  info:    "border border-[hsl(var(--primary)/0.5)] text-[hsl(var(--gold-ink))] hover:bg-[hsl(var(--primary)/0.12)] dark:hover:bg-[hsl(var(--primary)/0.18)]",
-  success: "border border-[hsl(var(--success)/0.5)] text-[hsl(var(--success))] hover:bg-[hsl(var(--success)/0.12)] dark:hover:bg-[hsl(var(--success)/0.18)]",
 };
 const CARD_ICONS: Record<string, React.ElementType> = {
   warning: WarningIcon,
@@ -93,51 +107,75 @@ const ROW_ICONS: Record<string, React.ElementType> = {
   success: CheckCircleIcon,
 };
 
+/** One button style for every intent: gold is agency, severity stays on the icon. */
+const ACTION_BUTTON_CLS = "insight-action rounded-md border border-[hsl(var(--border))] px-2.5 py-1 text-xs font-medium text-[hsl(var(--gold-ink))] hover:bg-[hsl(var(--primary)/0.1)] transition-colors";
+
 interface InsightCardProps {
   insight: Insight;
   onApply?: (insight: Insight) => void;
   compact?: boolean;
   variant?: "card" | "row";
+  /** Row variant: open the detail panel on mount (the top-ranked problem opens on arrival). */
+  defaultExpanded?: boolean;
 }
 
-export default function InsightCard({ insight, onApply, compact = false, variant = "card" }: InsightCardProps) {
+export default function InsightCard({ insight, onApply, compact = false, variant = "card", defaultExpanded = false }: InsightCardProps) {
   const dismissInsight = useProfileStore((s) => s.dismissInsight);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const detailId = useId();
   // Row variant: use the type-specific icon for instant scannability;
   // fall back to the severity default if no mapping exists.
   const typeIcon = TYPE_ICONS[insight.type];
   const Icon = variant === "row"
     ? (typeIcon ?? ROW_ICONS[insight.severity])
     : CARD_ICONS[insight.severity];
+  const label = insightActionLabel(insight);
 
   if (variant === "row") {
+    const detail = hasDetail(insight);
+    const impact = Math.abs(insight.impactCents ?? 0);
     return (
-      <div className="group flex items-start gap-4 px-5 py-4 border-b last:border-0
-                      hover:bg-[hsl(var(--muted)/0.5)] transition-colors">
-        <Icon size={14} className={`shrink-0 mt-0.5 ${ICON_CLS[insight.severity]} opacity-60`} />
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-[hsl(var(--foreground))] leading-snug">
-            {insight.title}
-          </p>
-          {!compact && insight.description && (
-            <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5 leading-relaxed">
-              {insight.description}
-            </p>
+      <div className="insight-row group">
+        <Icon size={14} className={`insight-row-icon ${ICON_CLS[insight.severity]}`} />
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-[hsl(var(--foreground))] leading-snug">{insight.title}</p>
+          {insight.description && (
+            <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5 leading-relaxed">{insight.description}</p>
           )}
-          {insight.actionLabel && onApply && (
-            <button
-              onClick={() => onApply(insight)}
-              className={`mt-2 text-xs font-semibold px-3 py-1 rounded-full transition-colors ${ACTION_CLS[insight.severity]}`}
-            >
-              {insight.actionLabel}
-            </button>
+          {((label && onApply && insight.action) || detail) && (
+            <div className="insight-row-controls">
+              {label && onApply && insight.action && (
+                <button type="button" onClick={() => onApply(insight)} className={ACTION_BUTTON_CLS}>{label}</button>
+              )}
+              {detail && (
+                <button
+                  type="button"
+                  onClick={() => setExpanded((v) => !v)}
+                  aria-expanded={expanded}
+                  aria-controls={detailId}
+                  className="insight-details-toggle"
+                >
+                  Details
+                  <CaretDownIcon size={12} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
+                </button>
+              )}
+            </div>
+          )}
+          {detail && expanded && (
+            <div id={detailId} className="insight-detail">
+              <InsightDetail insight={insight} />
+            </div>
           )}
         </div>
+        <div className="insight-row-figure">
+          {impact > 0 && <span className="block text-sm font-medium tabular-nums text-[hsl(var(--foreground))]">{formatCurrencyWhole(impact)}</span>}
+          {insight.period && <span className="block text-xs text-[hsl(var(--muted-foreground))]">{insight.period}</span>}
+        </div>
         <button
+          type="button"
           onClick={() => dismissInsight(insight.dismissKey)}
           aria-label="Dismiss"
-          className="text-[hsl(var(--muted-foreground))] opacity-0 group-hover:opacity-40
-                     hover:!opacity-100 focus:!opacity-100 focus-visible:!opacity-100 transition-opacity shrink-0 mt-0.5"
+          className="insight-row-dismiss text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
         >
           <XIcon size={13} />
         </button>
@@ -152,8 +190,6 @@ export default function InsightCard({ insight, onApply, compact = false, variant
   const hasAccountBlurb = rd?.accountBalanceCents !== undefined;
 
   const formatBps = (bps: number) => `${(bps / 100).toFixed(2)}%`;
-  const formatDollars = (cents: number) =>
-    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(cents / 100);
 
   return (
     <div
@@ -173,7 +209,7 @@ export default function InsightCard({ insight, onApply, compact = false, variant
         <Icon size={15} className={`relative ${ICON_CLS[insight.severity]}`} />
       </span>
       <div className="flex-1 min-w-0">
-        <p className={`text-sm font-semibold leading-snug ${TITLE_CLS[insight.severity]} ${expanded ? "" : "line-clamp-2"}`}>
+        <p className={`text-sm font-semibold leading-snug text-[hsl(var(--foreground))] ${expanded ? "" : "line-clamp-2"}`}>
           {insight.title}
         </p>
         {!compact && (
@@ -184,29 +220,31 @@ export default function InsightCard({ insight, onApply, compact = false, variant
         {expanded && hasAccountBlurb && (
           <div className="mt-2 pt-2 border-t border-[hsl(var(--border))]/50 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[hsl(var(--muted-foreground))]">
             <span className="font-semibold ">
-              {rd!.accountType === "credit" ? "Credit Card" : "Loan"}
+              {rd!.accountType === "credit" ? "Credit card" : "Loan"}
             </span>
             {rd!.accountBalanceCents != null && (
-              <span>Balance: <span className="font-medium text-[hsl(var(--foreground))]">{formatDollars(Math.abs(rd!.accountBalanceCents))}</span></span>
+              <span>Balance: <span className="font-medium text-[hsl(var(--foreground))]">{formatCurrencyWhole(Math.abs(rd!.accountBalanceCents))}</span></span>
             )}
             {rd!.accountInterestRateBps != null && (
               <span>APR: <span className="font-medium text-[hsl(var(--foreground))]">{formatBps(rd!.accountInterestRateBps)}</span></span>
             )}
             {rd!.accountMinimumPaymentCents != null && (
-              <span>Min payment: <span className="font-medium text-[hsl(var(--foreground))]">{formatDollars(rd!.accountMinimumPaymentCents)}/mo</span></span>
+              <span>Min payment: <span className="font-medium text-[hsl(var(--foreground))]">{formatCurrencyWhole(rd!.accountMinimumPaymentCents)}/mo</span></span>
             )}
           </div>
         )}
-        {insight.actionLabel && onApply && (
+        {label && onApply && insight.action && (
           <button
+            type="button"
             onClick={(e) => { e.stopPropagation(); onApply(insight); }}
-            className={`mt-2 text-xs font-semibold px-3 py-1 rounded-full transition-colors ${ACTION_CLS[insight.severity]}`}
+            className={`mt-2 ${ACTION_BUTTON_CLS}`}
           >
-            {insight.actionLabel}
+            {label}
           </button>
         )}
       </div>
       <button
+        type="button"
         onClick={(e) => { e.stopPropagation(); dismissInsight(insight.dismissKey); }}
         aria-label="Dismiss"
         className={`${ICON_CLS[insight.severity]} opacity-50 hover:opacity-100 transition-opacity shrink-0 mt-0.5`}

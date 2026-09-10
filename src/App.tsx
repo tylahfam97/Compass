@@ -165,7 +165,11 @@ function App() {
     );
     setCategories(cats);
     generateInsights([profile.id])
-      .then((ins) => setInsightWarnings(ins.filter((i) => i.severity === "warning").length))
+      .then((ins) => {
+        // Dismissed warnings should not keep the badge lit.
+        const dismissed = new Set(useProfileStore.getState().dismissedInsights);
+        setInsightWarnings(ins.filter((i) => i.severity === "warning" && !dismissed.has(i.dismissKey)).length);
+      })
       .catch(() => {});
     setPinTarget(null);
     setProfileSelected(true);

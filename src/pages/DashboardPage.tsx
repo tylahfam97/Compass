@@ -17,6 +17,8 @@ import { useIsDark } from "@/hooks/useIsDark";
 import { useProfileStore } from "@/stores/profileStore";
 import { handleLoadFailure } from "@/stores/toastStore";
 import { generateInsights } from "@/lib/agent";
+import { pickDashboardInsights } from "@/lib/insights/rank";
+import { resolveInsightAction } from "@/lib/insightActions";
 import { latestHoldingPerAccount } from "@/lib/netWorth";
 import { incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
 import { toISODate, summarizePlanned } from "@/lib/forecast";
@@ -414,17 +416,18 @@ export default function DashboardPage() {
     loadLoans().catch(console.error);
   }, [loadLoans]);
 
-  const visibleInsights = insights
-    .filter((i) => !dismissedInsights.includes(i.dismissKey))
-    .slice(0, 3);
+  // The short list: top-ranked rows, one per type, favouring ones the user can act on.
+  const visibleInsights = pickDashboardInsights(
+    insights.filter((i) => !dismissedInsights.includes(i.dismissKey)),
+    3,
+  );
 
   const handleApplyInsight = async (insight: Insight) => {
     if (!insight.action) return;
-    if (insight.action.type === "create_budget") {
-      navigate("/budgets", { state: { prefillBudget: insight.action.payload } });
-    } else if (insight.action.type === "create_goal") {
-      navigate("/goals");
-    }
+    const target = resolveInsightAction(insight.action);
+    // Page-local Insights actions (payoff plan, subscription table) live on the Insights page.
+    if (!target) { navigate("/agent"); return; }
+    navigate(target.to, target.state ? { state: target.state } : undefined);
   };
 
   /** Collapses/expands a single credit card tile in place - collapsing also excludes it from

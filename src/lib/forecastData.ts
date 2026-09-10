@@ -1,11 +1,14 @@
-import { getDb, getRecurringRulesForProfile, getLoanAccountsForProfile, getCreditAccountsForProfile } from "./db";
-import { detectRecurringCharges, computeDebtPayoffPlan } from "./agent";
+import { getDb, getLoanAccountsForProfile, getCreditAccountsForProfile } from "./db";
+import { computeDebtPayoffPlan } from "./agent";
 import { latestBalancePerAccountSql } from "./reportingSql";
 import {
-  detectedChargeToRule, chargeMatchesRule, computeSpendingBaseline, expandOccurrences, toISODate, BASELINE_WEEKS,
-  type ForecastEvent, type ForecastRule, type SpendingBaseline,
+  chargeMatchesRule, computeSpendingBaseline, toISODate, BASELINE_WEEKS,
+  type ForecastRule, type SpendingBaseline,
 } from "./forecast";
-import type { DebtPayoffPlan, RecurringRule } from "./types";
+import { getPlannedRules } from "./plannedRules";
+import type { DebtPayoffPlan } from "./types";
+
+export { getPlannedRules, getPlannedEvents, getFixedFlexibleInputs, type PlannedRules, type FixedFlexibleInputs } from "./plannedRules";
 
 /**
  * Gathers everything `projectCashFlow` needs from the database. Kept apart from `forecast.ts`
@@ -79,57 +82,6 @@ export async function getForecastInputs(profileId: number): Promise<ForecastInpu
     hasIncomeRule: planned.hasIncomeRule,
     baseline: computeSpendingBaseline(discretionary),
   };
-}
-
-export interface PlannedRules {
-  /** Bills and income the user entered themselves. */
-  rules: ForecastRule[];
-  /** Charges inferred from history, excluding any that duplicate a user rule. */
-  detected: ForecastRule[];
-  hasIncomeRule: boolean;
-  activeRules: RecurringRule[];
-  detectedCharges: Awaited<ReturnType<typeof detectRecurringCharges>>;
-}
-
-/**
- * The scheduled bills and income for a profile, shared by the forecast and by the
- * "planned payments against planned income" summaries so both agree on what counts as
- * planned.
- */
-export async function getPlannedRules(profileId: number): Promise<PlannedRules> {
-  const [ruleRows, detectedCharges] = await Promise.all([
-    getRecurringRulesForProfile(profileId),
-    detectRecurringCharges([profileId]),
-  ]);
-  const activeRules = ruleRows.filter((r) => r.active);
-  const rules: ForecastRule[] = activeRules.map((r) => ({
-    id: r.id,
-    description: r.description,
-    amount_cents: r.amount_cents,
-    source: "rule",
-    cadence: r.cadence,
-    day_of_month: r.day_of_month,
-    day_of_week: r.day_of_week,
-    start_date: r.start_date,
-    category_name: r.category_name ?? null,
-    category_color: r.category_color ?? null,
-  }));
-
-  // A charge the user has already scheduled would otherwise be projected twice - matched
-  // loosely, since a hand-typed "SoFi" and the bank's full ACH descriptor are the same bill.
-  const detected: ForecastRule[] = detectedCharges
-    .filter((c) => !activeRules.some((r) => chargeMatchesRule(c, r)))
-    .map(detectedChargeToRule);
-
-  return { rules, detected, hasIncomeRule: activeRules.some((r) => r.amount_cents > 0), activeRules, detectedCharges };
-}
-
-/** Every scheduled deposit and bill falling inside [fromIso, toIso], for planned summaries. */
-export async function getPlannedEvents(profileId: number, fromIso: string, toIso: string, includeDetected: boolean): Promise<ForecastEvent[]> {
-  const planned = await getPlannedRules(profileId);
-  const rules = includeDetected ? [...planned.rules, ...planned.detected] : planned.rules;
-  // Date-only strings parse as UTC midnight; appending a local time keeps the day intact.
-  return expandOccurrences(rules, new Date(`${fromIso}T00:00:00`), new Date(`${toIso}T00:00:00`));
 }
 
 /** The debts a spare-money surplus could be aimed at, plus the "minimum payments only" plan to

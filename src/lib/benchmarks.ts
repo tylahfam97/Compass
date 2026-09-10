@@ -12,12 +12,29 @@ export const AVG_US_CREDIT_CARD_DEBT_CENTS = 600_000;
 /** Long-run average U.S. stock market annual return, inflation-adjusted (S&P 500 real return, ~7%/yr). */
 export const AVG_US_MARKET_RETURN_PCT = 7;
 
-/** Shared 0-100 score -> letter grade / label / color mapping, used by the main
- *  Health Score as well as the standalone Credit Card / Investment mini-scores. */
-export function scoreGrade(total: number): { grade: string; label: string; color: string } {
-  const grade = total >= 85 ? "A" : total >= 70 ? "B" : total >= 55 ? "C" : total >= 40 ? "D" : "—";
-  const label = total >= 85 ? "Excellent" : total >= 70 ? "Good" : total >= 55 ? "Building" : total >= 40 ? "Developing" : "Getting Started";
-  const color = total >= 85 ? "#059669" : total >= 70 ? "#2563eb" : total >= 55 ? "#d97706" : total >= 40 ? "#ea580c" : "#6b7280";
-  return { grade, label, color };
+/** Design-system token behind each grade: success for A, the recorded-data blue for B, gold
+ *  ink for C, warning for D, and the muted ink for "not yet". All clear 4.5:1 on both themes. */
+export type GradeTone = "success" | "sea" | "gold" | "warning" | "neutral";
+
+const TONE_TOKEN: Record<GradeTone, string> = {
+  success: "--success",
+  sea: "--sea",
+  gold: "--gold-ink",
+  warning: "--warning",
+  neutral: "--muted-foreground",
+};
+
+/** A grade tone as a translucent tint, for washes and borders: `gradeTint("sea", 0.12)`. */
+export function gradeTint(tone: GradeTone, alpha: number): string {
+  return `hsl(var(${TONE_TOKEN[tone]}) / ${alpha})`;
 }
 
+/** Shared 0-100 score -> letter grade / label / colour mapping, used by the main
+ *  Health Score as well as the standalone Credit Card / Investment mini-scores.
+ *  `color` is a CSS colour built from a design token, so it follows the theme. */
+export function scoreGrade(total: number): { grade: string; label: string; color: string; tone: GradeTone } {
+  const grade = total >= 85 ? "A" : total >= 70 ? "B" : total >= 55 ? "C" : total >= 40 ? "D" : "—";
+  const label = total >= 85 ? "Excellent" : total >= 70 ? "Good" : total >= 55 ? "Building" : total >= 40 ? "Developing" : "Getting Started";
+  const tone: GradeTone = total >= 85 ? "success" : total >= 70 ? "sea" : total >= 55 ? "gold" : total >= 40 ? "warning" : "neutral";
+  return { grade, label, color: `hsl(var(${TONE_TOKEN[tone]}))`, tone };
+}

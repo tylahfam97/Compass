@@ -124,7 +124,7 @@ export default function TransactionsPage() {
 function ProfileTransactions({ profileId }: { profileId: number }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const navState = location.state as { month?: string; category?: number | null; range?: { start: string; end: string } } | null;
+  const navState = location.state as { month?: string; category?: number | null; range?: { start: string; end: string }; search?: string } | null;
   const [saved] = useState(() => loadTransactionView(profileId));
   useEffect(() => {
     if (location.state) navigate(location.pathname, { replace: true, state: null });
@@ -144,7 +144,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
     const d = new Date(y, m - 1 + dir, 1);
     setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
   };
-  const [search, setSearch] = useState(navState ? "" : saved.search);
+  const [search, setSearch] = useState(navState ? (navState.search ?? "") : saved.search);
   const [view, setView] = useState(saved.view);
   const [rows, setRows] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);

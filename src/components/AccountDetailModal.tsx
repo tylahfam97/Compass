@@ -38,10 +38,11 @@ interface Props {
 // per-account insights engine.
 const CREDIT_RELEVANT_TYPES: InsightType[] = [
   "credit_card_debt_high", "credit_card_debt_growing", "credit_card_debt_improving",
+  "card_paid_in_full", "card_coverage_low", "interest_paid",
   "loan_payoff_projection", "debt_payoff_priority",
 ];
 const CHECKING_RELEVANT_TYPES: InsightType[] = [
-  "overdraft_alert", "emergency_fund_runway", "income_irregular", "savings_rate_low",
+  "bills_this_week", "scheduled_missing", "overdraft_alert", "emergency_fund_runway", "income_irregular", "savings_rate_low", "stale_data",
 ];
 const LOAN_RELEVANT_TYPES: InsightType[] = [
   "loan_debt_high", "loan_debt_growing", "loan_debt_improving",
