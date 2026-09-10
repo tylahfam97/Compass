@@ -2,17 +2,25 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
-## Compass 1.2.1 — Money That Is Actually Yours 🧭
+## Compass 1.2.2 — Money That Is Actually Yours 🧭
 
 This release makes Compass honest about which money is spoken for and which is genuinely free,
 and gives Trends a voice of its own.
 
-### Planned income is the measure now
-- The "Fixed and flexible" instrument on Insights measures your month against the income you
-  scheduled in Plan - paychecks, dividends, anything you hard-set - instead of averaging every
-  deposit. A bonus or a one-off transfer no longer stretches the track and flatters the month.
-- With no income scheduled yet, the instrument still works from averaged deposits, says so, and
-  points at Plan; once a paycheck rule exists it switches to the planned figure automatically.
+### Your plan is the source of truth now
+- The "Fixed and flexible" instrument on Insights runs on your Plan schedule: planned income
+  (paychecks, dividends, anything you hard-set) and scheduled bills at their planned monthly
+  amounts, exactly matching the Plan page. A bonus, a one-off deposit, or a bank descriptor
+  that doesn't match a rule name no longer distorts the picture.
+- Flexible spending measured from history is now an overlay you turn on, off by default. It
+  inherits your categorization - card payments or moves between your own accounts that aren't
+  categorized as Transfers read as spending - so the instrument names its top flexible
+  categories to help you find and fix exactly that.
+- Money into investment categories (crypto, brokerage, retirement) and single purchases of
+  $1,000+ are reported separately as set-aside money, never as flexible spending.
+- Months that spend past planned income but are covered by supplemental deposits say so
+  plainly; the track only turns red when spending passed all income. With no income scheduled
+  yet, the instrument still works from averaged deposits, says so, and points at Plan.
 - The "fixed costs take X% of income" insight runs on the same maths, so the row and the
   instrument can never disagree.
 
