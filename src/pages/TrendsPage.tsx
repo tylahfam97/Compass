@@ -6,7 +6,7 @@ import {
   ResponsiveContainer, Legend, LineChart, Line, ReferenceLine,
 } from "recharts";
 import { motion, AnimatePresence } from "motion/react";
-import { TrendingUp, TrendingDown } from "lucide-react";
+import { TrendUpIcon, TrendDownIcon } from "@phosphor-icons/react";
 import { getDb } from "@/lib/db";
 import { incomeSumSql, expenseSumSql, categorySpendSql } from "@/lib/reportingSql";
 import { formatCurrency, formatMonthLabel, formatAxisCurrency, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
@@ -316,15 +316,15 @@ function ProfileTrends() {
         {/* All-time summary tiles */}
         <div className="grid grid-cols-3 gap-3">
           <div className="border rounded-xl px-4 py-4 text-center">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1">All-Time Income</p>
+            <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1">All-Time Income</p>
             <p className="text-xl font-bold text-[hsl(var(--success))]">{formatCurrency(allTimeIncome)}</p>
           </div>
           <div className="border rounded-xl px-4 py-4 text-center">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1">All-Time Expenses</p>
+            <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1">All-Time Expenses</p>
             <p className="text-xl font-bold text-[hsl(var(--error))]">{formatCurrency(allTimeExpenses)}</p>
           </div>
           <div className="border rounded-xl px-4 py-4 text-center">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1">All-Time Net</p>
+            <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1">All-Time Net</p>
             <p className={`text-xl font-bold ${allTimeNet >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>{formatCurrency(allTimeNet)}</p>
           </div>
         </div>
@@ -353,8 +353,8 @@ function ProfileTrends() {
                 }`}
               >
                 {categoryTrendNarrative.rising
-                  ? <TrendingUp size={15} className="shrink-0 mt-0.5 text-[hsl(var(--warning))]" />
-                  : <TrendingDown size={15} className="shrink-0 mt-0.5 text-[hsl(var(--success))]" />}
+                  ? <TrendUpIcon size={15} className="shrink-0 mt-0.5 text-[hsl(var(--warning))]" />
+                  : <TrendDownIcon size={15} className="shrink-0 mt-0.5 text-[hsl(var(--success))]" />}
                 <p className="text-[hsl(var(--foreground))]">
                   {categoryTrendNarrative.text}
                 </p>
@@ -503,7 +503,7 @@ function ProfileTrends() {
                       <div className="flex items-center justify-between mb-2">
                         <p className="text-xs font-semibold">Top categories - {formatMonthLabel(expandedMonth)}</p>
                         <Link to="/transactions" state={{ month: expandedMonth }} className="text-[11px] text-[hsl(var(--gold-ink))] hover:underline">
-                          View month →
+                          View month
                         </Link>
                       </div>
                       {expandedMonthCats === null ? (
@@ -577,7 +577,7 @@ function ProfileTrends() {
                               state={{ category: catIds[expandedCatName] }}
                               className="text-[11px] text-[hsl(var(--gold-ink))] hover:underline"
                             >
-                              View all ?
+                              View all
                             </Link>
                           )}
                         </div>

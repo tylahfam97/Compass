@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { Upload, Loader2, Info } from "lucide-react";
+import { UploadSimpleIcon, InfoIcon } from "@phosphor-icons/react";
+import NeedleSpinner from "@/components/NeedleSpinner";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import { upsertLoanStatement, getLoanAccountsForProfile, type LoanAccount } from "@/lib/db";
 import { parseLoanStatementFile } from "@/lib/pdfParse";
@@ -227,7 +228,7 @@ export default function LoanUploaderModal({ profileId, existingLoan, onClose, on
                       transition-colors hover:border-[hsl(var(--primary))]
                       ${parsing ? "opacity-60 cursor-wait" : ""}`}
         >
-          {parsing ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+          {parsing ? <NeedleSpinner size={16} className="" /> : <UploadSimpleIcon size={16} />}
           <span>{parsing ? "Reading statement…" : "Upload statement PDF, CSV, or XLSX (optional) - pre-fills the fields below"}</span>
           <input
             type="file"
@@ -241,13 +242,13 @@ export default function LoanUploaderModal({ profileId, existingLoan, onClose, on
 
         {pdfNotice && (
           <p className="mb-2 text-xs text-[hsl(var(--warning))] flex items-start gap-1.5">
-            <Info size={12} className="shrink-0 mt-0.5" />
+            <InfoIcon size={12} className="shrink-0 mt-0.5" />
             {pdfNotice}
           </p>
         )}
         {batchFiles.length > 0 && (
           <p className="mb-4 text-xs text-[hsl(var(--muted-foreground))] flex items-start gap-1.5">
-            <Info size={12} className="shrink-0 mt-0.5" />
+            <InfoIcon size={12} className="shrink-0 mt-0.5" />
             {batchProgress
               ? `Importing statement ${batchProgress.done + 1} of ${batchFiles.length + 1}…`
               : `${batchFiles.length} more statement${batchFiles.length === 1 ? "" : "s"} will import automatically using the loan/lender details below - only each file's own balance and date are read individually.`}
@@ -278,7 +279,7 @@ export default function LoanUploaderModal({ profileId, existingLoan, onClose, on
 
           {isAdd && typeof accountChoice === "number" ? (
             <div>
-              <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">Loan</label>
+              <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">Loan</label>
               <select
                 value={accountChoice}
                 onChange={(e) => {
@@ -296,7 +297,7 @@ export default function LoanUploaderModal({ profileId, existingLoan, onClose, on
             </div>
           ) : (
             <div>
-              <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">Loan Name</label>
+              <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">Loan Name</label>
               <input value={name} onChange={(e) => setName(e.target.value)} disabled={!isAdd}
                 placeholder="e.g. Car Loan, Student Loan"
                 className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] disabled:opacity-60" />
@@ -304,7 +305,7 @@ export default function LoanUploaderModal({ profileId, existingLoan, onClose, on
           )}
 
           <div>
-            <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">
+            <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">
               Lender / Institution <span className="normal-case">(optional)</span>
             </label>
             <input value={institution} onChange={(e) => setInstitution(e.target.value)}
@@ -314,12 +315,12 @@ export default function LoanUploaderModal({ profileId, existingLoan, onClose, on
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">Statement Date</label>
+              <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">Statement Date</label>
               <input type="date" value={statementDate} onChange={(e) => setStatementDate(e.target.value)}
                 className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]" />
             </div>
             <div>
-              <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">Current Balance</label>
+              <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">Current Balance</label>
               <input type="number" step="0.01" min="0" value={balance} onChange={(e) => setBalance(e.target.value)}
                 placeholder="12,500.00"
                 className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]" />
@@ -328,7 +329,7 @@ export default function LoanUploaderModal({ profileId, existingLoan, onClose, on
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">
+              <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">
                 Interest Rate <span className="normal-case">(optional)</span>
               </label>
               <input type="number" step="0.01" min="0" value={interestRate} onChange={(e) => setInterestRate(e.target.value)}
@@ -336,7 +337,7 @@ export default function LoanUploaderModal({ profileId, existingLoan, onClose, on
                 className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]" />
             </div>
             <div>
-              <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">
+              <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">
                 Min. Payment <span className="normal-case">(optional)</span>
               </label>
               <input type="number" step="0.01" min="0" value={minimumPayment} onChange={(e) => setMinimumPayment(e.target.value)}
@@ -345,7 +346,7 @@ export default function LoanUploaderModal({ profileId, existingLoan, onClose, on
             </div>
           </div>
           <p className="text-[11px] text-[hsl(var(--muted-foreground))] flex items-start gap-1.5">
-            <Info size={11} className="shrink-0 mt-0.5" />
+            <InfoIcon size={11} className="shrink-0 mt-0.5" />
             Interest rate and minimum payment are for reference only (and to rank loans on the
             Loan Dashboard) - they're never used to calculate interest or payoff projections.
           </p>

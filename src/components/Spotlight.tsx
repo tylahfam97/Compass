@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { X } from "lucide-react";
+import { XIcon } from "@phosphor-icons/react";
 import { useOnboardingStore } from "@/stores/onboardingStore";
 import { ONBOARDING_STEPS } from "@/lib/onboardingSteps";
 
@@ -187,7 +187,7 @@ export default function Spotlight() {
               aria-label="Close"
               className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors shrink-0"
             >
-              <X size={16} />
+              <XIcon size={16} />
             </button>
           </div>
           <p className="text-sm text-[hsl(var(--muted-foreground))] leading-relaxed mb-4">

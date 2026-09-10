@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
-import { Repeat2, ChevronRight } from "lucide-react";
+import { RepeatIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { getDb } from "@/lib/db";
 import { incomeSumSql, expenseSumSql, categorySpendSql } from "@/lib/reportingSql";
 import { detectRecurringCharges } from "@/lib/agent";
@@ -145,7 +145,7 @@ function ProfileReports({ profileId }: { profileId: number }) {
         ? monthBounds(prevYM(month))
         : [start, start]; // custom mode: no "prev" comparison (same range = 0% change)
 
-      // Start date for totals chart — use selected range
+      // Start date for totals chart, use selected range
       const chartStart = rangeMode === "custom" ? customStart : (() => {
         const [year, monthNumber] = month.split("-").map(Number);
         const chartDate = new Date(year, monthNumber - 6, 1);
@@ -327,9 +327,9 @@ function ProfileReports({ profileId }: { profileId: number }) {
       {!loading && validRange && hasData && (
         <>
           <div className="goal-summary report-summary">
-            <div><p>Income · selected period</p><strong>{formatCurrency(periodTotals.income_cents)}</strong></div>
-            <div><p>Spending · selected period</p><strong>{formatCurrency(periodTotals.expense_cents)}</strong></div>
-            <div><p>Net · selected period</p><strong className={periodTotals.income_cents < periodTotals.expense_cents ? "text-[hsl(var(--error))]" : ""}>{formatCurrency(periodTotals.income_cents - periodTotals.expense_cents)}</strong></div>
+            <div><p>Income, selected period</p><strong>{formatCurrency(periodTotals.income_cents)}</strong></div>
+            <div><p>Spending, selected period</p><strong>{formatCurrency(periodTotals.expense_cents)}</strong></div>
+            <div><p>Net, selected period</p><strong className={periodTotals.income_cents < periodTotals.expense_cents ? "text-[hsl(var(--error))]" : ""}>{formatCurrency(periodTotals.income_cents - periodTotals.expense_cents)}</strong></div>
           </div>
 
           {monthTotals.length > 0 && <section>
@@ -342,7 +342,7 @@ function ProfileReports({ profileId }: { profileId: number }) {
               <Bar dataKey="income_cents" fill="hsl(var(--sea))" maxBarSize={28} radius={[3, 3, 0, 0]} />
               <Bar dataKey="expense_cents" fill="var(--gold)" maxBarSize={28} radius={[3, 3, 0, 0]} />
             </BarChart></ResponsiveContainer></div>
-            <p className="text-xs text-[hsl(var(--muted-foreground))] mt-2">{rangeMode === "month" ? "Up to six months of recorded activity" : "Monthly totals within the selected dates"} · open months are partial</p>
+            <p className="text-xs text-[hsl(var(--muted-foreground))] mt-2">{rangeMode === "month" ? "Up to six months of recorded activity" : "Monthly totals within the selected dates"}, open months are partial</p>
           </section>}
           {/* ── CATEGORY BREAKDOWN ── */}
           <section>
@@ -462,7 +462,7 @@ function ProfileReports({ profileId }: { profileId: number }) {
           {balanceTrend.length > 1 && (
             <section>
               <h2 className="font-semibold mb-1">Checking &amp; credit balance</h2>
-              <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">Latest recorded balance per month · through the selected end date</p>
+              <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">Latest recorded balance per month, through the selected end date</p>
               <div>
                 <ResponsiveContainer width="100%" height={180}>
                   <AreaChart data={balanceTrend} margin={{ top: 4, right: 16, bottom: 4, left: 16 }}>
@@ -498,11 +498,11 @@ function ProfileReports({ profileId }: { profileId: number }) {
           {/* ── TOP EXPENSES ── */}
           {topExpenses.length > 0 && (
             <section>
-              <h2 className="font-semibold mb-3">Largest expenses · selected period</h2>
+              <h2 className="font-semibold mb-3">Largest expenses, selected period</h2>
               <div className="divide-y divide-[hsl(var(--border))]">
                 {topExpenses.map((transaction) => <button key={transaction.id} onClick={() => setSelectedTransaction(transaction)} className="flex items-center gap-3 py-3 w-full text-left hover:bg-[hsl(var(--muted))]">
-                  <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{transaction.description}</span><span className="text-xs text-[hsl(var(--muted-foreground))]">{formatDate(transaction.date)} · {transaction.category_name ?? "Uncategorized"}</span></span>
-                  <span className="text-sm font-semibold shrink-0">{formatCurrency(Math.abs(transaction.amount_cents))}</span><ChevronRight size={15} className="shrink-0" />
+                  <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{transaction.description}</span><span className="text-xs text-[hsl(var(--muted-foreground))]">{formatDate(transaction.date)}, {transaction.category_name ?? "Uncategorized"}</span></span>
+                  <span className="text-sm font-semibold shrink-0">{formatCurrency(Math.abs(transaction.amount_cents))}</span><CaretRightIcon size={15} className="shrink-0" />
                 </button>)}
               </div>
             </section>
@@ -511,7 +511,7 @@ function ProfileReports({ profileId }: { profileId: number }) {
           {/* ── MOST RECURRING ── */}
           {recurring.length > 0 && (
             <details className="workspace-disclosure">
-              <summary>Frequent payees · all time</summary>
+              <summary>Frequent payees, all time</summary>
               <div className="report-table">
                 <table className="w-full text-sm">
                   <thead>
@@ -550,7 +550,7 @@ function ProfileReports({ profileId }: { profileId: number }) {
           {/* ── GHOST SUBSCRIPTIONS ── */}
           {subscriptions.length > 0 && (
             <details className="workspace-disclosure">
-              <summary><Repeat2 size={14} className="inline mr-2" />Detected subscriptions · recent history</summary>
+              <summary><RepeatIcon size={14} className="inline mr-2" />Detected subscriptions, recent history</summary>
               <div className="space-y-3">
                 {subscriptions.map((s) => {
                   const yearly = s.amount_cents * 12;
@@ -566,7 +566,7 @@ function ProfileReports({ profileId }: { profileId: number }) {
                           </span>
                         </div>
                         <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                          {s.patternLabel} · {s.month_count} months running · First: {s.first_seen} · Last: {s.last_seen}
+                          {s.patternLabel}, {s.month_count} months running, First: {s.first_seen}, Last: {s.last_seen}
                         </p>
                       </div>
                       <div className="text-right shrink-0">

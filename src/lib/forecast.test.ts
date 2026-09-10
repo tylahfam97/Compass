@@ -11,6 +11,7 @@ import {
   toISODate,
   daysFromToday,
   computeSpendingBaseline,
+  summarizePlanned,
   baselineIsUsable,
   type ForecastRule,
   type ForecastEvent,
@@ -720,5 +721,18 @@ describe("deriveNextActions anchors", () => {
       hasIncomeRule: true, detectedCount: 0, dailyOutflowCents: 2_000, today, topDebt: null,
     });
     expect(noDebt.find((x) => x.key === "surplus")?.anchor).toBeUndefined();
+  });
+});
+
+describe("summarizePlanned", () => {
+  it("returns zeros for an empty window", () => {
+    expect(summarizePlanned([])).toEqual({ plannedIncomeCents: 0, plannedPaymentsCents: 0, unplannedCents: 0, depositCount: 0, billCount: 0 });
+  });
+  it("sums deposits and bills separately and reports what is left", () => {
+    const s = summarizePlanned([event("2026-09-01", 320_000), event("2026-09-05", -150_000, "rent"), event("2026-09-12", -64_000, "car"), event("2026-09-15", 0, "zero")]);
+    expect(s).toEqual({ plannedIncomeCents: 320_000, plannedPaymentsCents: 214_000, unplannedCents: 106_000, depositCount: 1, billCount: 2 });
+  });
+  it("goes negative when bills exceed planned income", () => {
+    expect(summarizePlanned([event("2026-09-01", 100_000), event("2026-09-02", -150_000, "x")]).unplannedCents).toBe(-50_000);
   });
 });

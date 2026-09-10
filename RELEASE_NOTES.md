@@ -18,6 +18,36 @@ looks, plus one new planning view.
   against expected income (income received so far plus scheduled deposits still to come),
   with a marker for today. Past months show spent against actual income.
 
+### New: Insights that use everything you have imported
+- The bills and paychecks you schedule in Plan now drive the Insights page. "Bills due this
+  week" lists what is coming with the day and amount, and turns into a warning with the exact
+  shortfall when your checking balance will not cover a bill before the next deposit lands. A
+  scheduled bill or paycheck that has not posted by its date is called out by name.
+- Recurring charges are watched for what changes: a subscription that quietly went up (with the
+  old and new price and the yearly difference), a charge that has just started recurring, a
+  yearly renewal about to hit, and two identical charges on the same day.
+- A new "Fixed and flexible" instrument in the context section shows an average month as one
+  track: scheduled bills you confirmed, recurring charges Compass detected, flexible spending,
+  and what was left, as lengths of income. The serif figure is the money not spoken for before
+  the month starts. A companion row warns when fixed costs pass half of income.
+- Goals join the engine: a balance floor that is short, a spending limit already over or on pace
+  to be, a streak that reset, and a projected landing date for savings and debt-paydown goals.
+- Cards and investments: interest actually charged on each card, cards paid in full for two
+  months running, payments covering only part of new charges, and the fees your investments
+  cost over the last year.
+- Housekeeping first: when the newest transaction is weeks old or a tenth of spending is
+  uncategorized, that is said before anything else, with a one-click way to fix it.
+- Every row now carries the money at stake and its time frame, and the list is ordered by that
+  figure inside each severity band rather than by severity alone. Rows with more to show open
+  inline (a ranked list, a dated timeline, or a share bar) instead of repeating themselves in a
+  separate spotlight card. The Dashboard's "Worth a look" picks one row per type from the same
+  ranking.
+- Retired: the "ghost subscription" rows (which were just the five largest recurring charges),
+  the subscription total that summed every price a subscription ever had, and "most improved"
+  comparing a half-finished month with a whole one. Averages no longer include the partial
+  current month, rules that ignored "exclude from insights" now honour it, month boundaries are
+  computed in local time, and dismissed warnings no longer light the navigation badge.
+
 ### New: A typeface, a token system, and a night sky
 - Source Serif 4 sets page titles and the one hero figure on each page; Source Sans 3 sets
   everything else, with tabular numerals for money. Both fonts ship inside the app, so nothing
@@ -32,15 +62,22 @@ looks, plus one new planning view.
 - Category and account colors are harmonized at paint time: each keeps its hue but sits in
   the same lightness band as its neighbours, in both themes. Nothing in your data changes.
 
-### Changed: Dashboard, Overview, Investments, Import, and Insights
-- These pages move to the rule-and-space layout the other pages already used: stat rows
-  instead of bordered tiles, account rows instead of card grids, ranked bars instead of a
-  bar chart, and the same ledger rows as Transactions for recent activity.
-- The Dashboard opens with the month's net figure, income and spending with their
-  comparison to last month, and the bearing bar. Insight cards sit below it.
-- Insights' header joins the page instead of floating over it; the score is the page's hero
-  figure and every section is a plain disclosure.
-- Empty states share one calm pattern with a one-sentence explanation and a single action.
+### Changed: Dashboard
+- The Dashboard moves to the rule-and-space layout the newer pages already used: the month's
+  net figure, income and spending with their comparison to last month, then the bearing bar.
+  Insight cards sit below the numbers they refer to.
+- Accounts are rows grouped as bank, credit cards, and loans instead of three grids of
+  tiles; top categories are ranked bars; recent activity uses the same ledger rows as
+  Transactions. On wide windows the accounts sit beside the categories and insights.
+- The empty state is a calm single pattern with a one-sentence explanation and one action.
+  Other pages keep their layouts for now and pick up the new type, tokens, icons, and copy.
+
+### Changed: Insights page
+- Same sections in the same order; the KPI strip's four figures now live inside the new
+  instrument. Charts use the shared sea-blue series and tooltip, grade colours come from the
+  theme tokens, the score modal loses its emoji, the PIN-lock notice matches the other pages,
+  and the Category trends and Subscription inventory tables gain a 3-month average, a "since"
+  month, and a price-change column.
 
 ### Changed: Icons, chrome, and copy
 - Icons are now Phosphor. The sidebar is the instrument panel: navy in both themes, the

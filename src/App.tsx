@@ -29,7 +29,7 @@ import ToastHost from "@/components/ToastHost";
 import { CardListSkeleton } from "@/components/Skeleton";
 
 // Lazy-loaded: these 3 pages pull in the heaviest deps (xlsx, pdfjs-dist,
-// recharts, papaparse) — code-splitting them keeps the initial bundle/first
+// recharts, papaparse), code-splitting them keeps the initial bundle/first
 // paint lean since most sessions don't visit all three every time.
 const ImportPage = lazy(() => import("@/pages/ImportPage"));
 const ReportsPage = lazy(() => import("@/pages/ReportsPage"));
@@ -165,7 +165,11 @@ function App() {
     );
     setCategories(cats);
     generateInsights([profile.id])
-      .then((ins) => setInsightWarnings(ins.filter((i) => i.severity === "warning").length))
+      .then((ins) => {
+        // Dismissed warnings should not keep the badge lit.
+        const dismissed = new Set(useProfileStore.getState().dismissedInsights);
+        setInsightWarnings(ins.filter((i) => i.severity === "warning" && !dismissed.has(i.dismissKey)).length);
+      })
       .catch(() => {});
     setPinTarget(null);
     setProfileSelected(true);
@@ -268,21 +272,19 @@ function App() {
             ) : (
               <CompassMark size={26} title="Compass" />
             )}
-            <button
-              onClick={() => setSidebarOpen((v) => {
-                const next = !v;
-                localStorage.setItem("sidebarOpen", String(next));
-                return next;
-              })}
-              title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-              aria-expanded={sidebarOpen}
-              className={`text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]
-                         hover:bg-[hsl(var(--muted))] rounded-md p-1 transition-colors ${sidebarOpen ? "" : "hidden"}`}
-            >
-              {sidebarOpen
-                ? <CaretLeftIcon size={16} />
-                : <CaretRightIcon size={16} />}
-            </button>
+            {/* Rendered only when open: the collapsed rail has its own toggle below, and two
+                elements titled "Expand sidebar" would be ambiguous for assistive tech and tests. */}
+            {sidebarOpen && (
+              <button
+                onClick={() => { setSidebarOpen(false); localStorage.setItem("sidebarOpen", "false"); }}
+                title="Collapse sidebar"
+                aria-expanded
+                className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]
+                           hover:bg-[hsl(var(--muted))] rounded-md p-1 transition-colors"
+              >
+                <CaretLeftIcon size={16} />
+              </button>
+            )}
           </div>
           {!sidebarOpen && (
             <button
@@ -296,7 +298,7 @@ function App() {
             </button>
           )}
 
-          {/* Nav — icon+label when open, icon-only with tooltip when collapsed. The active item
+          {/* Nav, icon+label when open, icon-only with tooltip when collapsed. The active item
               carries a 2px gold bearing mark on its leading edge and a filled icon. */}
           <nav className="flex-1 py-3 space-y-0.5 px-2">
             {NAV_ITEMS.map(({ to, label, Icon, showBadge, tourId }) => (

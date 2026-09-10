@@ -1,35 +1,95 @@
-import { getDb, getLoanAccountsForProfile, getCreditAccountsForProfile } from "./db";
-import type { Insight, HealthScore, CreditCardHealthScore, DebtPayoffPlan, DebtPayoffSimDebt, DebtPayoffCustomResult, DebtPayoffCategoryBreakdown, RecurringCharge } from "./types";
+import { getDb, getLoanAccountsForProfile, getCreditAccountsForProfile, getLoanBalanceHistory } from "./db";
+import type { Insight, HealthScore, CreditCardHealthScore, DebtPayoffPlan, DebtPayoffSimDebt, DebtPayoffCustomResult, DebtPayoffCategoryBreakdown } from "./types";
 import { computeNetWorth, computeInvestmentReturn, latestHoldingPerAccount } from "./netWorth";
 import { incomeSumSql, expenseSumSql, categorySpendSql, latestBalancePerAccountSql } from "./reportingSql";
 import { AVG_US_CREDIT_CARD_DEBT_CENTS, AVG_US_MARKET_RETURN_PCT, scoreGrade } from "./benchmarks";
 import { composeInsightText } from "./voice";
 import { getRemembered, remember } from "./voiceMemory";
-import { getHiddenChargeKeys, chargeKey } from "./hiddenCharges";
-import { formatCurrencyWhole as formatCents } from "./utils";
+import { chargeKey } from "./hiddenCharges";
+import { formatCurrencyWhole as formatCents, formatCurrency, formatDate } from "./utils";
 import { evaluateBudgetPeriod, type BudgetDefinition } from "./budgetMetrics";
+import { expandOccurrences, projectCashFlow, toISODate } from "./forecast";
+import { getPlannedRules } from "./plannedRules";
+import { detectRecurringCharges } from "./recurringCharges";
+import { loadScenario } from "./planScenario";
+import { merchantKey } from "./merchants";
+import { detectPriceChange, isNewRecurring, findAnnualCharges } from "./recurringDetection";
+import { findMissingScheduled, billsDueWithin, nextIncomeEvent } from "./insights/scheduled";
+import { findDuplicateCharges, findFrequentMerchants } from "./insights/duplicates";
+import { summarizeFixedFlexible, monthsWithIncome, countNoSpendDays, paydayBurstShare, classifyExpense, type ShapeTxn, type ScheduledLike } from "./insights/shape";
+import { rankInsights } from "./insights/rank";
+import { evaluateGoals, projectGoalCompletion, monthlyPaceFromBalances } from "./goals";
+
+export { detectRecurringCharges } from "./recurringCharges";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+/** [first day, first day of the next month), both as local dates. */
 function monthBounds(ym: string): [string, string] {
   const [y, m] = ym.split("-").map(Number);
-  return [
-    `${y}-${String(m).padStart(2, "0")}-01`,
-    new Date(y, m, 1).toISOString().split("T")[0],
-  ];
+  return [`${ym}-01`, toISODate(new Date(y, m, 1))];
 }
 
 /** Returns the N most recent "YYYY-MM" month strings (newest first) */
 function recentMonths(n: number): string[] {
   const months: string[] = [];
   const d = new Date();
+  d.setDate(1);
   for (let i = 0; i < n; i++) {
-    months.push(
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
-    );
+    months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
     d.setMonth(d.getMonth() - 1);
   }
   return months;
+}
+
+function addDaysIso(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() + n);
+  return toISODate(d);
+}
+
+function daysBetweenIso(fromIso: string, toIso: string): number {
+  return Math.round((new Date(`${toIso}T00:00:00`).getTime() - new Date(`${fromIso}T00:00:00`).getTime()) / 86_400_000);
+}
+
+function describeDays(n: number): string {
+  return n <= 0 ? "today" : n === 1 ? "tomorrow" : `in ${n} days`;
+}
+
+/** "Sep 12" */
+function shortDate(iso: string): string {
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(new Date(`${iso}T12:00:00`));
+}
+
+/** "September" for a YYYY-MM key. */
+function monthName(ym: string): string {
+  const [y, m] = ym.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-US", { month: "long" }).format(new Date(y, m - 1, 1));
+}
+
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** "A, B and C" */
+function listClauses(parts: string[]): string {
+  if (parts.length <= 1) return parts.join("");
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+function quarterKey(d: Date): string {
+  return `${d.getFullYear()}Q${Math.floor(d.getMonth() / 3) + 1}`;
+}
+
+function percentile(values: number[], p: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1));
+  return sorted[idx];
+}
+
+function truncate(s: string, n: number): string {
+  return s.length <= n ? s : s.slice(0, n - 1) + "…";
 }
 
 /**
@@ -66,27 +126,35 @@ function estimatePayoffMonths(balance: number, monthlyRate: number, payment: num
   return Number.isFinite(months) ? months : null;
 }
 
-// ─── Main analysis function ───────────────────────────────────────────────────
-
-/**
- * Sort weight for the insight list: warnings → info → success, EXCEPT
- * "budget_gap" ("No budget for X") always sorts last regardless of severity —
- * it's a lower-priority suggestion, not something actionable/urgent like a
- * spending alert, so it shouldn't compete for the top slots.
- */
-function insightSortRank(insight: Insight): number {
-  if (insight.type === "budget_gap") return 3;
-  return { warning: 0, info: 1, success: 2 }[insight.severity];
+/** One row of the shared recent-transactions window every JS-side rule reads from. */
+interface RecentRow {
+  id: number;
+  account_id: number;
+  account_type: string;
+  account_name: string;
+  date: string;
+  description: string;
+  amount_cents: number;
+  category_id: number | null;
 }
+
+const isExcludedCategory = (c: number | null) => c === 20 || c === 29;
+const INTEREST_RE = /INTEREST|FINANCE CHARGE/i;
+const NOT_INTEREST_RE = /INTEREST FREE|REVERSAL|REFUND/i;
+const DUPLICATE_SKIP_RE = /ATM|CASH|WITHDRAW|TRANSFER|PAYMENT|TIP/i;
+
+// ─── Main analysis function ───────────────────────────────────────────────────
 
 async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   const db = await getDb();
   const insights: Insight[] = [];
+  const today = new Date();
+  const todayIso = toISODate(today);
 
   // ── 0. Current account balance (liquid cash only - checking, not credit) ──
   // Summed per account: a bare `ORDER BY date DESC LIMIT 1` would report only whichever
   // checking account happened to be updated most recently and ignore the rest.
-  const [balanceRow] = await db.select<{ balance_cents: number; date: string }[]>(
+  const [balanceRow] = await db.select<{ balance_cents: number; date: string | null }[]>(
     `SELECT COALESCE(SUM(${latestBalancePerAccountSql()}), 0) as balance_cents,
             MAX((SELECT bt.date FROM transactions bt WHERE bt.account_id=a.id AND bt.balance_cents IS NOT NULL
                  ORDER BY bt.date DESC, bt.id DESC LIMIT 1)) as date
@@ -94,7 +162,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
      WHERE a.profile_id=? AND a.account_type='checking' AND a.excluded_from_insights=0`,
     [profileId]
   );
-  // balanceRow is available for insight logic below
+  const balanceKnown = balanceRow?.balance_cents != null && !!balanceRow.date;
 
   // ── 1. How many months of data do we have? ──────────────────────────────
   const [dataRange] = await db.select<{ months: number }[]>(
@@ -106,9 +174,9 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   if (monthCount < 1) return []; // nothing to analyse
 
   const months12 = recentMonths(12);
-  const months6 = months12.slice(0, 6);
   const thisMonth = months12[0];
   const [thisStart, thisEnd] = monthBounds(thisMonth);
+  const daysInThisMonth = daysBetweenIso(thisStart, thisEnd);
 
   // ── 2. Per-month summaries ───────────────────────────────────────────────
   const monthlySummaries = await db.select<{
@@ -126,9 +194,60 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
 
   // Whole months only. The current month is partly elapsed, so its totals aren't comparable to
   // a full month and must never be averaged in alongside them.
-  const completeMonths = monthlySummaries[0]?.month === thisMonth
-    ? monthlySummaries.slice(1)
-    : monthlySummaries;
+  const currentSummary = monthlySummaries[0]?.month === thisMonth ? monthlySummaries[0] : null;
+  const completeMonths = currentSummary ? monthlySummaries.slice(1) : monthlySummaries;
+  const lastComplete = completeMonths[0] ?? null;
+  const avgOf = (rows: { expenses: number }[]) => rows.length > 0 ? rows.reduce((s, m) => s + m.expenses, 0) / rows.length : 0;
+
+  // ── 2b. Shared context: one window of recent rows, data coverage, schedules ──
+  // Every JS-side rule reads from this window instead of issuing its own query, and every row
+  // in it already honours "exclude from insights".
+  const recent = await db.select<RecentRow[]>(
+    `SELECT t.id, t.account_id, a.account_type, a.name as account_name, t.date, t.description, t.amount_cents, t.category_id
+     FROM transactions t JOIN accounts a ON a.id=t.account_id
+     WHERE t.profile_id=? AND a.excluded_from_insights=0 AND a.account_type!='loan' AND t.date>=?
+     ORDER BY t.date, t.id`,
+    [profileId, addDaysIso(todayIso, -120)]
+  );
+  const [rangeRow] = await db.select<{ first: string | null; last: string | null }[]>(
+    `SELECT MIN(t.date) as first, MAX(t.date) as last
+     FROM transactions t JOIN accounts a ON a.id=t.account_id
+     WHERE t.profile_id=? AND a.excluded_from_insights=0 AND a.account_type!='loan'`,
+    [profileId]
+  );
+  const earliestIso = rangeRow?.first ?? null;
+  const coverageEnd = rangeRow?.last ?? null;
+  const coverageIsFresh = (days: number) => !!coverageEnd && daysBetweenIso(coverageEnd, todayIso) <= days;
+  /** Days of the current month the imported data actually covers. */
+  const elapsedDays = !coverageEnd ? 0
+    : coverageEnd >= thisEnd ? today.getDate()
+    : coverageEnd >= thisStart ? Math.min(today.getDate(), Number(coverageEnd.slice(8, 10)))
+    : 0;
+  const daysLeft = daysInThisMonth - today.getDate();
+
+  const freshnessRows = await db.select<{
+    id: number; name: string; account_type: string; first_date: string; last_date: string; n: number; manual_n: number;
+  }[]>(
+    `SELECT a.id, a.name, a.account_type, MIN(t.date) as first_date, MAX(t.date) as last_date, COUNT(*) as n,
+            SUM(CASE WHEN t.import_hash LIKE 'manual_%' THEN 1 ELSE 0 END) as manual_n
+     FROM accounts a JOIN transactions t ON t.account_id=a.id
+     WHERE a.profile_id=? AND a.excluded_from_insights=0 AND a.hidden_from_dashboard=0
+     GROUP BY a.id`,
+    [profileId]
+  );
+  const coverageByAccount = new Map(freshnessRows.map((r) => [r.id, r.last_date]));
+
+  const detectedCharges = await detectRecurringCharges([profileId]);
+  const planned = await getPlannedRules(profileId, detectedCharges);
+  const scenario = loadScenario(profileId);
+  const rulesForEvents = scenario.detected ? [...planned.rules, ...planned.detected] : planned.rules;
+  const plannedEvents14 = expandOccurrences(rulesForEvents, new Date(`${todayIso}T00:00:00`), new Date(`${addDaysIso(todayIso, 14)}T00:00:00`));
+  const billRules: ScheduledLike[] = planned.activeRules.filter((r) => r.amount_cents < 0).map((r) => ({ description: r.description, amount_cents: r.amount_cents }));
+  const detectedLike: ScheduledLike[] = detectedCharges.map((c) => ({ description: c.description, amount_cents: c.amount_cents }));
+  const recurringKeys = new Set([...detectedCharges, ...planned.activeRules].map((c) => merchantKey(c.description)));
+  const shapeTxns: ShapeTxn[] = recent.map((r) => ({ date: r.date, amount_cents: r.amount_cents, description: r.description, account_type: r.account_type, category_id: r.category_id }));
+  const thisMonthRows = recent.filter((r) => r.date >= thisStart && r.date < thisEnd);
+  const expensesThisMonth = thisMonthRows.filter((r) => r.amount_cents < 0 && !isExcludedCategory(r.category_id));
 
   // ── 3. Existing budgets ─────────────────────────────────────────────────
   const budgets = await db.select<{
@@ -143,7 +262,9 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   );
   const budgetCatIds = new Set(budgets.map((b) => b.category_id));
 
-  // ── 4. Category averages over last 6 months ─────────────────────────────
+  // ── 4. Category averages over the last 6 complete months ────────────────
+  // The partial current month is left out so a suggestion or a spike baseline is never
+  // diluted by a month that has barely started.
   const catAvgs = await db.select<{
     category_id: number;
     category_name: string;
@@ -159,16 +280,16 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
        SELECT tx.category_id, strftime('%Y-%m', tx.date) as month,
               ${categorySpendSql("tx", "ac")} as monthly_total
        FROM transactions tx JOIN accounts ac ON ac.id=tx.account_id
-       WHERE tx.profile_id=?
+       WHERE tx.profile_id=? AND ac.excluded_from_insights=0
          AND (tx.category_id IS NULL OR tx.category_id NOT IN (20,29))
-         AND tx.date >= ?
+         AND tx.date >= ? AND tx.date < ?
        GROUP BY tx.category_id, month
      ) t
      JOIN categories c ON t.category_id=c.id
      WHERE c.id != 15
      GROUP BY t.category_id
      HAVING month_count >= 2`,
-    [profileId, monthBounds(months6[months6.length - 1])[0]]
+    [profileId, monthBounds(months12[6])[0], thisStart]
   );
 
   // ── 5. This month's category spend ──────────────────────────────────────
@@ -178,7 +299,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   }[]>(
     `SELECT t.category_id, ${categorySpendSql()} as total
      FROM transactions t JOIN accounts a ON a.id=t.account_id
-     WHERE t.profile_id=? AND t.date>=? AND t.date<?
+     WHERE t.profile_id=? AND t.date>=? AND t.date<? AND a.excluded_from_insights=0
        AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
      GROUP BY t.category_id`,
     [profileId, thisStart, thisEnd]
@@ -193,8 +314,10 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         id: `budget_gap_${cat.category_id}`,
         type: "budget_gap",
         title: `No budget for ${cat.category_name}`,
-        description: `You average ${formatCents(cat.avg_monthly)}/mo on ${cat.category_name} but have no budget set.`,
+        description: `You average ${formatCents(cat.avg_monthly)} a month on ${cat.category_name} with no budget set.`,
         severity: "info",
+        impactCents: cat.avg_monthly,
+        period: "a month",
         actionLabel: `Set ${formatCents(suggested)} budget`,
         action: {
           type: "create_budget",
@@ -208,7 +331,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         dismissKey: `budget_gap_${cat.category_id}`,
         richData: {
           avgMonthlyCents: cat.avg_monthly,
-          potentialLabel: `Track ${formatCents(cat.avg_monthly)}/mo → stay in control of ${cat.category_name}`,
+          potentialLabel: `A budget keeps ${cat.category_name} in view every month`,
         },
       });
     }
@@ -222,8 +345,11 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         id: `unusual_spike_${cat.category_id}`,
         type: "unusual_spike",
         title: `Unusual spike in ${cat.category_name}`,
-        description: `This month: ${formatCents(thisMonthSpend)} vs avg ${formatCents(cat.avg_monthly)}/mo — ${Math.round((thisMonthSpend / cat.avg_monthly) * 100)}% above normal.`,
+        description: `${formatCents(thisMonthSpend)} so far this month against an average of ${formatCents(cat.avg_monthly)} a month, ${Math.round((thisMonthSpend / cat.avg_monthly) * 100)}% of normal.`,
         severity: "warning",
+        impactCents: thisMonthSpend - cat.avg_monthly,
+        period: "this month",
+        action: { type: "view_transactions", payload: { month: thisMonth, category: cat.category_id } },
         dismissKey: `unusual_spike_${cat.category_id}_${thisMonth}`,
       });
     }
@@ -271,6 +397,8 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         title: "Savings rate below 20%",
         description: savingsRateDescription,
         severity: "warning",
+        impactCents: Math.max(0, Math.round(avgIncome * 0.2 - avgIncome * avgRate)),
+        period: "a month",
         actionLabel: `Set ${formatCents(suggestedSavings)}/mo savings goal`,
         action: {
           type: "create_goal",
@@ -286,7 +414,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
           targetRate: 0.2,
           rateLabel: `${recentSummaries.length}-month average`,
           potentialLabel: cutPct > 0
-            ? `Cut expenses by ${cutPct}% → savings rate reaches 20%`
+            ? `Cutting expenses by ${cutPct}% brings the savings rate to 20%`
             : undefined,
           potentialValue: cutPct > 0 ? cutPct : undefined,
         },
@@ -329,11 +457,14 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         title: `Review the limit: ${row.category_name}`,
         description: overspendDescription,
         severity: "warning",
+        impactCents: row.budget_cents,
+        period: "a month",
+        action: { type: "open_budgets", payload: {} },
         dismissKey: `overspend_streak_${row.category_id}`,
         richData: {
           budgetAmountCents: row.budget_cents,
           overCount: row.over_count,
-          potentialLabel: `Staying under → ${formatCents(row.budget_cents)}/mo limit fully tracked`,
+          potentialLabel: `Staying under keeps the ${formatCents(row.budget_cents)} a month limit on track`,
         },
       });
     }
@@ -363,98 +494,195 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     }
   }
 
-  // ── INSIGHT: ghost_subscription ──────────────────────────────────────────
-  const subs = (await detectRecurringCharges([profileId])).slice(0, 5);
-  for (const sub of subs) {
-    const annualised = Math.abs(sub.amount_cents) * 12;
-    insights.push({
-      id: `ghost_sub_${sub.description.slice(0, 20)}`,
-      type: "ghost_subscription",
-      title: `Recurring charge: ${truncate(sub.description, 30)}`,
-      description: `${formatCents(Math.abs(sub.amount_cents))}/mo on the ${sub.patternLabel}, ${sub.month_count} months running — ${formatCents(annualised)}/year.`,
-      severity: "info",
-      dismissKey: `ghost_sub_${sub.description.slice(0, 20)}`,
-    });
-  }
-
-  // ── INSIGHT: redundant_spending ──────────────────────────────────────────
-  const sevenDaysAgo = (() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 7);
-    return d.toISOString().split("T")[0];
-  })();
-  const redundant = await db.select<{
-    description: string;
-    count: number;
-    total: number;
-  }[]>(
-    `SELECT description, COUNT(*) as count, SUM(ABS(amount_cents)) as total
-     FROM transactions
-     WHERE profile_id=? AND amount_cents<0 AND amount_cents>-1500 AND date>=?
-       AND (category_id IS NULL OR category_id NOT IN (20,29))
-     GROUP BY description HAVING count>=3
-     ORDER BY count DESC LIMIT 3`,
-    [profileId, sevenDaysAgo]
-  );
-  for (const r of redundant) {
-    insights.push({
-      id: `redundant_${r.description.slice(0, 20)}`,
-      type: "redundant_spending",
-      title: `Frequent small purchase: ${truncate(r.description, 25)}`,
-      description: `${r.count}× in the last 7 days totalling ${formatCents(r.total)}.`,
-      severity: "info",
-      dismissKey: `redundant_${r.description.slice(0, 20)}`,
-    });
-  }
-
-  // ── INSIGHT: income_irregular ────────────────────────────────────────────
-  if (monthCount >= 3) {
-    const incomeMonths = monthlySummaries.slice(0, 3).filter((m) => m.income > 0);
-    if (incomeMonths.length >= 3) {
-      const avg = incomeMonths.reduce((s, m) => s + m.income, 0) / incomeMonths.length;
-      const maxDev = Math.max(...incomeMonths.map((m) => Math.abs(m.income - avg) / avg));
-      if (maxDev > 0.4) {
+  // ── INSIGHT: budget_pace ─────────────────────────────────────────────────
+  // This month's budgets: already over, or on pace to go over when the data is current.
+  if (elapsedDays >= 5 && coverageIsFresh(10)) {
+    const liveBudgets = await db.select<BudgetDefinition[]>(
+      `SELECT b.*,c.name as category_name,c.parent_id as category_parent_id FROM budgets b JOIN categories c ON c.id=b.category_id
+       WHERE ((b.profile_id=? AND b.is_global=0) OR b.is_global=1) AND b.period='monthly' AND c.id!=1 AND (c.parent_id IS NULL OR c.parent_id!=1)`,
+      [profileId]
+    );
+    for (const budget of liveBudgets) {
+      const period = await evaluateBudgetPeriod(db, budget, [profileId], thisStart, thisEnd, true);
+      if (!period.covered || period.available <= 0) continue;
+      const over = period.net - period.available;
+      if (over >= Math.max(500, period.available * 0.05)) {
         insights.push({
-          id: "income_irregular",
-          type: "income_irregular",
-          title: "Irregular income detected",
-          description: `Your income has varied by up to ${Math.round(maxDev * 100)}% month-to-month. Building a buffer may help.`,
-          severity: "info",
-          dismissKey: "income_irregular",
+          id: `budget_pace_${budget.id}_${thisMonth}`,
+          type: "budget_pace",
+          title: `${budget.category_name} is ${formatCents(over)} over its ${formatCents(period.available)} budget`,
+          description: `Spent ${formatCurrency(period.net)} against ${formatCurrency(period.available)} with ${plural(daysLeft, "day", "days")} left in ${monthName(thisMonth)}.`,
+          severity: "warning",
+          impactCents: over,
+          period: "this month",
+          action: { type: "view_transactions", payload: { month: thisMonth, category: budget.category_id } },
+          dismissKey: `budget_pace_${budget.id}_${thisMonth}`,
         });
+      } else if (elapsedDays >= 10 && coverageIsFresh(3)) {
+        const paced = Math.round((period.net / elapsedDays) * daysInThisMonth);
+        if (paced > period.available * 1.15) {
+          insights.push({
+            id: `budget_pace_${budget.id}_${thisMonth}`,
+            type: "budget_pace",
+            title: `${budget.category_name} is on pace for ${formatCents(paced)} against a ${formatCents(period.available)} budget`,
+            description: `${formatCurrency(period.net)} spent in ${plural(elapsedDays, "day", "days")}. Holding to ${formatCents(Math.max(0, Math.round((period.available - period.net) / Math.max(1, daysLeft))))} a day finishes inside the limit.`,
+            severity: "info",
+            impactCents: paced - period.available,
+            period: "this month",
+            action: { type: "view_transactions", payload: { month: thisMonth, category: budget.category_id } },
+            dismissKey: `budget_pace_${budget.id}_${thisMonth}`,
+          });
+        }
       }
     }
   }
 
-  // ── INSIGHT: low balance ────────────────────────────────────────────────
-  if (balanceRow?.balance_cents != null) {
-    const avgMonthlyExpenses = monthlySummaries.length > 0
-      ? monthlySummaries.reduce((s, m) => s + m.expenses, 0) / monthlySummaries.length
-      : 0;
-    const monthsOfRunway = avgMonthlyExpenses > 0 ? balanceRow.balance_cents / avgMonthlyExpenses : 99;
-    if (balanceRow.balance_cents < 50000 && balanceRow.balance_cents >= 0) {
-      // Under $500
+  // ── INSIGHT: recurring_price_change / new_recurring_charge ──────────────
+  for (const charge of detectedCharges) {
+    const change = detectPriceChange(charge.amountHistory);
+    if (change) {
+      const up = change.deltaCents > 0;
+      const yearly = Math.abs(change.deltaCents) * 12;
+      const id = `recurring_price_change_${chargeKey(charge.description)}_${change.currentCents}`;
       insights.push({
-        id: "low_balance",
-        type: "savings_rate_low",
-        title: `Low account balance: ${formatCents(balanceRow.balance_cents)}`,
-        description: `Your balance as of ${balanceRow.date} is below $500.${monthsOfRunway < 1 ? " At current spend, this covers less than a month." : ""}`,
-        severity: "warning",
-        dismissKey: `low_balance_${balanceRow.date}`,
+        id,
+        type: "recurring_price_change",
+        title: `${truncate(charge.description, 30)} went ${up ? "up" : "down"} ${formatCurrency(Math.abs(change.deltaCents))} a month`,
+        description: `It was ${formatCurrency(change.previousCents)} and is now ${formatCurrency(change.currentCents)} as of ${shortDate(charge.last_seen)}, about ${formatCents(yearly)} ${up ? "more" : "less"} a year.`,
+        severity: up && (change.pct >= 0.2 || change.deltaCents >= 1000) ? "warning" : "info",
+        impactCents: yearly,
+        period: "a year",
+        action: { type: "view_transactions", payload: { search: charge.description, range: { start: addDaysIso(todayIso, -120), end: todayIso } } },
+        dismissKey: id,
+        richData: { previousAmountCents: change.previousCents, newAmountCents: change.currentCents },
       });
-    } else if (monthsOfRunway < 2 && avgMonthlyExpenses > 0) {
+    }
+    if (earliestIso && isNewRecurring(charge, earliestIso, todayIso)) {
+      const monthly = Math.abs(charge.amount_cents);
       insights.push({
-        id: "runway_short",
-        type: "savings_rate_low",
-        title: "Less than 2 months of expenses in account",
-        description: `Balance: ${formatCents(balanceRow.balance_cents)} · avg monthly expenses: ${formatCents(avgMonthlyExpenses)}. Consider building a larger buffer.`,
-        severity: "warning",
-        dismissKey: `runway_short_${balanceRow.date}`,
+        id: `new_recurring_${chargeKey(charge.description)}`,
+        type: "new_recurring_charge",
+        title: `New recurring charge: ${truncate(charge.description, 30)}, ${formatCurrency(monthly)} a month`,
+        description: `First seen ${shortDate(charge.first_seen)}, ${plural(charge.month_count, "month", "months")} running on the ${charge.patternLabel}. About ${formatCents(monthly * 12)} a year if it continues.`,
+        severity: "info",
+        impactCents: monthly * 12,
+        period: "a year",
+        action: { type: "view_transactions", payload: { search: charge.description, range: { start: addDaysIso(todayIso, -120), end: todayIso } } },
+        dismissKey: `new_recurring_${chargeKey(charge.description)}`,
       });
     }
   }
 
-  // ── INSIGHT: credit card debt (balance_cents is negative for credit accounts) ──
+  // ── INSIGHT: frequent_merchant ───────────────────────────────────────────
+  {
+    const since30 = addDaysIso(todayIso, -30);
+    const rows30 = recent.filter((r) => r.date >= since30 && r.amount_cents < 0 && !isExcludedCategory(r.category_id));
+    for (const m of findFrequentMerchants(rows30).filter((m) => !recurringKeys.has(m.key)).slice(0, 2)) {
+      insights.push({
+        id: `frequent_${m.key}_${thisMonth}`,
+        type: "frequent_merchant",
+        title: `${truncate(m.description, 25)} ${m.count} times in 30 days, ${formatCents(m.totalCents)}`,
+        description: `About ${formatCents(m.totalCents)} a month at this pace, ${formatCurrency(Math.round(m.totalCents / m.count))} a visit. Worth a look if it is not deliberate.`,
+        severity: "info",
+        impactCents: m.totalCents,
+        period: "30 days",
+        action: { type: "view_transactions", payload: { search: m.description, range: { start: since30, end: todayIso } } },
+        dismissKey: `frequent_${m.key}_${thisMonth}`,
+      });
+    }
+  }
+
+  // ── INSIGHT: income_irregular ────────────────────────────────────────────
+  if (completeMonths.length >= 3) {
+    const incomeMonths = completeMonths.slice(0, 3).filter((m) => m.income > 0);
+    if (incomeMonths.length >= 3) {
+      const avg = incomeMonths.reduce((s, m) => s + m.income, 0) / incomeMonths.length;
+      const maxDev = Math.max(...incomeMonths.map((m) => Math.abs(m.income - avg) / avg));
+      if (maxDev > 0.4) {
+        // A two-paycheck month next to a three-paycheck month is not irregular income, it is a
+        // biweekly calendar. Compare income per deposit before calling it irregular.
+        const depositRows = await db.select<{ month: string; n: number }[]>(
+          `SELECT strftime('%Y-%m', t.date) as month, COUNT(*) as n
+           FROM transactions t JOIN accounts a ON a.id=t.account_id
+           WHERE t.profile_id=? AND a.excluded_from_insights=0 AND a.account_type NOT IN ('credit','loan')
+             AND t.amount_cents>50000 AND t.category_id=1 AND t.date>=? AND t.date<?
+           GROUP BY month`,
+          [profileId, monthBounds(incomeMonths[incomeMonths.length - 1].month)[0], thisStart]
+        );
+        const perDeposit = incomeMonths.map((m) => {
+          const n = depositRows.find((d) => d.month === m.month)?.n ?? 0;
+          return n > 0 ? m.income / n : null;
+        });
+        const steadyPerDeposit = perDeposit.every((v) => v !== null) && (() => {
+          const values = perDeposit as number[];
+          const mean = values.reduce((s, v) => s + v, 0) / values.length;
+          return values.every((v) => Math.abs(v - mean) / mean <= 0.25);
+        })();
+        if (!steadyPerDeposit) {
+          insights.push({
+            id: "income_irregular",
+            type: "income_irregular",
+            title: "Irregular income detected",
+            description: `Your income has varied by up to ${Math.round(maxDev * 100)}% from month to month over the last three complete months. Building a buffer helps smooth that out.`,
+            severity: "info",
+            impactCents: Math.round(maxDev * avg),
+            period: "a month",
+            dismissKey: "income_irregular",
+          });
+        }
+      }
+    }
+  }
+
+  // ── INSIGHT: emergency_fund_runway (also covers a very low balance) ─────
+  if (balanceKnown) {
+    const balance = balanceRow.balance_cents;
+    const balanceDate = balanceRow.date!;
+    const expenseMonths = completeMonths.slice(0, 3).filter((m) => m.expenses > 0);
+    const avgExp = expenseMonths.length > 0
+      ? avgOf(expenseMonths)
+      : currentSummary && elapsedDays >= 10 ? (currentSummary.expenses / elapsedDays) * daysInThisMonth : 0;
+    const basis = expenseMonths.length > 0
+      ? `average spending ${formatCents(avgExp)} a month over ${plural(expenseMonths.length, "complete month", "complete months")}`
+      : `spending paced from this month so far, about ${formatCents(avgExp)} a month`;
+    const runway = avgExp > 0 ? balance / avgExp : null;
+    const runwayStr = runway === null ? null
+      : runway < 1 ? "less than a month"
+      : runway < 6 ? `about ${runway.toFixed(1)} months`
+      : `${Math.floor(runway)} months`;
+
+    if (balance >= 0 && balance < 50000) {
+      insights.push({
+        id: `low_balance_${balanceDate}`,
+        type: "emergency_fund_runway",
+        title: `Checking balance is ${formatCents(balance)}, under $500`,
+        description: `As of ${formatDate(balanceDate)}.${runwayStr ? ` At ${basis}, this covers ${runwayStr} of expenses.` : ""}`,
+        severity: "warning",
+        impactCents: 50000 - balance,
+        period: "today",
+        dismissKey: `low_balance_${balanceDate}`,
+        richData: runway !== null ? { runwayMonths: parseFloat(runway.toFixed(1)) } : undefined,
+      });
+    } else if (balance > 0 && runway !== null && runwayStr) {
+      const gapToThree = Math.max(0, Math.round(avgExp * 3 - balance));
+      insights.push({
+        id: `emergency_fund_runway_${runway >= 6 ? quarterKey(today) : balanceDate}`,
+        type: "emergency_fund_runway",
+        title: `Your balance covers ${runwayStr} of expenses`,
+        description: `Balance ${formatCents(balance)} as of ${formatDate(balanceDate)}, ${basis}.${runway < 3 ? " Three to six months is the usual cushion." : runway >= 6 ? " A healthy cushion." : ""}`,
+        severity: runway < 1 ? "warning" : runway < 6 ? "info" : "success",
+        impactCents: runway < 3 ? gapToThree : 0,
+        period: "to reach 3 months",
+        dismissKey: `emergency_fund_runway_${runway >= 6 ? quarterKey(today) : balanceDate}`,
+        richData: {
+          runwayMonths: parseFloat(runway.toFixed(1)),
+          potentialLabel: runway < 3 ? `Saving ${formatCents(gapToThree)} more reaches a 3-month cushion` : undefined,
+        },
+      });
+    }
+  }
+
+  // ── Credit cards: debt tracking, payment coverage, interest ─────────────
   // Generated per-account (not aggregated/latest-across-all-cards) so a profile with several
   // credit cards gets one accurate insight set per card instead of one ambiguous snapshot that
   // happens to belong to whichever card was most recently imported - AccountDetailModal relies
@@ -463,6 +691,18 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     `SELECT id, name, interest_rate_bps, minimum_payment_cents FROM accounts WHERE profile_id=? AND account_type='credit' AND excluded_from_insights=0`,
     [profileId]
   );
+  /** Charges, payments and stray credits on one card in one complete month, from the shared window. */
+  const cardMonth = (accountId: number, month: string) => {
+    const [start, end] = monthBounds(month);
+    let purchases = 0, payments = 0, stray = 0;
+    for (const r of recent) {
+      if (r.account_id !== accountId || r.date < start || r.date >= end) continue;
+      if (r.amount_cents < 0 && !isExcludedCategory(r.category_id)) purchases += -r.amount_cents;
+      else if (r.amount_cents > 0 && r.category_id === 20) payments += r.amount_cents;
+      else if (r.amount_cents > 0 && r.category_id !== 29) stray++;
+    }
+    return { purchases, payments, stray };
+  };
   for (const acct of creditAccounts) {
     const [creditBalanceRow] = await db.select<{ balance_cents: number; date: string }[]>(
       `SELECT balance_cents, date FROM transactions
@@ -470,7 +710,79 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
        ORDER BY date DESC, id DESC LIMIT 1`,
       [acct.id]
     );
-    if (creditBalanceRow?.balance_cents == null) continue;
+    const m0 = completeMonths[0]?.month;
+    const m1 = completeMonths[1]?.month;
+    const coverage0 = m0 ? cardMonth(acct.id, m0) : null;
+    const coverage1 = m1 ? cardMonth(acct.id, m1) : null;
+    const coverageSentence = m0 && coverage0 && coverage0.purchases > 0
+      ? ` You paid ${formatCents(coverage0.payments)} against ${formatCents(coverage0.purchases)} charged in ${monthName(m0)}.`
+      : "";
+
+    if (m0 && m1 && coverage0 && coverage1
+      && coverage0.purchases >= 5000 && coverage1.purchases >= 5000
+      && coverage0.payments >= coverage0.purchases && coverage1.payments >= coverage1.purchases) {
+      insights.push({
+        id: `card_paid_in_full_${acct.id}_${quarterKey(today)}`,
+        type: "card_paid_in_full",
+        title: `You paid ${acct.name} in full for ${monthName(m1)} and ${monthName(m0)}`,
+        description: "Payments matched or beat new charges in both months, so this card is not costing interest.",
+        severity: "success",
+        dismissKey: `card_paid_in_full_${acct.id}_${quarterKey(today)}`,
+        accountId: acct.id,
+      });
+    }
+
+    // Interest actually charged on the card, from the statement lines themselves.
+    const interestMonth = m0 ?? thisMonth;
+    const [iStart, iEnd] = monthBounds(interestMonth);
+    const interestCents = recent
+      .filter((r) => r.account_id === acct.id && r.amount_cents < 0 && !isExcludedCategory(r.category_id)
+        && r.date >= iStart && r.date < iEnd && INTEREST_RE.test(r.description) && !NOT_INTEREST_RE.test(r.description))
+      .reduce((s, r) => s - r.amount_cents, 0);
+    if (interestCents > 0) {
+      insights.push({
+        id: `interest_paid_${acct.id}_${interestMonth}`,
+        type: "interest_paid",
+        title: `${formatCents(interestCents)} of interest on ${acct.name} in ${monthName(interestMonth)}`,
+        description: `At this rate the card costs about ${formatCents(interestCents * 12)} a year in interest. Paying the statement balance in full stops it.`,
+        severity: interestCents >= 5000 ? "warning" : "info",
+        impactCents: interestCents * 12,
+        period: "a year",
+        action: { type: "open_payoff", payload: {} },
+        dismissKey: `interest_paid_${acct.id}_${interestMonth}`,
+        accountId: acct.id,
+      });
+    }
+
+    if (creditBalanceRow?.balance_cents == null) {
+      // No statement balance on file: payment coverage is the only view of whether the card is
+      // being carried. Skip when positive rows exist outside Transfers (payments probably
+      // miscategorized), since the ratio would be wrong.
+      if (m0 && m1 && coverage0 && coverage1 && coverage0.stray === 0 && coverage1.stray === 0
+        && coverage0.purchases >= 20000 && coverage1.purchases >= 20000
+        && coverage0.payments < coverage0.purchases * 0.9 && coverage1.payments < coverage1.purchases * 0.9) {
+        const avgPurchases = Math.round((coverage0.purchases + coverage1.purchases) / 2);
+        const avgPayments = Math.round((coverage0.payments + coverage1.payments) / 2);
+        insights.push({
+          id: `card_coverage_${acct.id}_${m0}`,
+          type: "card_coverage_low",
+          title: `Payments covered ${Math.round((avgPayments / avgPurchases) * 100)}% of new charges on ${acct.name}`,
+          description: `Over ${monthName(m1)} and ${monthName(m0)} you charged about ${formatCents(avgPurchases)} a month and paid ${formatCents(avgPayments)}. About ${formatCents(avgPurchases - avgPayments)} a month is being carried.`,
+          severity: "warning",
+          impactCents: avgPurchases - avgPayments,
+          period: "a month",
+          action: { type: "open_payoff", payload: {} },
+          dismissKey: `card_coverage_${acct.id}_${m0}`,
+          accountId: acct.id,
+          richData: { shareBar: { segments: [
+            { label: "Paid", cents: avgPayments, kind: "left" },
+            { label: "Carried", cents: avgPurchases - avgPayments, kind: "unknown" },
+          ] } },
+        });
+      }
+      continue;
+    }
+
     const [creditBalancePriorRow] = await db.select<{ balance_cents: number }[]>(
       `SELECT balance_cents FROM transactions
        WHERE account_id=? AND balance_cents IS NOT NULL AND date < ?
@@ -490,8 +802,11 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         id: `credit_card_debt_high_${acct.id}_${creditBalanceRow.date}`,
         type: "credit_card_debt_high",
         title: `${acct.name}: ${formatCents(Math.abs(debt))} owed`,
-        description: `You're carrying a balance of ${formatCents(Math.abs(debt))} on ${acct.name} as of ${creditBalanceRow.date}. Interest charges add up quickly - paying down high-interest debt is usually a better return than most savings accounts.`,
+        description: `You are carrying a balance of ${formatCents(Math.abs(debt))} on ${acct.name} as of ${formatDate(creditBalanceRow.date)}. Interest adds up quickly, and paying down a high-rate card usually beats what a savings account returns.${coverageSentence}`,
         severity: "warning",
+        impactCents: Math.abs(debt),
+        period: "owed",
+        action: { type: "open_payoff", payload: {} },
         dismissKey: `credit_card_debt_high_${acct.id}_${creditBalanceRow.date}`,
         accountId: acct.id,
         richData: creditRichData,
@@ -513,8 +828,11 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
             higherIsBetter: false,
             variantSeed: `${profileId}:credit_card_debt_growing:${acct.id}:${thisMonth}`,
             fallback: `${acct.name}'s balance went from ${formatCents(Math.abs(creditBalancePriorRow.balance_cents))} to ${formatCents(Math.abs(debt))} owed. Keep an eye on this before it compounds with interest.`,
-          }),
+          }) + coverageSentence,
           severity: "warning",
+          impactCents: Math.abs(delta),
+          period: "this month",
+          action: { type: "open_payoff", payload: {} },
           dismissKey: `credit_card_debt_growing_${acct.id}_${thisMonth}`,
           accountId: acct.id,
           richData: creditRichData,
@@ -532,9 +850,11 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
             previousLabel: formatCents(Math.abs(creditBalancePriorRow.balance_cents)),
             higherIsBetter: false,
             variantSeed: `${profileId}:credit_card_debt_improving:${acct.id}:${thisMonth}`,
-            fallback: `Nice progress - ${acct.name}'s balance improved from ${formatCents(Math.abs(creditBalancePriorRow.balance_cents))} to ${formatCents(Math.abs(debt))} owed.`,
-          }),
+            fallback: `Nice progress: ${acct.name}'s balance improved from ${formatCents(Math.abs(creditBalancePriorRow.balance_cents))} to ${formatCents(Math.abs(debt))} owed.`,
+          }) + coverageSentence,
           severity: "success",
+          impactCents: delta,
+          period: "this month",
           dismissKey: `credit_card_debt_improving_${acct.id}_${thisMonth}`,
           accountId: acct.id,
           richData: creditRichData,
@@ -576,8 +896,10 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         id: `loan_debt_high_${acct.id}_${loanBalanceRow.date}`,
         type: "loan_debt_high",
         title: `${acct.name}: ${formatCents(Math.abs(loanDebt))} owed`,
-        description: `You're carrying a balance of ${formatCents(Math.abs(loanDebt))} on ${acct.name} as of ${loanBalanceRow.date}.`,
+        description: `You are carrying a balance of ${formatCents(Math.abs(loanDebt))} on ${acct.name} as of ${formatDate(loanBalanceRow.date)}.`,
         severity: "info",
+        impactCents: Math.abs(loanDebt),
+        period: "owed",
         dismissKey: `loan_debt_high_${acct.id}_${loanBalanceRow.date}`,
         accountId: acct.id,
         richData: loanRichData,
@@ -601,6 +923,8 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
             fallback: `${acct.name}'s balance went from ${formatCents(Math.abs(loanBalancePriorRow.balance_cents))} to ${formatCents(Math.abs(loanDebt))} owed this month.`,
           }),
           severity: "warning",
+          impactCents: Math.abs(loanDelta),
+          period: "this month",
           dismissKey: `loan_debt_growing_${acct.id}_${thisMonth}`,
           accountId: acct.id,
           richData: loanRichData,
@@ -618,9 +942,11 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
             previousLabel: formatCents(Math.abs(loanBalancePriorRow.balance_cents)),
             higherIsBetter: false,
             variantSeed: `${profileId}:loan_debt_improving:${acct.id}:${thisMonth}`,
-            fallback: `Nice progress - ${acct.name}'s balance improved from ${formatCents(Math.abs(loanBalancePriorRow.balance_cents))} to ${formatCents(Math.abs(loanDebt))} owed.`,
+            fallback: `Nice progress: ${acct.name}'s balance improved from ${formatCents(Math.abs(loanBalancePriorRow.balance_cents))} to ${formatCents(Math.abs(loanDebt))} owed.`,
           }),
           severity: "success",
+          impactCents: loanDelta,
+          period: "this month",
           dismissKey: `loan_debt_improving_${acct.id}_${thisMonth}`,
           accountId: acct.id,
           richData: loanRichData,
@@ -659,9 +985,12 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
       insights.push({
         id: `loan_payoff_projection_${debt.id}`,
         type: "loan_payoff_projection",
-        title: `${debt.name}: minimum payment won't pay this off`,
-        description: `At ${aprLabel} APR, your ${formatCents(debt.minimum_payment_cents)}/mo payment on ${debt.name} doesn't cover the interest on ${formatCents(Math.abs(debt.balance_cents ?? 0))} owed - the balance will grow if you only pay the minimum.`,
+        title: `${debt.name}: the minimum payment will not pay this off`,
+        description: `At ${aprLabel} APR, your ${formatCents(debt.minimum_payment_cents)} a month payment on ${debt.name} does not cover the interest on ${formatCents(Math.abs(debt.balance_cents ?? 0))} owed. The balance grows if you only pay the minimum.`,
         severity: "warning",
+        impactCents: Math.abs(debt.balance_cents ?? 0),
+        period: "owed",
+        action: { type: "open_payoff", payload: {} },
         dismissKey: `loan_payoff_projection_${debt.id}`,
         accountId: debt.id,
         richData: payoffRichData,
@@ -672,9 +1001,12 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
       insights.push({
         id: `loan_payoff_projection_${debt.id}`,
         type: "loan_payoff_projection",
-        title: `${debt.name}: ~${years < 1 ? `${Math.round(months)} months` : `${years.toFixed(1)} years`} to pay off`,
-        description: `At your current ${formatCents(debt.minimum_payment_cents)}/mo payment and ${aprLabel} APR, ${debt.name} is projected to cost about ${formatCents(totalInterestCents)} in interest before it's paid off.`,
+        title: `${debt.name}: about ${years < 1 ? `${Math.round(months)} months` : `${years.toFixed(1)} years`} to pay off`,
+        description: `At your current ${formatCents(debt.minimum_payment_cents)} a month payment and ${aprLabel} APR, ${debt.name} is projected to cost about ${formatCents(totalInterestCents)} in interest before it is paid off.`,
         severity: "info",
+        impactCents: totalInterestCents,
+        period: "total interest",
+        action: { type: "open_payoff", payload: {} },
         dismissKey: `loan_payoff_projection_${debt.id}`,
         accountId: debt.id,
         richData: payoffRichData,
@@ -689,8 +1021,11 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
       id: `debt_payoff_priority_${thisMonth}`,
       type: "debt_payoff_priority",
       title: `Focus extra payments on ${topPriority.name}`,
-      description: `${topPriority.name} carries the highest rate among your debts at ${(topPriority.interest_rate_bps! / 100).toFixed(2)}% APR, with ${formatCents(Math.abs(topPriority.balance_cents ?? 0))} owed. Paying this down first (the "avalanche" method) saves the most in interest over time.`,
+      description: `${topPriority.name} carries the highest rate among your debts at ${(topPriority.interest_rate_bps! / 100).toFixed(2)}% APR, with ${formatCents(Math.abs(topPriority.balance_cents ?? 0))} owed. Paying this down first (the avalanche method) saves the most in interest over time.`,
       severity: "info",
+      impactCents: Math.abs(topPriority.balance_cents ?? 0),
+      period: "owed",
+      action: { type: "open_payoff", payload: {} },
       dismissKey: `debt_payoff_priority_${thisMonth}`,
       accountId: topPriority.id,
       richData: {
@@ -703,150 +1038,265 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   }
 
   // ── INSIGHT: top_merchants ───────────────────────────────────────────────
-  const topMerchants = await db.select<{ description: string; total: number }[]>(
-    `SELECT description, SUM(ABS(amount_cents)) as total
-     FROM transactions
-     WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0
-       AND (category_id IS NULL OR category_id NOT IN (20,29))
-     GROUP BY description ORDER BY total DESC LIMIT 5`,
-    [profileId, thisStart, thisEnd]
-  );
-  if (topMerchants.length >= 3) {
-    const lines = topMerchants
-      .slice(0, 3)
-      .map((m, i) => `${i + 1}. ${truncate(m.description, 28)} — ${formatCents(m.total)}`);
-    insights.push({
-      id: `top_merchants_${thisMonth}`,
-      type: "top_merchants",
-      title: "Top spending merchants this month",
-      description: lines.join("  ·  "),
-      severity: "info",
-      dismissKey: `top_merchants_${thisMonth}`,
-    });
+  {
+    const groups = new Map<string, { description: string; total: number }>();
+    let monthTotal = 0;
+    for (const r of expensesThisMonth) {
+      const key = merchantKey(r.description);
+      if (!key) continue;
+      monthTotal += -r.amount_cents;
+      const g = groups.get(key) ?? { description: r.description, total: 0 };
+      g.total += -r.amount_cents;
+      groups.set(key, g);
+    }
+    const ranked = [...groups.values()].sort((a, b) => b.total - a.total);
+    if (ranked.length >= 3 && monthTotal > 0) {
+      const top3 = ranked.slice(0, 3);
+      const top3Total = top3.reduce((s, m) => s + m.total, 0);
+      insights.push({
+        id: `top_merchants_${thisMonth}`,
+        type: "top_merchants",
+        title: "Top merchants this month",
+        description: `${listClauses(top3.map((m) => `${truncate(m.description, 28)} ${formatCents(m.total)}`))}, ${Math.round((top3Total / monthTotal) * 100)}% of this month's spending.`,
+        severity: "info",
+        impactCents: top3Total,
+        period: "this month",
+        action: { type: "view_transactions", payload: { month: thisMonth } },
+        dismissKey: `top_merchants_${thisMonth}`,
+        richData: { items: ranked.slice(0, 5).map((m) => ({ label: m.description, valueCents: m.total })) },
+      });
+    }
   }
 
   // ── INSIGHT: food_delivery_spend ────────────────────────────────────────
-  const [deliveryRow] = await db.select<{ total: number }[]>(
-    `SELECT COALESCE(SUM(ABS(amount_cents)), 0) as total
-     FROM transactions
-     WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0
-       AND (UPPER(description) LIKE '%DOORDASH%' OR UPPER(description) LIKE '%UBER EATS%'
-            OR UPPER(description) LIKE '%GRUBHUB%' OR UPPER(description) LIKE '%INSTACART%')`,
-    [profileId, thisStart, thisEnd]
-  );
-  const deliveryTotal = deliveryRow?.total ?? 0;
-  // Sum food-related categories: Food & Dining(3), Groceries(13). ("Restaurants"
-  // (14) was merged into Food & Dining in db.ts's v19 migration.)
-  const totalFoodSpend = [3, 13].reduce(
-    (s, id) => s + (thisMonthCatMap.get(id) ?? 0),
-    0
-  );
-  if (deliveryTotal > 3000 && totalFoodSpend > 0) {
-    const pct = Math.round((deliveryTotal / totalFoodSpend) * 100);
-    insights.push({
-      id: `food_delivery_${thisMonth}`,
-      type: "food_delivery_spend",
-      title: `${pct}% of food spending is delivery apps`,
-      description: `Food delivery: ${formatCents(deliveryTotal)} · Total food: ${formatCents(totalFoodSpend)} this month. Cooking more could save ${formatCents(Math.round(deliveryTotal * 0.6))}/mo.`,
-      severity: pct > 50 ? "warning" : "info",
-      dismissKey: `food_delivery_${thisMonth}`,
-    });
+  {
+    const deliveryTotal = expensesThisMonth
+      .filter((r) => /DOORDASH|UBER EATS|GRUBHUB|INSTACART/i.test(r.description))
+      .reduce((s, r) => s - r.amount_cents, 0);
+    // Sum food-related categories: Food & Dining(3), Groceries(13). ("Restaurants"
+    // (14) was merged into Food & Dining in db.ts's v19 migration.)
+    const totalFoodSpend = [3, 13].reduce((s, id) => s + (thisMonthCatMap.get(id) ?? 0), 0);
+    if (deliveryTotal > 3000 && totalFoodSpend > 0) {
+      const pct = Math.round((deliveryTotal / totalFoodSpend) * 100);
+      insights.push({
+        id: `food_delivery_${thisMonth}`,
+        type: "food_delivery_spend",
+        title: `${pct}% of food spending is delivery apps`,
+        description: `Food delivery ${formatCents(deliveryTotal)} of ${formatCents(totalFoodSpend)} spent on food this month. Cooking more could save about ${formatCents(Math.round(deliveryTotal * 0.6))} a month.`,
+        severity: pct > 50 ? "warning" : "info",
+        impactCents: Math.round(deliveryTotal * 0.6),
+        period: "a month",
+        dismissKey: `food_delivery_${thisMonth}`,
+      });
+    }
   }
 
   // ── INSIGHT: subscription_total ─────────────────────────────────────────
-  const subscriptionItems = await db.select<{ description: string; amount_cents: number }[]>(
-    `SELECT description, amount_cents
-     FROM transactions
-     WHERE profile_id=? AND amount_cents<0 AND category_id=17
-     GROUP BY description, amount_cents
-     ORDER BY ABS(amount_cents) DESC`,
-    [profileId]
-  );
-  if (subscriptionItems.length > 0) {
-    const monthlyTotal = subscriptionItems.reduce(
-      (s, i) => s + Math.abs(i.amount_cents),
-      0
-    );
-    const preview = subscriptionItems
-      .slice(0, 3)
-      .map((s) => `${truncate(s.description, 18)} ${formatCents(Math.abs(s.amount_cents))}`)
-      .join("  ·  ");
-    insights.push({
-      id: "subscription_total",
-      type: "subscription_total",
-      title: `${subscriptionItems.length} subscription${subscriptionItems.length > 1 ? "s" : ""} — ${formatCents(monthlyTotal)}/mo detected`,
-      description: preview + (subscriptionItems.length > 3 ? ` + ${subscriptionItems.length - 3} more` : ""),
-      severity: "info",
-      dismissKey: "subscription_total",
-    });
+  // Live recurring charges only (current amounts, active streaks), leaving out housing,
+  // utilities, insurance and debt payments, which recur but are not subscriptions.
+  {
+    const notSubscription = new Set(["Housing", "Utilities", "Rent / Mortgage", "Insurance", "Debt", "Transfers"]);
+    const subs = detectedCharges.filter((c) => Math.abs(c.amount_cents) <= 10000 && !notSubscription.has(c.category_name ?? ""));
+    if (subs.length > 0) {
+      const monthlyTotal = subs.reduce((s, c) => s + Math.abs(c.amount_cents), 0);
+      const preview = subs.slice(0, 3).map((s) => `${truncate(s.description, 18)} ${formatCurrency(Math.abs(s.amount_cents))}`).join(", ");
+      insights.push({
+        id: `subscription_total_${thisMonth}`,
+        type: "subscription_total",
+        title: `${plural(subs.length, "recurring charge adds", "recurring charges add")} up to ${formatCents(monthlyTotal)} a month, ${formatCents(monthlyTotal * 12)} a year`,
+        description: `${preview}${subs.length > 3 ? `, and ${subs.length - 3} more` : ""}.`,
+        severity: "info",
+        impactCents: monthlyTotal,
+        period: "a month",
+        action: { type: "open_section", payload: { section: "subs" } },
+        dismissKey: `subscription_total_${thisMonth}`,
+        richData: { items: subs.slice(0, 5).map((s) => ({ label: s.description, valueCents: Math.abs(s.amount_cents), color: s.category_color })) },
+      });
+    }
   }
 
-  // ── INSIGHT: income_expected ─────────────────────────────────────────────
-  const payrollTxns = await db.select<{ date: string; amount_cents: number }[]>(
-    `SELECT date, amount_cents FROM transactions
-     WHERE profile_id=? AND amount_cents>50000 AND category_id=1
-     ORDER BY date DESC LIMIT 6`,
-    [profileId]
-  );
-  if (payrollTxns.length >= 2) {
-    const intervals: number[] = [];
-    for (let i = 0; i < payrollTxns.length - 1; i++) {
-      const a = new Date(payrollTxns[i].date).getTime();
-      const b = new Date(payrollTxns[i + 1].date).getTime();
-      const days = Math.round((a - b) / 86_400_000);
-      if (days > 0 && days <= 35) intervals.push(days);
-    }
-    if (intervals.length >= 1) {
-      const avgInterval = Math.round(
-        intervals.reduce((a, b) => a + b, 0) / intervals.length
-      );
-      const nextPay = new Date(payrollTxns[0].date);
-      nextPay.setDate(nextPay.getDate() + avgInterval);
-      const daysUntil = Math.round(
-        (nextPay.getTime() - Date.now()) / 86_400_000
-      );
-      if (daysUntil >= 0 && daysUntil <= 14) {
+  // ── INSIGHT: bills_this_week (scheduled truth first) ─────────────────────
+  let shortfallWarned = false;
+  const nextIncome = nextIncomeEvent(plannedEvents14, todayIso);
+  {
+    const bills7 = billsDueWithin(plannedEvents14, todayIso, 7);
+    if (bills7.length > 0) {
+      const total = bills7.reduce((s, e) => s - e.amountCents, 0);
+      const timeline = bills7.map((e) => ({ date: e.date, label: e.description, cents: -e.amountCents, kind: e.source }));
+      const freshBalance = balanceKnown && daysBetweenIso(balanceRow.date!, todayIso) <= 7;
+      const projection = freshBalance
+        ? projectCashFlow({ startingBalanceCents: balanceRow.balance_cents, startDate: todayIso, days: 15, events: plannedEvents14 })
+        : null;
+      const shortfall = projection?.firstShortfall ?? null;
+
+      if (projection && shortfall) {
+        const trigger = [...plannedEvents14]
+          .filter((e) => e.amountCents < 0 && e.date <= shortfall.date)
+          .sort((a, b) => a.amountCents - b.amountCents)[0] ?? bills7[0];
+        const recoveryDay = projection.days.find((d) => d.date > shortfall.date && d.balanceCents >= 0);
+        const recovery = recoveryDay ? plannedEvents14.find((e) => e.amountCents > 0 && e.date > shortfall.date && e.date <= recoveryDay.date) ?? null : null;
+        const gap = Math.abs(projection.lowPoint?.balanceCents ?? shortfall.balanceCents);
+        const triggerDays = daysBetweenIso(todayIso, trigger.date);
         insights.push({
-          id: `income_expected_${thisMonth}`,
-          type: "income_expected",
-          title:
-            daysUntil === 0
-              ? "Paycheck expected today"
-              : `Paycheck in ~${daysUntil} day${daysUntil > 1 ? "s" : ""}`,
-          description: `Based on your ${avgInterval}-day pay cycle. Last deposit: ${formatCents(Math.abs(payrollTxns[0].amount_cents))} on ${payrollTxns[0].date}.`,
+          id: `shortfall_${shortfall.date}_${trigger.key}`,
+          type: "bills_this_week",
+          title: `Short ${formatCents(gap)} for ${truncate(trigger.description, 24)} ${describeDays(triggerDays)}`,
+          description: `${trigger.description} of ${formatCents(Math.abs(trigger.amountCents))} is due ${describeDays(triggerDays)} and your checking balance is ${formatCents(balanceRow.balance_cents)}.`
+            + (recovery ? ` ${recovery.description} of ${formatCents(recovery.amountCents)} on ${shortDate(recovery.date)} brings you back above zero.` : " No scheduled income lands in the next 14 days."),
+          severity: "warning",
+          impactCents: gap,
+          period: "next 7 days",
+          action: { type: "open_plan", payload: {} },
+          dismissKey: `shortfall_${shortfall.date}_${trigger.key}`,
+          richData: { timeline },
+        });
+        shortfallWarned = true;
+      } else {
+        const first = bills7[0];
+        const firstDays = daysBetweenIso(todayIso, first.date);
+        const incomeSentence = nextIncome && daysBetweenIso(todayIso, nextIncome.date) <= 7
+          ? ` ${nextIncome.description} of ${formatCents(nextIncome.amountCents)} lands ${describeDays(daysBetweenIso(todayIso, nextIncome.date))}.`
+          : "";
+        insights.push({
+          id: `bills_week_${addDaysIso(todayIso, -((today.getDay() + 6) % 7))}`,
+          type: "bills_this_week",
+          title: bills7.length === 1
+            ? `${truncate(first.description, 30)} due ${describeDays(firstDays)}, ${formatCents(-first.amountCents)}`
+            : `${plural(bills7.length, "bill", "bills")} due in the next 7 days, ${formatCents(total)} in total`,
+          description: `${listClauses(bills7.slice(0, 3).map((e) => `${truncate(e.description, 24)} ${formatCents(-e.amountCents)} ${describeDays(daysBetweenIso(todayIso, e.date))}`))}${bills7.length > 3 ? ` and ${bills7.length - 3} more` : ""}.${incomeSentence}`,
           severity: "info",
-          dismissKey: `income_expected_${thisMonth}`,
+          impactCents: total,
+          period: "next 7 days",
+          action: { type: "open_plan", payload: {} },
+          dismissKey: `bills_week_${addDaysIso(todayIso, -((today.getDay() + 6) % 7))}`,
+          richData: { timeline },
         });
       }
     }
   }
 
-  // ── INSIGHT: overdraft_alert ────────────────────────────────────────────
-  const [overdraftRow] = await db.select<{ count: number; total: number }[]>(
-    `SELECT COUNT(*) as count, COALESCE(SUM(ABS(amount_cents)), 0) as total
-     FROM transactions
-     WHERE profile_id=? AND date>=? AND date<?
-       AND (category_id=19 OR UPPER(description) LIKE '%OVERDRAFT FEE%')
-       AND amount_cents<0`,
-    [profileId, thisStart, thisEnd]
-  );
-  if (overdraftRow && overdraftRow.count > 0) {
+  // ── INSIGHT: income_expected ─────────────────────────────────────────────
+  if (nextIncome && !shortfallWarned) {
+    const days = daysBetweenIso(todayIso, nextIncome.date);
     insights.push({
-      id: `overdraft_alert_${thisMonth}`,
-      type: "overdraft_alert",
-      title: `Bank fees detected this month`,
-      description: `${overdraftRow.count} bank fee charge${overdraftRow.count > 1 ? "s" : ""} totaling ${formatCents(overdraftRow.total)}. Keeping a $200–$500 buffer can prevent these.`,
-      severity: "warning",
-      dismissKey: `overdraft_alert_${thisMonth}`,
+      id: `income_expected_${nextIncome.date}`,
+      type: "income_expected",
+      title: `${truncate(nextIncome.description, 30)} of ${formatCents(nextIncome.amountCents)} expected ${describeDays(days)}`,
+      description: `Scheduled in Plan for ${shortDate(nextIncome.date)}.`,
+      severity: "info",
+      impactCents: nextIncome.amountCents,
+      period: days <= 7 ? "next 7 days" : "next 14 days",
+      action: { type: "open_plan", payload: {} },
+      dismissKey: `income_expected_${nextIncome.date}`,
     });
+  } else if (!planned.hasIncomeRule && !shortfallWarned) {
+    // No paycheck scheduled: infer the cycle from payroll deposits.
+    const payrollTxns = await db.select<{ date: string; amount_cents: number }[]>(
+      `SELECT t.date, t.amount_cents FROM transactions t JOIN accounts a ON a.id=t.account_id
+       WHERE t.profile_id=? AND a.excluded_from_insights=0 AND a.account_type NOT IN ('credit','loan')
+         AND t.amount_cents>50000 AND t.category_id=1
+       ORDER BY t.date DESC LIMIT 6`,
+      [profileId]
+    );
+    if (payrollTxns.length >= 3) {
+      const intervals: number[] = [];
+      for (let i = 0; i < payrollTxns.length - 1; i++) {
+        const days = daysBetweenIso(payrollTxns[i + 1].date, payrollTxns[i].date);
+        if (days > 0 && days <= 35) intervals.push(days);
+      }
+      if (intervals.length >= 2) {
+        const avgInterval = Math.round(intervals.reduce((a, b) => a + b, 0) / intervals.length);
+        const spread = Math.max(...intervals) - Math.min(...intervals);
+        const nextPay = addDaysIso(payrollTxns[0].date, avgInterval);
+        const daysUntil = daysBetweenIso(todayIso, nextPay);
+        if (spread <= 3 && daysUntil >= 0 && daysUntil <= 14) {
+          insights.push({
+            id: `income_expected_${nextPay}`,
+            type: "income_expected",
+            title: daysUntil === 0 ? "Paycheck expected today" : `Paycheck expected ${describeDays(daysUntil)}`,
+            description: `Based on your ${avgInterval}-day pay cycle. Last deposit ${formatCents(Math.abs(payrollTxns[0].amount_cents))} on ${formatDate(payrollTxns[0].date)}. Scheduling it in Plan makes this exact.`,
+            severity: "info",
+            impactCents: Math.abs(payrollTxns[0].amount_cents),
+            period: daysUntil <= 7 ? "next 7 days" : "next 14 days",
+            action: { type: "open_plan", payload: {} },
+            dismissKey: `income_expected_${nextPay}`,
+          });
+        }
+      }
+    }
+  }
+
+  // ── INSIGHT: scheduled_missing ──────────────────────────────────────────
+  if (coverageEnd) {
+    const scheduledRules = planned.rules.map((r) => ({ ...r, accountId: planned.activeRules.find((a) => a.id === r.id)?.account_id ?? null }));
+    const missing = findMissingScheduled(scheduledRules, recent, todayIso, coverageEnd, { coverageByAccount });
+    for (const miss of missing.slice(0, 4)) {
+      const amount = Math.abs(miss.rule.amount_cents);
+      const isBill = miss.kind === "bill";
+      const windowEnd = coverageEnd < addDaysIso(miss.expectedDate, 10) ? coverageEnd : addDaysIso(miss.expectedDate, 10);
+      insights.push({
+        id: `missing_${miss.rule.id}_${miss.expectedDate}`,
+        type: "scheduled_missing",
+        title: isBill
+          ? `${truncate(miss.rule.description, 30)} scheduled for ${shortDate(miss.expectedDate)} has not posted`
+          : `${truncate(miss.rule.description, 30)} expected ${shortDate(miss.expectedDate)} has not arrived`,
+        description: `No ${isBill ? "charge" : "deposit"} matching ${miss.rule.description} (${formatCents(amount)}) between ${shortDate(addDaysIso(miss.expectedDate, -5))} and ${shortDate(windowEnd)}. If it was ${isBill ? "paid another way" : "received elsewhere"}, update the rule in Plan.`,
+        severity: isBill ? "warning" : "info",
+        impactCents: amount,
+        period: shortDate(miss.expectedDate),
+        action: { type: "open_plan", payload: {} },
+        dismissKey: `missing_${miss.rule.id}_${miss.expectedDate}`,
+        richData: { timeline: [{ date: miss.expectedDate, label: miss.rule.description, cents: amount, kind: "rule" }] },
+      });
+    }
+  }
+
+  // ── INSIGHT: duplicate_charge ────────────────────────────────────────────
+  {
+    const dupRows = recent.filter((r) => r.amount_cents < 0 && !isExcludedCategory(r.category_id));
+    const skipIds = new Set(dupRows.filter((r) => DUPLICATE_SKIP_RE.test(r.description) || ((r.category_id === 3 || r.category_id === 13) && -r.amount_cents < 5000)).map((r) => r.id));
+    const accountNames = new Map(recent.map((r) => [r.account_id, r.account_name]));
+    const dups = findDuplicateCharges(dupRows, { sinceIso: addDaysIso(todayIso, -45), excludeKeys: recurringKeys, skip: (r) => skipIds.has(r.id) });
+    for (const d of dups.slice(0, 3)) {
+      const n = d.ids.length;
+      insights.push({
+        id: `dup_${d.key}_${d.date}_${d.amountCents}`,
+        type: "duplicate_charge",
+        title: `${n === 2 ? "Two" : n} identical charges from ${truncate(d.description, 25)} on ${shortDate(d.date)}`,
+        description: `${formatCurrency(d.amountCents)} was charged ${n === 2 ? "twice" : `${n} times`} on the same day on ${accountNames.get(d.accountId) ?? "one account"}. If one is a hold or a mistake, the bank can reverse it.`,
+        severity: "warning",
+        impactCents: d.amountCents * (n - 1),
+        period: shortDate(d.date),
+        action: { type: "view_transactions", payload: { range: { start: d.date, end: addDaysIso(d.date, 1) }, search: d.description } },
+        dismissKey: `dup_${d.key}_${d.date}_${d.amountCents}`,
+      });
+    }
+  }
+
+  // ── INSIGHT: overdraft_alert ────────────────────────────────────────────
+  {
+    const fees = expensesThisMonth.filter((r) => r.category_id === 19 || /OVERDRAFT FEE/i.test(r.description));
+    if (fees.length > 0) {
+      const total = fees.reduce((s, r) => s - r.amount_cents, 0);
+      insights.push({
+        id: `overdraft_alert_${thisMonth}`,
+        type: "overdraft_alert",
+        title: "Bank fees charged this month",
+        description: `${plural(fees.length, "bank fee", "bank fees")} totalling ${formatCents(total)}. Keeping a $200 to $500 buffer prevents most of these.`,
+        severity: "warning",
+        impactCents: total,
+        period: "this month",
+        action: { type: "view_transactions", payload: { month: thisMonth, category: 19 } },
+        dismissKey: `overdraft_alert_${thisMonth}`,
+      });
+    }
   }
 
   // ── INSIGHT: category_creep ──────────────────────────────────────────────
-  // Compare avg spend last 3 months vs months 4-6 for each category.
-  if (monthCount >= 6) {
-    const recent3Start = monthBounds(months6[2])[0]; // 3 months ago start
-    const older3Start  = monthBounds(months6[5])[0]; // 6 months ago start
-    const older3End    = monthBounds(months6[2])[0]; // = recent3Start (exclusive)
+  // Compare avg spend over the last 3 complete months vs the 3 before them for each category.
+  if (completeMonths.length >= 6) {
+    const recent3Start = monthBounds(months12[3])[0];
+    const older3Start  = monthBounds(months12[6])[0];
 
     const recentAvgs = await db.select<{ category_id: number; category_name: string; avg_spend: number }[]>(
       `SELECT t.category_id, c.name as category_name,
@@ -854,23 +1304,23 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
        FROM (SELECT tx.category_id, strftime('%Y-%m',tx.date) as mo,
                     ${categorySpendSql("tx", "ac")} as monthly
              FROM transactions tx JOIN accounts ac ON ac.id=tx.account_id
-             WHERE tx.profile_id=? AND tx.date>=?
+             WHERE tx.profile_id=? AND ac.excluded_from_insights=0 AND tx.date>=? AND tx.date<?
                AND (tx.category_id IS NULL OR tx.category_id NOT IN (20,29)) AND tx.category_id != 15
              GROUP BY tx.category_id, mo) t
        JOIN categories c ON t.category_id=c.id
        GROUP BY t.category_id HAVING COUNT(*)>=2`,
-      [profileId, recent3Start]
+      [profileId, recent3Start, thisStart]
     );
     const olderAvgs = await db.select<{ category_id: number; avg_spend: number }[]>(
       `SELECT category_id, CAST(AVG(monthly) AS INTEGER) as avg_spend
        FROM (SELECT tx.category_id as category_id, strftime('%Y-%m',tx.date) as mo,
                     ${categorySpendSql("tx", "ac")} as monthly
              FROM transactions tx JOIN accounts ac ON ac.id=tx.account_id
-             WHERE tx.profile_id=? AND tx.date>=? AND tx.date<?
+             WHERE tx.profile_id=? AND ac.excluded_from_insights=0 AND tx.date>=? AND tx.date<?
                AND (tx.category_id IS NULL OR tx.category_id NOT IN (20,29))
              GROUP BY tx.category_id, mo) t
        GROUP BY category_id HAVING COUNT(*)>=2`,
-      [profileId, older3Start, older3End]
+      [profileId, older3Start, recent3Start]
     );
     const olderMap = new Map(olderAvgs.map((r) => [r.category_id, r.avg_spend]));
     for (const r of recentAvgs) {
@@ -883,8 +1333,11 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
           id: `category_creep_${r.category_id}`,
           type: "category_creep",
           title: `${r.category_name} spending up ${growthPct}% over 6 months`,
-          description: `Avg last 3 mo: ${formatCents(r.avg_spend)} vs ${formatCents(older)} before — ${formatCents(deltaAnnual)} more per year if unchecked.`,
+          description: `Average ${formatCents(r.avg_spend)} a month over the last 3 months against ${formatCents(older)} before, about ${formatCents(deltaAnnual)} more a year if it continues.`,
           severity: "warning",
+          impactCents: deltaAnnual,
+          period: "a year",
+          action: { type: "view_transactions", payload: { month: lastComplete?.month ?? thisMonth, category: r.category_id } },
           dismissKey: `category_creep_${r.category_id}_${thisMonth}`,
         });
       }
@@ -892,115 +1345,105 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   }
 
   // ── INSIGHT: year_end_projection ────────────────────────────────────────
-  if (monthCount >= 2) {
-    const recentNets = monthlySummaries.slice(0, Math.min(3, monthCount));
-    const avgNet = recentNets.reduce((s, m) => s + (m.income - m.expenses), 0) / recentNets.length;
-    const now = new Date();
-    const monthsLeft = 12 - now.getMonth(); // months remaining inc. current
-    if (monthsLeft > 0) {
+  {
+    const recentNets = completeMonths.slice(0, 3);
+    if (recentNets.length >= 2 && recentNets.every((m) => m.income > 0)) {
+      const avgNet = recentNets.reduce((s, m) => s + (m.income - m.expenses), 0) / recentNets.length;
+      const monthsLeft = 12 - today.getMonth(); // months remaining inc. current
       const projected = Math.round(avgNet * monthsLeft);
       insights.push({
-        id: `year_end_projection_${now.getFullYear()}`,
+        id: `year_end_projection_${today.getFullYear()}`,
         type: "year_end_projection",
         title: projected >= 0
-          ? `On pace to save ${formatCents(projected)} by year-end`
-          : `On pace to spend ${formatCents(Math.abs(projected))} more than you earn by year-end`,
-        description: `Based on your ${recentNets.length}-month avg net of ${formatCents(avgNet)}/mo · ${monthsLeft} month${monthsLeft > 1 ? "s" : ""} remaining in ${now.getFullYear()}.`,
+          ? `On pace to save ${formatCents(projected)} by year end`
+          : `On pace to spend ${formatCents(Math.abs(projected))} more than you earn by year end`,
+        description: `Based on your ${recentNets.length}-month average net of ${formatCents(avgNet)} a month with ${plural(monthsLeft, "month", "months")} left in ${today.getFullYear()}.`,
         severity: projected >= 0 ? "info" : "warning",
-        dismissKey: `year_end_projection_${now.getFullYear()}`,
-        richData: {
-          projectedSavings: projected,
-        },
+        impactCents: Math.abs(projected),
+        period: "this year",
+        dismissKey: `year_end_projection_${today.getFullYear()}`,
+        richData: { projectedSavings: projected },
       });
     }
   }
 
   // ── INSIGHT: most_improved ───────────────────────────────────────────────
-  if (monthCount >= 2 && monthlySummaries.length >= 2) {
-    const prevMonth = monthlySummaries[1]?.month;
-    if (prevMonth) {
-      const [prevStart, prevEnd] = monthBounds(prevMonth);
-      const prevCats = await db.select<{ category_id: number; total: number }[]>(
-        `SELECT t.category_id, ${categorySpendSql()} as total
-         FROM transactions t JOIN accounts a ON a.id=t.account_id
-         WHERE t.profile_id=? AND t.date>=? AND t.date<?
-           AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
-         GROUP BY t.category_id`,
-        [profileId, prevStart, prevEnd]
-      );
-      const prevMap = new Map(prevCats.map((c) => [c.category_id, c.total]));
-      let bestCat: { name: string; pctDrop: number; prevTotal: number; thisTotal: number } | null = null;
-      for (const [catId, thisTotal] of thisMonthCatMap) {
-        const prev = prevMap.get(catId);
-        if (!prev || prev < 5000) continue;
-        const pctDrop = Math.round(((prev - thisTotal) / prev) * 100);
-        if (pctDrop >= 20 && prev - thisTotal >= 3000) {
-          if (!bestCat || pctDrop > bestCat.pctDrop) {
-            const catName = catAvgs.find((c) => c.category_id === catId)?.category_name ?? `Category ${catId}`;
-            bestCat = { name: catName, pctDrop, prevTotal: prev, thisTotal };
-          }
-        }
+  // Last complete month against the one before it: comparing a half-finished month with a
+  // whole one made every category look "improved" until the 30th.
+  if (completeMonths.length >= 2) {
+    const [currStart, currEnd] = monthBounds(completeMonths[0].month);
+    const [prevStart, prevEnd] = monthBounds(completeMonths[1].month);
+    const catTotals = async (start: string, end: string) => db.select<{ category_id: number; category_name: string; total: number }[]>(
+      `SELECT t.category_id, c.name as category_name, ${categorySpendSql()} as total
+       FROM transactions t JOIN accounts a ON a.id=t.account_id JOIN categories c ON c.id=t.category_id
+       WHERE t.profile_id=? AND a.excluded_from_insights=0 AND t.date>=? AND t.date<?
+         AND t.category_id NOT IN (12, 15, 20, 22, 29)
+       GROUP BY t.category_id`,
+      [profileId, start, end]
+    );
+    const [currCats, prevCats] = await Promise.all([catTotals(currStart, currEnd), catTotals(prevStart, prevEnd)]);
+    const currMap = new Map(currCats.map((c) => [c.category_id, c.total]));
+    let bestCat: { name: string; pctDrop: number; prevTotal: number; thisTotal: number } | null = null;
+    for (const prev of prevCats) {
+      if (prev.total < 5000) continue;
+      const thisTotal = currMap.get(prev.category_id) ?? 0;
+      const pctDrop = Math.round(((prev.total - thisTotal) / prev.total) * 100);
+      if (pctDrop >= 20 && prev.total - thisTotal >= 3000 && (!bestCat || pctDrop > bestCat.pctDrop)) {
+        bestCat = { name: prev.category_name, pctDrop, prevTotal: prev.total, thisTotal };
       }
-      if (bestCat) {
-        insights.push({
-          id: `most_improved_${thisMonth}`,
+    }
+    if (bestCat) {
+      insights.push({
+        id: `most_improved_${completeMonths[0].month}`,
+        type: "most_improved",
+        title: `Most improved in ${monthName(completeMonths[0].month)}: ${bestCat.name} down ${bestCat.pctDrop}% from ${monthName(completeMonths[1].month)}`,
+        description: composeInsightText({
           type: "most_improved",
-          title: `Most improved: ${bestCat.name} — down ${bestCat.pctDrop}% vs last month`,
-          description: composeInsightText({
-            type: "most_improved",
-            currentValue: bestCat.thisTotal,
-            currentLabel: formatCents(bestCat.thisTotal),
-            previousValue: bestCat.prevTotal,
-            previousLabel: formatCents(bestCat.prevTotal),
-            higherIsBetter: false,
-            variantSeed: `${profileId}:most_improved:${thisMonth}`,
-            fallback: `Last month: ${formatCents(bestCat.prevTotal)} · This month so far: ${formatCents(bestCat.thisTotal)}. Great progress — keep it up.`,
-          }),
-          severity: "success",
-          dismissKey: `most_improved_${thisMonth}`,
-          richData: {
-            beforeAmount: bestCat.prevTotal,
-            afterAmount: bestCat.thisTotal,
-          },
-        });
-      }
+          currentValue: bestCat.thisTotal,
+          currentLabel: formatCents(bestCat.thisTotal),
+          previousValue: bestCat.prevTotal,
+          previousLabel: formatCents(bestCat.prevTotal),
+          higherIsBetter: false,
+          variantSeed: `${profileId}:most_improved:${completeMonths[0].month}`,
+          fallback: `${monthName(completeMonths[1].month)}: ${formatCents(bestCat.prevTotal)}. ${monthName(completeMonths[0].month)}: ${formatCents(bestCat.thisTotal)}. Keep it going.`,
+        }),
+        severity: "success",
+        impactCents: bestCat.prevTotal - bestCat.thisTotal,
+        period: "last month",
+        dismissKey: `most_improved_${completeMonths[0].month}`,
+        richData: { beforeAmount: bestCat.prevTotal, afterAmount: bestCat.thisTotal },
+      });
     }
   }
 
   // ── INSIGHT: weekend_spending ────────────────────────────────────────────
-  // (strftime('%w',date)+6)%7 gives Mon=0..Sun=6; weekend = >= 5
   if (monthCount >= 3) {
-    const [weekendRow] = await db.select<{ weekend: number; weekday: number }[]>(
-      `SELECT
-         SUM(CASE WHEN (CAST(strftime('%w',date) AS INTEGER)+6)%7 >= 5 THEN ABS(amount_cents) ELSE 0 END) as weekend,
-         SUM(CASE WHEN (CAST(strftime('%w',date) AS INTEGER)+6)%7 <  5 THEN ABS(amount_cents) ELSE 0 END) as weekday
-       FROM transactions
-       WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0
-         AND (category_id IS NULL OR category_id NOT IN (20,29))`,
-      [profileId, thisStart, thisEnd]
-    );
-    const weekendTotal = weekendRow?.weekend ?? 0;
-    const weekdayTotal = weekendRow?.weekday ?? 0;
+    let weekendTotal = 0, weekdayTotal = 0;
+    const weekendMerchants = new Map<string, { description: string; total: number }>();
+    for (const r of expensesThisMonth) {
+      const dow = new Date(`${r.date}T12:00:00`).getDay();
+      const isWeekend = dow === 0 || dow === 6;
+      if (isWeekend) {
+        weekendTotal += -r.amount_cents;
+        const key = merchantKey(r.description);
+        const g = weekendMerchants.get(key) ?? { description: r.description, total: 0 };
+        g.total += -r.amount_cents;
+        weekendMerchants.set(key, g);
+      } else weekdayTotal += -r.amount_cents;
+    }
     const grandTotal = weekendTotal + weekdayTotal;
     if (grandTotal > 10000 && weekendTotal > 0) {
       const weekendPct = Math.round((weekendTotal / grandTotal) * 100);
       if (weekendPct >= 35) {
-        // Top weekend merchant
-        const [topWeekendMerchant] = await db.select<{ description: string; total: number }[]>(
-          `SELECT description, SUM(ABS(amount_cents)) as total
-           FROM transactions
-           WHERE profile_id=? AND date>=? AND date<? AND amount_cents<0
-             AND (CAST(strftime('%w',date) AS INTEGER)+6)%7 >= 5
-             AND (category_id IS NULL OR category_id NOT IN (20,29))
-           GROUP BY description ORDER BY total DESC LIMIT 1`,
-          [profileId, thisStart, thisEnd]
-        );
+        const top = [...weekendMerchants.values()].sort((a, b) => b.total - a.total)[0];
         insights.push({
           id: `weekend_spending_${thisMonth}`,
           type: "weekend_spending",
           title: `${weekendPct}% of spending happens on weekends`,
-          description: `Weekends: ${formatCents(weekendTotal)} · Weekdays: ${formatCents(weekdayTotal)} this month.${topWeekendMerchant ? ` Top weekend: ${truncate(topWeekendMerchant.description, 25)}.` : ""}`,
+          description: `Weekends ${formatCents(weekendTotal)}, weekdays ${formatCents(weekdayTotal)} this month.${top ? ` Top weekend merchant: ${truncate(top.description, 25)}.` : ""}`,
           severity: weekendPct >= 50 ? "warning" : "info",
+          impactCents: weekendTotal,
+          period: "this month",
           dismissKey: `weekend_spending_${thisMonth}`,
         });
       }
@@ -1008,123 +1451,38 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   }
 
   // ── INSIGHT: spending_velocity ────────────────────────────────────────────
-  // Are we spending faster than normal so far this month?
-  {
-    const now = new Date();
-    const elapsed = now.getDate(); // days elapsed in current month
-    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    if (elapsed >= 5 && monthlySummaries.length >= 2) {
-      const [currentSpendRow] = await db.select<{ total: number }[]>(
-        `SELECT ${EXPENSE_SUM_SQL} as total
-         FROM transactions t JOIN accounts a ON a.id=t.account_id
-         WHERE t.profile_id=? AND t.date>=? AND t.date<? AND a.excluded_from_insights=0`,
-        [profileId, thisStart, thisEnd]
-      );
-      const currentSpend = currentSpendRow?.total ?? 0;
-      const avgMonthly = monthlySummaries.slice(1).reduce((s, m) => s + m.expenses, 0)
-        / Math.max(monthlySummaries.slice(1).length, 1);
-      const pacedMonthly = Math.round((currentSpend / elapsed) * daysInMonth);
-      const overshootPct = avgMonthly > 0
-        ? Math.round(((pacedMonthly - avgMonthly) / avgMonthly) * 100)
-        : 0;
-      if (avgMonthly > 5000 && pacedMonthly > avgMonthly * 1.15) {
-        const daysLeft = daysInMonth - elapsed;
-        insights.push({
-          id: `spending_velocity_${thisMonth}`,
-          type: "spending_velocity",
-          title: `Spending ${overshootPct}% above your normal pace this month`,
-          description: `${elapsed} days in: ${formatCents(currentSpend)} spent — on pace for ${formatCents(pacedMonthly)} vs your avg ${formatCents(avgMonthly)}.`,
-          severity: overshootPct >= 30 ? "warning" : "info",
-          dismissKey: `spending_velocity_${thisMonth}`,
-          richData: {
-            paceMonthly: pacedMonthly,
-            avgMonthly: Math.round(avgMonthly),
-            potentialLabel: daysLeft > 0
-              ? `Spend ${formatCents(Math.round((pacedMonthly - Math.round(avgMonthly)) / daysLeft))}/day less → finish on track`
-              : undefined,
-          },
-        });
-      }
-    }
-  }
-
-  // ── INSIGHT: emergency_fund_runway ───────────────────────────────────────
-  if (balanceRow?.balance_cents != null && balanceRow.balance_cents > 0) {
-    const avgExp = monthlySummaries.length > 0
-      ? monthlySummaries.reduce((s, m) => s + m.expenses, 0) / monthlySummaries.length
-      : 0;
-    if (avgExp > 0) {
-      const runway = balanceRow.balance_cents / avgExp;
-      const runwayStr = runway < 1
-        ? `less than 1 month`
-        : runway < 6
-        ? `~${runway.toFixed(1)} months`
-        : `${Math.floor(runway)} months`;
+  // Are we spending faster than normal so far this month? Only when the data is current;
+  // a stale import would make a full month look like a slow one.
+  if (elapsedDays >= 5 && completeMonths.length >= 2 && currentSummary && coverageIsFresh(7)) {
+    const currentSpend = currentSummary.expenses;
+    const avgMonthly = avgOf(completeMonths.slice(0, 6));
+    const pacedMonthly = Math.round((currentSpend / elapsedDays) * daysInThisMonth);
+    const overshootPct = avgMonthly > 0 ? Math.round(((pacedMonthly - avgMonthly) / avgMonthly) * 100) : 0;
+    if (avgMonthly > 5000 && pacedMonthly > avgMonthly * 1.15) {
       insights.push({
-        id: `emergency_fund_runway_${balanceRow.date}`,
-        type: "emergency_fund_runway",
-        title: `Your balance covers ${runwayStr} of expenses`,
-        description: `Balance: ${formatCents(balanceRow.balance_cents)} · Avg monthly spend: ${formatCents(avgExp)}.${runway < 3 ? " Financial advisors typically recommend 3–6 months." : runway >= 6 ? " You have a healthy emergency cushion." : ""}`,
-        severity: runway < 1 ? "warning" : runway < 3 ? "warning" : runway < 6 ? "info" : "success",
-        dismissKey: `emergency_fund_runway_${balanceRow.date}`,
+        id: `spending_velocity_${thisMonth}`,
+        type: "spending_velocity",
+        title: `Spending ${overshootPct}% above your usual pace this month`,
+        description: `${plural(elapsedDays, "day", "days")} in, ${formatCents(currentSpend)} spent, on pace for ${formatCents(pacedMonthly)} against your average of ${formatCents(avgMonthly)}.`,
+        severity: overshootPct >= 30 ? "warning" : "info",
+        impactCents: pacedMonthly - Math.round(avgMonthly),
+        period: "this month",
+        action: { type: "view_transactions", payload: { month: thisMonth } },
+        dismissKey: `spending_velocity_${thisMonth}`,
         richData: {
-          runwayMonths: parseFloat(runway.toFixed(1)),
-          potentialLabel: runway < 3
-            ? `Save ${formatCents(Math.max(0, Math.round(avgExp * 3 - balanceRow.balance_cents)))} more → reach 3-month runway`
+          paceMonthly: pacedMonthly,
+          avgMonthly: Math.round(avgMonthly),
+          potentialLabel: daysLeft > 0
+            ? `Spending ${formatCents(Math.round((pacedMonthly - Math.round(avgMonthly)) / daysLeft))} a day less finishes the month on track`
             : undefined,
         },
       });
     }
   }
 
-  // ── INSIGHT: bill_due_soon ────────────────────────────────────────────────
-  // Find recurring fixed expenses and predict next occurrence within 7 days
-  if (monthCount >= 2) {
-    const recurring = await db.select<{
-      description: string;
-      amount_cents: number;
-      last_date: string;
-      count: number;
-      span_days: number;
-    }[]>(
-      `SELECT description, amount_cents, MAX(date) as last_date,
-              COUNT(*) as count,
-              CAST(MAX(julianday(date)) - MIN(julianday(date)) AS INTEGER) as span_days
-       FROM transactions
-       WHERE profile_id=? AND amount_cents<0 AND amount_cents<-500
-         AND (category_id IS NULL OR category_id NOT IN (15, 20))
-       GROUP BY description, amount_cents
-       HAVING count >= 2 AND span_days >= 10
-       ORDER BY ABS(amount_cents) DESC LIMIT 10`,
-      [profileId]
-    );
-    const today = new Date();
-    for (const r of recurring) {
-      const avgIntervalDays = r.span_days / (r.count - 1);
-      if (avgIntervalDays < 5 || avgIntervalDays > 40) continue; // skip daily or very infrequent
-      const lastDate = new Date(r.last_date);
-      const nextDate = new Date(lastDate);
-      nextDate.setDate(lastDate.getDate() + Math.round(avgIntervalDays));
-      const daysUntil = Math.round((nextDate.getTime() - today.getTime()) / 86_400_000);
-      if (daysUntil >= 0 && daysUntil <= 7) {
-        insights.push({
-          id: `bill_due_${r.description.slice(0, 20)}_${thisMonth}`,
-          type: "bill_due_soon",
-          title: daysUntil === 0
-            ? `${truncate(r.description, 30)} due today`
-            : `${truncate(r.description, 30)} due in ${daysUntil} day${daysUntil > 1 ? "s" : ""}`,
-          description: `${formatCents(Math.abs(r.amount_cents))} · Recurs every ~${Math.round(avgIntervalDays)} days based on ${r.count} past charges.`,
-          severity: "info",
-          dismissKey: `bill_due_${r.description.slice(0, 20)}_${thisMonth}`,
-        });
-        break; // max 1 bill-due insight to avoid flooding
-      }
-    }
-  }
-
   // ── INSIGHT: expense_ratio_drift ─────────────────────────────────────────
   // Is the expense/income ratio getting worse over time?
-  if (monthCount >= 6) {
+  if (completeMonths.length >= 6) {
     const recent3 = completeMonths.slice(0, 3).filter((m) => m.income > 0);
     const older3  = completeMonths.slice(3, 6).filter((m) => m.income > 0);
     if (recent3.length >= 2 && older3.length >= 2) {
@@ -1135,13 +1493,290 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
       const driftPts = Math.round((recentRatio - olderRatio) * 100); // percentage points
       if (driftPts >= 8) {
         const recentSavingsPct = Math.round((1 - recentRatio) * 100);
+        const avgRecentIncome = recent3.reduce((s, m) => s + m.income, 0) / recent3.length;
         insights.push({
           id: `expense_ratio_drift_${thisMonth}`,
           type: "expense_ratio_drift",
           title: `Savings margin compressed by ${driftPts} points over 6 months`,
-          description: `Your expenses now take ${Math.round(recentRatio * 100)}% of income (was ${Math.round(olderRatio * 100)}% 3–6 months ago). Current savings rate: ${recentSavingsPct}%.`,
+          description: `Your expenses now take ${Math.round(recentRatio * 100)}% of income, up from ${Math.round(olderRatio * 100)}% three to six months ago. Current savings rate ${recentSavingsPct}%.`,
           severity: driftPts >= 15 ? "warning" : "info",
+          impactCents: Math.round((driftPts / 100) * avgRecentIncome),
+          period: "a month",
           dismissKey: `expense_ratio_drift_${thisMonth}`,
+        });
+      }
+    }
+  }
+
+  // ── INSIGHT: fixed_costs_high (from the same maths as the page instrument) ──
+  {
+    const months = monthsWithIncome(shapeTxns, completeMonths.slice(0, 3).map((m) => m.month));
+    const summary = summarizeFixedFlexible(shapeTxns, billRules, detectedLike, months);
+    if (summary && summary.committedShare !== null && summary.avgIncomeCents >= 50000 && summary.committedShare >= 0.5) {
+      const committed = summary.avgBillsCents + summary.avgRecurringCents;
+      insights.push({
+        id: `fixed_costs_${thisMonth}`,
+        type: "fixed_costs_high",
+        title: `Fixed costs take ${Math.round(summary.committedShare * 100)}% of your income`,
+        description: `About ${formatCents(committed)} of your ${formatCents(summary.avgIncomeCents)} a month goes to scheduled bills and recurring charges, leaving ${formatCents(summary.avgIncomeCents - committed)} for everything else, averaged over ${plural(months.length, "complete month", "complete months")}.`,
+        severity: summary.committedShare >= 0.6 ? "warning" : "info",
+        impactCents: Math.round((summary.committedShare - 0.5) * summary.avgIncomeCents),
+        period: "a month",
+        action: { type: "open_plan", payload: {} },
+        dismissKey: `fixed_costs_${thisMonth}`,
+        richData: { shareBar: { segments: [
+          { label: "Bills", cents: summary.avgBillsCents, kind: "bills" },
+          { label: "Recurring", cents: summary.avgRecurringCents, kind: "recurring" },
+          { label: "Flexible", cents: summary.avgFlexibleCents, kind: "flexible" },
+          { label: "Left", cents: Math.max(0, summary.avgLeftCents), kind: "left" },
+        ] } },
+      });
+    }
+  }
+
+  // ── INSIGHT: no_spend_days ──────────────────────────────────────────────
+  if (lastComplete) {
+    const current = countNoSpendDays(shapeTxns, lastComplete.month, billRules, detectedLike);
+    const previous = completeMonths[1] ? countNoSpendDays(shapeTxns, completeMonths[1].month, billRules, detectedLike) : null;
+    const comparable = previous && previous.expenseCount >= 15 ? previous : null;
+    if (current.expenseCount >= 15 && (current.noSpendDays >= 10 || (comparable && current.noSpendDays - comparable.noSpendDays >= 3))) {
+      insights.push({
+        id: `nospend_${lastComplete.month}`,
+        type: "no_spend_days",
+        title: `${plural(current.noSpendDays, "no-spend day", "no-spend days")} in ${monthName(lastComplete.month)}${comparable ? `, ${current.noSpendDays >= comparable.noSpendDays ? "up" : "down"} from ${comparable.noSpendDays} in ${monthName(comparable.month)}` : ""}`,
+        description: "Days with no flexible spending. Scheduled bills and recurring charges do not count against it.",
+        severity: "success",
+        period: "last month",
+        dismissKey: `nospend_${lastComplete.month}`,
+      });
+    }
+  }
+
+  // ── INSIGHT: payday_burst ────────────────────────────────────────────────
+  {
+    const months = monthsWithIncome(shapeTxns, completeMonths.slice(0, 2).map((m) => m.month));
+    if (months.length === 2) {
+      const bursts = months.map((m) => paydayBurstShare(shapeTxns, m, billRules, detectedLike));
+      if (bursts.every((b) => b !== null && b.share >= 0.4 && b.share >= 1.8 * b.coveredShare)) {
+        const avgShare = bursts.reduce((s, b) => s + (b?.share ?? 0), 0) / bursts.length;
+        insights.push({
+          id: `payday_${quarterKey(today)}`,
+          type: "payday_burst",
+          title: `${Math.round(avgShare * 100)}% of your flexible spending happens within three days of payday`,
+          description: `Across ${monthName(months[1])} and ${monthName(months[0])}. Spreading it out makes the rest of each pay period easier.`,
+          severity: "info",
+          period: "2 months",
+          dismissKey: `payday_${quarterKey(today)}`,
+        });
+      }
+    }
+  }
+
+  // ── INSIGHT: annual_renewal ─────────────────────────────────────────────
+  if (earliestIso && daysBetweenIso(earliestIso, todayIso) >= 395) {
+    const yearRows = await db.select<{ description: string; amount_cents: number; date: string }[]>(
+      `SELECT t.description, t.amount_cents, t.date
+       FROM transactions t JOIN accounts a ON a.id=t.account_id
+       WHERE t.profile_id=? AND a.excluded_from_insights=0 AND a.account_type!='loan'
+         AND t.amount_cents<=-2000 AND t.date>=? AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))`,
+      [profileId, addDaysIso(todayIso, -400)]
+    );
+    for (const renewal of findAnnualCharges(yearRows, todayIso).filter((r) => !recurringKeys.has(r.key)).slice(0, 3)) {
+      insights.push({
+        id: `annual_${renewal.key}_${today.getFullYear()}`,
+        type: "annual_renewal",
+        title: `Annual charge coming up: ${truncate(renewal.description, 28)}, about ${formatCents(renewal.amountCents)} around ${shortDate(renewal.expectedDate)}`,
+        description: `Seen ${renewal.occurrences} times about a year apart, most recently on ${formatDate(renewal.lastDate)}. Scheduling it in Plan keeps it out of the surprise column.`,
+        severity: "info",
+        impactCents: renewal.amountCents,
+        period: "next 30 days",
+        action: { type: "open_plan", payload: {} },
+        dismissKey: `annual_${renewal.key}_${today.getFullYear()}`,
+      });
+    }
+  }
+
+  // ── INSIGHT: large_purchase ─────────────────────────────────────────────
+  {
+    const baseline = recent
+      .filter((r) => r.date < thisStart && r.amount_cents < 0 && !isExcludedCategory(r.category_id) && r.category_id !== 12 && r.category_id !== 22)
+      .map((r) => -r.amount_cents);
+    if (baseline.length >= 50) {
+      const p95 = percentile(baseline, 0.95);
+      const threshold = Math.max(20000, 3 * p95);
+      const since = addDaysIso(todayIso, -14);
+      const candidates = recent
+        .filter((r) => r.date >= since && r.amount_cents < 0 && -r.amount_cents >= threshold
+          && !isExcludedCategory(r.category_id) && r.category_id !== 12 && r.category_id !== 22
+          && classifyExpense({ date: r.date, amount_cents: r.amount_cents, description: r.description, account_type: r.account_type, category_id: r.category_id }, billRules, detectedLike) === "flexible")
+        .sort((a, b) => a.amount_cents - b.amount_cents)
+        .slice(0, 2);
+      for (const r of candidates) {
+        insights.push({
+          id: `large_${r.id}`,
+          type: "large_purchase",
+          title: `Large purchase: ${formatCents(-r.amount_cents)} at ${truncate(r.description, 25)} on ${shortDate(r.date)}`,
+          description: `Your typical expense tops out around ${formatCents(p95)}. Worth a glance if you did not expect it.`,
+          severity: "info",
+          impactCents: -r.amount_cents,
+          period: shortDate(r.date),
+          action: { type: "view_transactions", payload: { range: { start: r.date, end: addDaysIso(r.date, 1) }, search: r.description } },
+          dismissKey: `large_${r.id}`,
+        });
+      }
+    }
+  }
+
+  // ── INSIGHT: uncategorized_share (housekeeping) ─────────────────────────
+  {
+    const window = lastComplete?.month ?? (elapsedDays >= 10 ? thisMonth : null);
+    if (window) {
+      const [wStart, wEnd] = monthBounds(window);
+      const rows = recent.filter((r) => r.date >= wStart && r.date < wEnd && r.amount_cents < 0 && !isExcludedCategory(r.category_id));
+      const total = rows.reduce((s, r) => s - r.amount_cents, 0);
+      const uncat = rows.filter((r) => r.category_id === null || r.category_id === 15);
+      const uncatCents = uncat.reduce((s, r) => s - r.amount_cents, 0);
+      if (rows.length >= 20 && total >= 20000 && ((uncatCents / total >= 0.1 && uncatCents >= 10000) || uncat.length >= 15)) {
+        insights.push({
+          id: `uncat_${window}`,
+          type: "uncategorized_share",
+          title: `${formatCents(uncatCents)} of ${window === thisMonth ? "this month's" : `${monthName(window)}'s`} spending is uncategorized`,
+          description: `${plural(uncat.length, "purchase has", "purchases have")} no category, so budgets and category insights skip that money.`,
+          severity: "info",
+          impactCents: uncatCents,
+          period: window === thisMonth ? "this month" : "last month",
+          action: { type: "view_transactions", payload: { month: window, category: 15 } },
+          dismissKey: `uncat_${window}`,
+        });
+      }
+    }
+  }
+
+  // ── INSIGHT: stale_data (housekeeping) ──────────────────────────────────
+  {
+    const stale = freshnessRows
+      .filter((r) => daysBetweenIso(r.first_date, r.last_date) >= 30)
+      .map((r) => {
+        const manualOnly = r.manual_n === r.n;
+        const threshold = manualOnly || (r.account_type !== "checking" && r.account_type !== "credit") ? 45 : 21;
+        return { ...r, age: daysBetweenIso(r.last_date, todayIso), threshold };
+      })
+      .filter((r) => r.age > r.threshold)
+      .sort((a, b) => b.age - a.age);
+    if (stale.length > 0) {
+      const newestLast = stale.reduce((max, r) => (r.last_date > max ? r.last_date : max), stale[0].last_date);
+      const key = `stale_${stale.map((r) => r.id).join("_")}_${newestLast}`;
+      insights.push({
+        id: key,
+        type: "stale_data",
+        title: stale.length === 1
+          ? `${stale[0].name} has not been updated in ${plural(stale[0].age, "day", "days")}`
+          : `${stale.length} accounts have not been updated in over ${stale[stale.length - 1].age} days`,
+        description: `Insights about pace, budgets and balances use data through ${formatDate(newestLast)}. Import a newer statement to bring them current.${stale.length > 1 ? ` Oldest: ${listClauses(stale.slice(0, 3).map((r) => r.name))}.` : ""}`,
+        severity: stale[0].age > 45 ? "warning" : "info",
+        period: `since ${shortDate(newestLast)}`,
+        action: { type: "import", payload: {} },
+        dismissKey: key,
+      });
+    }
+  }
+
+  // ── INSIGHT: goal_off_track / goal_projection ───────────────────────────
+  {
+    const goals = await evaluateGoals(db, profileId, thisMonth, today);
+    const positiveNets = completeMonths.slice(0, 3).map((m) => m.income - m.expenses).filter((n) => n > 0);
+    const savingsPace = completeMonths.slice(0, 3).length > 0
+      ? Math.round(positiveNets.reduce((s, n) => s + n, 0) / completeMonths.slice(0, 3).length) : 0;
+    for (const g of goals) {
+      if (g.noBalanceData || g.noBudgetData) continue;
+      const offKey = `goal_off_${g.id}_${thisMonth}`;
+      const etaKey = `goal_eta_${g.id}_${thisMonth}`;
+      if (g.type === "balance_floor" && g.current_cents < g.target_cents) {
+        const gap = g.target_cents - g.current_cents;
+        insights.push({
+          id: offKey, type: "goal_off_track",
+          title: `${g.name} is ${formatCents(gap)} below its ${formatCents(g.target_cents)} floor`,
+          description: `Your checking balance is ${formatCents(g.current_cents)}. This goal asks for at least ${formatCents(g.target_cents)} on hand.`,
+          severity: "warning", impactCents: gap, period: "today",
+          action: { type: "open_goals", payload: {} }, dismissKey: offKey,
+        });
+      } else if (g.type === "reduce_spend") {
+        const scope = g.category_name ? ` on ${g.category_name}` : "";
+        if (g.current_cents > g.target_cents) {
+          const over = g.current_cents - g.target_cents;
+          insights.push({
+            id: offKey, type: "goal_off_track",
+            title: `${g.name}: ${formatCents(over)} over the ${formatCents(g.target_cents)} limit`,
+            description: `Spent ${formatCents(g.current_cents)} so far in ${monthName(thisMonth)}${scope} with ${plural(daysLeft, "day", "days")} left.`,
+            severity: "warning", impactCents: over, period: "this month",
+            action: { type: "open_goals", payload: {} }, dismissKey: offKey,
+          });
+        } else if (elapsedDays >= 10 && elapsedDays / daysInThisMonth <= 0.75 && coverageIsFresh(3) && g.current_cents >= g.target_cents * 0.9) {
+          const paced = Math.round((g.current_cents / elapsedDays) * daysInThisMonth);
+          insights.push({
+            id: offKey, type: "goal_off_track",
+            title: `${g.name} is on pace to pass its ${formatCents(g.target_cents)} limit`,
+            description: `${formatCents(g.current_cents)} spent${scope} in ${plural(elapsedDays, "day", "days")}, on pace for ${formatCents(paced)}.`,
+            severity: "info", impactCents: Math.max(0, paced - g.target_cents), period: "this month",
+            action: { type: "open_goals", payload: {} }, dismissKey: offKey,
+          });
+        }
+      } else if (g.type === "budget_streak" && lastComplete && g.current_streak === 0 && (g.target_months ?? 3) >= 2) {
+        insights.push({
+          id: offKey, type: "goal_off_track",
+          title: `${g.name}: the streak starts again`,
+          description: `${g.category_name ?? "This category"} went over its budget in ${monthName(lastComplete.month)}, so the ${plural(g.target_months ?? 3, "month", "months")} streak restarts from zero.`,
+          severity: "info", period: "last month",
+          action: { type: "open_goals", payload: {} }, dismissKey: offKey,
+        });
+      } else if (g.type === "savings_rate_habit" && lastComplete && g.current_streak === 0 && lastComplete.income > 0) {
+        const rate = ((lastComplete.income - lastComplete.expenses) / lastComplete.income) * 100;
+        const targetPct = g.target_cents / 100;
+        if (rate < targetPct) {
+          insights.push({
+            id: offKey, type: "goal_off_track",
+            title: `${g.name}: ${monthName(lastComplete.month)} came in at ${Math.round(rate)}% against a ${targetPct}% target`,
+            description: `Income ${formatCents(lastComplete.income)}, spending ${formatCents(lastComplete.expenses)}.`,
+            severity: "info", impactCents: Math.max(0, Math.round(((targetPct - rate) / 100) * lastComplete.income)), period: "last month",
+            action: { type: "open_goals", payload: {} }, dismissKey: offKey,
+          });
+        }
+      } else if (g.type === "savings_target") {
+        const remaining = g.target_cents - g.current_cents;
+        if (remaining > 0 && completeMonths.length >= 2) {
+          const months = projectGoalCompletion(remaining, savingsPace);
+          insights.push({
+            id: etaKey, type: "goal_projection",
+            title: months !== null
+              ? `${g.name} reaches ${formatCents(g.target_cents)} in about ${plural(months, "month", "months")} at this pace`
+              : `${g.name} is not gaining ground`,
+            description: months !== null
+              ? `${formatCents(g.current_cents)} saved so far, adding about ${formatCents(savingsPace)} a month.`
+              : `No month in the last three ended with money left over, so the ${formatCents(remaining)} still needed is not shrinking.`,
+            severity: "info", period: "3 months",
+            action: { type: "open_goals", payload: {} }, dismissKey: etaKey,
+          });
+        }
+      } else if (g.type === "debt_paydown") {
+        const remaining = g.current_cents - g.target_cents;
+        if (remaining <= 0) continue;
+        const accountIds = g.account_id
+          ? [g.account_id]
+          : (await db.select<{ id: number }[]>("SELECT id FROM accounts WHERE profile_id=? AND account_type IN ('credit','loan') AND hidden_from_dashboard=0", [profileId])).map((r) => r.id);
+        const histories = await Promise.all(accountIds.map((id) => getLoanBalanceHistory(id)));
+        const paces = histories.map((h) => monthlyPaceFromBalances(h.map((p) => ({ date: p.date, value: p.value * 100 })))).filter((p) => p !== null);
+        if (paces.length === 0) continue;
+        const pace = paces.reduce((s, p) => s + p!.paceCents, 0);
+        const change = paces.reduce((s, p) => s + p!.changeCents, 0);
+        const spanMonths = Math.max(1, Math.round(Math.max(...paces.map((p) => p!.days)) / 30.4));
+        const months = projectGoalCompletion(remaining, pace);
+        if (months === null || months === 0) continue;
+        insights.push({
+          id: etaKey, type: "goal_projection",
+          title: `${g.name} reaches ${g.target_cents === 0 ? "$0" : formatCents(g.target_cents)} in about ${plural(months, "month", "months")} at this pace`,
+          description: `Balances fell ${formatCents(change)} over the last ${plural(spanMonths, "month", "months")}, about ${formatCents(pace)} a month.`,
+          severity: "info", period: `${spanMonths} months`,
+          action: { type: "open_goals", payload: {} }, dismissKey: etaKey,
         });
       }
     }
@@ -1155,6 +1790,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   const netWorthDelta = nowNetWorth.netWorthCents - priorNetWorth.netWorthCents;
   if (Math.abs(netWorthDelta) >= 20000) {
     // At least $200 moved since the start of this month
+    const fallback = `Your net worth (cash plus investments minus debt) went from ${formatCents(priorNetWorth.netWorthCents)} to ${formatCents(nowNetWorth.netWorthCents)}.`;
     if (netWorthDelta > 0) {
       insights.push({
         id: `net_worth_growing_${thisMonth}`,
@@ -1168,9 +1804,11 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
           previousLabel: formatCents(priorNetWorth.netWorthCents),
           higherIsBetter: true,
           variantSeed: `${profileId}:net_worth_growing:${thisMonth}`,
-          fallback: `Your net worth (liquid cash + investments − debt) went from ${formatCents(priorNetWorth.netWorthCents)} to ${formatCents(nowNetWorth.netWorthCents)}.`,
+          fallback,
         }),
         severity: "success",
+        impactCents: netWorthDelta,
+        period: "this month",
         dismissKey: `net_worth_growing_${thisMonth}`,
       });
     } else {
@@ -1186,9 +1824,11 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
           previousLabel: formatCents(priorNetWorth.netWorthCents),
           higherIsBetter: true,
           variantSeed: `${profileId}:net_worth_declining:${thisMonth}`,
-          fallback: `Your net worth (liquid cash + investments − debt) went from ${formatCents(priorNetWorth.netWorthCents)} to ${formatCents(nowNetWorth.netWorthCents)}.`,
+          fallback,
         }),
         severity: "warning",
+        impactCents: Math.abs(netWorthDelta),
+        period: "this month",
         dismissKey: `net_worth_declining_${thisMonth}`,
       });
     }
@@ -1203,7 +1843,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
       id: `investment_performance_${thisMonth}`,
       type: "investment_performance",
       title: `Portfolio ${returnPct >= 0 ? "up" : "down"} ${Math.abs(returnPct).toFixed(1)}% (${kind})`,
-      description: `Your holdings are ${returnPct >= 0 ? "up" : "down"} ${Math.abs(returnPct).toFixed(1)}% ${kind} vs cost basis, compared to the ~${AVG_US_MARKET_RETURN_PCT}%/yr long-run market average.`,
+      description: `Your holdings are ${returnPct >= 0 ? "up" : "down"} ${Math.abs(returnPct).toFixed(1)}% ${kind} against cost basis, compared with the long-run market average of about ${AVG_US_MARKET_RETURN_PCT}% a year.`,
       severity: returnPct >= AVG_US_MARKET_RETURN_PCT ? "success" : returnPct < 0 ? "warning" : "info",
       dismissKey: `investment_performance_${thisMonth}`,
     });
@@ -1220,9 +1860,11 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     insights.push({
       id: `dividend_income_projected_${thisMonth}`,
       type: "dividend_income_projected",
-      title: `Projected ${formatCents(dividendTotal)}/yr in dividend income`,
-      description: `Based on your current holdings' dividend rates, you're on pace to earn about ${formatCents(dividendTotal)} in dividend/distribution income this year.`,
+      title: `Projected ${formatCents(dividendTotal)} a year in dividend income`,
+      description: `Based on your current holdings' dividend rates, you are on pace to earn about ${formatCents(dividendTotal)} in dividend and distribution income this year.`,
       severity: "success",
+      impactCents: dividendTotal,
+      period: "a year",
       dismissKey: `dividend_income_projected_${thisMonth}`,
     });
   }
@@ -1242,8 +1884,10 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
       id: `investment_income_received_${thisMonth}`,
       type: "investment_income_received",
       title: `${formatCents(received)} in investment income received this year`,
-      description: `Your imported statements show ${formatCents(received)} of dividends and interest actually paid into your investment accounts so far this year.`,
+      description: `Your imported statements show ${formatCents(received)} of dividends and interest paid into your investment accounts so far this year.`,
       severity: "success",
+      impactCents: received,
+      period: "this year",
       dismissKey: `investment_income_received_${thisMonth}`,
     });
   }
@@ -1265,11 +1909,47 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
       type: "realized_gains_ytd",
       title: `${formatCents(Math.abs(realized))} in realized ${realized >= 0 ? "gains" : "losses"} this year`,
       description: realized >= 0
-        ? `Sales in your investment accounts have realized ${formatCents(realized)} of gains year to date - these are generally taxable in a non-retirement account.`
+        ? `Sales in your investment accounts have realized ${formatCents(realized)} of gains year to date. These are generally taxable in a non-retirement account.`
         : `Sales in your investment accounts have realized ${formatCents(Math.abs(realized))} of losses year to date, which may offset gains at tax time.`,
       severity: realized >= 0 ? "success" : "info",
+      impactCents: Math.abs(realized),
+      period: "this year",
       dismissKey: `realized_gains_ytd_${thisMonth}`,
     });
+  }
+
+  // ── INSIGHT: investment_fees ───────────────────────────────────────────────
+  {
+    const yearAgo = addDaysIso(todayIso, -365);
+    const [[summaryFees], [activityFees]] = await Promise.all([
+      db.select<{ fees: number; accounts: number }[]>(
+        `SELECT COALESCE(SUM(fees_cents),0) as fees, COUNT(DISTINCT account_id) as accounts
+         FROM investment_summaries WHERE profile_id=? AND period_end>=?`,
+        [profileId, yearAgo]
+      ),
+      db.select<{ fees: number }[]>(
+        `SELECT COALESCE(SUM(ABS(amount_cents)),0) as fees FROM investment_activity
+         WHERE profile_id=? AND activity_type IN ('fee','tax') AND trade_date>=?
+           AND account_id NOT IN (SELECT DISTINCT account_id FROM investment_summaries WHERE profile_id=? AND period_end>=?)`,
+        [profileId, yearAgo, profileId, yearAgo]
+      ),
+    ]);
+    const totalFees = Math.abs(summaryFees?.fees ?? 0) + (activityFees?.fees ?? 0);
+    if (totalFees >= 500) {
+      const share = nowNetWorth.investmentCents > 0 ? (totalFees / nowNetWorth.investmentCents) * 100 : null;
+      insights.push({
+        id: `inv_fees_${quarterKey(today)}`,
+        type: "investment_fees",
+        title: `${formatCents(totalFees)} in investment fees over the last 12 months`,
+        description: share !== null
+          ? `That is ${share.toFixed(1)}% of your holdings.${share >= 1 ? " Index funds typically charge under 0.2% a year." : ""}`
+          : "From the fee lines on your imported statements.",
+        severity: share !== null && share >= 1 ? "warning" : "info",
+        impactCents: totalFees,
+        period: "a year",
+        dismissKey: `inv_fees_${quarterKey(today)}`,
+      });
+    }
   }
 
   // ── INSIGHT: portfolio_concentration_risk ──────────────────────────────────
@@ -1294,21 +1974,23 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         id: `portfolio_concentration_risk_${thisMonth}`,
         type: "portfolio_concentration_risk",
         title: `${topHolding.label} is ${Math.round(sharePct)}% of your portfolio`,
-        description: `${topHolding.label} makes up ${Math.round(sharePct)}% of your total holdings value (${formatCents(topHolding.value)} of ${formatCents(totalValue)}). Concentrating this much in one position adds risk - consider whether this still matches your intended allocation.`,
+        description: `${topHolding.label} makes up ${Math.round(sharePct)}% of your total holdings value (${formatCents(topHolding.value)} of ${formatCents(totalValue)}). Concentrating this much in one position adds risk. Consider whether this still matches your intended allocation.`,
         severity: sharePct >= 50 ? "warning" : "info",
+        impactCents: topHolding.value,
+        period: "held",
         dismissKey: `portfolio_concentration_risk_${thisMonth}`,
       });
     }
   }
 
-  // ── Sort: warnings → info → success (budget_gap always last) ─────────────
-  return insights.sort((a, b) => insightSortRank(a) - insightSortRank(b));
+  return rankInsights(insights);
 }
 
 /**
  * Public entry-point. Pass one or more profile IDs.
  * In single-profile mode this is a thin pass-through.
- * In multi-profile mode, insights are gathered per-profile and merged/deduped.
+ * In multi-profile mode, insights are gathered per-profile and merged/deduped, then ranked
+ * again so the combined list reads in one order.
  */
 export async function generateInsights(profileIds: number[]): Promise<Insight[]> {
   if (profileIds.length === 1) return _insightsForProfile(profileIds[0]);
@@ -1324,7 +2006,7 @@ export async function generateInsights(profileIds: number[]): Promise<Insight[]>
       }
     }
   }
-  return merged.sort((a, b) => insightSortRank(a) - insightSortRank(b));
+  return rankInsights(merged);
 }
 
 // ─── Spending Profile summary ─────────────────────────────────────────────────
@@ -1348,20 +2030,15 @@ export async function getSpendingProfile(profileIds: number[]): Promise<Spending
   const months = dataRange?.months ?? 0;
   if (months < 1) return null;
 
-  const startDate = (() => {
-    const d = new Date();
-    d.setMonth(d.getMonth() - 5);
-    d.setDate(1);
-    return d.toISOString().split("T")[0];
-  })();
+  const now = new Date();
+  const startDate = toISODate(new Date(now.getFullYear(), now.getMonth() - 5, 1));
 
   // Averages cover whole months only - the current month is partly elapsed, so folding it in
   // would drag every average down and make the figures shift daily. A brand-new profile with
   // nothing but this month's data still uses it, otherwise there'd be nothing to show.
-  const now = new Date();
   const endDate = months >= 2
-    ? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`
-    : new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().split("T")[0];
+    ? toISODate(new Date(now.getFullYear(), now.getMonth(), 1))
+    : toISODate(new Date(now.getFullYear(), now.getMonth() + 1, 1));
 
   const [summary] = await db.select<{ avg_income: number; avg_expenses: number }[]>(
     `SELECT AVG(income) as avg_income, AVG(expenses) as avg_expenses
@@ -1381,7 +2058,7 @@ export async function getSpendingProfile(profileIds: number[]): Promise<Spending
        SELECT tx.category_id, strftime('%Y-%m', tx.date) as mo,
               ${categorySpendSql("tx", "ac")} as monthly_spend
        FROM transactions tx JOIN accounts ac ON ac.id=tx.account_id
-       WHERE tx.profile_id IN (${ph}) AND tx.date>=?
+       WHERE tx.profile_id IN (${ph}) AND tx.date>=? AND ac.excluded_from_insights=0
          AND (tx.category_id IS NULL OR tx.category_id NOT IN (20,29))
        GROUP BY tx.category_id, mo
      ) t JOIN categories c ON t.category_id=c.id
@@ -1398,7 +2075,7 @@ export async function getSpendingProfile(profileIds: number[]): Promise<Spending
     avgMonthlyIncome: Math.round(avgInc),
     avgMonthlyExpenses: Math.round(avgExp),
     avgSavingsRate: savingsRate,
-    topCategory: topCat?.name ?? "—",
+    topCategory: topCat?.name ?? "No data",
     topCategoryAvg: topCat?.avg_spend ?? 0,
     monthsAnalysed: Math.min(months, 6),
   };
@@ -1412,12 +2089,8 @@ export async function getSavingsHistory(
 ): Promise<{ month: string; rate: number; net: number }[]> {
   const db = await getDb();
   const ph = profileIds.map(() => "?").join(",");
-  const startDate = (() => {
-    const d = new Date();
-    d.setMonth(d.getMonth() - (months - 1));
-    d.setDate(1);
-    return d.toISOString().split("T")[0];
-  })();
+  const now = new Date();
+  const startDate = toISODate(new Date(now.getFullYear(), now.getMonth() - (months - 1), 1));
   const rows = await db.select<{ month: string; income: number; expenses: number }[]>(
     `SELECT strftime('%Y-%m', t.date) as month,
             ${INCOME_SUM_SQL} as income,
@@ -1434,12 +2107,6 @@ export async function getSavingsHistory(
   }));
 }
 
-// ─── Utilities ────────────────────────────────────────────────────────────────
-
-function truncate(s: string, n: number): string {
-  return s.length <= n ? s : s.slice(0, n - 1) + "…";
-}
-
 // ─── Financial Health Score ───────────────────────────────────────────────────
 
 export async function computeHealthScore(profileIds: number[]): Promise<HealthScore> {
@@ -1447,10 +2114,10 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
   const ph = profileIds.map(() => "?").join(",");
 
   const now = new Date();
-  const threeAgo = (() => { const d = new Date(now); d.setMonth(d.getMonth() - 3); d.setDate(1); return d.toISOString().split("T")[0]; })();
-  const sixAgo   = (() => { const d = new Date(now); d.setMonth(d.getMonth() - 6); d.setDate(1); return d.toISOString().split("T")[0]; })();
-  const msStart  = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-  const msEnd    = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().split("T")[0];
+  const threeAgo = toISODate(new Date(now.getFullYear(), now.getMonth() - 3, 1));
+  const sixAgo   = toISODate(new Date(now.getFullYear(), now.getMonth() - 6, 1));
+  const msStart  = toISODate(new Date(now.getFullYear(), now.getMonth(), 1));
+  const msEnd    = toISODate(new Date(now.getFullYear(), now.getMonth() + 1, 1));
 
   // ── 1. Savings Rate (40 pts) — the last 3 COMPLETE months of income that didn't go back
   // out. Credit-card purchases count as spending here (they are), while the card payment
@@ -1478,11 +2145,10 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
     weekStart.setDate(now.getDate() - (now.getDay() + 6) % 7);
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekStart.getDate() + 7);
-    const localDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
     const evaluations = await Promise.all(budgets.map((budget) => evaluateBudgetPeriod(db, budget,
       budget.is_global ? profileIds : [budget.profile_id],
-      budget.period === "weekly" ? localDate(weekStart) : msStart,
-      budget.period === "weekly" ? localDate(weekEnd) : msEnd, true)));
+      budget.period === "weekly" ? toISODate(weekStart) : msStart,
+      budget.period === "weekly" ? toISODate(weekEnd) : msEnd, true)));
     const known = evaluations.filter((period) => period.covered);
     if (known.length > 0) {
       const pct = known.filter((period) => period.onTrack).length / known.length;
@@ -1531,10 +2197,10 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
   }
 
   const total = savingsScore + budgetScore + balanceScore + incomeScore;
-  const { grade, label, color } = scoreGrade(total);
+  const { grade, label, color, tone } = scoreGrade(total);
 
   return {
-    total, grade, label, color,
+    total, grade, label, color, tone,
     components: {
       savingsRate:     { score: savingsScore,  max: 40, pct: Math.round((savingsScore / 40)  * 100) },
       budgetHealth:    { score: budgetScore,   max: 30, pct: Math.round((budgetScore / 30)   * 100) },
@@ -1553,21 +2219,21 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
  */
 export async function computeCreditCardHealthScore(profileIds: number[]): Promise<CreditCardHealthScore> {
   const benchmarkCents = AVG_US_CREDIT_CARD_DEBT_CENTS;
-  if (profileIds.length === 0) {
-    return { score: 0, hasData: false, grade: "—", label: "Getting Started", color: "#6b7280", detail: "", debtCents: 0, benchmarkCents };
-  }
+  const empty = (): CreditCardHealthScore => {
+    const { grade, label, color, tone } = scoreGrade(0);
+    return { score: 0, hasData: false, grade, label, color, tone, detail: "", debtCents: 0, benchmarkCents };
+  };
+  if (profileIds.length === 0) return empty();
   const db = await getDb();
   const ph = profileIds.map(() => "?").join(",");
   const [acctRow] = await db.select<{ n: number }[]>(
     `SELECT COUNT(*) as n FROM accounts WHERE profile_id IN (${ph}) AND account_type='credit' AND excluded_from_insights=0`,
     [...profileIds]
   );
-  if ((acctRow?.n ?? 0) === 0) {
-    return { score: 0, hasData: false, grade: "—", label: "Getting Started", color: "#6b7280", detail: "", debtCents: 0, benchmarkCents };
-  }
+  if ((acctRow?.n ?? 0) === 0) return empty();
 
   const now = new Date();
-  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  const monthStart = toISODate(new Date(now.getFullYear(), now.getMonth(), 1));
   // Computed directly (rather than via computeNetWorth) so excluded_from_insights accounts are
   // left out of this score entirely, independent of the hidden_from_dashboard/net-worth flag.
   const creditDebtCents = async (asOfDate?: string): Promise<number> => {
@@ -1602,12 +2268,12 @@ export async function computeCreditCardHealthScore(profileIds: number[]): Promis
   if (delta > 5000) score = Math.min(100, score + 10);
   else if (delta < -5000) score = Math.max(0, score - 10);
 
-  const { grade, label, color } = scoreGrade(score);
+  const { grade, label, color, tone } = scoreGrade(score);
   const detail = debtAbs === 0
-    ? "No revolving balance - vs the ~$6,000 national average"
-    : `${formatCents(debtAbs)} owed vs the ~${formatCents(benchmarkCents)} national average`;
+    ? "No revolving balance, against a national average of about $6,000"
+    : `${formatCents(debtAbs)} owed against a national average of about ${formatCents(benchmarkCents)}`;
 
-  return { score, hasData: true, grade, label, color, detail, debtCents, benchmarkCents };
+  return { score, hasData: true, grade, label, color, tone, detail, debtCents, benchmarkCents };
 }
 
 // ─── Debt Payoff Plan ──────────────────────────────────────────────────────────
@@ -1777,8 +2443,8 @@ export async function computeDebtPayoffPlan(profileIds: number[], debts: DebtPay
   //    "redirected" to pay down debt; counting it would double-count the same dollars as both
   //    a debt balance to pay off AND a source of extra payment toward that debt.
   const now = new Date();
-  const threeAgo = (() => { const d = new Date(now); d.setMonth(d.getMonth() - 3); d.setDate(1); return d.toISOString().split("T")[0]; })();
-  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  const threeAgo = toISODate(new Date(now.getFullYear(), now.getMonth() - 3, 1));
+  const monthStart = toISODate(new Date(now.getFullYear(), now.getMonth(), 1));
 
   const [monthsRow] = await db.select<{ n: number }[]>(
     `SELECT COUNT(DISTINCT strftime('%Y-%m', t.date)) as n FROM transactions t JOIN accounts a ON a.id=t.account_id
@@ -1849,160 +2515,4 @@ export async function computeDebtPayoffPlan(profileIds: number[], debts: DebtPay
     simDebts: simDebtsPublic,
     baseline,
   };
-}
-
-// ─── Recurring charge detection ────────────────────────────────────────────────
-// Detects subscriptions/recurring bills by day-of-month OR "Nth weekday of month" cadence
-// (e.g. "3rd Thursday"), anchored to the most recent occurrence of each description and
-// walked backward through STRICTLY CONSECUTIVE calendar months - a charge whose amount drifts
-// slightly (utility bills, variable subscriptions) still gets caught, since matching no longer
-// requires an exact amount, and a charge that lapsed months ago won't still show as "recurring"
-// since the streak has to end at the most recent transaction.
-const RECURRING_DAY_TOLERANCE = 3; // +/- days still considered "the same day of month"
-
-function ordinal(n: number): string {
-  const rem100 = n % 100;
-  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
-  switch (n % 10) {
-    case 1: return `${n}st`;
-    case 2: return `${n}nd`;
-    case 3: return `${n}rd`;
-    default: return `${n}th`;
-  }
-}
-const RECURRING_WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-
-function dayOfMonthOf(dateStr: string): number { return Number(dateStr.slice(8, 10)); }
-function monthKeyOf(dateStr: string): string { return dateStr.slice(0, 7); }
-function nthWeekdayOf(dateStr: string): { weekday: number; nth: number } {
-  const d = new Date(`${dateStr}T00:00:00`);
-  return { weekday: d.getDay(), nth: Math.ceil(d.getDate() / 7) };
-}
-function shiftMonthKey(ym: string, delta: number): string {
-  const [y, m] = ym.split("-").map(Number);
-  const d = new Date(y, m - 1 + delta, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
-
-interface RecurringRow {
-  description: string;
-  amount_cents: number;
-  date: string;
-  category_name: string | null;
-  category_color: string | null;
-}
-
-/** Walks backward from the most recent transaction in `rows` (all sharing one description),
- *  through strictly consecutive months, matching either the anchor's day-of-month (within
- *  RECURRING_DAY_TOLERANCE days) or its exact "Nth weekday of month" - whichever produces the
- *  longer streak wins (ties favor day-of-month, since it's the more common/intuitive billing
- *  cadence). Returns null if the resulting streak is shorter than 2 months. */
-function findRecurringStreak(rows: RecurringRow[]): { txns: RecurringRow[]; mode: "day" | "weekday" } | null {
-  const byMonth = new Map<string, RecurringRow[]>();
-  for (const r of rows) {
-    const mk = monthKeyOf(r.date);
-    if (!byMonth.has(mk)) byMonth.set(mk, []);
-    byMonth.get(mk)!.push(r);
-  }
-  const months = [...byMonth.keys()].sort();
-  if (months.length === 0) return null;
-
-  const lastMonth = months[months.length - 1];
-  const lastMonthTxns = byMonth.get(lastMonth)!.slice().sort((a, b) => a.date.localeCompare(b.date));
-  const anchor = lastMonthTxns[lastMonthTxns.length - 1];
-  const anchorDay = dayOfMonthOf(anchor.date);
-  const anchorNW = nthWeekdayOf(anchor.date);
-
-  const buildStreak = (mode: "day" | "weekday"): RecurringRow[] => {
-    const streak: RecurringRow[] = [anchor];
-    let cursor = lastMonth;
-    for (let i = months.length - 2; i >= 0; i--) {
-      if (months[i] !== shiftMonthKey(cursor, -1)) break; // gap - streak stops here
-      const match = byMonth.get(months[i])!.find((c) => {
-        if (mode === "day") return Math.abs(dayOfMonthOf(c.date) - anchorDay) <= RECURRING_DAY_TOLERANCE;
-        const nw = nthWeekdayOf(c.date);
-        return nw.weekday === anchorNW.weekday && nw.nth === anchorNW.nth;
-      });
-      if (!match) break;
-      streak.unshift(match);
-      cursor = months[i];
-    }
-    return streak;
-  };
-
-  const dayStreak = buildStreak("day");
-  const weekdayStreak = buildStreak("weekday");
-  const [txns, mode] = weekdayStreak.length > dayStreak.length
-    ? [weekdayStreak, "weekday" as const]
-    : [dayStreak, "day" as const];
-  return txns.length >= 2 ? { txns, mode } : null;
-}
-
-function patternLabelFor(anchor: RecurringRow, mode: "day" | "weekday"): string {
-  if (mode === "day") return `${ordinal(dayOfMonthOf(anchor.date))} of the month`;
-  const { weekday, nth } = nthWeekdayOf(anchor.date);
-  return `${ordinal(nth)} ${RECURRING_WEEKDAY_NAMES[weekday]} of the month`;
-}
-
-/** A charge that hasn't been seen for this long is treated as cancelled rather than recurring.
- *  Without this, a subscription that ran for a few months and stopped keeps its old streak
- *  forever and goes on being billed in the forecast and listed as a live subscription. It comes
- *  back on its own the moment a new transaction matching it is imported. */
-const RECURRING_STALE_AFTER_MONTHS = 2;
-
-/** Detects recurring charges (subscriptions, bills) across the given profiles - grouped by
- *  exact description, then matched on a day-of-month or "Nth weekday of month" cadence with a
- *  currently-active streak of 2+ consecutive months (see findRecurringStreak above). Charges
- *  last seen more than RECURRING_STALE_AFTER_MONTHS ago, and any the user has explicitly
- *  hidden, are left out. Returns every match sorted by amount descending - the caller decides
- *  how much of the list to show (the Agent and Reports pages both show the full list). */
-export async function detectRecurringCharges(profileIds: number[], monthsBack = 12): Promise<RecurringCharge[]> {
-  const db = await getDb();
-  const ph = profileIds.map(() => "?").join(",");
-  const start = (() => { const d = new Date(); d.setMonth(d.getMonth() - monthsBack); d.setDate(1); return d.toISOString().split("T")[0]; })();
-  const staleBefore = (() => {
-    const d = new Date();
-    d.setMonth(d.getMonth() - RECURRING_STALE_AFTER_MONTHS);
-    return d.toISOString().split("T")[0];
-  })();
-  const hidden = getHiddenChargeKeys(profileIds);
-
-  const rows = await db.select<RecurringRow[]>(
-    `SELECT t.description, t.amount_cents, t.date, c.name as category_name, c.color as category_color
-     FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
-     WHERE t.profile_id IN (${ph}) AND t.amount_cents<0 AND t.date>=?
-       AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))
-     ORDER BY t.description, t.date`,
-    [...profileIds, start]
-  );
-
-  const groups = new Map<string, RecurringRow[]>();
-  for (const r of rows) {
-    const key = r.description.trim().toUpperCase();
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push(r);
-  }
-
-  const results: RecurringCharge[] = [];
-  for (const groupRows of groups.values()) {
-    const streak = findRecurringStreak(groupRows);
-    if (!streak) continue;
-    const anchor = streak.txns[streak.txns.length - 1];
-    if (anchor.date < staleBefore) continue;
-    if (hidden.has(chargeKey(anchor.description))) continue;
-    const first = streak.txns[0];
-    results.push({
-      description: anchor.description,
-      amount_cents: anchor.amount_cents,
-      month_count: streak.txns.length,
-      first_seen: first.date,
-      last_seen: anchor.date,
-      category_name: anchor.category_name,
-      category_color: anchor.category_color,
-      patternLabel: patternLabelFor(anchor, streak.mode),
-    });
-  }
-
-  results.sort((a, b) => Math.abs(b.amount_cents) - Math.abs(a.amount_cents));
-  return results;
 }

@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { ChevronLeft, ChevronRight, Plus, Pencil, Trash2, Target, Check, AlertCircle } from "lucide-react";
+import { CaretLeftIcon, CaretRightIcon, PlusIcon, PencilSimpleIcon, TrashIcon, TargetIcon, CheckIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { getDb } from "@/lib/db";
-import { categorySpendSql, incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
-import { evaluateBudgetPeriod, completedBudgetMonths, type BudgetDefinition } from "@/lib/budgetMetrics";
+import { evaluateGoals, STREAK_TYPES, CLASSIC_TYPES, daysInMonth, daysElapsed, type GoalType, type GoalWithProgress } from "@/lib/goals";
 import { formatCurrency } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
@@ -15,41 +14,6 @@ import MilestoneCelebration from "@/components/MilestoneCelebration";
 import { detectNewMilestones } from "@/lib/milestones";
 import { useMilestoneQueue } from "@/hooks/useMilestoneQueue";
 
-type GoalType =
-  | "net_savings"
-  | "reduce_spend"
-  | "increase_income"
-  | "savings_target"
-  | "balance_floor"
-  | "budget_streak"
-  | "savings_rate_habit"
-  | "debt_paydown";
-
-interface GoalRow {
-  id: number;
-  name: string;
-  type: GoalType;
-  category_id: number | null;
-  account_id: number | null;
-  target_cents: number;
-  target_months: number | null;
-  active: number;
-  created_at: string;
-  category_name?: string;
-  category_color?: string;
-  account_name?: string;
-  account_kind?: string;
-}
-
-interface GoalWithProgress extends GoalRow {
-  current_cents: number;
-  current_streak: number;
-  on_track: boolean;
-  pct: number;
-  weeklyAmounts: number[];
-  noBalanceData?: boolean;
-  noBudgetData?: boolean;
-}
 
 const LABELS: Record<GoalType, string> = {
   net_savings:        "Net Savings",
@@ -73,49 +37,6 @@ const DESCS: Record<GoalType, string> = {
   debt_paydown:       "Pay down a specific credit card/loan (or all of them combined) to at or below this amount - use $0 to target a full payoff.",
 };
 
-const STREAK_TYPES = new Set<GoalType>(["budget_streak", "savings_rate_habit"]);
-const CLASSIC_TYPES = new Set<GoalType>(["net_savings", "reduce_spend", "increase_income"]);
-
-function monthBounds(ym: string): [string, string] {
-  const [y, m] = ym.split("-").map(Number);
-  return [
-    `${y}-${String(m).padStart(2, "0")}-01`,
-    new Date(y, m, 1).toISOString().split("T")[0],
-  ];
-}
-
-function daysInMonth(ym: string): number {
-  const [y, m] = ym.split("-").map(Number);
-  return new Date(y, m, 0).getDate();
-}
-
-function daysElapsed(ym: string): number {
-  const now = new Date();
-  const [y, m] = ym.split("-").map(Number);
-  const isCurrentMonth = now.getFullYear() === y && now.getMonth() + 1 === m;
-  if (!isCurrentMonth) return daysInMonth(ym);
-  return now.getDate();
-}
-
-function currentWeekBounds(): [string, string] {
-  const now = new Date();
-  const dow = (now.getDay() + 6) % 7;
-  const mon = new Date(now);
-  mon.setDate(now.getDate() - dow);
-  const sun = new Date(mon);
-  sun.setDate(mon.getDate() + 7);
-  return [mon.toISOString().split("T")[0], sun.toISOString().split("T")[0]];
-}
-
-function recentMonths(n: number): string[] {
-  const out: string[] = [];
-  const d = new Date();
-  for (let i = 0; i < n; i++) {
-    out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
-    d.setMonth(d.getMonth() - 1);
-  }
-  return out;
-}
 
 export default function GoalsPage() {
   const [month, setMonth] = useAutoMonth("goals");
@@ -162,253 +83,12 @@ export default function GoalsPage() {
   const loadGoals = useCallback(async () => {
     setLoading(true);
     const db = await getDb();
-    const [start, end] = monthBounds(month);
-
-    const rows = await db.select<GoalRow[]>(
-      `SELECT g.*, c.name as category_name, c.color as category_color,
-              acc.name as account_name, acc.account_type as account_kind
-       FROM goals g
-       LEFT JOIN categories c ON g.category_id=c.id
-       LEFT JOIN accounts acc ON g.account_id=acc.id
-       WHERE g.active=1 AND g.profile_id=? ORDER BY g.created_at`,
-      [profileId]
-    );
-
-    const withProgress: GoalWithProgress[] = await Promise.all(
-      rows.map(async (g) => {
-        let current = 0;
-        let streak = 0;
-        let noBalanceData = false;
-        let noBudgetData = false;
-        let debtPaydownPct: number | null = null;
-
-        if (g.type === "net_savings") {
-          const [r] = await db.select<{ v: number }[]>(
-            `SELECT COALESCE(SUM(CASE WHEN a.account_type='credit' AND t.amount_cents>0 THEN 0 ELSE t.amount_cents END),0) as v
-             FROM transactions t JOIN accounts a ON a.id=t.account_id
-             WHERE t.date>=? AND t.date<? AND t.profile_id=? AND (t.category_id IS NULL OR t.category_id NOT IN (20,29)) AND a.account_type!='loan'`,
-            [start, end, profileId]
-          );
-          current = r?.v ?? 0;
-
-        } else if (g.type === "reduce_spend") {
-          const extra = g.category_id ? " AND t.category_id=?" : "";
-          const params: unknown[] = g.category_id
-            ? [start, end, profileId, g.category_id]
-            : [start, end, profileId];
-          const [r] = await db.select<{ v: number }[]>(
-            `SELECT COALESCE(${categorySpendSql()},0) as v
-             FROM transactions t JOIN accounts a ON a.id=t.account_id
-             WHERE t.date>=? AND t.date<? AND t.profile_id=? AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))${extra}`,
-            params
-          );
-          current = r?.v ?? 0;
-
-        } else if (g.type === "increase_income") {
-          const extra = g.category_id ? " AND t.category_id=?" : "";
-          const params: unknown[] = g.category_id
-            ? [start, end, profileId, g.category_id]
-            : [start, end, profileId];
-          const [r] = await db.select<{ v: number }[]>(
-            `SELECT COALESCE(SUM(t.amount_cents),0) as v FROM transactions t JOIN accounts a ON a.id=t.account_id
-             WHERE t.date>=? AND t.date<? AND t.profile_id=? AND t.amount_cents>0 AND a.account_type NOT IN ('credit','loan')${extra}`,
-            params
-          );
-          current = r?.v ?? 0;
-
-        } else if (g.type === "savings_target") {
-          // Sum of positive monthly nets since goal creation
-          const [r] = await db.select<{ v: number }[]>(
-            `SELECT COALESCE(SUM(net),0) as v FROM (
-               SELECT strftime('%Y-%m',t.date) as mo,
-                 ${incomeSumSql()} - ${expenseSumSql()} as net
-               FROM transactions t JOIN accounts a ON a.id=t.account_id
-               WHERE t.profile_id=? AND t.date>=?
-               GROUP BY mo
-             ) WHERE net>0`,
-            [profileId, g.created_at.slice(0, 10)]
-          );
-          current = r?.v ?? 0;
-
-        } else if (g.type === "balance_floor") {
-          // "Buffer" goal: sum the LATEST known balance of every checking account (not just
-          // whichever account happens to have the most recent transaction row) - a user with
-          // multiple bank statements/accounts should have all of them count toward the buffer.
-          const checkingBalRows = await db.select<{ account_id: number; balance_cents: number | null }[]>(
-            `SELECT a.id as account_id,
-               (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
-                ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents
-             FROM accounts a WHERE a.profile_id=? AND a.account_type='checking' AND a.hidden_from_dashboard=0`,
-            [profileId]
-          );
-          const trackedChecking = checkingBalRows.filter((r) => r.balance_cents !== null);
-          if (trackedChecking.length === 0) { noBalanceData = true; current = 0; }
-          else current = trackedChecking.reduce((s, r) => s + (r.balance_cents ?? 0), 0);
-
-        } else if (g.type === "debt_paydown") {
-          // A specific credit card/loan (g.account_id set), or every credit card + loan
-          // combined (g.account_id null) - either way, sum each account's LATEST balance.
-          const acctIds = g.account_id
-            ? [g.account_id]
-            : (await db.select<{ id: number }[]>(
-                "SELECT id FROM accounts WHERE profile_id=? AND account_type IN ('credit','loan') AND hidden_from_dashboard=0",
-                [profileId]
-              )).map((r) => r.id);
-
-          if (acctIds.length === 0) {
-            noBalanceData = true;
-          } else {
-            const ph = acctIds.map(() => "?").join(",");
-            const latestRows = await db.select<{ account_id: number; balance_cents: number | null }[]>(
-              `SELECT a.id as account_id,
-                 (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
-                  ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents
-               FROM accounts a WHERE a.id IN (${ph})`,
-              acctIds
-            );
-            const trackedLatest = latestRows.filter((r) => r.balance_cents !== null);
-            if (trackedLatest.length === 0) {
-              noBalanceData = true;
-            } else {
-              current = Math.abs(trackedLatest.reduce((s, r) => s + (r.balance_cents ?? 0), 0));
-
-              // Starting debt (as of goal creation, falling back to each account's very first
-              // known balance) drives the progress bar - comparing current owed directly to
-              // the target ceiling isn't a meaningful "% complete" on its own, since current
-              // owed is usually far larger than the target for most of a paydown goal's life.
-              const createdDate = g.created_at.slice(0, 10);
-              const startRows = await db.select<{ account_id: number; balance_cents: number | null }[]>(
-                `SELECT a.id as account_id,
-                   (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL AND t.date<=?
-                    ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents
-                 FROM accounts a WHERE a.id IN (${ph})`,
-                [createdDate, ...acctIds]
-              );
-              const earliestRows = await db.select<{ account_id: number; balance_cents: number | null }[]>(
-                `SELECT a.id as account_id,
-                   (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
-                    ORDER BY t.date ASC, t.id ASC LIMIT 1) as balance_cents
-                 FROM accounts a WHERE a.id IN (${ph})`,
-                acctIds
-              );
-              const startingDebt = Math.abs(
-                acctIds.reduce((sum, id) => {
-                  const viaCreated = startRows.find((r) => r.account_id === id)?.balance_cents;
-                  const viaEarliest = earliestRows.find((r) => r.account_id === id)?.balance_cents;
-                  return sum + (viaCreated ?? viaEarliest ?? 0);
-                }, 0)
-              );
-              debtPaydownPct = startingDebt > g.target_cents
-                ? Math.min(150, Math.max(0, Math.round(((startingDebt - current) / (startingDebt - g.target_cents)) * 100)))
-                : (current <= g.target_cents ? 100 : 0);
-            }
-          }
-
-        } else if (g.type === "budget_streak") {
-          // Count consecutive months (newest first) where spend <= budget
-          if (!g.category_id) { noBudgetData = true; }
-          else {
-            const [budgetRow] = await db.select<BudgetDefinition[]>(
-              "SELECT b.*,c.name as category_name,c.parent_id as category_parent_id FROM budgets b JOIN categories c ON c.id=b.category_id WHERE b.profile_id=? AND b.category_id=? AND b.is_global=0 AND b.period='monthly' ORDER BY b.created_at DESC LIMIT 1",
-              [profileId, g.category_id]
-            );
-            if (!budgetRow) { noBudgetData = true; }
-            else {
-              const months12 = completedBudgetMonths(12);
-              let s = 0;
-              for (const mo of months12) {
-                const [ms, me] = monthBounds(mo);
-                if (ms < budgetRow.start_date) { if (s === 0) noBudgetData = true; break; }
-                const evaluation = await evaluateBudgetPeriod(db, budgetRow, [profileId], ms, me);
-                if (!evaluation.covered) { if (s === 0) noBudgetData = true; break; }
-                if (!evaluation.onTrack) break;
-                s++;
-              }
-              streak = s;
-              current = s * 100; // use cents slot to store streak*100 for pct calc
-            }
-          }
-
-        } else if (g.type === "savings_rate_habit") {
-          const targetRate = g.target_cents / 100; // e.g. 2000 -> 20%
-          const months12 = recentMonths(12);
-          let s = 0;
-          for (const mo of months12) {
-            const [ms, me] = monthBounds(mo);
-            const [r] = await db.select<{ income: number; expenses: number }[]>(
-              `SELECT
-                 ${incomeSumSql()} as income,
-                 ${expenseSumSql()} as expenses
-               FROM transactions t JOIN accounts a ON a.id=t.account_id
-               WHERE t.profile_id=? AND t.date>=? AND t.date<?`,
-              [profileId, ms, me]
-            );
-            if (!r || r.income === 0) break;
-            const rate = ((r.income - r.expenses) / r.income) * 100;
-            if (rate < targetRate) break;
-            s++;
-          }
-          streak = s;
-          current = s * 100;
-        }
-
-        const targetForPct = STREAK_TYPES.has(g.type)
-          ? (g.target_months ?? 3) * 100
-          : g.target_cents;
-        const genericPct = targetForPct > 0
-          ? Math.min(150, Math.round((current / targetForPct) * 100))
-          : 0;
-        const pct = g.type === "debt_paydown" ? (debtPaydownPct ?? 0) : genericPct;
-
-        const on_track = g.type === "reduce_spend"
-          ? current <= g.target_cents
-          : g.type === "balance_floor"
-          ? current >= g.target_cents && !noBalanceData
-          : g.type === "debt_paydown"
-          ? current <= g.target_cents && !noBalanceData
-          : STREAK_TYPES.has(g.type)
-          ? streak >= (g.target_months ?? 3)
-          : current >= (STREAK_TYPES.has(g.type) ? (g.target_months ?? 3) * 100 : g.target_cents);
-
-        return { ...g, current_cents: current, current_streak: streak, on_track, pct, weeklyAmounts: [], noBalanceData, noBudgetData };
-      })
-    );
-
-    // Attach weekly amounts for reduce_spend goals
-    const [weekStart, weekEnd] = currentWeekBounds();
-    const weeklyRows = await db.select<{ category_id: number | null; dow: number; total: number }[]>(
-      `SELECT category_id,
-              (strftime('%w', date) + 6) % 7 as dow,
-              SUM(ABS(amount_cents)) as total
-       FROM transactions
-       WHERE date>=? AND date<? AND profile_id=? AND amount_cents<0
-       GROUP BY category_id, dow`,
-      [weekStart, weekEnd, profileId]
-    );
-    const weeklyAllCats = Array(7).fill(0);
-    const weeklyByCat: Record<number, number[]> = {};
-    for (const row of weeklyRows) {
-      weeklyAllCats[row.dow] = (weeklyAllCats[row.dow] ?? 0) + row.total;
-      if (row.category_id !== null) {
-        if (!weeklyByCat[row.category_id]) weeklyByCat[row.category_id] = Array(7).fill(0);
-        weeklyByCat[row.category_id][row.dow] = row.total;
-      }
-    }
-    const withWeekly = withProgress.map((g) => ({
-      ...g,
-      weeklyAmounts:
-        g.type === "reduce_spend"
-          ? g.category_id
-            ? weeklyByCat[g.category_id] ?? Array(7).fill(0)
-            : weeklyAllCats
-          : Array(7).fill(0),
-    }));
-
-    setGoals(withWeekly);
+    const evaluated = await evaluateGoals(db, profileId, month);
+    setGoals(evaluated);
     setLoading(false);
 
     const newMilestones = detectNewMilestones(profileId, {
-      goals: withWeekly.map((g) => ({ id: g.id, name: g.name, pct: g.pct })),
+      goals: evaluated.map((g) => ({ id: g.id, name: g.name, pct: g.pct })),
     });
     enqueueMilestones(newMilestones);
   }, [month, profileId, enqueueMilestones]);
@@ -538,12 +218,12 @@ export default function GoalsPage() {
         </div>
         <div className="flex items-center gap-1 flex-wrap">
           <button onClick={() => navMonth(-1)} aria-label="Previous month"
-            className="p-1.5 border rounded-lg leading-none hover:bg-[hsl(var(--muted))] transition-colors"><ChevronLeft size={16} /></button>
+            className="p-1.5 border rounded-lg leading-none hover:bg-[hsl(var(--muted))] transition-colors"><CaretLeftIcon size={16} /></button>
           <input type="month" value={month} onChange={(e) => setMonth(e.target.value)}
             className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]" />
           <button onClick={() => navMonth(1)} aria-label="Next month"
-            className="p-1.5 border rounded-lg leading-none hover:bg-[hsl(var(--muted))] transition-colors"><ChevronRight size={16} /></button>
-          <button onClick={() => { cancelEdit(); setFormOpen(true); }} className="ml-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] text-sm"><Plus size={15} /> New goal</button>
+            className="p-1.5 border rounded-lg leading-none hover:bg-[hsl(var(--muted))] transition-colors"><CaretRightIcon size={16} /></button>
+          <button onClick={() => { cancelEdit(); setFormOpen(true); }} className="ml-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] text-sm"><PlusIcon size={15} /> New goal</button>
         </div>
       </div>
 
@@ -625,9 +305,9 @@ export default function GoalsPage() {
           <div><p>Awaiting data</p><strong>{missingDataCount}</strong></div>
         </div>
         <div className="workspace-segments" role="group" aria-label="Goal status">
-          <button aria-pressed={goalFilter === "all"} onClick={() => setGoalFilter("all")}><Target size={14} /> All goals</button>
-          <button aria-pressed={goalFilter === "attention"} onClick={() => setGoalFilter("attention")}><AlertCircle size={14} /> Attention</button>
-          <button aria-pressed={goalFilter === "onTrack"} onClick={() => setGoalFilter("onTrack")}><Check size={14} /> On track</button>
+          <button aria-pressed={goalFilter === "all"} onClick={() => setGoalFilter("all")}><TargetIcon size={14} /> All goals</button>
+          <button aria-pressed={goalFilter === "attention"} onClick={() => setGoalFilter("attention")}><WarningCircleIcon size={14} /> Attention</button>
+          <button aria-pressed={goalFilter === "onTrack"} onClick={() => setGoalFilter("onTrack")}><CheckIcon size={14} /> On track</button>
         </div>
         {visibleGoals.length === 0 && <p className="text-sm text-[hsl(var(--muted-foreground))] py-8">No goals in this group.</p>}
       </>}
@@ -638,13 +318,13 @@ export default function GoalsPage() {
             className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl mb-1"
             style={{ backgroundColor: "hsl(var(--muted))" }}
           >
-            <Target size={24} />
+            <TargetIcon size={24} />
           </div>
           <p className="font-semibold text-[hsl(var(--foreground))]">No goals yet</p>
           <p className="text-sm text-[hsl(var(--muted-foreground))] max-w-md">
             Your next milestone starts here.
           </p>
-          <button onClick={() => setFormOpen(true)} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] text-sm"><Plus size={15} /> Create your first goal</button>
+          <button onClick={() => setFormOpen(true)} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] text-sm"><PlusIcon size={15} /> Create your first goal</button>
         </div>
       )}
 
@@ -681,17 +361,17 @@ export default function GoalsPage() {
                 </span>
                 {g.category_name && (
                   <span className="text-xs text-[hsl(var(--muted-foreground))]">
-                    {" · "}{g.category_name}
+                    {", "}{g.category_name}
                   </span>
                 )}
                 {g.account_name && (
                   <span className="text-xs text-[hsl(var(--muted-foreground))]">
-                    {" · "}{g.account_name}
+                    {", "}{g.account_name}
                   </span>
                 )}
                 {g.type === "debt_paydown" && !g.account_name && (
                   <span className="text-xs text-[hsl(var(--muted-foreground))]">
-                    {" · "}All debt accounts
+                    {", "}All debt accounts
                   </span>
                 )}
               </div>
@@ -712,11 +392,11 @@ export default function GoalsPage() {
                   <span className="flex items-center gap-1">
                     <button onClick={() => startEdit(g)}
                       title="Edit goal" aria-label={`Edit ${g.name}`} className="workspace-icon text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--gold-ink))]">
-                      <Pencil size={15} />
+                      <PencilSimpleIcon size={15} />
                     </button>
                     <button onClick={() => setConfirmDeleteId(g.id)}
                       title="Remove goal" aria-label={`Remove ${g.name}`} className="workspace-icon text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))]">
-                      <Trash2 size={15} />
+                      <TrashIcon size={15} />
                     </button>
                   </span>
                 )}
@@ -724,7 +404,7 @@ export default function GoalsPage() {
             </div>
 
             {hasData(g) && <p className={`flex items-center gap-1.5 text-xs mb-5 ${g.on_track ? "text-[hsl(var(--muted-foreground))]" : "text-[hsl(var(--warning))]"}`}>
-              {g.on_track ? <Check size={14} /> : <AlertCircle size={14} />}{g.on_track ? "On track" : "Needs attention"}
+              {g.on_track ? <CheckIcon size={14} /> : <WarningCircleIcon size={14} />}{g.on_track ? "On track" : "Needs attention"}
             </p>}
 
             {/* No-data banners */}
@@ -746,7 +426,7 @@ export default function GoalsPage() {
                   <span className="text-2xl font-bold">{streakCount}</span>
                   <span className="text-sm text-[hsl(var(--muted-foreground))]">/ {targetMonths} months</span>
                   {streakCount >= targetMonths && (
-                    <span className="text-sm font-semibold text-[hsl(var(--success))]">Goal reached!</span>
+                    <span className="text-sm font-semibold text-[hsl(var(--success))]">Goal reached</span>
                   )}
                 </div>
                 <div className="flex gap-1">
@@ -819,7 +499,7 @@ export default function GoalsPage() {
                     {isSpend
                       ? dailyNeeded < 0 ? "Over limit"
                         : `${formatCurrency(dailyNeeded)}/day left`
-                      : dailyNeeded <= 0 ? "Goal reached!"
+                      : dailyNeeded <= 0 ? "Goal reached"
                       : `${formatCurrency(dailyNeeded)}/day to go`}
                   </p>
                 </div>

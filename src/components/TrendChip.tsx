@@ -1,4 +1,4 @@
-import { TrendingUp, TrendingDown } from "lucide-react";
+import { TrendUpIcon, TrendDownIcon } from "@phosphor-icons/react";
 import { formatCurrency } from "@/lib/utils";
 
 /**
@@ -35,7 +35,7 @@ export default function TrendChip({
       }`}
       aria-label={`${dir} ${formatCurrency(Math.abs(deltaCents))}${pct != null ? ` (${Math.abs(Math.round(pct))}%)` : ""} ${compareLabel}`}
     >
-      {rising ? <TrendingUp size={13} aria-hidden /> : <TrendingDown size={13} aria-hidden />}
+      {rising ? <TrendUpIcon size={13} aria-hidden /> : <TrendDownIcon size={13} aria-hidden />}
       {formatCurrency(Math.abs(deltaCents))}
       {pct != null && <span className="font-medium">({Math.abs(Math.round(pct))}%)</span>}
       <span className="font-normal text-[hsl(var(--muted-foreground))]">{compareLabel}</span>

@@ -7,44 +7,59 @@
 @layer base, layout, components, utilities;
 
 /* ── Animated custom property ─────────────────────────────────────────────── */
-@property --gradient-angle {
-  syntax: '<angle>';
-  initial-value: 135deg;
-  inherits: false;
-}
-
 /* ── Design tokens ────────────────────────────────────────────────────────── */
 @layer base {
+  /* Self-hosted variable fonts, the same two the desktop app ships (the CSP is font-src 'self'). */
+  @font-face {
+    font-family: 'Source Sans 3 Variable';
+    font-style: normal;
+    font-weight: 200 900;
+    font-display: swap;
+    src: url('../fonts/source-sans-3-latin-wght-normal.woff2') format('woff2-variations');
+  }
+  @font-face {
+    font-family: 'Source Serif 4 Variable';
+    font-style: normal;
+    font-weight: 200 900;
+    font-display: swap;
+    src: url('../fonts/source-serif-4-latin-standard-normal.woff2') format('woff2-variations');
+  }
+
   :root {
-    /* Background scale — derived from app hsl(222.2 84% 4.9%) */
-    --bg:            #080d1a;
-    --bg-surface:    #0d1525;
-    --bg-card:       #101a2e;
-    --bg-card-hover: #131f35;
-    --border:        #1c2a3e;
-    --border-subtle: #131e30;
+    /* Night palette, mirrored from the app's dark tokens in src/index.css */
+    --bg:            #0A1124;
+    --bg-surface:    #111C36;
+    --bg-card:       #192748;
+    --bg-card-hover: #1F2F58;
+    --border:        #222F4F;
+    --border-subtle: #182643;
 
     /* Text */
-    --text:          #e8edf5;
-    --text-muted:    #8896b0;
-    --text-subtle:   #4f607a;
+    --text:          #E8EDF7;
+    --text-muted:    #97A6C4;
+    --text-subtle:   #7787A6;
 
-    /* Brand — primary blue hsl(217.2 91.2% 59.8%) */
-    --primary:       #4f8fff;
-    --primary-dim:   rgba(79, 143, 255, 0.10);
-    --primary-glow:  rgba(79, 143, 255, 0.22);
+    /* Brand: gold is the action color (buttons, active states), matching the app's --primary */
+    --primary:       #D5A930;
+    --primary-ink:   #E2BE5A;
+    --primary-dim:   rgba(213, 169, 48, 0.10);
+    --primary-glow:  rgba(213, 169, 48, 0.18);
 
-    /* Brand — gold from app --gold variable */
-    --gold:          #d4a832;
-    --gold-dim:      rgba(212, 168, 50, 0.10);
+    --gold:          #D5A930;
+    --gold-dim:      rgba(213, 169, 48, 0.10);
 
-    --success:       #3fb950;
-    --warning:       #d29922;
-    --danger:        #f85149;
+    /* Sea blue is the recorded-data color, matching the app's --sea */
+    --sea:           #6194E5;
+    --sea-dim:       rgba(97, 148, 229, 0.12);
+
+    --success:       #45C489;
+    --warning:       #F38D49;
+    --danger:        #EB7C6F;
 
     /* Typography */
-    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI Variable', 'Segoe UI',
+    --font: 'Source Sans 3 Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI Variable', 'Segoe UI',
             system-ui, ui-sans-serif, sans-serif;
+    --font-serif: 'Source Serif 4 Variable', Georgia, 'Times New Roman', serif;
     --font-mono: 'Cascadia Code', 'Fira Code', Consolas, monospace;
 
     /* Spacing */
@@ -53,15 +68,15 @@
     --sp-10: 2.5rem;   --sp-12: 3rem;     --sp-16: 4rem;
     --sp-20: 5rem;     --sp-24: 6rem;
 
-    /* Radii */
-    --r-sm:   6px;   --r-md: 10px;
-    --r-lg:  16px;   --r-xl: 24px;
+    /* Radii: the app's three steps */
+    --r-sm:   4px;   --r-md: 8px;
+    --r-lg:  12px;   --r-xl: 12px;
     --r-full: 9999px;
 
-    /* Shadows */
-    --shadow-md:   0 4px 16px rgba(0, 0, 0, 0.4);
-    --shadow-lg:   0 8px 40px rgba(0, 0, 0, 0.55);
-    --shadow-glow: 0 0 32px var(--primary-glow);
+    /* Shadows, tinted navy rather than black */
+    --shadow-md:   0 4px 16px rgba(6, 10, 24, 0.45);
+    --shadow-lg:   0 12px 40px rgba(6, 10, 24, 0.6);
+    --shadow-glow: 0 0 0 3px var(--primary-glow);
 
     /* Transitions */
     --t:      180ms ease;
@@ -135,10 +150,11 @@
   }
 
   .section-header h2 {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    letter-spacing: -0.01em;
     font-size: clamp(2rem, 5vw, 3rem);
-    font-weight: 800;
     line-height: 1.15;
-    letter-spacing: -0.03em;
     text-wrap: balance;
     color: var(--text);
     margin-bottom: var(--sp-4);
@@ -188,17 +204,14 @@
     flex-shrink: 0;
   }
   .nav-logo:hover { opacity: 1; }
-  .nav-logo img   { border-radius: var(--r-sm); }
+  .nav-logo img, .nav-logo svg { border-radius: var(--r-sm); }
+  .svg-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
 
   .nav-brand {
-    background: linear-gradient(
-      135deg,
-      var(--text) 30%,
-      color-mix(in srgb, var(--primary) 55%, var(--text))
-    );
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: var(--text);
+    font-family: var(--font-serif);
+    font-weight: 500;
+    letter-spacing: -0.01em;
   }
 
   .nav-links {
@@ -294,12 +307,11 @@
 
   .btn-primary {
     background: var(--primary);
-    color: #fff;
+    color: #0E172F;
     transition: background var(--t), box-shadow 300ms ease;
   }
   .btn-primary:hover {
-    background: color-mix(in srgb, var(--primary) 82%, #fff);
-    box-shadow: var(--shadow-glow);
+    background: color-mix(in srgb, var(--primary) 88%, #fff);
   }
 
   @starting-style {
@@ -335,8 +347,6 @@
 
 /* ── Hero ─────────────────────────────────────────────────────────────────── */
 @layer components {
-  @keyframes rotate-gradient {
-    to { --gradient-angle: 495deg; }
   }
 
   @keyframes orb-1 {
@@ -447,7 +457,8 @@
 
   .hero-title {
     font-size: clamp(2.6rem, 7.5vw, 4.75rem);
-    font-weight: 800;
+    font-weight: 500;
+    font-family: var(--font-serif);
     line-height: 1.08;
     letter-spacing: -0.03em;
     text-wrap: balance;
@@ -455,18 +466,7 @@
     margin-bottom: var(--sp-6);
   }
 
-  .gradient-text {
-    background: linear-gradient(
-      var(--gradient-angle),
-      var(--primary),
-      color-mix(in srgb, var(--primary) 38%, var(--gold)),
-      var(--gold)
-    );
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    animation: rotate-gradient 8s linear infinite;
-  }
+  .hero-accent { color: var(--primary-ink); }
 
   .hero-sub {
     font-size: clamp(1rem, 2.2vw, 1.1875rem);
@@ -1125,4 +1125,13 @@
     .download-btn  { max-width: 100%; }
     .table-wrap    { font-size: 0.8125rem; }
   }
+}
+
+/* ── Reduced motion ───────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .orb, .orb-1, .orb-2, .orb-3 { animation: none !important; }
+  .why-card, .step, .feature-card, .qa-card { animation: none !important; opacity: 1; transform: none; }
+  .btn-primary { transition: none; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }

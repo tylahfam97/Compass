@@ -133,7 +133,7 @@ const BAND = {
 } as const;
 
 /** Below this chroma a color is a grey; it keeps zero chroma so "Uncategorized" stays grey. */
-const GREY_CHROMA = 0.02;
+const GREY_CHROMA = 0.045;
 
 /**
  * Normalises any stored hex color into the theme's band while preserving its hue.

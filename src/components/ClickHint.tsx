@@ -1,4 +1,4 @@
-import { MousePointerClick } from "lucide-react";
+import { CursorClickIcon } from "@phosphor-icons/react";
 
 /**
  * Small "click for details" pill that fades in after ~1s of continuous hover over the
@@ -16,7 +16,7 @@ export default function ClickHint({ label = "Click for more details" }: { label?
                  px-2.5 py-1 rounded-full text-[10px] font-medium shadow-lg pointer-events-none whitespace-nowrap"
       style={{ backgroundColor: "hsl(var(--foreground))", color: "hsl(var(--background))" }}
     >
-      <MousePointerClick size={11} className="shrink-0" />
+      <CursorClickIcon size={11} className="shrink-0" />
       {label}
     </span>
   );

@@ -14,7 +14,7 @@ const AUTO_DISMISS_MS = 5000;
 function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
     <div>
-      <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">{label}</p>
+      <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">{label}</p>
       <p className="text-lg font-bold tabular-nums mt-0.5" style={tone ? { color: tone } : undefined}>{value}</p>
     </div>
   );
@@ -125,7 +125,7 @@ export default function MonthRolloverModal() {
             {review && previousMonth ? (
               <>
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--gold)" }}>
+                  <p className="text-xs font-medium " style={{ color: "var(--gold)" }}>
                     {monthLabel(previousMonth)} in review
                   </p>
                   <h2 className="text-xl font-semibold mt-1">Welcome to {monthLabel(newMonth)}</h2>

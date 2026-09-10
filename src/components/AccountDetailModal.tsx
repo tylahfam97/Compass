@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { AreaChart, Area, XAxis, ResponsiveContainer, Tooltip } from "recharts";
-import { X, TrendingUp, TrendingDown, Info, CheckCircle, AlertTriangle, Pencil } from "lucide-react";
+import { XIcon, TrendUpIcon, TrendDownIcon, InfoIcon, CheckCircleIcon, WarningIcon, PencilSimpleIcon } from "@phosphor-icons/react";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import { getDb, setAccountInterestRate, setAccountMinimumPayment } from "@/lib/db";
 import { formatCurrency, formatDate, parseDollarInput } from "@/lib/utils";
@@ -38,10 +38,11 @@ interface Props {
 // per-account insights engine.
 const CREDIT_RELEVANT_TYPES: InsightType[] = [
   "credit_card_debt_high", "credit_card_debt_growing", "credit_card_debt_improving",
+  "card_paid_in_full", "card_coverage_low", "interest_paid",
   "loan_payoff_projection", "debt_payoff_priority",
 ];
 const CHECKING_RELEVANT_TYPES: InsightType[] = [
-  "overdraft_alert", "emergency_fund_runway", "income_irregular", "savings_rate_low",
+  "bills_this_week", "scheduled_missing", "overdraft_alert", "emergency_fund_runway", "income_irregular", "savings_rate_low", "stale_data",
 ];
 const LOAN_RELEVANT_TYPES: InsightType[] = [
   "loan_debt_high", "loan_debt_growing", "loan_debt_improving",
@@ -55,7 +56,7 @@ interface DerivedNote {
 }
 
 const NOTE_ICONS: Record<DerivedNote["severity"], React.ElementType> = {
-  info: Info, success: CheckCircle, warning: AlertTriangle,
+  info: InfoIcon, success: CheckCircleIcon, warning: WarningIcon,
 };
 const NOTE_ICON_CLS: Record<DerivedNote["severity"], string> = {
   info: "text-[hsl(var(--gold-ink))]", success: "text-[hsl(var(--success))]", warning: "text-[hsl(var(--warning))]",
@@ -201,7 +202,7 @@ export default function AccountDetailModal({ account, insights, onApply, onClose
             </div>
           </div>
           <button onClick={onClose} aria-label="Close" className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] shrink-0">
-            <X size={18} />
+            <XIcon size={18} />
           </button>
         </div>
 
@@ -211,7 +212,7 @@ export default function AccountDetailModal({ account, insights, onApply, onClose
           </p>
           {series.length > 1 && Math.abs(changeCents) >= 100 && (
             <span className={`text-sm font-semibold flex items-center gap-1 ${improved ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
-              {improved ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+              {improved ? <TrendUpIcon size={14} /> : <TrendDownIcon size={14} />}
               {formatCurrency(Math.abs(changeCents))}
             </span>
           )}
@@ -253,13 +254,13 @@ export default function AccountDetailModal({ account, insights, onApply, onClose
               {(displayRateBps != null || displayPaymentCents != null) ? (
                 <>
                   {displayRateBps != null && <>{(displayRateBps / 100).toFixed(2)}% APR</>}
-                  {displayRateBps != null && displayPaymentCents != null && " · "}
+                  {displayRateBps != null && displayPaymentCents != null && ", "}
                   {displayPaymentCents != null && <>{formatCurrency(displayPaymentCents)} min/mo</>}
                 </>
               ) : (
                 <span>Add interest rate / minimum payment</span>
               )}
-              <Pencil size={11} className="shrink-0" />
+              <PencilSimpleIcon size={11} className="shrink-0" />
             </button>
           )
         )}
@@ -289,7 +290,7 @@ export default function AccountDetailModal({ account, insights, onApply, onClose
 
         {(matchedInsights.length > 0 || notes.length > 0) && (
           <div className="mb-5">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-[hsl(var(--muted-foreground))] mb-2">
+            <h3 className="text-xs font-semibold text-[hsl(var(--muted-foreground))] mb-2">
               Top Insights
             </h3>
             <div className="space-y-2">
@@ -314,7 +315,7 @@ export default function AccountDetailModal({ account, insights, onApply, onClose
 
         {account.accountType === "credit" || account.accountType === "checking" ? (
           <div>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-[hsl(var(--muted-foreground))] mb-2">
+            <h3 className="text-xs font-semibold text-[hsl(var(--muted-foreground))] mb-2">
               Recent Transactions
             </h3>
             {loadingTxns ? (
@@ -339,7 +340,7 @@ export default function AccountDetailModal({ account, insights, onApply, onClose
           </div>
         ) : (
           <div>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-[hsl(var(--muted-foreground))] mb-2">
+            <h3 className="text-xs font-semibold text-[hsl(var(--muted-foreground))] mb-2">
               Statement History
             </h3>
             {series.length === 0 ? (
