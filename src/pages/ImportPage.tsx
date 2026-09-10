@@ -54,8 +54,9 @@ function backTargetFor(step: Step): Step {
  *  first) - shared by the interactive wizard (processFile) and the "Auto-Import All" batch
  *  path (autoImportFile) so every supported file type behaves the same in both. PDFs only ever
  *  yield a synthetic Date/Description/Amount header (see parsePdfStatement) since there's no
- *  real column structure to detect in a statement's text layer. XLSX uses the first sheet -
- *  multi-sheet investment workbooks are handled separately in processFile's investment branch. */
+ *  real column structure to detect in a statement's text layer. XLSX picks the first sheet that
+ *  looks like a statement (multi-sheet investment workbooks are handled separately in
+ *  processFile's investment branch). */
 async function readStatementRows(file: File): Promise<string[][]> {
   if (/\.pdf$/i.test(file.name)) {
     const { headers, rows } = await parsePdfStatement(file);
@@ -64,8 +65,20 @@ async function readStatementRows(file: File): Promise<string[][]> {
   if (/\.xlsx?$/i.test(file.name)) {
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: "array", cellDates: false });
-    const raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "", raw: false }) as unknown[][];
-    return raw.map((row) => row.map((c) => (c === null || c === undefined ? "" : String(c))));
+    const toRows = (name: string) =>
+      (XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: "", raw: false }) as unknown[][])
+        .map((row) => row.map((c) => (c === null || c === undefined ? "" : String(c))));
+    // Banks sometimes export "Summary | Transactions | ..." workbooks - prefer the first sheet
+    // whose top rows include a date-labeled header with data under it, falling back to sheet 1.
+    const looksLikeStatement = (rows: string[][]) =>
+      rows.slice(0, 10).some((r, i) => r.some((c) => /date/i.test(c)) && rows.length > i + 1);
+    const first = toRows(wb.SheetNames[0]);
+    if (wb.SheetNames.length === 1 || looksLikeStatement(first)) return first;
+    for (const name of wb.SheetNames.slice(1)) {
+      const rows = toRows(name);
+      if (looksLikeStatement(rows)) return rows;
+    }
+    return first;
   }
   return new Promise((resolve, reject) => {
     Papa.parse<string[]>(file, {
@@ -249,6 +262,10 @@ interface ParsedData {
 interface Summary {
   imported: number;
   skipped: number;
+  /** Rows left out because they didn't parse as a transaction (no valid date, empty
+   *  description, or zero/unreadable amount) - typically a statement's header, total, or memo
+   *  lines. Surfaced on the done screen so no row ever disappears without a trace. */
+  invalidCount?: number;
   /** How many imported rows were auto-categorized as Transfers/Excluded (e.g. a credit-card
    *  payment) - shown on the "done" screen so it's clear those won't double-count against
    *  income/expense totals. */
@@ -1193,6 +1210,7 @@ export default function ImportPage() {
       let keptManualCount = 0;
       let replacedManualCount = 0;
       let deletedAnyManual = false;
+      let invalidCount = 0;
       const dupByRow = new Map(dupCandidates.map((c) => [c.rowIndex, c]));
       const rowErrors: { index: number; message: string }[] = [];
 
@@ -1210,11 +1228,11 @@ export default function ImportPage() {
         }
         if (colMap.typeCol >= 0) requiredCols.push(colMap.typeCol);
         const maxIdx = Math.max(...requiredCols);
-        if (row.length <= maxIdx) continue;
+        if (row.length <= maxIdx) { invalidCount++; continue; }
         const date = parseDate(row[colMap.dateCol] ?? "");
         const description = (row[colMap.descCol] ?? "").trim();
         const amount = computeRowAmount(row, colMap);
-        if (!date || !description || !isFinite(amount) || amount === 0) continue;
+        if (!date || !description || !isFinite(amount) || amount === 0) { invalidCount++; continue; }
 
         const dup = dupByRow.get(rowIndex);
         if (dup?.resolution === "keep_manual") { keptManualCount++; continue; }
@@ -1307,7 +1325,7 @@ export default function ImportPage() {
         await recomputeCalculatedBalances(accountId);
       }
 
-      setSummary({ imported, skipped, transferCount, errors: rowErrors, keptManualCount, replacedManualCount });
+      setSummary({ imported, skipped, invalidCount, transferCount, errors: rowErrors, keptManualCount, replacedManualCount });
       await loadHistory();
       setStep("done");
       setImportSubmitting(false);
@@ -1360,7 +1378,7 @@ export default function ImportPage() {
         [file.name, profileId]
       );
       const sessionId = sessionResult.lastInsertId as number;
-      let imported = 0; let skipped = 0; let transferCount = 0;
+      let imported = 0; let skipped = 0; let transferCount = 0; let invalidCount = 0;
       const rowErrors: { index: number; message: string }[] = [];
       const seenHashCounts = new Map<string, number>();
       const rowPayloads: { params: unknown[]; categoryId: number | null }[] = [];
@@ -1373,11 +1391,11 @@ export default function ImportPage() {
           reqCols.push(savedColMap.amountCol);
         }
         if (savedColMap.typeCol >= 0) reqCols.push(savedColMap.typeCol);
-        if (row.length <= Math.max(...reqCols)) continue;
+        if (row.length <= Math.max(...reqCols)) { invalidCount++; continue; }
         const date = parseDate(row[savedColMap.dateCol] ?? "");
         const description = (row[savedColMap.descCol] ?? "").trim();
         const amount = computeRowAmount(row, savedColMap);
-        if (!date || !description || !isFinite(amount) || amount === 0) continue;
+        if (!date || !description || !isFinite(amount) || amount === 0) { invalidCount++; continue; }
         const amountCents = Math.round(amount * 100);
         const hash = await dedupeRowHash(row, seenHashCounts);
         const categoryId = applyCategorizationRules(description, rules, amountCents);
@@ -1419,7 +1437,7 @@ export default function ImportPage() {
         await recomputeCalculatedBalances(accountId);
       }
       await loadHistory();
-      setSummary({ imported, skipped, transferCount, errors: rowErrors });
+      setSummary({ imported, skipped, invalidCount, transferCount, errors: rowErrors });
       setStep("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -1999,9 +2017,18 @@ export default function ImportPage() {
                         )}
                         <p className="font-mono text-xs text-[hsl(var(--muted-foreground))] truncate">{raw}</p>
                       </div>
-                      <p className={`text-base font-semibold shrink-0 ${amt < 0 ? "text-[hsl(var(--error))]" : amt > 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--warning))]"}`}>
-                        {formatCurrency(Math.round(amt * 100))}
-                      </p>
+                      <div className="shrink-0 text-right">
+                        <p className={`text-base font-semibold ${amt < 0 ? "text-[hsl(var(--error))]" : amt > 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--warning))]"}`}>
+                          {formatCurrency(Math.round(amt * 100))}
+                        </p>
+                        <p className="text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
+                          {amt === 0
+                            ? "unreadable"
+                            : importKind === "credit"
+                              ? (amt < 0 ? "purchase / charge" : "payment / refund")
+                              : (amt < 0 ? "money out" : "money in")}
+                        </p>
+                      </div>
                     </div>
                   );
                 })}
@@ -2011,14 +2038,14 @@ export default function ImportPage() {
             {/* Debit/Credit type column toggle */}
             <div className="pt-3 border-t space-y-3">
               <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">
-                Does your bank use a separate "Debit / Credit" column?
+                How does this file show its amounts? Check the raw text under each description above.
               </p>
               <div className="flex gap-3 text-sm flex-wrap">
                 <button
                   onClick={() => setColMap((m) => ({ ...m, typeCol: -1, debitCol: -1, creditCol: -1 }))}
                   className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.typeCol === -1 && colMap.debitCol === -1 && colMap.creditCol === -1 ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
                 >
-                  No - amounts are already signed
+                  One amount column
                 </button>
                 <button
                   onClick={() => {
@@ -2027,7 +2054,7 @@ export default function ImportPage() {
                   }}
                   className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.typeCol >= 0 ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
                 >
-                  Yes - one Transaction Type column
+                  A column says "Debit" or "Credit"
                 </button>
                 <button
                   onClick={() => {
@@ -2037,7 +2064,7 @@ export default function ImportPage() {
                   }}
                   className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.debitCol >= 0 || colMap.creditCol >= 0 ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
                 >
-                  Yes - separate Debit and Credit columns
+                  Two columns: Debit and Credit
                 </button>
               </div>
               {colMap.typeCol >= 0 && (
@@ -2071,61 +2098,36 @@ export default function ImportPage() {
 
             {/* Sign inversion toggle - for banks that export expenses as positive (Discover, Amex) */}
             <div className="pt-3 border-t space-y-2">
-              {importKind === "credit" ? (
-                <>
-                  <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">
-                    How does your statement show purchases vs. payments?
-                  </p>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                    Compass needs <strong>purchases</strong> (charges that increase what you owe) to end up <strong>negative</strong>,
-                    and <strong>payments toward the card</strong> (that reduce what you owe) to end up <strong>positive</strong> - the
-                    same way money-out vs. money-in works on a checking account. Check a purchase row and a payment row in the preview
-                    above: if purchases are already negative and payments already positive, leave this off. If it's the other way
-                    around, flip it.
-                  </p>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                    Look at the description text now shown above each amount in the preview - a row whose description mentions
-                    "PAYMENT" or your bank/card issuer's name is money paid <em>toward</em> the card, not a purchase.
-                  </p>
-                  <div className="flex gap-3 text-sm">
-                    <button
-                      onClick={() => setColMap((m) => ({ ...m, invertAmounts: false }))}
-                      className={`px-3 py-1.5 rounded-lg border transition-colors ${!colMap.invertAmounts ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
-                    >
-                      No - purchases negative, payments positive
-                    </button>
-                    <button
-                      onClick={() => setColMap((m) => ({ ...m, invertAmounts: true }))}
-                      className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.invertAmounts ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
-                    >
-                      Yes - flip (purchases positive, payments negative)
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">
-                    Are expenses shown as positive numbers?
-                  </p>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                    Some banks (Discover, Amex, Capital One) export purchases as positive values instead of negative. Enable this to flip all signs.
-                  </p>
-                  <div className="flex gap-3 text-sm">
-                    <button
-                      onClick={() => setColMap((m) => ({ ...m, invertAmounts: false }))}
-                      className={`px-3 py-1.5 rounded-lg border transition-colors ${!colMap.invertAmounts ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
-                    >
-                      No - standard signs
-                    </button>
-                    <button
-                      onClick={() => setColMap((m) => ({ ...m, invertAmounts: true }))}
-                      className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.invertAmounts ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
-                    >
-                      Yes - flip signs
-                    </button>
-                  </div>
-                </>
-              )}
+              <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">
+                Do the labels under the amounts above look right?
+              </p>
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                {importKind === "credit" ? (
+                  <>Each amount is labeled with what Compass will record it as. A store purchase should read{" "}
+                  <strong className="text-[hsl(var(--error))]">purchase / charge</strong>; a row like "PAYMENT THANK YOU"
+                  should read <strong className="text-[hsl(var(--success))]">payment / refund</strong>. Swapped? Flip the
+                  signs and watch the labels update.</>
+                ) : (
+                  <>Each amount is labeled with what Compass will record it as. A bill or grocery run should read{" "}
+                  <strong className="text-[hsl(var(--error))]">money out</strong>; a paycheck or deposit should read{" "}
+                  <strong className="text-[hsl(var(--success))]">money in</strong>. Swapped? Flip the signs and watch the
+                  labels update. (Discover, Amex, and Capital One exports usually need the flip.)</>
+                )}
+              </p>
+              <div className="flex gap-3 text-sm">
+                <button
+                  onClick={() => setColMap((m) => ({ ...m, invertAmounts: false }))}
+                  className={`px-3 py-1.5 rounded-lg border transition-colors ${!colMap.invertAmounts ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
+                >
+                  Keep signs as they are
+                </button>
+                <button
+                  onClick={() => setColMap((m) => ({ ...m, invertAmounts: true }))}
+                  className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.invertAmounts ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
+                >
+                  Flip the signs
+                </button>
+              </div>
             </div>
           </div>
 
@@ -2734,6 +2736,12 @@ export default function ImportPage() {
                 <span className="text-[hsl(var(--success))] font-semibold">{summary.imported} transactions</span>{" "}
                 imported
                 {summary.skipped > 0 && `, ${summary.skipped} duplicates skipped`}.
+                {!!summary.invalidCount && (
+                  <span className="block text-xs mt-1">
+                    {summary.invalidCount} {summary.invalidCount === 1 ? "row" : "rows"} without a usable date and
+                    amount (headers, totals, or memo lines) {summary.invalidCount === 1 ? "was" : "were"} left out.
+                  </span>
+                )}
                 {!profileFound && (
                   <span className="block text-xs mt-1">
                     Column layout saved - this bank's CSV will be recognized automatically next time.

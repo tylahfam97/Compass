@@ -2,6 +2,69 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.2.3 — Statements From Anywhere 🧭
+
+A statement should import correctly the first time, whatever bank it came from and however
+that bank likes to write its dates. This release widens the import wizard's understanding of
+real-world files, makes sure no row ever disappears silently, and quietly tightens the hull.
+
+### The import wizard reads more banks' dialects
+- Dates now parse in the forms banks actually export: two-digit years ("3/5/24"), dash
+  separators ("03-05-2024"), compact "20260905", trailing times ("09/05/2026 14:32", "2:32 PM"),
+  and unambiguous day-first dates ("25/12/2026"). Impossible dates are still rejected rather
+  than guessed.
+- Amounts now understand trailing minus signs ("12.34-"), currency codes ("USD 12.34"),
+  euro/pound/yen symbols, and European decimal commas ("1.234,56") - alongside the existing
+  parentheses, CR/DR suffixes, and separate debit/credit columns.
+- Multi-sheet Excel workbooks no longer assume the first sheet is the statement: the wizard
+  finds the sheet with a date-labeled header and data under it, so a "Summary" cover sheet
+  can't hijack the import.
+- A brokerage statement's "Priced as of" date is now found even behind a cover page or a long
+  disclaimer block, instead of silently stamping holdings with today's date.
+- Nothing vanishes without a trace: rows left out because they had no usable date and amount
+  (headers, totals, memo lines) are counted and named on the import summary, separate from
+  duplicates and real errors.
+- Fixed a subtle timezone bug where a written-out date ("March 5, 2024") could import as the
+  previous day for anyone east of UTC.
+
+### Rules that show their work
+- The Rules Manager now tests every rule as you type it: a live preview shows how many of your
+  last 1,000 transactions match, with the matched text marked in gold on real examples - so you
+  know a rule works before you save it, not after.
+- Saving a rule can now categorize your existing uncategorized transactions in the same breath,
+  and tells you exactly how many it touched.
+- Each rule row shows its priority, and editing tools moved to proper icons.
+
+### The amount step shows, not tells
+- Every previewed amount on the import wizard's Amount step is now labeled with exactly what
+  Compass will record it as - "money out" or "money in" on bank files, "purchase / charge" or
+  "payment / refund" on card statements. Flip the signs and the labels update in front of you;
+  two dense paragraphs of sign theory are gone.
+- The column-layout question now speaks plainly: one amount column, a Debit/Credit label
+  column, or two separate Debit and Credit columns.
+
+### The line chart knows its accounts
+- Slice a report by account and the line view draws one line per account. Keep the scope on
+  all accounts and it draws your cash &amp; debit and your credit cards as two independent
+  lines instead of one merged total - the two halves of your money, told apart.
+
+### Trust, visibly
+- If your system's credential store ever loses Compass's encryption key, Compass restores it
+  from the local backup key file - and now tells you it happened, right in the app, instead of
+  only whispering to a terminal nobody has open.
+
+### Blending in
+- The Transfers &amp; Excluded explainer on Transactions traded its bright blue emoji box for
+  the app's own quiet hairline-and-gold language.
+- The last off-palette colors are gone: indigo bars and lines in the debt payoff timeline and
+  portfolio charts now use Compass's own sea and success tones, stray emoji gave way to the
+  app's icon set, and new categories default to Compass gold instead of a borrowed blue.
+
+### Below decks
+- Deleting an account with a long import history now cleans up its orphaned import sessions in
+  one statement instead of one query per session.
+- Version 1.2.3 across the app, installers, and website.
+
 ## Compass 1.2.2 — Money That Is Actually Yours 🧭
 
 This release makes Compass honest about which money is spoken for and which is genuinely free,

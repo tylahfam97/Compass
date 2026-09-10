@@ -583,10 +583,10 @@ export default function BudgetsPage() {
             style={{ border: "1px solid rgba(192,138,28,0.35)", backgroundColor: "rgba(192,138,28,0.07)" }}
           >
             <div
-              className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-base"
+              className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
               style={{ backgroundColor: "rgba(192,138,28,0.15)" }}
             >
-              &#127760;
+              <GlobeIcon size={16} className="text-[hsl(var(--gold-ink))]" aria-hidden />
             </div>
             <div>
               <p className="text-sm font-semibold" style={{ color: "var(--gold)" }}>Global view active</p>
