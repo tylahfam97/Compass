@@ -1,0 +1,94 @@
+# =============================================================================
+# Compass — Download Statistics
+#
+# Runs nightly (and on demand) on the nginx self-hosted runner - the same box
+# that serves privatecompass.app - and publishes a private download-count
+# summary with zero external services:
+#
+#   1. GitHub per-version counts come straight from the Releases API
+#      (`download_count` per asset - GitHub already tracks these).
+#   2. Website counts come from the server's own nginx access logs. Requests
+#      to the stable symlinks (Compass.exe/.msi/.dmg) are attributed to a
+#      version using the hosted files' timestamps in /var/www/compass/downloads.
+#      Ubuntu's logrotate only keeps ~2 weeks of logs, so parsed days are
+#      merged into a state file in the runner user's home directory - history
+#      accumulates from the day this workflow first runs.
+#
+# Where to look:
+#   - https://privatecompass.app/stats/          hidden page (noindex, never
+#     linked; rename via STATS_DIR below if you want it less guessable)
+#   - The run's Actions summary tab              same table as Markdown
+#   - Optional email                             enable the last step
+#
+# The stats page is written into the website git checkout as an UNTRACKED
+# directory, so "Deploy Website"'s `git pull` never conflicts with it.
+#
+# ── OPTIONAL EMAIL SETUP ─────────────────────────────────────────────────────
+# Uncomment the "Email summary" step and add these repo secrets:
+#   MAIL_SERVER    e.g. smtp.gmail.com
+#   MAIL_PORT      e.g. 465
+#   MAIL_USERNAME  the sending account
+#   MAIL_PASSWORD  an app password (never your real password)
+#   MAIL_TO        where the summary goes
+# =============================================================================
+
+name: Download Statistics
+
+on:
+  schedule:
+    - cron: "17 6 * * *" # daily, 06:17 UTC (odd minute avoids the cron rush)
+  workflow_dispatch:
+
+env:
+  WEBSITE_PATH: /var/www/compass
+  DOWNLOADS_DIR: /var/www/compass/downloads
+  STATS_DIR: stats
+
+jobs:
+  stats:
+    name: Tally downloads and publish stats page
+    runs-on: [self-hosted, nginx]
+
+    steps:
+      - name: Check out repo (for the stats script)
+        uses: actions/checkout@v4
+
+      - name: Dump nginx access logs
+        # /var/log/nginx is root-readable; concatenate current + rotated logs
+        # into a runner-readable dump (oldest first so parsing reads forward).
+        run: |
+          set -e
+          DUMP="$RUNNER_TEMP/nginx-access-dump.log"
+          : > "$DUMP"
+          for f in $(sudo ls -1 /var/log/nginx/ | grep '^access\.log' | sort -rV); do
+            case "$f" in
+              *.gz) sudo zcat "/var/log/nginx/$f" >> "$DUMP" ;;
+              *)    sudo cat  "/var/log/nginx/$f" >> "$DUMP" ;;
+            esac
+          done
+          echo "LOG_DUMP=$DUMP" >> "$GITHUB_ENV"
+          wc -l "$DUMP"
+
+      - name: Generate stats page and summary
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          WEB_ROOT: ${{ env.WEBSITE_PATH }}/website
+        run: |
+          set -e
+          python3 scripts/generate-download-stats.py | tee "$RUNNER_TEMP/summary.md"
+          cat "$RUNNER_TEMP/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          echo "Published to $WEB_ROOT/$STATS_DIR/index.html"
+
+      # - name: Email summary
+      #   uses: dawidd6/action-send-mail@v3
+      #   with:
+      #     server_address: ${{ secrets.MAIL_SERVER }}
+      #     server_port: ${{ secrets.MAIL_PORT }}
+      #     username: ${{ secrets.MAIL_USERNAME }}
+      #     password: ${{ secrets.MAIL_PASSWORD }}
+      #     subject: "Compass downloads — ${{ github.run_started_at }}"
+      #     to: ${{ secrets.MAIL_TO }}
+      #     from: Compass Stats
+      #     convert_markdown: true
+      #     html_body: file://${{ runner.temp }}/summary.md
