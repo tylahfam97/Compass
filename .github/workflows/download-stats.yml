@@ -23,6 +23,17 @@
 # The stats page is written into the website git checkout as an UNTRACKED
 # directory, so "Deploy Website"'s `git pull` never conflicts with it.
 #
+# ── ONE-TIME SERVER SETUP ─────────────────────────────────────────────
+# No sudo is used here. Ubuntu keeps /var/log/nginx readable by the `adm`
+# group, so grant the runner user membership once and restart the runner
+# service so the new group applies to its sessions:
+#
+#   sudo usermod -aG adm $(whoami)
+#   sudo systemctl restart 'actions.runner.*'   # or reboot the box
+#
+# (A NOPASSWD sudoers wildcard for cat/zcat is NOT a good alternative -
+# sudoers glob arguments match `..` traversal and become a root file-read.)
+#
 # ── OPTIONAL EMAIL SETUP ─────────────────────────────────────────────────────
 # Uncomment the "Email summary" step and add these repo secrets:
 #   MAIL_SERVER    e.g. smtp.gmail.com
@@ -54,16 +65,26 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Dump nginx access logs
-        # /var/log/nginx is root-readable; concatenate current + rotated logs
-        # into a runner-readable dump (oldest first so parsing reads forward).
+        # Reads logs directly via `adm` group membership (see ONE-TIME SERVER
+        # SETUP above) - no sudo. Concatenated oldest-first so parsing reads
+        # forward in time. Fails loudly if the runner can't read the logs,
+        # instead of silently reporting zero website downloads.
         run: |
           set -e
           DUMP="$RUNNER_TEMP/nginx-access-dump.log"
           : > "$DUMP"
-          for f in $(sudo ls -1 /var/log/nginx/ | grep '^access\.log' | sort -rV); do
+          CAN_READ=0
+          for f in /var/log/nginx/access.log*; do
+            [ -r "$f" ] && CAN_READ=1 && break
+          done
+          if [ "$CAN_READ" = "0" ]; then
+            echo "::error title=Runner cannot read /var/log/nginx::One-time server setup needed. Run:  sudo usermod -aG adm $(whoami)  then restart the runner service (sudo systemctl restart 'actions.runner.*' or reboot) and re-run this workflow."
+            exit 1
+          fi
+          ls -1 /var/log/nginx/access.log* | sort -rV | while read -r f; do
             case "$f" in
-              *.gz) sudo zcat "/var/log/nginx/$f" >> "$DUMP" ;;
-              *)    sudo cat  "/var/log/nginx/$f" >> "$DUMP" ;;
+              *.gz) zcat "$f" >> "$DUMP" ;;
+              *)    cat  "$f" >> "$DUMP" ;;
             esac
           done
           echo "LOG_DUMP=$DUMP" >> "$GITHUB_ENV"
