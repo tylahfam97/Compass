@@ -10,37 +10,77 @@ function isRealCalendarDate(y: number, m: number, d: number): boolean {
 
 /** Parses a bank statement date cell into YYYY-MM-DD. Returns "" for a string that matches a
  *  known date shape but isn't a real calendar date (e.g. "02/31/2024"), so callers can skip the
- *  row the same way they already skip other invalid data. Unrecognized formats fall back to
- *  JS's native Date parser, unchanged from before. */
+ *  row the same way they already skip other invalid data. Handles the formats real bank exports
+ *  use: MM/DD/YYYY and MM-DD-YYYY (2- or 4-digit years), ISO, compact YYYYMMDD, month names
+ *  ("Jan 5, 2026", "05-Jan-2026"), and any of these with a trailing time ("09/05/2026 14:32").
+ *  Unambiguous DD/MM/YYYY (day > 12) is recognized too. Unrecognized formats fall back to JS's
+ *  native Date parser. */
 export function parseDate(s: string): string {
-  const slash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  // Strip a trailing time-of-day ("14:32", "14:32:15", "2:32 PM") - several banks export
+  // datetimes; the extra token otherwise pushes the whole cell to the native-Date fallback.
+  const cleaned = s.trim().replace(/[T ]\d{1,2}:\d{2}(:\d{2})?(\s*[AP]M)?$/i, "").trim();
+
+  const slash = cleaned.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2}|\d{4})$/);
   if (slash) {
-    const month = parseInt(slash[1], 10);
-    const day = parseInt(slash[2], 10);
-    const year = parseInt(slash[3], 10);
+    let month = parseInt(slash[1], 10);
+    let day = parseInt(slash[2], 10);
+    let year = parseInt(slash[3], 10);
+    if (slash[3].length === 2) year += year < 70 ? 2000 : 1900;
+    // "25/12/2026" can only be DD/MM - swap. Ambiguous cells (both parts <= 12) stay MM/DD.
+    if (month > 12 && day <= 12) [month, day] = [day, month];
     if (!isRealCalendarDate(year, month, day)) return "";
     return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   }
-  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const iso = cleaned.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (iso) {
     const year = parseInt(iso[1], 10);
     const month = parseInt(iso[2], 10);
     const day = parseInt(iso[3], 10);
-    return isRealCalendarDate(year, month, day) ? s : "";
+    return isRealCalendarDate(year, month, day) ? cleaned : "";
   }
-  const d = new Date(s);
-  return isNaN(d.getTime()) ? s : d.toISOString().split("T")[0];
+  const compact = cleaned.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (compact) {
+    const year = parseInt(compact[1], 10);
+    const month = parseInt(compact[2], 10);
+    const day = parseInt(compact[3], 10);
+    return isRealCalendarDate(year, month, day) ? `${compact[1]}-${compact[2]}-${compact[3]}` : "";
+  }
+  const d = new Date(cleaned);
+  if (isNaN(d.getTime())) return s;
+  // Local date parts, NOT toISOString() - native parsing lands on local midnight, which
+  // toISOString would roll back a day for anyone east of UTC.
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-/** Parses a bank statement amount cell into a signed dollar amount. Recognizes parentheses and
- *  a leading minus (existing behavior), plus a trailing "CR"/"DR" suffix (CR = credit/positive,
- *  DR = debit/negative) as an additional, backward-compatible detection rule. */
+/** Parses a bank statement amount cell into a signed dollar amount. Recognizes parentheses,
+ *  leading AND trailing minus signs, trailing "CR"/"DR" suffixes (CR = credit/positive,
+ *  DR = debit/negative), currency symbols/codes ($, €, £, ¥, "USD 12.34"), and European
+ *  decimal commas ("1.234,56"). Returns 0 for anything unparseable. */
 export function parseAmount(s: string): number {
   const suffixMatch = s.trim().match(/(cr|dr)$/i);
   const suffix = suffixMatch?.[1]?.toLowerCase();
   const withoutSuffix = suffix ? s.replace(/\s*(cr|dr)\s*$/i, "") : s;
-  const neg = withoutSuffix.includes("(") || withoutSuffix.trimStart().startsWith("-") || suffix === "dr";
-  const n = parseFloat(withoutSuffix.replace(/[$,\s()]/g, ""));
+  const neg =
+    withoutSuffix.includes("(") ||
+    withoutSuffix.trimStart().startsWith("-") ||
+    /-\s*$/.test(withoutSuffix) ||
+    suffix === "dr";
+  // Strip currency symbols, 3-letter currency codes ("USD 12.34" / "12.34 EUR"), parens,
+  // spaces and sign characters, leaving only digits and separators.
+  let t = withoutSuffix
+    .replace(/^\s*[A-Za-z]{3}\b/, "")
+    .replace(/\b[A-Za-z]{3}\s*$/, "")
+    .replace(/[$€£¥\s()+-]/g, "");
+  if (/^\d{1,3}(\.\d{3})+,\d{1,2}$/.test(t)) {
+    // European format with dot thousands + comma decimals: 1.234,56
+    t = t.replace(/\./g, "").replace(",", ".");
+  } else if (/^\d+,\d{1,2}$/.test(t)) {
+    // Bare decimal comma: 1234,56 (a US thousands comma always groups 3 digits)
+    t = t.replace(",", ".");
+  } else {
+    t = t.replace(/,/g, "");
+  }
+  const n = parseFloat(t);
   return isNaN(n) ? 0 : neg ? -Math.abs(n) : Math.abs(n);
 }
 

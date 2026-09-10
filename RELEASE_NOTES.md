@@ -2,6 +2,40 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.2.3 — Statements From Anywhere 🧭
+
+A statement should import correctly the first time, whatever bank it came from and however
+that bank likes to write its dates. This release widens the import wizard's understanding of
+real-world files, makes sure no row ever disappears silently, and quietly tightens the hull.
+
+### The import wizard reads more banks' dialects
+- Dates now parse in the forms banks actually export: two-digit years ("3/5/24"), dash
+  separators ("03-05-2024"), compact "20260905", trailing times ("09/05/2026 14:32", "2:32 PM"),
+  and unambiguous day-first dates ("25/12/2026"). Impossible dates are still rejected rather
+  than guessed.
+- Amounts now understand trailing minus signs ("12.34-"), currency codes ("USD 12.34"),
+  euro/pound/yen symbols, and European decimal commas ("1.234,56") - alongside the existing
+  parentheses, CR/DR suffixes, and separate debit/credit columns.
+- Multi-sheet Excel workbooks no longer assume the first sheet is the statement: the wizard
+  finds the sheet with a date-labeled header and data under it, so a "Summary" cover sheet
+  can't hijack the import.
+- A brokerage statement's "Priced as of" date is now found even behind a cover page or a long
+  disclaimer block, instead of silently stamping holdings with today's date.
+- Nothing vanishes without a trace: rows left out because they had no usable date and amount
+  (headers, totals, memo lines) are counted and named on the import summary, separate from
+  duplicates and real errors.
+- Fixed a subtle timezone bug where a written-out date ("March 5, 2024") could import as the
+  previous day for anyone east of UTC.
+
+### Blending in
+- The Transfers &amp; Excluded explainer on Transactions traded its bright blue emoji box for
+  the app's own quiet hairline-and-gold language.
+
+### Below decks
+- Deleting an account with a long import history now cleans up its orphaned import sessions in
+  one statement instead of one query per session.
+- Version 1.2.3 across the app, installers, and website.
+
 ## Compass 1.2.2 — Money That Is Actually Yours 🧭
 
 This release makes Compass honest about which money is spoken for and which is genuinely free,

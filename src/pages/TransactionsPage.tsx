@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowsDownUpIcon, ArrowUpIcon, ArrowDownIcon, PlusIcon, SparkleIcon, DownloadSimpleIcon, TagIcon, GearSixIcon, SlidersHorizontalIcon, CaretDownIcon, CaretUpIcon, UploadSimpleIcon, PencilSimpleIcon, NoteIcon, TrashIcon, ListIcon, TableIcon, DotsThreeIcon, ArrowDownLeftIcon, ArrowUpRightIcon } from "@phosphor-icons/react";
+import { ArrowsDownUpIcon, ArrowUpIcon, ArrowDownIcon, PlusIcon, SparkleIcon, DownloadSimpleIcon, TagIcon, GearSixIcon, SlidersHorizontalIcon, CaretDownIcon, CaretUpIcon, UploadSimpleIcon, PencilSimpleIcon, NoteIcon, TrashIcon, ListIcon, TableIcon, DotsThreeIcon, ArrowDownLeftIcon, ArrowUpRightIcon, ArrowsLeftRightIcon } from "@phosphor-icons/react";
 import { getDb, reapplyCategorizationRules } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
@@ -568,9 +568,9 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
 
       {/* Transfers explainer - shows once per session (or until permanently dismissed) */}
       {showTransferNotice && (
-        <div className="mb-4 rounded-xl px-4 py-3 flex items-start gap-3 text-sm"
-          style={{ border: "1px solid hsl(var(--primary)/0.35)", backgroundColor: "hsl(var(--primary)/0.06)" }}>
-          <span className="text-base leading-none mt-0.5">↔️</span>
+        <div className="mb-4 rounded-xl px-4 py-3 flex items-start gap-3 text-sm border"
+          style={{ borderColor: "hsl(var(--border))", backgroundColor: "hsl(var(--muted)/0.35)" }}>
+          <ArrowsLeftRightIcon size={16} weight="bold" className="mt-0.5 shrink-0 text-[hsl(var(--gold-ink))]" aria-hidden />
           <p className="flex-1 text-[hsl(var(--muted-foreground))]">
             <strong className="text-[hsl(var(--foreground))]">Transfers</strong> and <strong className="text-[hsl(var(--foreground))]">Excluded</strong> aren't spending or income - {EXCLUSION_DISCLAIMER_TEXT}
           </p>

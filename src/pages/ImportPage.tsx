@@ -54,8 +54,9 @@ function backTargetFor(step: Step): Step {
  *  first) - shared by the interactive wizard (processFile) and the "Auto-Import All" batch
  *  path (autoImportFile) so every supported file type behaves the same in both. PDFs only ever
  *  yield a synthetic Date/Description/Amount header (see parsePdfStatement) since there's no
- *  real column structure to detect in a statement's text layer. XLSX uses the first sheet -
- *  multi-sheet investment workbooks are handled separately in processFile's investment branch. */
+ *  real column structure to detect in a statement's text layer. XLSX picks the first sheet that
+ *  looks like a statement (multi-sheet investment workbooks are handled separately in
+ *  processFile's investment branch). */
 async function readStatementRows(file: File): Promise<string[][]> {
   if (/\.pdf$/i.test(file.name)) {
     const { headers, rows } = await parsePdfStatement(file);
@@ -64,8 +65,20 @@ async function readStatementRows(file: File): Promise<string[][]> {
   if (/\.xlsx?$/i.test(file.name)) {
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: "array", cellDates: false });
-    const raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "", raw: false }) as unknown[][];
-    return raw.map((row) => row.map((c) => (c === null || c === undefined ? "" : String(c))));
+    const toRows = (name: string) =>
+      (XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: "", raw: false }) as unknown[][])
+        .map((row) => row.map((c) => (c === null || c === undefined ? "" : String(c))));
+    // Banks sometimes export "Summary | Transactions | ..." workbooks - prefer the first sheet
+    // whose top rows include a date-labeled header with data under it, falling back to sheet 1.
+    const looksLikeStatement = (rows: string[][]) =>
+      rows.slice(0, 10).some((r, i) => r.some((c) => /date/i.test(c)) && rows.length > i + 1);
+    const first = toRows(wb.SheetNames[0]);
+    if (wb.SheetNames.length === 1 || looksLikeStatement(first)) return first;
+    for (const name of wb.SheetNames.slice(1)) {
+      const rows = toRows(name);
+      if (looksLikeStatement(rows)) return rows;
+    }
+    return first;
   }
   return new Promise((resolve, reject) => {
     Papa.parse<string[]>(file, {
@@ -249,6 +262,10 @@ interface ParsedData {
 interface Summary {
   imported: number;
   skipped: number;
+  /** Rows left out because they didn't parse as a transaction (no valid date, empty
+   *  description, or zero/unreadable amount) - typically a statement's header, total, or memo
+   *  lines. Surfaced on the done screen so no row ever disappears without a trace. */
+  invalidCount?: number;
   /** How many imported rows were auto-categorized as Transfers/Excluded (e.g. a credit-card
    *  payment) - shown on the "done" screen so it's clear those won't double-count against
    *  income/expense totals. */
@@ -1193,6 +1210,7 @@ export default function ImportPage() {
       let keptManualCount = 0;
       let replacedManualCount = 0;
       let deletedAnyManual = false;
+      let invalidCount = 0;
       const dupByRow = new Map(dupCandidates.map((c) => [c.rowIndex, c]));
       const rowErrors: { index: number; message: string }[] = [];
 
@@ -1210,11 +1228,11 @@ export default function ImportPage() {
         }
         if (colMap.typeCol >= 0) requiredCols.push(colMap.typeCol);
         const maxIdx = Math.max(...requiredCols);
-        if (row.length <= maxIdx) continue;
+        if (row.length <= maxIdx) { invalidCount++; continue; }
         const date = parseDate(row[colMap.dateCol] ?? "");
         const description = (row[colMap.descCol] ?? "").trim();
         const amount = computeRowAmount(row, colMap);
-        if (!date || !description || !isFinite(amount) || amount === 0) continue;
+        if (!date || !description || !isFinite(amount) || amount === 0) { invalidCount++; continue; }
 
         const dup = dupByRow.get(rowIndex);
         if (dup?.resolution === "keep_manual") { keptManualCount++; continue; }
@@ -1307,7 +1325,7 @@ export default function ImportPage() {
         await recomputeCalculatedBalances(accountId);
       }
 
-      setSummary({ imported, skipped, transferCount, errors: rowErrors, keptManualCount, replacedManualCount });
+      setSummary({ imported, skipped, invalidCount, transferCount, errors: rowErrors, keptManualCount, replacedManualCount });
       await loadHistory();
       setStep("done");
       setImportSubmitting(false);
@@ -1360,7 +1378,7 @@ export default function ImportPage() {
         [file.name, profileId]
       );
       const sessionId = sessionResult.lastInsertId as number;
-      let imported = 0; let skipped = 0; let transferCount = 0;
+      let imported = 0; let skipped = 0; let transferCount = 0; let invalidCount = 0;
       const rowErrors: { index: number; message: string }[] = [];
       const seenHashCounts = new Map<string, number>();
       const rowPayloads: { params: unknown[]; categoryId: number | null }[] = [];
@@ -1373,11 +1391,11 @@ export default function ImportPage() {
           reqCols.push(savedColMap.amountCol);
         }
         if (savedColMap.typeCol >= 0) reqCols.push(savedColMap.typeCol);
-        if (row.length <= Math.max(...reqCols)) continue;
+        if (row.length <= Math.max(...reqCols)) { invalidCount++; continue; }
         const date = parseDate(row[savedColMap.dateCol] ?? "");
         const description = (row[savedColMap.descCol] ?? "").trim();
         const amount = computeRowAmount(row, savedColMap);
-        if (!date || !description || !isFinite(amount) || amount === 0) continue;
+        if (!date || !description || !isFinite(amount) || amount === 0) { invalidCount++; continue; }
         const amountCents = Math.round(amount * 100);
         const hash = await dedupeRowHash(row, seenHashCounts);
         const categoryId = applyCategorizationRules(description, rules, amountCents);
@@ -1419,7 +1437,7 @@ export default function ImportPage() {
         await recomputeCalculatedBalances(accountId);
       }
       await loadHistory();
-      setSummary({ imported, skipped, transferCount, errors: rowErrors });
+      setSummary({ imported, skipped, invalidCount, transferCount, errors: rowErrors });
       setStep("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -2734,6 +2752,12 @@ export default function ImportPage() {
                 <span className="text-[hsl(var(--success))] font-semibold">{summary.imported} transactions</span>{" "}
                 imported
                 {summary.skipped > 0 && `, ${summary.skipped} duplicates skipped`}.
+                {!!summary.invalidCount && (
+                  <span className="block text-xs mt-1">
+                    {summary.invalidCount} {summary.invalidCount === 1 ? "row" : "rows"} without a usable date and
+                    amount (headers, totals, or memo lines) {summary.invalidCount === 1 ? "was" : "were"} left out.
+                  </span>
+                )}
                 {!profileFound && (
                   <span className="block text-xs mt-1">
                     Column layout saved - this bank's CSV will be recognized automatically next time.
