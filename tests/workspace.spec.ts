@@ -244,6 +244,9 @@ test("Insights leads with full-width financial context above review", async ({ p
   await page.goto('/agent');
   await expect(page.getByRole('region', { name: 'Financial context and scores', exact: true })).toBeVisible();
   await expect(page.locator('.insights-context-content')).toBeVisible();
+  // The scheduled Rent rule (due tomorrow) drives a review row on any date, with its figure.
+  await expect(page.getByRole('region', { name: 'Items to review' })).toContainText('Rent');
+  await expect(page.getByRole('region', { name: 'Items to review' })).toContainText('$1,500');
   for (const width of [390, 2560]) {
     await page.setViewportSize({ width, height: 1000 });
     await expect.poll(() => page.evaluate(() => {
