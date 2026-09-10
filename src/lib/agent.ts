@@ -9,7 +9,7 @@ import { chargeKey } from "./hiddenCharges";
 import { formatCurrencyWhole as formatCents, formatCurrency, formatDate } from "./utils";
 import { evaluateBudgetPeriod, type BudgetDefinition } from "./budgetMetrics";
 import { expandOccurrences, projectCashFlow, toISODate, chargeMatchesRule } from "./forecast";
-import { getPlannedRules, plannedMonthlyIncomeCents, getFixedFlexibleInputs } from "./plannedRules";
+import { getPlannedRules, plannedMonthlyIncomeCents, plannedMonthlyBillsCents, getFixedFlexibleInputs } from "./plannedRules";
 import { detectRecurringCharges } from "./recurringCharges";
 import { loadScenario } from "./planScenario";
 import { merchantKey } from "./merchants";
@@ -1539,7 +1539,10 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   // ── INSIGHT: fixed_costs_high (from the same maths as the page instrument) ──
   {
     const months = monthsWithIncome(shapeTxns, completeMonths.slice(0, 3).map((m) => m.month));
-    const summary = summarizeFixedFlexible(shapeTxns, billRules, detectedLike, months, plannedMonthlyIncomeCents(planned.activeRules));
+    const summary = summarizeFixedFlexible(shapeTxns, billRules, detectedLike, months, {
+      incomeCents: plannedMonthlyIncomeCents(planned.activeRules),
+      billsCents: plannedMonthlyBillsCents(planned.activeRules),
+    });
     if (summary && summary.committedShare !== null && summary.avgIncomeCents >= 50000 && summary.committedShare >= 0.5) {
       const committed = summary.avgBillsCents + summary.avgRecurringCents;
       const incomeWord = summary.incomeBasis === "planned" ? "planned income" : "income";
@@ -1637,7 +1640,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
       const candidates = recent
         .filter((r) => r.date >= since && r.amount_cents < 0 && -r.amount_cents >= threshold
           && !isExcludedCategory(r.category_id) && r.category_id !== 12 && r.category_id !== 22
-          && classifyExpense({ date: r.date, amount_cents: r.amount_cents, description: r.description, account_type: r.account_type, category_id: r.category_id }, billRules, detectedLike) === "flexible")
+          && ["flexible", "oneoff"].includes(classifyExpense({ date: r.date, amount_cents: r.amount_cents, description: r.description, account_type: r.account_type, category_id: r.category_id }, billRules, detectedLike)))
         .sort((a, b) => a.amount_cents - b.amount_cents)
         .slice(0, 2);
       for (const r of candidates) {
@@ -2529,7 +2532,10 @@ export async function computeDebtPayoffPlan(profileIds: number[], debts: DebtPay
   //    normal flexible spending - what is actually available before cutting anything.
   const ff = await getFixedFlexibleInputs(profileIds);
   const ffMonths = monthsWithIncome(ff.txns, ff.candidateMonths);
-  const ffSummary = summarizeFixedFlexible(ff.txns, ff.bills, ff.detected, ffMonths, ff.plannedIncomeCents);
+  const ffSummary = summarizeFixedFlexible(ff.txns, ff.bills, ff.detected, ffMonths, {
+    incomeCents: ff.plannedIncomeCents,
+    billsCents: ff.plannedBillsCents,
+  });
   const freeCash = ffSummary && ffSummary.avgIncomeCents > 0
     ? {
         cents: ffSummary.avgLeftCents,

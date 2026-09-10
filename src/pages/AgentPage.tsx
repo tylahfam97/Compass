@@ -933,7 +933,10 @@ export default function AgentPage() {
 
       // The instrument: only complete months that actually had income count toward the average.
       const ffMonths = monthsWithIncome(fixedFlexInputs.txns, fixedFlexInputs.candidateMonths);
-      const ffSummary = summarizeFixedFlexible(fixedFlexInputs.txns, fixedFlexInputs.bills, fixedFlexInputs.detected, ffMonths, fixedFlexInputs.plannedIncomeCents);
+      const ffSummary = summarizeFixedFlexible(fixedFlexInputs.txns, fixedFlexInputs.bills, fixedFlexInputs.detected, ffMonths, {
+        incomeCents: fixedFlexInputs.plannedIncomeCents,
+        billsCents: fixedFlexInputs.plannedBillsCents,
+      });
       if (ffSummary && ffSummary.avgIncomeCents > 0) {
         const newest = ffMonths[0];
         const oldest = ffMonths[ffMonths.length - 1];
@@ -1204,7 +1207,6 @@ export default function AgentPage() {
             <FixedFlexibleBar
               summary={fixedFlex.summary}
               monthsLabel={fixedFlex.label}
-              topCategory={spendingProfile && spendingProfile.topCategoryAvg > 0 ? { name: spendingProfile.topCategory, cents: spendingProfile.topCategoryAvg } : null}
             />
           </motion.div>
         )}

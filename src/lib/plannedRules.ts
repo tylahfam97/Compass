@@ -67,6 +67,13 @@ export function plannedMonthlyIncomeCents(activeRules: Pick<RecurringRule, "amou
     .reduce((sum, r) => sum + monthlyEquivalentCents(r), 0);
 }
 
+/** The bills the user scheduled in Plan as a positive monthly figure - the committed side. */
+export function plannedMonthlyBillsCents(activeRules: Pick<RecurringRule, "amount_cents" | "cadence">[]): number {
+  return activeRules
+    .filter((r) => r.amount_cents < 0)
+    .reduce((sum, r) => sum + Math.abs(monthlyEquivalentCents(r)), 0);
+}
+
 /** Rows and schedules the "Fixed and flexible" instrument needs, summed across profiles. */
 export interface FixedFlexibleInputs {
   txns: ShapeTxn[];
@@ -76,6 +83,8 @@ export interface FixedFlexibleInputs {
   candidateMonths: string[];
   /** Monthly-equivalent income from the user's own Plan rules; 0 when none are scheduled. */
   plannedIncomeCents: number;
+  /** Monthly-equivalent bills from the user's own Plan rules, as a positive number. */
+  plannedBillsCents: number;
 }
 
 export async function getFixedFlexibleInputs(profileIds: number[], today: Date = new Date()): Promise<FixedFlexibleInputs> {
@@ -89,11 +98,13 @@ export async function getFixedFlexibleInputs(profileIds: number[], today: Date =
   const bills: ScheduledLike[] = [];
   const detected: ScheduledLike[] = [];
   let plannedIncomeCents = 0;
+  let plannedBillsCents = 0;
   for (const profileId of profileIds) {
     const [rows, planned] = await Promise.all([
       db.select<ShapeTxn[]>(
-        `SELECT t.date, t.amount_cents, t.description, a.account_type, t.category_id
+        `SELECT t.date, t.amount_cents, t.description, a.account_type, t.category_id, c.name as category_name
          FROM transactions t JOIN accounts a ON a.id=t.account_id
+         LEFT JOIN categories c ON c.id=t.category_id
          WHERE t.profile_id=? AND a.excluded_from_insights=0 AND a.account_type!='loan'
            AND t.date>=? AND t.date<?`,
         [profileId, windowStart, thisStart]
@@ -104,6 +115,7 @@ export async function getFixedFlexibleInputs(profileIds: number[], today: Date =
     bills.push(...planned.activeRules.filter((r) => r.amount_cents < 0).map((r) => ({ description: r.description, amount_cents: r.amount_cents })));
     detected.push(...planned.detectedCharges.map((c) => ({ description: c.description, amount_cents: c.amount_cents })));
     plannedIncomeCents += plannedMonthlyIncomeCents(planned.activeRules);
+    plannedBillsCents += plannedMonthlyBillsCents(planned.activeRules);
   }
-  return { txns, bills, detected, candidateMonths, plannedIncomeCents };
+  return { txns, bills, detected, candidateMonths, plannedIncomeCents, plannedBillsCents };
 }
