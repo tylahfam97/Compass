@@ -11,7 +11,9 @@ puts a report builder on the plotting table, and gives Trends a voice of its own
 - Reports opens with a plotting table: measure spending, income, net, or purchase counts;
   slice by category, merchant, account, month, or weekday; look back 3, 6, 12 months or all
   time; and draw the result as a line-by-line sheet, ranked bars, a wheel, or a line through
-  time. A month split turns the sheet into a pivot and the line into one series per slice.
+  time. Split any cut by month or by account - pivot columns on the sheet, segments on the
+  bars, one series per account on the line - and scope it to all accounts, cash &amp; debit
+  only, or credit cards only.
 - Merchants fold on their cleaned identity ("SQ *BLUE BOTTLE 05/21…" and "BLUE BOTTLE #12"
   are one row), a description search narrows any cut, and everything past the top rows folds
   into one honest "Everything else" line. Name a cut and save it; presets live on the page.

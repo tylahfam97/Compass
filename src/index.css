@@ -451,24 +451,6 @@ select.activity-category { background: hsl(var(--surface)); }
   font-size: 13px;
   width: 180px;
 }
-.trend-chips-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  padding: 4px 10px;
-  border-radius: 9999px;
-  border: 1px solid hsl(var(--border));
-  color: hsl(var(--muted-foreground));
-  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
-}
-.trend-chips-chip:hover:not(:disabled) { color: hsl(var(--foreground)); background: hsl(var(--muted)); }
-.trend-chips-chip[aria-pressed="true"] {
-  color: hsl(var(--foreground));
-  border-color: hsl(var(--primary) / 0.6);
-  background: hsl(var(--primary) / 0.08);
-}
-.trend-chips-chip:disabled { opacity: 0.45; }
 .rb-presets { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
 .rb-preset {
   display: inline-flex;
