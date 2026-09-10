@@ -185,7 +185,7 @@ h1, h2, h3 {
 }
 @container (max-width: 719px) {
   .workspace-page { padding: 20px 16px 32px; }
-  .trends-workspace .grid-cols-3, .overview-workspace > .grid { grid-template-columns: minmax(0, 1fr); }
+  .overview-workspace > .grid { grid-template-columns: minmax(0, 1fr); }
   .app-workspace .goal-grid { grid-template-columns: minmax(0, 1fr); }
   .insights-heading { padding-inline: 16px; }
   .insights-context-content .grid-cols-2 { grid-template-columns: minmax(0, 1fr); }
@@ -367,6 +367,158 @@ select.activity-category { background: hsl(var(--surface)); }
 .goal-current { display: block; font-size: 28px; line-height: 1.4; font-weight: 600; overflow-wrap: anywhere; }
 .budget-item { border-bottom: 1px solid hsl(var(--border)); }
 .budget-summary strong { font-size: 26px; overflow-wrap: anywhere; }
+
+/* ── Trends: the ship's log ──────────────────────────────────────────
+   One editorial column: a serif hero over the gold voyage line, then hairline sections.
+   A gold top rule on a section is the app's existing "click for detail" affordance (same
+   code as .chart-clickable); plain sections keep the quiet grey hairline. */
+.trends-hero { padding-block: 4px 8px; }
+.trends-hero-stats { display: flex; gap: 12px 36px; flex-wrap: wrap; margin: 0; }
+.trends-hero-stats dt { font-size: 12px; color: hsl(var(--muted-foreground)); margin-bottom: 4px; }
+.trends-hero-stats dd { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.trends-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+  padding: 10px 14px;
+  border-left: 2px solid hsl(var(--primary));
+  border-radius: 0 8px 8px 0;
+  background: hsl(var(--surface-raised) / 0.6);
+}
+.trend-section { border-top: 1px solid hsl(var(--border)); padding-top: 18px; }
+.trend-section[data-drill] { border-top-color: hsl(var(--primary) / 0.55); }
+.trend-section-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 32px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.trend-section-head h2 { font-size: 15px; line-height: 1.3; }
+.trend-kicker { font-size: 12px; color: hsl(var(--muted-foreground)); margin-top: 3px; max-width: 62ch; }
+.trend-readout { text-align: right; }
+.trend-readout strong { display: block; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.trend-readout small { font-size: 11px; color: hsl(var(--muted-foreground)); }
+.trend-legend { display: flex; gap: 16px; font-size: 12px; color: hsl(var(--muted-foreground)); margin-bottom: 4px; }
+.trend-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.trend-legend i { width: 10px; height: 10px; border-radius: 9999px; }
+.trend-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.trend-chips button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  border: 1px solid hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+.trend-chips button:hover { color: hsl(var(--foreground)); background: hsl(var(--muted)); }
+.trend-chips button[aria-pressed="true"] {
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--primary) / 0.6);
+  background: hsl(var(--primary) / 0.08);
+}
+@media (max-width: 640px) {
+  .trend-readout { text-align: left; }
+  .trends-hero-stats { gap: 8px 24px; }
+  .trends-hero-stats dd { font-size: 17px; }
+}
+
+/* ── Reports: the plotting table ────────────────────────────────────
+   Any cut of the ledger, drawn four ways. The gold top rule marks it as an instrument you
+   work; the control rail sits on a raised chart-paper surface, the result reads in serif. */
+.report-builder { border-top: 1px solid hsl(var(--primary) / 0.55); padding-top: 18px; }
+.rb-rail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 28px;
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: hsl(var(--surface-raised) / 0.55);
+  border-radius: 8px;
+}
+.rb-group { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.rb-group > span { font-size: 11px; font-weight: 500; color: hsl(var(--muted-foreground)); }
+.rb-search {
+  background: hsl(var(--surface));
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 13px;
+  width: 180px;
+}
+.rb-presets { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+.rb-preset {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid hsl(var(--border));
+  border-radius: 9999px;
+  overflow: hidden;
+  font-size: 12px;
+}
+.rb-preset > button:first-child { padding: 4px 6px 4px 10px; }
+.rb-preset > button:first-child:hover { background: hsl(var(--muted)); }
+.rb-preset > button:last-child { padding: 4px 8px 4px 4px; color: hsl(var(--muted-foreground)); }
+.rb-preset > button:last-child:hover { color: hsl(var(--error)); }
+.rb-preset-naming input { background: transparent; border: 0; outline: none; padding: 4px 4px 4px 10px; font-size: 12px; width: 140px; }
+.rb-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  border: 1px dashed hsl(var(--border));
+  color: hsl(var(--gold-ink));
+}
+.rb-save:hover { border-style: solid; background: hsl(var(--primary) / 0.08); }
+.rb-canvas { margin-top: 16px; }
+.rb-sheet { overflow-x: auto; }
+.rb-sheet table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 520px; }
+.rb-sheet th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+  padding: 8px 10px;
+  border-bottom: 1px solid hsl(var(--border));
+  white-space: nowrap;
+}
+.rb-sheet td { padding: 9px 10px; border-bottom: 1px solid hsl(var(--border) / 0.5); max-width: 260px; }
+.rb-sheet th.rb-num, .rb-sheet td.rb-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rb-sheet tbody tr:hover { background: hsl(var(--muted) / 0.4); }
+.rb-sheet tfoot td { border-top: 1px solid hsl(var(--border)); border-bottom: 0; font-weight: 600; }
+.rb-donut { display: grid; grid-template-columns: minmax(0, 1fr) minmax(200px, 280px); gap: 24px; align-items: center; }
+.rb-donut-plot { position: relative; }
+.rb-donut-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.rb-donut-center strong {
+  font-family: var(--font-serif);
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.rb-donut-center small { font-size: 11px; color: hsl(var(--muted-foreground)); margin-top: 2px; }
+.rb-donut-legend { font-size: 12px; min-width: 0; }
+.rb-donut-legend li { display: flex; align-items: center; gap: 8px; padding-block: 7px; border-bottom: 1px solid hsl(var(--border) / 0.5); min-width: 0; }
+.rb-donut-legend li .truncate { flex: 1; }
+.rb-donut-legend strong { font-variant-numeric: tabular-nums; font-weight: 500; }
+@container (max-width: 719px) {
+  .rb-donut { grid-template-columns: minmax(0, 1fr); }
+  .rb-search { width: 100%; }
+}
 .report-summary strong { font-size: 28px; overflow-wrap: anywhere; }
 .reports-workspace > section { border-bottom: 1px solid hsl(var(--border)); padding-bottom: 24px; }
 .report-category-row { padding-block: 10px; }

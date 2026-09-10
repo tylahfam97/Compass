@@ -61,7 +61,9 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
     computeDebtPayoffPlan(profileIds, debts).then((p) => {
       if (cancelled) return;
       setPlan(p);
-      setSelectedCategoryIds(new Set(p.discretionaryBreakdown.map((c) => c.categoryId)));
+      // Cuts start unselected: the redirect works from genuinely free money, and trimming a
+      // category is an opt-in commitment on top, not an assumption.
+      setSelectedCategoryIds(new Set());
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -76,7 +78,11 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
       .reduce((s, c) => s + c.avgMonthlyCents, 0);
   }, [plan, selectedCategoryIds]);
 
-  const extraMonthlyCents = Math.round((selectedTotalCents * redirectPct) / 100);
+  // The slider spends only money that is genuinely free after bills, recurring charges and
+  // normal spending; category cuts are added on top as an explicit commitment.
+  const freeAvailableCents = Math.max(0, plan?.freeCash?.cents ?? 0);
+  const freeRedirectCents = Math.round((freeAvailableCents * redirectPct) / 100);
+  const extraMonthlyCents = freeRedirectCents + selectedTotalCents;
 
   const customResult = useMemo(
     () => (plan ? simulateCustomDebtPayoff(plan.simDebts, extraMonthlyCents, "avalanche") : null),
@@ -157,7 +163,7 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
   const monthsSavedVsBaseline = plan && customResult && plan.baseline.monthsToPayoff != null && customResult.monthsToPayoff != null
     ? plan.baseline.monthsToPayoff - customResult.monthsToPayoff : 0;
   const interestSavedVsBaseline = plan && customResult ? plan.baseline.totalInterestCents - customResult.totalInterestCents : 0;
-  const cushionCents = plan ? plan.discretionaryTotalCents - extraMonthlyCents : 0;
+  const cushionCents = freeAvailableCents - freeRedirectCents;
 
   const hoveredCategoryData = hoveredCategory
     ? plan?.discretionaryBreakdown.find((c) => c.categoryId === hoveredCategory.id)
@@ -229,16 +235,78 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
               </div>
             )}
 
-            {/* What can be cut - now interactive: toggle categories in/out of the redirect */}
+            {/* Live redirect slider - spends only money that is genuinely free */}
+            <div className="border rounded-xl p-4 space-y-3">
+              <h3 className="text-xs font-semibold text-[hsl(var(--muted-foreground))] flex items-center gap-1.5">
+                <SlidersHorizontalIcon size={13} /> Redirect Free Money Toward Debt
+                <InfoTooltip text="Free money is what a typical month leaves over after scheduled bills, detected recurring charges, and your normal everyday spending - measured against the income you scheduled in Plan when one exists. It's the amount you can commit without changing how you live. The slider chooses how much of it goes to debt; cutting categories below adds more on top." />
+              </h3>
+              {plan.freeCash ? (
+                <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                  A typical month: {formatCurrency(plan.freeCash.incomeCents)} {plan.freeCash.incomeBasis === "planned" ? "planned income" : "average income"} − {formatCurrency(plan.freeCash.committedCents)} bills &amp; recurring − {formatCurrency(plan.freeCash.flexibleCents)} everyday
+                  spending leaves <span className="font-semibold text-[hsl(var(--foreground))]">{formatCurrency(Math.max(0, plan.freeCash.cents))}/mo genuinely free</span>.
+                  {plan.freeCash.cents < 0 && <> Spending currently runs past income, so there is no free cash to redirect - the cuts below are the honest starting point.</>}
+                  {plan.freeCash.incomeBasis === "actual" && <> Based on average deposits; schedule your paycheck in Plan to measure this against planned income only.</>}
+                </p>
+              ) : (
+                <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                  No complete month with income on record yet, so free money can't be measured - category cuts below still work.
+                </p>
+              )}
+              <div className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={redirectPct}
+                  onChange={(e) => setRedirectPct(Number(e.target.value))}
+                  disabled={freeAvailableCents === 0}
+                  className="flex-1 accent-[hsl(var(--primary))] disabled:opacity-40"
+                />
+                <span className="text-sm font-bold tabular-nums w-12 text-right">{redirectPct}%</span>
+              </div>
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                Redirecting <span className="font-semibold text-[hsl(var(--foreground))]">{formatCurrency(extraMonthlyCents)}/mo</span> on
+                top of minimum payments{selectedTotalCents > 0 && <> ({formatCurrency(freeRedirectCents)} free cash + {formatCurrency(selectedTotalCents)} from cuts)</>},
+                keeping <span className="font-semibold text-[hsl(var(--foreground))]">{formatCurrency(cushionCents)}/mo</span> of
+                free money untouched as breathing room.
+              </p>
+
+              <div className="grid grid-cols-2 gap-3 pt-2 border-t">
+                <div>
+                  <p className="text-2xl font-black tabular-nums">{monthsLabel(customResult.monthsToPayoff)}</p>
+                  <p className="text-[11px] text-[hsl(var(--muted-foreground))]">
+                    {customResult.payoffDate ? `Debt-free by ${customResult.payoffDate}` : "at this pace"}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-black tabular-nums">{formatCurrency(customResult.totalInterestCents)}</p>
+                  <p className="text-[11px] text-[hsl(var(--muted-foreground))]">Total interest paid</p>
+                </div>
+              </div>
+
+              {/* Always rendered (space reserved even with nothing to show) so this row appearing/
+                  disappearing doesn't shift the modal's height while dragging the slider. */}
+              <div className={`flex justify-between text-xs text-[hsl(var(--success))] pt-2 border-t ${monthsSavedVsBaseline > 0 || interestSavedVsBaseline > 0 ? "" : "invisible"}`}>
+                <span>vs. Stay the Course ({monthsLabel(plan.baseline.monthsToPayoff)}, {formatCurrency(plan.baseline.totalInterestCents)} interest)</span>
+                <span className="font-medium text-right">
+                  {monthsSavedVsBaseline > 0 ? `${monthsLabel(monthsSavedVsBaseline)} faster` : ""}
+                  {monthsSavedVsBaseline > 0 && interestSavedVsBaseline > 0 ? ", " : ""}
+                  {interestSavedVsBaseline > 0 ? `${formatCurrency(interestSavedVsBaseline)} saved` : ""}
+                </span>
+              </div>
+            </div>
+
+            {/* What can be cut - opt-in commitments layered on top of the free-cash redirect */}
             <div>
               <h3 className="text-xs font-semibold text-[hsl(var(--muted-foreground))] mb-2 flex items-center gap-1.5">
                 <ScissorsIcon size={13} /> What Can Be Cut
-                <InfoTooltip text="Average monthly spend over your recent history in categories that are typically discretionary - entertainment, shopping, subscriptions, personal care, gifts, gambling, and travel. Only counts spending from checking/savings accounts (real cash on hand) - purchases already made on a credit card or loan aren't available to redirect, since that balance is already part of the debt you're paying off. Essentials like housing, groceries, and bills aren't included either. Tap a category to include or exclude it from what you redirect below." />
+                <InfoTooltip text="Average monthly spend over your recent history in categories that are typically discretionary - entertainment, shopping, subscriptions, personal care, gifts, gambling, and travel. Only counts spending from checking/savings accounts (real cash on hand) - purchases already made on a credit card or loan aren't available to redirect, since that balance is already part of the debt you're paying off. Essentials like housing, groceries, and bills aren't included either. Tap a category to commit that average spend on top of the free money redirected above." />
               </h3>
               {plan.discretionaryBreakdown.length === 0 ? (
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                  No discretionary spending detected yet in your recent history - the slider below won't have much to work
-                  with until there's more data, or you free up cash some other way.
+                  No discretionary spending detected in your recent history - nothing extra to cut on top of your free money.
                 </p>
               ) : (
                 <div className="space-y-1.5">
@@ -266,60 +334,11 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
                     );
                   })}
                   <div className="flex items-center gap-2 text-sm pt-1.5 border-t font-semibold">
-                    <span className="flex-1">Selected - available to redirect</span>
+                    <span className="flex-1">Cuts added on top of free money</span>
                     <span>{formatCurrency(selectedTotalCents)}/mo</span>
                   </div>
                 </div>
               )}
-            </div>
-
-            {/* Live redirect slider */}
-            <div className="border rounded-xl p-4 space-y-3">
-              <h3 className="text-xs font-semibold text-[hsl(var(--muted-foreground))] flex items-center gap-1.5">
-                <SlidersHorizontalIcon size={13} /> Redirect Toward Debt
-              </h3>
-              <div className="flex items-center gap-3">
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={redirectPct}
-                  onChange={(e) => setRedirectPct(Number(e.target.value))}
-                  disabled={selectedTotalCents === 0}
-                  className="flex-1 accent-[hsl(var(--primary))] disabled:opacity-40"
-                />
-                <span className="text-sm font-bold tabular-nums w-12 text-right">{redirectPct}%</span>
-              </div>
-              <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                Redirecting <span className="font-semibold text-[hsl(var(--foreground))]">{formatCurrency(extraMonthlyCents)}/mo</span> on
-                top of minimum payments, keeping <span className="font-semibold text-[hsl(var(--foreground))]">{formatCurrency(cushionCents)}/mo</span> as
-                breathing room.
-              </p>
-
-              <div className="grid grid-cols-2 gap-3 pt-2 border-t">
-                <div>
-                  <p className="text-2xl font-black tabular-nums">{monthsLabel(customResult.monthsToPayoff)}</p>
-                  <p className="text-[11px] text-[hsl(var(--muted-foreground))]">
-                    {customResult.payoffDate ? `Debt-free by ${customResult.payoffDate}` : "at this pace"}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-2xl font-black tabular-nums">{formatCurrency(customResult.totalInterestCents)}</p>
-                  <p className="text-[11px] text-[hsl(var(--muted-foreground))]">Total interest paid</p>
-                </div>
-              </div>
-
-              {/* Always rendered (space reserved even with nothing to show) so this row appearing/
-                  disappearing doesn't shift the modal's height while dragging the slider. */}
-              <div className={`flex justify-between text-xs text-[hsl(var(--success))] pt-2 border-t ${monthsSavedVsBaseline > 0 || interestSavedVsBaseline > 0 ? "" : "invisible"}`}>
-                <span>vs. Stay the Course ({monthsLabel(plan.baseline.monthsToPayoff)}, {formatCurrency(plan.baseline.totalInterestCents)} interest)</span>
-                <span className="font-medium text-right">
-                  {monthsSavedVsBaseline > 0 ? `${monthsLabel(monthsSavedVsBaseline)} faster` : ""}
-                  {monthsSavedVsBaseline > 0 && interestSavedVsBaseline > 0 ? ", " : ""}
-                  {interestSavedVsBaseline > 0 ? `${formatCurrency(interestSavedVsBaseline)} saved` : ""}
-                </span>
-              </div>
             </div>
 
             {/* Quick-win framing - always visible (never mounted/unmounted) with a fixed

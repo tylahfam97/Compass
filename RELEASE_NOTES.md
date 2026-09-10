@@ -2,6 +2,68 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.2.2 — Money That Is Actually Yours 🧭
+
+This release makes Compass honest about which money is spoken for and which is genuinely free,
+puts a report builder on the plotting table, and gives Trends a voice of its own.
+
+### New: The report builder
+- Reports opens with a plotting table: measure spending, income, net, or purchase counts;
+  slice by category, merchant, account, month, or weekday; look back 3, 6, 12 months or all
+  time; and draw the result as a line-by-line sheet, ranked bars, a wheel, or a line through
+  time. Split any cut by month or by account - pivot columns on the sheet, segments on the
+  bars, one series per account on the line - and scope it to all accounts, cash &amp; debit
+  only, or credit cards only.
+- Merchants fold on their cleaned identity ("SQ *BLUE BOTTLE 05/21…" and "BLUE BOTTLE #12"
+  are one row), a description search narrows any cut, and everything past the top rows folds
+  into one honest "Everything else" line. Name a cut and save it; presets live on the page.
+
+### Your plan is the source of truth now
+- The "Fixed and flexible" instrument on Insights runs on your Plan schedule: planned income
+  (paychecks, dividends, anything you hard-set) and scheduled bills at their planned monthly
+  amounts, exactly matching the Plan page. A bonus, a one-off deposit, or a bank descriptor
+  that doesn't match a rule name no longer distorts the picture.
+- Flexible spending measured from history is now an overlay you turn on, off by default. It
+  inherits your categorization - card payments or moves between your own accounts that aren't
+  categorized as Transfers read as spending - so the instrument names its top flexible
+  categories to help you find and fix exactly that.
+- Money into investment categories (crypto, brokerage, retirement) and single purchases of
+  $1,000+ are reported separately as set-aside money, never as flexible spending.
+- Months that spend past planned income but are covered by supplemental deposits say so
+  plainly; the track only turns red when spending passed all income. With no income scheduled
+  yet, the instrument still works from averaged deposits, says so, and points at Plan.
+- The plan view and the measured view never mix: measured mode shows the bill payments actually
+  matched from history next to measured flexible spending, so a bill whose bank descriptor
+  doesn't match its rule is never counted twice - once as a planned bill and again as
+  "flexible" - which had been inflating both flexible spending and the over-income figure.
+- The "fixed costs take X% of income" insight runs on the same maths, so the row and the
+  instrument can never disagree.
+
+### Debt payoff spends only free money
+- The payoff plan now works out what a typical month genuinely leaves over - planned income
+  minus scheduled bills, minus detected recurring charges, minus your normal everyday spending -
+  and shows the derivation right above the slider. The slider redirects a share of that free
+  money, not a share of spending you were always going to do.
+- Cutting categories (dining, shopping, subscriptions...) is now an explicit opt-in on top of
+  the free-cash redirect, instead of being pre-counted as available. When spending runs past
+  income, the plan says there is no free cash rather than inventing some.
+
+### Trends is the ship's log now
+- The three summary tiles and the identical chart cards are gone. The page opens with one serif
+  figure - everything the log records, net - over a gold running line of the whole voyage,
+  then reads as one column: the monthly rhythm, where it went, cash on hand, what the cards carry.
+- Every section header carries its own figure (kept in a typical month, top category of the
+  range, latest balances), so a heading is never just a label. A gold rule on a section means
+  it opens for detail - the same affordance gold already means everywhere else in Compass.
+- Category chips under "Where it went" toggle a category's trend directly; the generic chart
+  legends are gone.
+
+### New insight
+- **Supplemental income**: when deposits land beyond your Plan schedule, Compass names them and
+  the total, and suggests directing the money - an extra debt payment or a goal contribution -
+  before it dissolves into the month. Only appears once you have scheduled income to measure
+  against.
+
 ## Compass 1.2.0 — Night Navigation 🧭
 
 This release gives Compass a visual identity of its own. The logo, the navy-and-gold palette,

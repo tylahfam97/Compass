@@ -8,15 +8,15 @@ import { getRemembered, remember } from "./voiceMemory";
 import { chargeKey } from "./hiddenCharges";
 import { formatCurrencyWhole as formatCents, formatCurrency, formatDate } from "./utils";
 import { evaluateBudgetPeriod, type BudgetDefinition } from "./budgetMetrics";
-import { expandOccurrences, projectCashFlow, toISODate } from "./forecast";
-import { getPlannedRules } from "./plannedRules";
+import { expandOccurrences, projectCashFlow, toISODate, chargeMatchesRule } from "./forecast";
+import { getPlannedRules, plannedMonthlyIncomeCents, plannedMonthlyBillsCents, getFixedFlexibleInputs } from "./plannedRules";
 import { detectRecurringCharges } from "./recurringCharges";
 import { loadScenario } from "./planScenario";
 import { merchantKey } from "./merchants";
 import { detectPriceChange, isNewRecurring, findAnnualCharges } from "./recurringDetection";
 import { findMissingScheduled, billsDueWithin, nextIncomeEvent } from "./insights/scheduled";
 import { findDuplicateCharges, findFrequentMerchants } from "./insights/duplicates";
-import { summarizeFixedFlexible, monthsWithIncome, countNoSpendDays, paydayBurstShare, classifyExpense, type ShapeTxn, type ScheduledLike } from "./insights/shape";
+import { summarizeFixedFlexible, monthsWithIncome, countNoSpendDays, paydayBurstShare, classifyExpense, isIncomeTxn, type ShapeTxn, type ScheduledLike } from "./insights/shape";
 import { rankInsights } from "./insights/rank";
 import { evaluateGoals, projectGoalCompletion, monthlyPaceFromBalances } from "./goals";
 
@@ -1226,6 +1226,34 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     }
   }
 
+  // ── INSIGHT: supplemental_income ───────────────────────────────────
+  // Deposits beyond the Plan schedule. Planned income covers the bills; money that arrives on
+  // top of it is easiest to direct somewhere deliberate before it blends into the month.
+  if (planned.hasIncomeRule) {
+    const incomeRules = planned.rules.filter((r) => r.amount_cents > 0);
+    const supplemental = thisMonthRows.filter((r) =>
+      isIncomeTxn({ date: r.date, amount_cents: r.amount_cents, description: r.description, account_type: r.account_type, category_id: r.category_id })
+      && !incomeRules.some((rule) => chargeMatchesRule({ description: r.description, amount_cents: r.amount_cents }, rule)));
+    const supplementalTotal = supplemental.reduce((s, r) => s + r.amount_cents, 0);
+    if (supplementalTotal >= 10000) {
+      const examples = [...supplemental]
+        .sort((a, b) => b.amount_cents - a.amount_cents)
+        .slice(0, 2)
+        .map((r) => `${truncate(r.description, 26)} (${formatCents(r.amount_cents)})`);
+      insights.push({
+        id: `supplemental_income_${thisMonth}`,
+        type: "supplemental_income",
+        title: `${formatCents(supplementalTotal)} arrived beyond your planned income this month`,
+        description: `${listClauses(examples)} landed outside your Plan schedule. Supplemental money is not spoken for by bills, so it is the easiest to put to work deliberately - ${debts.length > 0 ? "an extra debt payment locks it in before it dissolves into everyday spending" : "a goal contribution locks it in before it dissolves into everyday spending"}.`,
+        severity: "success",
+        impactCents: supplementalTotal,
+        period: "this month",
+        action: debts.length > 0 ? { type: "open_payoff", payload: {} } : { type: "open_goals", payload: {} },
+        dismissKey: `supplemental_income_${thisMonth}`,
+      });
+    }
+  }
+
   // ── INSIGHT: scheduled_missing ──────────────────────────────────────────
   if (coverageEnd) {
     const scheduledRules = planned.rules.map((r) => ({ ...r, accountId: planned.activeRules.find((a) => a.id === r.id)?.account_id ?? null }));
@@ -1511,14 +1539,18 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   // ── INSIGHT: fixed_costs_high (from the same maths as the page instrument) ──
   {
     const months = monthsWithIncome(shapeTxns, completeMonths.slice(0, 3).map((m) => m.month));
-    const summary = summarizeFixedFlexible(shapeTxns, billRules, detectedLike, months);
+    const summary = summarizeFixedFlexible(shapeTxns, billRules, detectedLike, months, {
+      incomeCents: plannedMonthlyIncomeCents(planned.activeRules),
+      billsCents: plannedMonthlyBillsCents(planned.activeRules),
+    });
     if (summary && summary.committedShare !== null && summary.avgIncomeCents >= 50000 && summary.committedShare >= 0.5) {
       const committed = summary.avgBillsCents + summary.avgRecurringCents;
+      const incomeWord = summary.incomeBasis === "planned" ? "planned income" : "income";
       insights.push({
         id: `fixed_costs_${thisMonth}`,
         type: "fixed_costs_high",
-        title: `Fixed costs take ${Math.round(summary.committedShare * 100)}% of your income`,
-        description: `About ${formatCents(committed)} of your ${formatCents(summary.avgIncomeCents)} a month goes to scheduled bills and recurring charges, leaving ${formatCents(summary.avgIncomeCents - committed)} for everything else, averaged over ${plural(months.length, "complete month", "complete months")}.`,
+        title: `Fixed costs take ${Math.round(summary.committedShare * 100)}% of your ${incomeWord}`,
+        description: `About ${formatCents(committed)} of your ${formatCents(summary.avgIncomeCents)} a month goes to scheduled bills and recurring charges, leaving ${formatCents(summary.avgIncomeCents - committed)} for everything else${summary.incomeBasis === "planned" ? ", measured against the income you scheduled in Plan" : `, averaged over ${plural(months.length, "complete month", "complete months")}`}.`,
         severity: summary.committedShare >= 0.6 ? "warning" : "info",
         impactCents: Math.round((summary.committedShare - 0.5) * summary.avgIncomeCents),
         period: "a month",
@@ -1608,7 +1640,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
       const candidates = recent
         .filter((r) => r.date >= since && r.amount_cents < 0 && -r.amount_cents >= threshold
           && !isExcludedCategory(r.category_id) && r.category_id !== 12 && r.category_id !== 22
-          && classifyExpense({ date: r.date, amount_cents: r.amount_cents, description: r.description, account_type: r.account_type, category_id: r.category_id }, billRules, detectedLike) === "flexible")
+          && ["flexible", "oneoff"].includes(classifyExpense({ date: r.date, amount_cents: r.amount_cents, description: r.description, account_type: r.account_type, category_id: r.category_id }, billRules, detectedLike)))
         .sort((a, b) => a.amount_cents - b.amount_cents)
         .slice(0, 2);
       for (const r of candidates) {
@@ -2494,7 +2526,28 @@ export async function computeDebtPayoffPlan(profileIds: number[], debts: DebtPay
     avgMonthlyCents: Math.round(r.total / monthsOfHistory),
     exampleItems: exampleItemsByCategory.get(r.category_id) ?? [],
   }));
-  const discretionaryTotalCents = discretionaryBreakdown.reduce((s, c) => s + c.avgMonthlyCents, 0);
+
+  // ── Truly free money: the same maths as the Insights instrument. Income (the user's Plan
+  //    schedule when one exists, else averaged deposits) minus committed bills/recurring minus
+  //    normal flexible spending - what is actually available before cutting anything.
+  const ff = await getFixedFlexibleInputs(profileIds);
+  const ffMonths = monthsWithIncome(ff.txns, ff.candidateMonths);
+  const ffSummary = summarizeFixedFlexible(ff.txns, ff.bills, ff.detected, ffMonths, {
+    incomeCents: ff.plannedIncomeCents,
+    billsCents: ff.plannedBillsCents,
+  });
+  const freeCash = ffSummary && ffSummary.avgIncomeCents > 0
+    ? {
+        cents: ffSummary.avgLeftCents,
+        incomeBasis: ffSummary.incomeBasis,
+        incomeCents: ffSummary.avgIncomeCents,
+        committedCents: ffSummary.avgBillsCents + ffSummary.avgRecurringCents,
+        // Kept arithmetically consistent with `cents` (income - committed - flexible), so the
+        // modal's derivation line always sums; the dedup happens inside the summary.
+        flexibleCents: Math.max(0, ffSummary.avgIncomeCents - (ffSummary.avgBillsCents + ffSummary.avgRecurringCents) - ffSummary.avgLeftCents),
+        monthsAveraged: ffMonths.length,
+      }
+    : null;
 
   const simDebtsPublic: DebtPayoffSimDebt[] = simDebts.map((d) => ({
     id: d.id,
@@ -2510,8 +2563,7 @@ export async function computeDebtPayoffPlan(profileIds: number[], debts: DebtPay
     hasRateData,
     totalMinPaymentCents,
     discretionaryBreakdown,
-    discretionaryTotalCents,
-    monthsOfHistory,
+    freeCash,
     simDebts: simDebtsPublic,
     baseline,
   };

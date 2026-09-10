@@ -35,7 +35,16 @@ describe("shapeMonth", () => {
     const s = shapeMonth(august, "2026-08", [], []);
     expect(s.incomeCents).toBe(370000);
     expect(s.billsCents + s.recurringCents).toBe(0);
-    expect(s.flexibleCents).toBe(140000 + 1599 + 6500 + 4200 + 12000);
+    // Unmatched rent is a $1,000+ single purchase, so it lands in one-offs, not flexible.
+    expect(s.oneOffCents).toBe(140000);
+    expect(s.flexibleCents).toBe(1599 + 6500 + 4200 + 12000);
+  });
+
+  it("treats investment-like categories as saving, not flexible spending", () => {
+    const txns = [...august, t("2026-08-18", -50000, "Coinbase", { category_name: "Crypto" })];
+    const s = shapeMonth(txns, "2026-08", [rent], [netflix]);
+    expect(s.investedCents).toBe(50000);
+    expect(s.flexibleCents).toBe(6500 + 4200 + 12000);
   });
 });
 
@@ -55,6 +64,23 @@ describe("summarizeFixedFlexible", () => {
     expect(s.avgIncomeCents).toBe(0);
     expect(s.committedShare).toBeNull();
     expect(summarizeFixedFlexible(august, [], [], [])).toBeNull();
+  });
+
+  it("uses the planned schedule as the basis when provided, actual deposits otherwise", () => {
+    const s = summarizeFixedFlexible(august, [rent], [netflix], ["2026-08"], { incomeCents: 400000, billsCents: 150000 })!;
+    expect(s.incomeBasis).toBe("planned");
+    expect(s.avgIncomeCents).toBe(400000);
+    expect(s.avgActualIncomeCents).toBe(370000);
+    expect(s.avgBillsCents).toBe(150000);
+    expect(s.avgMeasuredBillsCents).toBe(140000);
+    // $100 of planned bills went unmatched, so that much comes out of flexible before "left".
+    expect(s.avgLeftCents).toBe(400000 - 150000 - 1599 - (22700 - 10000));
+    expect(s.committedShare).toBeCloseTo((150000 + 1599) / 400000, 6);
+    expect(s.flexibleTopCategories[0]).toEqual({ name: "Uncategorized", cents: 22700 });
+    const actual = summarizeFixedFlexible(august, [rent], [netflix], ["2026-08"], { incomeCents: 0, billsCents: 0 })!;
+    expect(actual.incomeBasis).toBe("actual");
+    expect(actual.avgIncomeCents).toBe(370000);
+    expect(actual.avgBillsCents).toBe(140000);
   });
 
   it("lists only candidate months that had income, newest first", () => {
