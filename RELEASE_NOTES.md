@@ -27,9 +27,33 @@ real-world files, makes sure no row ever disappears silently, and quietly tighte
 - Fixed a subtle timezone bug where a written-out date ("March 5, 2024") could import as the
   previous day for anyone east of UTC.
 
+### Rules that show their work
+- The Rules Manager now tests every rule as you type it: a live preview shows how many of your
+  last 1,000 transactions match, with the matched text marked in gold on real examples - so you
+  know a rule works before you save it, not after.
+- Saving a rule can now categorize your existing uncategorized transactions in the same breath,
+  and tells you exactly how many it touched.
+- Each rule row shows its priority, and editing tools moved to proper icons.
+
+### The amount step shows, not tells
+- Every previewed amount on the import wizard's Amount step is now labeled with exactly what
+  Compass will record it as - "money out" or "money in" on bank files, "purchase / charge" or
+  "payment / refund" on card statements. Flip the signs and the labels update in front of you;
+  two dense paragraphs of sign theory are gone.
+- The column-layout question now speaks plainly: one amount column, a Debit/Credit label
+  column, or two separate Debit and Credit columns.
+
+### Trust, visibly
+- If your system's credential store ever loses Compass's encryption key, Compass restores it
+  from the local backup key file - and now tells you it happened, right in the app, instead of
+  only whispering to a terminal nobody has open.
+
 ### Blending in
 - The Transfers &amp; Excluded explainer on Transactions traded its bright blue emoji box for
   the app's own quiet hairline-and-gold language.
+- The last off-palette colors are gone: indigo bars and lines in the debt payoff timeline and
+  portfolio charts now use Compass's own sea and success tones, stray emoji gave way to the
+  app's icon set, and new categories default to Compass gold instead of a borrowed blue.
 
 ### Below decks
 - Deleting an account with a long import history now cleans up its orphaned import sessions in

@@ -1,6 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { motion } from "motion/react";
-import { getDb } from "@/lib/db";
+import { XIcon, PencilSimpleIcon, TrashIcon, CaretRightIcon, CrosshairIcon } from "@phosphor-icons/react";
+import { getDb, applyCategorizationRules, reapplyCategorizationRules } from "@/lib/db";
+import { formatCurrency } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import CategoryOptions from "@/components/CategoryOptions";
@@ -16,6 +18,13 @@ type RuleRow = CategorizationRule & {
   category_color: string;
   is_system_rule: boolean;
 };
+
+/** Recent transactions the live tester matches candidate rules against. */
+interface SampleTxn {
+  date: string;
+  description: string;
+  amount_cents: number;
+}
 
 /** Format absolute-value amount conditions for display in the table. */
 function fmtAmtCond(min: number | null | undefined, max: number | null | undefined): string {
@@ -55,10 +64,86 @@ function formPattern(f: RuleFormState): string {
   return f.matchType === "contains" ? f.description.trim() : f.rawPattern.trim();
 }
 
+/** Wraps the part of a description the candidate rule matched in a gold mark. */
+function highlightMatch(desc: string, form: RuleFormState): React.ReactNode {
+  const pattern = formPattern(form);
+  if (!pattern) return desc;
+  let start = -1;
+  let len = 0;
+  if (form.matchType === "regex") {
+    try {
+      const m = new RegExp(pattern, "i").exec(desc);
+      if (m && m[0]) { start = m.index; len = m[0].length; }
+    } catch { /* invalid regex while typing */ }
+  } else {
+    start = desc.toUpperCase().indexOf(pattern.toUpperCase());
+    if (form.matchType === "starts_with" && start !== 0) start = -1;
+    len = pattern.length;
+  }
+  if (start < 0) return desc;
+  return (
+    <>
+      {desc.slice(0, start)}
+      <mark className="bg-[hsl(var(--primary)/0.28)] text-inherit rounded-sm px-0.5">
+        {desc.slice(start, start + len)}
+      </mark>
+      {desc.slice(start + len)}
+    </>
+  );
+}
+
+/** Live preview: which of the user's recent transactions this rule would catch. */
+function MatchPreview({ form, sampleTxns }: { form: RuleFormState; sampleTxns: SampleTxn[] }) {
+  const pattern = formPattern(form);
+  const matches = useMemo(() => {
+    if (!pattern || sampleTxns.length === 0) return null;
+    // Sentinel category id -1: applyCategorizationRules returns it on match, 15 on miss.
+    const candidate = {
+      id: -1, pattern, match_type: form.matchType, category_id: -1, priority: form.priority,
+      min_abs_cents: parseDollar(form.minAbs), max_abs_cents: parseDollar(form.maxAbs),
+    } as CategorizationRule;
+    return sampleTxns.filter((t) => applyCategorizationRules(t.description, [candidate], t.amount_cents) === -1);
+  }, [pattern, form.matchType, form.priority, form.minAbs, form.maxAbs, sampleTxns]);
+
+  if (matches === null) return null;
+  return (
+    <div className="border rounded-lg overflow-hidden">
+      <div className="px-3 py-1.5 text-xs flex items-center gap-1.5 bg-[hsl(var(--muted)/0.35)]">
+        <CrosshairIcon size={12} weight="bold" className="text-[hsl(var(--gold-ink))] shrink-0" aria-hidden />
+        {matches.length === 0 ? (
+          <span className="text-[hsl(var(--warning))]">
+            No matches in your last {sampleTxns.length.toLocaleString()} transactions - check the text above
+          </span>
+        ) : (
+          <span className="text-[hsl(var(--muted-foreground))]">
+            Matches <strong className="text-[hsl(var(--foreground))]">{matches.length.toLocaleString()}</strong> of
+            your last {sampleTxns.length.toLocaleString()} transactions
+          </span>
+        )}
+      </div>
+      {matches.slice(0, 4).map((t, i) => (
+        <div key={i} className="flex items-baseline gap-3 px-3 py-1.5 border-t text-xs">
+          <span className="text-[hsl(var(--muted-foreground))] tabular-nums shrink-0">{t.date}</span>
+          <span className="flex-1 min-w-0 truncate">{highlightMatch(t.description, form)}</span>
+          <span className="tabular-nums shrink-0">{formatCurrency(t.amount_cents)}</span>
+        </div>
+      ))}
+      {matches.length > 4 && (
+        <div className="px-3 py-1 border-t text-[10px] text-[hsl(var(--muted-foreground))]">
+          + {(matches.length - 4).toLocaleString()} more
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface RuleFormProps {
   form: RuleFormState;
   setForm: React.Dispatch<React.SetStateAction<RuleFormState>>;
   categories: { id: number; name: string }[];
+  sampleTxns: SampleTxn[];
+  applyOnSave: boolean;
+  onApplyOnSaveChange: (v: boolean) => void;
   onSubmit: () => void;
   submitLabel: string;
   saving: boolean;
@@ -66,7 +151,7 @@ interface RuleFormProps {
   onCancel?: () => void;
 }
 
-function RuleForm({ form, setForm, categories, onSubmit, submitLabel, saving, error, onCancel }: RuleFormProps) {
+function RuleForm({ form, setForm, categories, sampleTxns, applyOnSave, onApplyOnSaveChange, onSubmit, submitLabel, saving, error, onCancel }: RuleFormProps) {
   const set = <K extends keyof RuleFormState>(key: K, val: RuleFormState[K]) =>
     setForm((f) => ({ ...f, [key]: val }));
 
@@ -155,6 +240,9 @@ function RuleForm({ form, setForm, categories, onSubmit, submitLabel, saving, er
         Leave both blank to match any amount.
       </p>
 
+      {/* ── Live match preview ── */}
+      <MatchPreview form={form} sampleTxns={sampleTxns} />
+
       {/* ── Advanced toggle ── */}
       <details
         open={form.showAdvanced}
@@ -164,7 +252,7 @@ function RuleForm({ form, setForm, categories, onSubmit, submitLabel, saving, er
         <summary className="px-3 py-2 text-xs font-medium cursor-pointer select-none
                             text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]
                             list-none flex items-center gap-1.5 transition-colors">
-          <span className="group-open:rotate-90 transition-transform inline-block text-[10px]">▶</span>
+          <CaretRightIcon size={10} weight="bold" className="group-open:rotate-90 transition-transform" aria-hidden />
           Advanced, match type &amp; regex
         </summary>
         <div className="px-3 pb-3 space-y-3 border-t mt-0 pt-3">
@@ -221,6 +309,15 @@ function RuleForm({ form, setForm, categories, onSubmit, submitLabel, saving, er
       </details>
 
       {/* ── Actions ── */}
+      <label className="flex items-center gap-2 text-xs text-[hsl(var(--muted-foreground))] cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={applyOnSave}
+          onChange={(e) => onApplyOnSaveChange(e.target.checked)}
+          className="accent-[hsl(var(--primary))]"
+        />
+        Also categorize existing uncategorized transactions on save
+      </label>
       <div className="flex gap-2 pt-1">
         <button
           onClick={onSubmit}
@@ -255,12 +352,28 @@ export default function CategorizationRulesModal({ onClose, profileId }: Props) 
 
   const defaultCatId = categories[0]?.id ?? 1;
   const [addForm, setAddForm] = useState<RuleFormState>(() => makeEmptyForm(defaultCatId));
+  const [applyOnSave, setApplyOnSave] = useState(true);
+  const [appliedNote, setAppliedNote] = useState<string | null>(null);
+  // Recent transactions for the live tester - loaded once per modal open.
+  const [sampleTxns, setSampleTxns] = useState<SampleTxn[]>([]);
 
   // Inline edit state
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<RuleFormState>(() => makeEmptyForm(defaultCatId));
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const db = await getDb();
+      const rows = await db.select<SampleTxn[]>(
+        `SELECT date, description, amount_cents FROM transactions
+          WHERE profile_id=? ORDER BY date DESC, id DESC LIMIT 1000`,
+        [profileId]
+      );
+      setSampleTxns(rows);
+    })().catch(console.error);
+  }, [profileId]);
 
   const loadRules = useCallback(async () => {
     setLoading(true);
@@ -286,6 +399,7 @@ export default function CategorizationRulesModal({ onClose, profileId }: Props) 
     if (!pattern) { setError("Description / pattern is required"); return; }
     setSaving(true);
     setError(null);
+    setAppliedNote(null);
     try {
       const db = await getDb();
       await db.execute(
@@ -302,6 +416,12 @@ export default function CategorizationRulesModal({ onClose, profileId }: Props) 
           parseDollar(addForm.maxAbs),
         ]
       );
+      if (applyOnSave) {
+        const n = await reapplyCategorizationRules(profileId, "uncategorized");
+        setAppliedNote(n > 0 ? `Rule added - ${n.toLocaleString()} existing ${n === 1 ? "transaction" : "transactions"} categorized.` : "Rule added.");
+      } else {
+        setAppliedNote("Rule added.");
+      }
       setAddForm(makeEmptyForm(defaultCatId));
       await loadRules();
     } catch (e) { setError(String(e)); }
@@ -330,6 +450,7 @@ export default function CategorizationRulesModal({ onClose, profileId }: Props) 
     if (!pattern) { setEditError("Description / pattern is required"); return; }
     setEditSaving(true);
     setEditError(null);
+    setAppliedNote(null);
     try {
       const db = await getDb();
       await db.execute(
@@ -346,6 +467,10 @@ export default function CategorizationRulesModal({ onClose, profileId }: Props) 
           editingId,
         ]
       );
+      if (applyOnSave) {
+        const n = await reapplyCategorizationRules(profileId, "uncategorized");
+        setAppliedNote(n > 0 ? `Rule updated - ${n.toLocaleString()} existing ${n === 1 ? "transaction" : "transactions"} categorized.` : "Rule updated.");
+      }
       setEditingId(null);
       await loadRules();
     } catch (e) { setEditError(String(e)); }
@@ -382,18 +507,27 @@ export default function CategorizationRulesModal({ onClose, profileId }: Props) 
               Rules are matched in priority order. Higher priority rules win.
             </p>
           </div>
-          <button onClick={onClose} className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]
-                                               text-xl leading-none">✕</button>
+          <button onClick={onClose} aria-label="Close" className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]
+                                               transition-colors"><XIcon size={18} /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
-          {/* ── Add new rule ────────────────────────────────────────────── */}
+          {appliedNote && (
+            <p className="text-xs px-3 py-2 rounded-lg border border-[hsl(var(--success)/0.3)] text-[hsl(var(--success))]"
+               style={{ backgroundColor: "hsl(var(--success)/0.06)" }} role="status">
+              {appliedNote}
+            </p>
+          )}
+          {/* ── Add new rule ────────────────────────────────────────── */}
           <div className="border rounded-xl p-4 space-y-3 bg-[hsl(var(--muted)/0.4)]">
             <h3 className="text-sm font-semibold">Add Rule</h3>
             <RuleForm
               form={addForm}
               setForm={setAddForm}
               categories={categories}
+              sampleTxns={sampleTxns}
+              applyOnSave={applyOnSave}
+              onApplyOnSaveChange={setApplyOnSave}
               onSubmit={addRule}
               submitLabel="Add Rule"
               saving={saving}
@@ -423,6 +557,9 @@ export default function CategorizationRulesModal({ onClose, profileId }: Props) 
                           form={editForm}
                           setForm={setEditForm}
                           categories={categories}
+                          sampleTxns={sampleTxns}
+                          applyOnSave={applyOnSave}
+                          onApplyOnSaveChange={setApplyOnSave}
                           onSubmit={saveEdit}
                           submitLabel="Save"
                           saving={editSaving}
@@ -454,20 +591,24 @@ export default function CategorizationRulesModal({ onClose, profileId }: Props) 
                             )}
                           </div>
                         </div>
+                        <span className="text-[10px] tabular-nums text-[hsl(var(--muted-foreground))] shrink-0"
+                              title="Priority - higher rules are checked first">
+                          {r.priority}
+                        </span>
                         <button
                           onClick={() => startEdit(r)}
                           title="Edit rule"
-                          className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]
-                                     transition-colors text-sm shrink-0 px-1"
+                          className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--gold-ink))]
+                                     transition-colors shrink-0 px-1"
                         >
-                          ✏
+                          <PencilSimpleIcon size={14} />
                         </button>
                         <button
                           onClick={() => deleteRule(r.id)}
                           title="Delete rule"
-                          className="text-[hsl(var(--error))] hover:opacity-80 transition-colors text-base leading-none shrink-0 px-1"
+                          className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))] transition-colors shrink-0 px-1"
                         >
-                          ×
+                          <TrashIcon size={14} />
                         </button>
                       </div>
                     )}
@@ -480,7 +621,7 @@ export default function CategorizationRulesModal({ onClose, profileId }: Props) 
           {/* ── System rules (read-only) ─────────────────────────────────── */}
           <details className="group">
             <summary className="text-sm font-semibold cursor-pointer select-none list-none flex items-center gap-1">
-              <span className="group-open:rotate-90 transition-transform inline-block">▶</span>
+              <CaretRightIcon size={12} weight="bold" className="group-open:rotate-90 transition-transform" aria-hidden />
               System Rules <span className="text-[hsl(var(--muted-foreground))] font-normal">({systemRules.length})</span>
               <span className="ml-2 text-xs font-normal text-[hsl(var(--muted-foreground))] border rounded px-1.5 py-0.5">
                 read-only

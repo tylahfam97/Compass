@@ -380,7 +380,7 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
                       <Tooltip formatter={(v) => [monthsLabel(typeof v === "number" ? v : null), "Payoff time"]} labelFormatter={() => ""} />
                       <Bar dataKey="months" radius={[0, 4, 4, 0]}>
                         {timelineData.map((d) => (
-                          <Cell key={d.name} fill="#6366f1" />
+                          <Cell key={d.name} fill="hsl(var(--sea))" />
                         ))}
                       </Bar>
                     </BarChart>

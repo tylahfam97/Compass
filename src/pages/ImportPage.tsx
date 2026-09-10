@@ -2017,9 +2017,18 @@ export default function ImportPage() {
                         )}
                         <p className="font-mono text-xs text-[hsl(var(--muted-foreground))] truncate">{raw}</p>
                       </div>
-                      <p className={`text-base font-semibold shrink-0 ${amt < 0 ? "text-[hsl(var(--error))]" : amt > 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--warning))]"}`}>
-                        {formatCurrency(Math.round(amt * 100))}
-                      </p>
+                      <div className="shrink-0 text-right">
+                        <p className={`text-base font-semibold ${amt < 0 ? "text-[hsl(var(--error))]" : amt > 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--warning))]"}`}>
+                          {formatCurrency(Math.round(amt * 100))}
+                        </p>
+                        <p className="text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
+                          {amt === 0
+                            ? "unreadable"
+                            : importKind === "credit"
+                              ? (amt < 0 ? "purchase / charge" : "payment / refund")
+                              : (amt < 0 ? "money out" : "money in")}
+                        </p>
+                      </div>
                     </div>
                   );
                 })}
@@ -2029,14 +2038,14 @@ export default function ImportPage() {
             {/* Debit/Credit type column toggle */}
             <div className="pt-3 border-t space-y-3">
               <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">
-                Does your bank use a separate "Debit / Credit" column?
+                How does this file show its amounts? Check the raw text under each description above.
               </p>
               <div className="flex gap-3 text-sm flex-wrap">
                 <button
                   onClick={() => setColMap((m) => ({ ...m, typeCol: -1, debitCol: -1, creditCol: -1 }))}
                   className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.typeCol === -1 && colMap.debitCol === -1 && colMap.creditCol === -1 ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
                 >
-                  No - amounts are already signed
+                  One amount column
                 </button>
                 <button
                   onClick={() => {
@@ -2045,7 +2054,7 @@ export default function ImportPage() {
                   }}
                   className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.typeCol >= 0 ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
                 >
-                  Yes - one Transaction Type column
+                  A column says "Debit" or "Credit"
                 </button>
                 <button
                   onClick={() => {
@@ -2055,7 +2064,7 @@ export default function ImportPage() {
                   }}
                   className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.debitCol >= 0 || colMap.creditCol >= 0 ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
                 >
-                  Yes - separate Debit and Credit columns
+                  Two columns: Debit and Credit
                 </button>
               </div>
               {colMap.typeCol >= 0 && (
@@ -2089,61 +2098,36 @@ export default function ImportPage() {
 
             {/* Sign inversion toggle - for banks that export expenses as positive (Discover, Amex) */}
             <div className="pt-3 border-t space-y-2">
-              {importKind === "credit" ? (
-                <>
-                  <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">
-                    How does your statement show purchases vs. payments?
-                  </p>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                    Compass needs <strong>purchases</strong> (charges that increase what you owe) to end up <strong>negative</strong>,
-                    and <strong>payments toward the card</strong> (that reduce what you owe) to end up <strong>positive</strong> - the
-                    same way money-out vs. money-in works on a checking account. Check a purchase row and a payment row in the preview
-                    above: if purchases are already negative and payments already positive, leave this off. If it's the other way
-                    around, flip it.
-                  </p>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                    Look at the description text now shown above each amount in the preview - a row whose description mentions
-                    "PAYMENT" or your bank/card issuer's name is money paid <em>toward</em> the card, not a purchase.
-                  </p>
-                  <div className="flex gap-3 text-sm">
-                    <button
-                      onClick={() => setColMap((m) => ({ ...m, invertAmounts: false }))}
-                      className={`px-3 py-1.5 rounded-lg border transition-colors ${!colMap.invertAmounts ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
-                    >
-                      No - purchases negative, payments positive
-                    </button>
-                    <button
-                      onClick={() => setColMap((m) => ({ ...m, invertAmounts: true }))}
-                      className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.invertAmounts ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
-                    >
-                      Yes - flip (purchases positive, payments negative)
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">
-                    Are expenses shown as positive numbers?
-                  </p>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                    Some banks (Discover, Amex, Capital One) export purchases as positive values instead of negative. Enable this to flip all signs.
-                  </p>
-                  <div className="flex gap-3 text-sm">
-                    <button
-                      onClick={() => setColMap((m) => ({ ...m, invertAmounts: false }))}
-                      className={`px-3 py-1.5 rounded-lg border transition-colors ${!colMap.invertAmounts ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
-                    >
-                      No - standard signs
-                    </button>
-                    <button
-                      onClick={() => setColMap((m) => ({ ...m, invertAmounts: true }))}
-                      className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.invertAmounts ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
-                    >
-                      Yes - flip signs
-                    </button>
-                  </div>
-                </>
-              )}
+              <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">
+                Do the labels under the amounts above look right?
+              </p>
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                {importKind === "credit" ? (
+                  <>Each amount is labeled with what Compass will record it as. A store purchase should read{" "}
+                  <strong className="text-[hsl(var(--error))]">purchase / charge</strong>; a row like "PAYMENT THANK YOU"
+                  should read <strong className="text-[hsl(var(--success))]">payment / refund</strong>. Swapped? Flip the
+                  signs and watch the labels update.</>
+                ) : (
+                  <>Each amount is labeled with what Compass will record it as. A bill or grocery run should read{" "}
+                  <strong className="text-[hsl(var(--error))]">money out</strong>; a paycheck or deposit should read{" "}
+                  <strong className="text-[hsl(var(--success))]">money in</strong>. Swapped? Flip the signs and watch the
+                  labels update. (Discover, Amex, and Capital One exports usually need the flip.)</>
+                )}
+              </p>
+              <div className="flex gap-3 text-sm">
+                <button
+                  onClick={() => setColMap((m) => ({ ...m, invertAmounts: false }))}
+                  className={`px-3 py-1.5 rounded-lg border transition-colors ${!colMap.invertAmounts ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
+                >
+                  Keep signs as they are
+                </button>
+                <button
+                  onClick={() => setColMap((m) => ({ ...m, invertAmounts: true }))}
+                  className={`px-3 py-1.5 rounded-lg border transition-colors ${colMap.invertAmounts ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent" : "hover:bg-[hsl(var(--muted))]"}`}
+                >
+                  Flip the signs
+                </button>
+              </div>
             </div>
           </div>
 

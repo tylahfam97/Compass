@@ -26,6 +26,7 @@ import Spotlight from "@/components/Spotlight";
 import OnboardingChecklistWidget from "@/components/OnboardingChecklistWidget";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import ToastHost from "@/components/ToastHost";
+import { useToastStore } from "@/stores/toastStore";
 import { CardListSkeleton } from "@/components/Skeleton";
 
 // Lazy-loaded: these 3 pages pull in the heaviest deps (xlsx, pdfjs-dist,
@@ -149,6 +150,25 @@ function App() {
   useEffect(() => {
     import("@tauri-apps/api/app").then(({ getVersion }) => {
       getVersion().then(setAppVersion).catch(() => {});
+    });
+  }, []);
+
+  // One-time trust notice: the OS keyring lost the DB encryption key this launch and Compass
+  // recovered it from the compass.key backup file. Everything works, but the user deserves to
+  // know it happened - repeated losses point at Credential Manager/Keychain trouble.
+  useEffect(() => {
+    import("@tauri-apps/api/core").then(({ invoke }) => {
+      invoke<boolean>("key_recovered_from_backup")
+        .then((restored) => {
+          if (!restored) return;
+          useToastStore.getState().show(
+            "Your system's credential store lost Compass's encryption key, so it was restored " +
+            "from the local backup key file. Your data was never at risk - but if this keeps " +
+            "happening, your OS credential store may need attention.",
+            { tone: "info", duration: 0 }
+          );
+        })
+        .catch(() => {});
     });
   }, []);
 
