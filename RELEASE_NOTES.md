@@ -32,15 +32,15 @@ looks, plus one new planning view.
 - Category and account colors are harmonized at paint time: each keeps its hue but sits in
   the same lightness band as its neighbours, in both themes. Nothing in your data changes.
 
-### Changed: Dashboard, Overview, Investments, Import, and Insights
-- These pages move to the rule-and-space layout the other pages already used: stat rows
-  instead of bordered tiles, account rows instead of card grids, ranked bars instead of a
-  bar chart, and the same ledger rows as Transactions for recent activity.
-- The Dashboard opens with the month's net figure, income and spending with their
-  comparison to last month, and the bearing bar. Insight cards sit below it.
-- Insights' header joins the page instead of floating over it; the score is the page's hero
-  figure and every section is a plain disclosure.
-- Empty states share one calm pattern with a one-sentence explanation and a single action.
+### Changed: Dashboard
+- The Dashboard moves to the rule-and-space layout the newer pages already used: the month's
+  net figure, income and spending with their comparison to last month, then the bearing bar.
+  Insight cards sit below the numbers they refer to.
+- Accounts are rows grouped as bank, credit cards, and loans instead of three grids of
+  tiles; top categories are ranked bars; recent activity uses the same ledger rows as
+  Transactions. On wide windows the accounts sit beside the categories and insights.
+- The empty state is a calm single pattern with a one-sentence explanation and one action.
+  Other pages keep their layouts for now and pick up the new type, tokens, icons, and copy.
 
 ### Changed: Icons, chrome, and copy
 - Icons are now Phosphor. The sidebar is the instrument panel: navy in both themes, the

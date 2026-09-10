@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Pencil, Trash2, Pause, Play, CalendarClock, RotateCcw } from "lucide-react";
+import { PlusIcon, PencilSimpleIcon, TrashIcon, PauseIcon, PlayIcon, CalendarCheckIcon, ArrowCounterClockwiseIcon } from "@phosphor-icons/react";
 import {
   getDb,
   getRecurringRulesForProfile, createRecurringRule, updateRecurringRule,
@@ -164,7 +164,7 @@ export default function RecurringRulesPanel({ profileId, onChanged, openFormRequ
     <section className="border rounded-2xl p-5 space-y-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="font-semibold flex items-center gap-1.5"><CalendarClock size={15} /> Scheduled Bills &amp; Income</h2>
+          <h2 className="font-semibold flex items-center gap-1.5"><CalendarCheckIcon size={15} /> Scheduled Bills &amp; Income</h2>
           <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1 max-w-md">
             Anything you add here is projected into the forecast above. Reminder-only - nothing
             posts a real transaction automatically; add or edit it yourself when it happens.
@@ -175,7 +175,7 @@ export default function RecurringRulesPanel({ profileId, onChanged, openFormRequ
           className="text-sm px-3 py-1.5 rounded-lg bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
                      hover:opacity-90 transition-opacity flex items-center gap-1.5 font-medium shrink-0"
         >
-          <Plus size={14} /> Add Rule
+          <PlusIcon size={14} /> Add Rule
         </button>
       </div>
 
@@ -199,18 +199,18 @@ export default function RecurringRulesPanel({ profileId, onChanged, openFormRequ
                   <p className="text-sm font-medium truncate">{r.description}</p>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">
                     {formatCadenceLabel(r)}
-                    {r.account_name ? ` · ${r.account_name}` : ""}
-                    {nextInfo ? ` · next ${formatDate(nextInfo.next.toISOString().split("T")[0])} (${nextInfo.days <= 0 ? "today" : `${nextInfo.days}d`})` : ""}
+                    {r.account_name ? `, ${r.account_name}` : ""}
+                    {nextInfo ? `, next ${formatDate(nextInfo.next.toISOString().split("T")[0])} (${nextInfo.days <= 0 ? "today" : `${nextInfo.days}d`})` : ""}
                   </p>
                 </div>
                 <span className={`text-sm font-semibold shrink-0 ${r.amount_cents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
                   {formatCurrency(r.amount_cents)}
                 </span>
                 <button onClick={() => toggleActive(r)} title={r.active ? "Pause" : "Resume"} className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] shrink-0">
-                  {r.active ? <Pause size={14} /> : <Play size={14} />}
+                  {r.active ? <PauseIcon size={14} /> : <PlayIcon size={14} />}
                 </button>
                 <button onClick={() => openEditForm(r)} title="Edit" className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] shrink-0">
-                  <Pencil size={14} />
+                  <PencilSimpleIcon size={14} />
                 </button>
                 {confirmDeleteId === r.id ? (
                   <span className="flex items-center gap-1 shrink-0">
@@ -219,7 +219,7 @@ export default function RecurringRulesPanel({ profileId, onChanged, openFormRequ
                   </span>
                 ) : (
                   <button onClick={() => setConfirmDeleteId(r.id)} title="Delete" className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))] shrink-0">
-                    <Trash2 size={14} />
+                    <TrashIcon size={14} />
                   </button>
                 )}
               </div>
@@ -233,7 +233,7 @@ export default function RecurringRulesPanel({ profileId, onChanged, openFormRequ
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold">{form.id != null ? "Edit rule" : "New rule"}</h3>
             <button onClick={() => setForm(null)} aria-label="Discard" className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]">
-              <RotateCcw size={13} />
+              <ArrowCounterClockwiseIcon size={13} />
             </button>
           </div>
 

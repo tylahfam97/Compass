@@ -1,25 +1,21 @@
 import type { Insight } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
-import {
-  CheckCircle, Target, Info, X,
-  TrendingUp, TrendingDown, Percent, Zap,
-  RefreshCw, ShoppingBag, Calendar, Shield, DollarSign, AlertTriangle,
-} from "lucide-react";
+import { CheckCircleIcon, TargetIcon, InfoIcon, XIcon, TrendUpIcon, TrendDownIcon, PercentIcon, LightningIcon, ArrowsClockwiseIcon, ShoppingBagIcon, CalendarBlankIcon, ShieldIcon, CurrencyDollarIcon, WarningIcon } from "@phosphor-icons/react";
 import { formatCurrency } from "@/lib/utils";
 
 // Type-specific icons (shared logic with InsightCard)
 const TYPE_ICONS: Record<string, React.ElementType> = {
-  budget_gap: Target, overspend_streak: Target, positive_streak: Target,
-  savings_rate_low: Percent, expense_ratio_drift: Percent, weekend_spending: Percent,
-  unusual_spike: TrendingUp, category_creep: TrendingUp, year_end_projection: TrendingUp,
-  most_improved: TrendingDown,
-  spending_velocity: Zap,
-  ghost_subscription: RefreshCw, subscription_total: RefreshCw, redundant_spending: RefreshCw,
-  top_merchants: ShoppingBag, food_delivery_spend: ShoppingBag,
-  bill_due_soon: DollarSign,
-  income_expected: Calendar, income_irregular: Calendar,
-  emergency_fund_runway: Shield,
-  overdraft_alert: AlertTriangle,
+  budget_gap: TargetIcon, overspend_streak: TargetIcon, positive_streak: TargetIcon,
+  savings_rate_low: PercentIcon, expense_ratio_drift: PercentIcon, weekend_spending: PercentIcon,
+  unusual_spike: TrendUpIcon, category_creep: TrendUpIcon, year_end_projection: TrendUpIcon,
+  most_improved: TrendDownIcon,
+  spending_velocity: LightningIcon,
+  ghost_subscription: ArrowsClockwiseIcon, subscription_total: ArrowsClockwiseIcon, redundant_spending: ArrowsClockwiseIcon,
+  top_merchants: ShoppingBagIcon, food_delivery_spend: ShoppingBagIcon,
+  bill_due_soon: CurrencyDollarIcon,
+  income_expected: CalendarBlankIcon, income_irregular: CalendarBlankIcon,
+  emergency_fund_runway: ShieldIcon,
+  overdraft_alert: WarningIcon,
 };
 
 // ── Visualizers ───────────────────────────────────────────────────────────────
@@ -206,7 +202,7 @@ function RunwaySegments({ runway }: { runway: number }) {
         {runway < 1
           ? "Less than 1 month covered"
           : runway >= 6
-          ? `${Math.floor(runway)} months — healthy cushion`
+          ? `${Math.floor(runway)} months, healthy cushion`
           : `~${runway.toFixed(1)} months covered`}
       </p>
     </div>
@@ -229,7 +225,7 @@ export default function SpotlightCard({ insight, onApply }: SpotlightCardProps) 
   const isWarning = insight.severity === "warning";
   // Use type-specific icon if available, otherwise fall back to severity default
   const Icon = TYPE_ICONS[insight.type]
-    ?? (isSuccess ? CheckCircle : isWarning ? Target : Info);
+    ?? (isSuccess ? CheckCircleIcon : isWarning ? TargetIcon : InfoIcon);
 
   const wrapStyle = isSuccess
     ? "border-[hsl(var(--success)/0.3)] dark:border-[hsl(var(--success)/0.35)] bg-[hsl(var(--success)/0.06)] dark:bg-[hsl(var(--success)/0.12)]"
@@ -288,7 +284,7 @@ export default function SpotlightCard({ insight, onApply }: SpotlightCardProps) 
           aria-label="Dismiss"
           className={`shrink-0 mt-0.5 opacity-40 hover:opacity-100 transition-opacity ${accentCls}`}
         >
-          <X size={14} />
+          <XIcon size={14} />
         </button>
       </div>
 
@@ -308,7 +304,7 @@ export default function SpotlightCard({ insight, onApply }: SpotlightCardProps) 
               onClick={() => onApply(insight)}
               className={`text-xs font-semibold px-3 py-1.5 rounded-full shrink-0 transition-colors ${actionCls}`}
             >
-              {insight.actionLabel} →
+              {insight.actionLabel}
             </button>
           )}
         </div>

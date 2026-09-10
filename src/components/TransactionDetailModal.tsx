@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { CreditCard, Wallet, X } from "lucide-react";
+import { CreditCardIcon, WalletIcon, XIcon } from "@phosphor-icons/react";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type { Transaction } from "@/lib/types";
@@ -17,7 +17,7 @@ interface Props {
 export default function TransactionDetailModal({ transaction: t, onClose }: Props) {
   const { onBackdropClick, containerRef } = useModalDismiss(onClose);
   const isCredit = t.account_type === "credit";
-  const AccountIcon = isCredit ? CreditCard : Wallet;
+  const AccountIcon = isCredit ? CreditCardIcon : WalletIcon;
 
   return (
     <motion.div
@@ -41,13 +41,13 @@ export default function TransactionDetailModal({ transaction: t, onClose }: Prop
             aria-label="Close"
             className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors shrink-0 mt-0.5"
           >
-            <X size={16} />
+            <XIcon size={16} />
           </button>
         </div>
 
         <div className="px-6 py-5 space-y-4">
           <div className="text-center py-2">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1">Amount</p>
+            <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1">Amount</p>
             <p className={`text-3xl font-bold tabular-nums ${t.amount_cents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
               {formatCurrency(t.amount_cents)}
             </p>
@@ -55,13 +55,13 @@ export default function TransactionDetailModal({ transaction: t, onClose }: Prop
 
           <div className="grid grid-cols-2 gap-3">
             <div className="border rounded-xl px-3 py-2.5">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1 flex items-center gap-1">
+              <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1 flex items-center gap-1">
                 <AccountIcon size={10} /> Account
               </p>
               <p className="text-sm font-medium truncate">{t.account_name ?? "—"}</p>
             </div>
             <div className="border rounded-xl px-3 py-2.5">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1">
+              <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1">
                 Balance after
               </p>
               <p className="text-sm font-medium tabular-nums">
@@ -84,7 +84,7 @@ export default function TransactionDetailModal({ transaction: t, onClose }: Prop
 
           {t.notes && (
             <div className="border-t pt-3">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1">Note</p>
+              <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1">Note</p>
               <p className="text-sm text-[hsl(var(--foreground))] leading-relaxed">{t.notes}</p>
             </div>
           )}

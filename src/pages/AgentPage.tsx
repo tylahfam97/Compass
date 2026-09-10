@@ -1,7 +1,7 @@
 import ScopeToggle from "@/components/ScopeToggle";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ChevronDown, ChevronRight, CheckCircle, Target, Info, HelpCircle, TrendingUp, TrendingDown, SlidersHorizontal, EyeOff } from "lucide-react";
+import { CaretDownIcon, CaretRightIcon, CheckCircleIcon, TargetIcon, InfoIcon, QuestionIcon, TrendUpIcon, TrendDownIcon, SlidersHorizontalIcon, EyeSlashIcon } from "@phosphor-icons/react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
@@ -51,7 +51,7 @@ function MiniScoreCard({
   if (!score || !score.hasData) {
     return (
       <div className="border rounded-2xl p-4 flex flex-col justify-center text-center min-h-[104px]">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-1">{label}</p>
+        <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1">{label}</p>
         <p className="text-xs text-[hsl(var(--muted-foreground))]">No data yet</p>
       </div>
     );
@@ -63,7 +63,7 @@ function MiniScoreCard({
       style={{ borderColor: score.color + "40" }}
     >
       <div className="flex items-center justify-between mb-1">
-        <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: score.color }}>{label}</p>
+        <p className="text-xs font-medium " style={{ color: score.color }}>{label}</p>
         <InfoTooltip text={infoText} />
       </div>
       <div className="flex items-baseline gap-2">
@@ -74,7 +74,7 @@ function MiniScoreCard({
       </div>
       <p className="text-[10px] text-[hsl(var(--muted-foreground))] mt-1.5 leading-snug">{score.detail}</p>
       {onClick && (
-        <p className="text-[10px] font-medium mt-2" style={{ color: score.color }}>See your payoff plan →</p>
+        <p className="text-[10px] font-medium mt-2" style={{ color: score.color }}>See your payoff plan</p>
       )}
       {onClick && <ClickHint />}
     </div>
@@ -152,7 +152,7 @@ function InsightsExcludeDropdown({ profileIds, profileNames, onChanged }: Insigh
         title="Exclude accounts from Insights"
         className="flex items-center gap-1 text-xs px-2 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))] transition-colors"
       >
-        <SlidersHorizontal size={13} />
+        <SlidersHorizontalIcon size={13} />
         {excludedCount > 0 && <span className="font-semibold">{excludedCount}</span>}
       </button>
       {open && (
@@ -205,7 +205,7 @@ function CollapsibleSection({ title, subtitle, expanded, onToggle, children }: C
           <span className="font-semibold text-sm">{title}</span>
           {subtitle && <span className="text-xs text-[hsl(var(--muted-foreground))]">{subtitle}</span>}
         </div>
-        {expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+        {expanded ? <CaretDownIcon size={15} /> : <CaretRightIcon size={15} />}
       </button>
       {expanded && children}
     </section>
@@ -246,7 +246,7 @@ function InsightGroup({ label, severity, items, onApply, open, onToggle }: Insig
     },
   };
   const s = styles[severity];
-  const GroupIcon = severity === "success" ? CheckCircle : severity === "info" ? Info : Target;
+  const GroupIcon = severity === "success" ? CheckCircleIcon : severity === "info" ? InfoIcon : TargetIcon;
 
   return (
     <div className="border-t overflow-hidden">
@@ -263,7 +263,7 @@ function InsightGroup({ label, severity, items, onApply, open, onToggle }: Insig
             {items.length}
           </span>
         </div>
-        <ChevronDown
+        <CaretDownIcon
           size={15}
           className={`${s.chevronCls} transition-transform duration-200 ${open ? "rotate-180" : ""}`}
         />
@@ -295,7 +295,7 @@ function ScoreHeroCard({ score, scopeLabel, onOpen }: { score: HealthScore; scop
       <div className="px-6 pt-5 pb-5" style={{ backgroundColor: score.color + "08" }}>
         <div className="flex items-start justify-between mb-4">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-widest mb-2"
+            <p className="text-xs font-medium mb-2"
                style={{ color: score.color }}>{scopeLabel ?? "Financial Health Score"}</p>
             <div className="flex items-baseline gap-3">
               <span className="text-6xl font-black tabular-nums leading-none"
@@ -311,7 +311,7 @@ function ScoreHeroCard({ score, scopeLabel, onOpen }: { score: HealthScore; scop
                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = score.color + "18")}
                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = score.color + "00")}
           >
-            <HelpCircle size={14} />
+            <QuestionIcon size={14} />
           </div>
         </div>
         <div className="grid grid-cols-2 gap-x-6 gap-y-2.5">
@@ -356,7 +356,7 @@ function NetWorthCard({
       <div className="px-6 pt-5 pb-5">
         <div className="flex items-start justify-between mb-4 flex-wrap gap-2">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2">
+            <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-2">
               Net Worth
             </p>
             <p className={`text-4xl font-black tabular-nums ${netWorth.netWorthCents >= 0 ? "text-[hsl(var(--foreground))]" : "text-[hsl(var(--error))]"}`}>
@@ -370,15 +370,15 @@ function NetWorthCard({
 
         <div className="grid grid-cols-3 gap-4 mb-4">
           <div>
-            <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wide">Liquid</p>
+            <p className="text-[10px] text-[hsl(var(--muted-foreground))] ">Liquid</p>
             <p className="text-sm font-bold">{formatCurrency(netWorth.liquidCents)}</p>
           </div>
           <div>
-            <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wide">Investments</p>
+            <p className="text-[10px] text-[hsl(var(--muted-foreground))] ">Investments</p>
             <p className="text-sm font-bold">{formatCurrency(netWorth.investmentCents)}</p>
           </div>
           <div>
-            <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wide">Debt</p>
+            <p className="text-[10px] text-[hsl(var(--muted-foreground))] ">Debt</p>
             <p className={`text-sm font-bold ${(netWorth.debtCents + netWorth.loanDebtCents) < 0 ? "text-[hsl(var(--error))]" : ""}`}>{formatCurrency(netWorth.debtCents + netWorth.loanDebtCents)}</p>
           </div>
         </div>
@@ -426,19 +426,19 @@ function NetWorthCard({
                 >
                   <div className="grid grid-cols-4 gap-3 text-center rounded-xl p-3 mb-4 bg-[hsl(var(--muted))]/40">
                     <div>
-                      <p className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase">{formatMonthLabel(selected.month)}</p>
+                      <p className="text-[9px] text-[hsl(var(--muted-foreground))] ">{formatMonthLabel(selected.month)}</p>
                       <p className="text-xs font-bold">{formatCurrency(selected.netWorthCents)}</p>
                     </div>
                     <div>
-                      <p className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase">Liquid</p>
+                      <p className="text-[9px] text-[hsl(var(--muted-foreground))] ">Liquid</p>
                       <p className="text-xs font-bold">{formatCurrency(selected.liquidCents)}</p>
                     </div>
                     <div>
-                      <p className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase">Investments</p>
+                      <p className="text-[9px] text-[hsl(var(--muted-foreground))] ">Investments</p>
                       <p className="text-xs font-bold">{formatCurrency(selected.investmentCents)}</p>
                     </div>
                     <div>
-                      <p className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase">Debt</p>
+                      <p className="text-[9px] text-[hsl(var(--muted-foreground))] ">Debt</p>
                       <p className={`text-xs font-bold ${selected.debtCents < 0 ? "text-[hsl(var(--error))]" : ""}`}>{formatCurrency(selected.debtCents)}</p>
                     </div>
                   </div>
@@ -450,13 +450,13 @@ function NetWorthCard({
 
         <div className="grid grid-cols-2 gap-4 pt-3 border-t">
           <div>
-            <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wide mb-0.5">Savings Rate</p>
+            <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-0.5">Savings Rate</p>
             <p className={`text-lg font-bold ${savingsRatePct >= 20 ? "text-[hsl(var(--success))]" : savingsRatePct >= 10 ? "text-[hsl(var(--warning))]" : "text-[hsl(var(--error))]"}`}>
               {savingsRatePct}%
             </p>
           </div>
           <div>
-            <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wide mb-0.5">Investment Return</p>
+            <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-0.5">Investment Return</p>
             <p className="text-lg font-bold">
               {investmentReturn?.annualizedReturnPct !== null && investmentReturn?.annualizedReturnPct !== undefined
                 ? `${investmentReturn.annualizedReturnPct >= 0 ? "+" : ""}${investmentReturn.annualizedReturnPct.toFixed(1)}%/yr`
@@ -530,7 +530,7 @@ function LoanDashboardCard({ loans, onSelectLoan }: { loans: DebtEntry[]; onSele
       <div className="px-6 pt-5 pb-5">
         <div className="flex items-start justify-between mb-4 flex-wrap gap-2">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2">
+            <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-2">
               Debt Payoff Dashboard
             </p>
             <p className="text-3xl font-black tabular-nums text-[hsl(var(--error))]">
@@ -574,7 +574,7 @@ function LoanDashboardCard({ loans, onSelectLoan }: { loans: DebtEntry[]; onSele
                 {loan.rankable ? i + 1 : "—"}
               </span>
               <span className="flex-1 min-w-0 truncate text-sm font-medium">{loan.name}</span>
-              <span className="text-[9px] font-semibold uppercase tracking-wide shrink-0 px-1.5 py-0.5 rounded-full border text-[hsl(var(--muted-foreground))]">
+              <span className="text-[9px] font-semibold shrink-0 px-1.5 py-0.5 rounded-full border text-[hsl(var(--muted-foreground))]">
                 {loan.debtKind === "credit" ? "Card" : "Loan"}
               </span>
               <span className="text-sm font-semibold text-[hsl(var(--error))] shrink-0">{formatCurrency(loan.balance_cents ?? 0)}</span>
@@ -594,7 +594,7 @@ function LoanDashboardCard({ loans, onSelectLoan }: { loans: DebtEntry[]; onSele
 
         {method === "avalanche" && !hasAnyRate && (
           <p className="text-xs text-[hsl(var(--warning))] mb-3 flex items-start gap-1.5">
-            <Info size={12} className="shrink-0 mt-0.5" />
+            <InfoIcon size={12} className="shrink-0 mt-0.5" />
             Add an interest rate to your loans (via "Add a Statement") to rank them by avalanche priority.
           </p>
         )}
@@ -604,7 +604,7 @@ function LoanDashboardCard({ loans, onSelectLoan }: { loans: DebtEntry[]; onSele
         </p>
 
         <div className="rounded-xl p-3 bg-[hsl(var(--muted))]/40 flex items-start gap-2">
-          <Info size={13} className="shrink-0 mt-0.5 text-[hsl(var(--muted-foreground))]" />
+          <InfoIcon size={13} className="shrink-0 mt-0.5 text-[hsl(var(--muted-foreground))]" />
           <p className="text-xs text-[hsl(var(--muted-foreground))]">{DEBT_TIPS[method]}</p>
         </div>
       </div>
@@ -673,7 +673,7 @@ function ScoreIntroModal({
 
         {/* Score hero */}
         <div className="px-6 pt-6 pb-5 border-b text-center" style={{ backgroundColor: score.color + "0A" }}>
-          <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: score.color }}>
+          <p className="text-xs font-semibold mb-3" style={{ color: score.color }}>
             Financial Health Score
           </p>
           <div className="flex items-baseline justify-center gap-3 mb-1">
@@ -685,14 +685,14 @@ function ScoreIntroModal({
           </div>
           <p className="text-xs text-[hsl(var(--muted-foreground))] mt-2">
             {tab === "global"
-              ? "All profiles aggregated · auto-computed each visit"
+              ? "All profiles aggregated, auto-computed each visit"
               : `${profileName}'s individual financial health`}
           </p>
         </div>
 
         <div className="px-6 py-5 space-y-5">
           <div className="space-y-3">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">
+            <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">
               Breakdown
             </p>
             {comps.map(({ label, detail, s, max }) => (
@@ -710,7 +710,7 @@ function ScoreIntroModal({
             ))}
           </div>
           <div className="space-y-1.5">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">
+            <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">
               Grade Scale
             </p>
             {grades.map(({ g, r, l, c }) => (
@@ -840,7 +840,7 @@ export default function AgentPage() {
     });
   }, []);
 
-  // Adaptive defaults — open the right group after first data load
+  // Adaptive defaults, open the right group after first data load
   useEffect(() => {
     if (insights.length === 0 || didSetDefaults.current) return;
     if (localStorage.getItem("compass_insight_groups")) return; // user has custom state
@@ -1001,7 +1001,7 @@ export default function AgentPage() {
             </span>
             <span className="text-xs font-semibold"
               style={{ color: (viewMode === "global" ? globalHealthScore : (profileHealthScore ?? globalHealthScore)).color }}>
-              · {(viewMode === "global" ? globalHealthScore : (profileHealthScore ?? globalHealthScore)).label}
+             , {(viewMode === "global" ? globalHealthScore : (profileHealthScore ?? globalHealthScore)).label}
             </span>
           </div>
         )}
@@ -1084,7 +1084,7 @@ export default function AgentPage() {
             style={{ border: "1px solid rgba(245,158,11,0.35)", backgroundColor: "rgba(245,158,11,0.07)" }}>
             <p className="text-sm font-semibold" style={{ color: "#b45309" }}>
               {lockedExcluded.length === 1 ? "1 profile is PIN-locked" : `${lockedExcluded.length} profiles are PIN-locked`}
-              {" "}— their data is excluded from global insights.
+              , their data is excluded from global insights.
             </p>
             <div className="flex flex-wrap gap-2">
               {lockedExcluded.map((p) => (
@@ -1104,7 +1104,7 @@ export default function AgentPage() {
             style={{ border: "1px solid rgba(192,138,28,0.35)", backgroundColor: "rgba(192,138,28,0.07)" }}>
             <span className="font-semibold text-sm" style={{ color: "#C08A1C" }}>Global view</span>
             <span className="text-xs text-[hsl(var(--muted-foreground))]">
-              — insights and data aggregated across {profiles.length} profile{profiles.length !== 1 ? "s" : ""}
+             , insights and data aggregated across {profiles.length} profile{profiles.length !== 1 ? "s" : ""}
             </span>
           </div>
         )}
@@ -1178,7 +1178,7 @@ export default function AgentPage() {
               <div className="divide-y">
                 {ROI_SECTION_ORDER.filter((t) => (topRoi[t]?.length ?? 0) > 0).map((type) => (
                   <div key={type} className="px-5 py-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2">
+                    <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-2">
                       {ROI_SECTION_LABELS[type]}
                     </p>
                     <div className="space-y-1.5">
@@ -1186,7 +1186,7 @@ export default function AgentPage() {
                         <div key={`${type}-${h.symbol ?? h.description}`} className="flex items-center justify-between gap-3 text-sm">
                           <span className="truncate flex-1">{h.symbol ?? h.description}</span>
                           <span className={`font-semibold flex items-center gap-1 shrink-0 ${h.roiPct >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
-                            {h.roiPct >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                            {h.roiPct >= 0 ? <TrendUpIcon size={12} /> : <TrendDownIcon size={12} />}
                             {h.roiPct >= 0 ? "+" : ""}{h.roiPct.toFixed(1)}%
                           </span>
                         </div>
@@ -1230,7 +1230,7 @@ export default function AgentPage() {
                 },
               ].map(({ label, value, color, sub }) => (
                 <div key={label} className="min-w-0 px-4 py-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2">
+                  <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-2">
                     {label}
                   </p>
                   <p className={`text-xl font-bold tabular-nums break-words ${color}`}>{value}</p>
@@ -1245,10 +1245,10 @@ export default function AgentPage() {
         {savingsHistory.length >= 2 && (
           <section className="border rounded-2xl overflow-hidden">
             <div className="px-6 pt-5 pb-0 flex items-center justify-between">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">
-                Savings Rate · 12 months
+              <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">
+                Savings Rate, 12 months
               </p>
-              <p className="text-[10px] text-[hsl(var(--muted-foreground))]">— 20% target</p>
+              <p className="text-[10px] text-[hsl(var(--muted-foreground))]">20% target</p>
             </div>
             <ResponsiveContainer width="100%" height={110}>
               <AreaChart data={savingsHistory} margin={{ left: 0, right: 20, top: 8, bottom: 4 }}>
@@ -1303,7 +1303,7 @@ export default function AgentPage() {
           if (cards.length === 0) return null;
           return (
             <section className="space-y-3">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">
+              <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">
                 Spotlight
               </p>
               <div className={`grid gap-3 ${cards.length > 1 ? "sm:grid-cols-2" : ""}`}>
@@ -1371,7 +1371,7 @@ export default function AgentPage() {
                       </span>
                     </td>
                     <td className="px-5 py-2.5 text-[hsl(var(--muted-foreground))]">
-                      {s.patternLabel} · {s.month_count} months running
+                      {s.patternLabel}, {s.month_count} months running
                     </td>
                     <td className="px-5 py-2.5 text-right text-[hsl(var(--error))]">
                       {formatCurrency(Math.abs(s.amount_cents))}/mo
@@ -1384,7 +1384,7 @@ export default function AgentPage() {
                         className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))]
                                    opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
                       >
-                        <EyeOff size={14} />
+                        <EyeSlashIcon size={14} />
                       </button>
                     </td>
                   </tr>
@@ -1392,7 +1392,7 @@ export default function AgentPage() {
               </tbody>
             </table>
             <div className="px-5 py-3 border-t text-xs text-[hsl(var(--muted-foreground))] flex items-center justify-between gap-3">
-              <span>{formatCurrency(totalSubCost)}/month · {formatCurrency(annualSubCost)}/year</span>
+              <span>{formatCurrency(totalSubCost)}/month, {formatCurrency(annualSubCost)}/year</span>
               {hiddenChargeCount > 0 && (
                 <button onClick={restoreHiddenSubscriptions} className="underline hover:text-[hsl(var(--foreground))]">
                   Restore {hiddenChargeCount} hidden

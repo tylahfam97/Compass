@@ -4,7 +4,7 @@ import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
   BarChart, Bar,
 } from "recharts";
-import { TrendingUp, TrendingDown, ChevronRight, ChevronDown, Info } from "lucide-react";
+import { TrendUpIcon, TrendDownIcon, CaretRightIcon, CaretDownIcon, InfoIcon } from "@phosphor-icons/react";
 import { getDb } from "@/lib/db";
 import { formatCurrency, formatDate, formatAxisCurrency, accountChartColor } from "@/lib/utils";
 import { holdingRoiPct, latestHoldingPerAccount } from "@/lib/netWorth";
@@ -325,7 +325,7 @@ export default function InvestmentsPage() {
   if (!asOfDate && activity.length === 0) {
     return (
       <div className="workspace-page text-center py-16">
-        <div className="flex justify-center mb-4 text-[hsl(var(--muted-foreground))]"><TrendingUp size={48} /></div>
+        <div className="flex justify-center mb-4 text-[hsl(var(--muted-foreground))]"><TrendUpIcon size={48} /></div>
         <p className="font-medium mb-1">No investments yet</p>
         <p className="text-sm text-[hsl(var(--muted-foreground))] mb-6">
           Import a brokerage portfolio positions export or a monthly statement to track your stocks,
@@ -591,7 +591,7 @@ export default function InvestmentsPage() {
                 <tr key={a.id} className="border-t">
                   <td className="px-4 py-2 text-xs">
                     {a.name}
-                    {a.institution && <span className="text-[hsl(var(--muted-foreground))]"> · {a.institution}</span>}
+                    {a.institution && <span className="text-[hsl(var(--muted-foreground))]">, {a.institution}</span>}
                   </td>
                   <td className="px-4 py-2 text-xs text-[hsl(var(--muted-foreground))]">{formatDate(a.as_of_date)}</td>
                   <td className="px-4 py-2 text-right text-xs">{a.positions}</td>
@@ -602,7 +602,7 @@ export default function InvestmentsPage() {
           </table>
           {mixedAsOfDates && (
             <p className="px-4 py-2 text-xs text-[hsl(var(--muted-foreground))] border-t flex items-start gap-1">
-              <Info size={12} className="shrink-0 mt-0.5" />
+              <InfoIcon size={12} className="shrink-0 mt-0.5" />
               These accounts were last priced on different dates because they issue statements on
               different schedules. Each one contributes its own most recent snapshot to the totals above.
             </p>
@@ -623,7 +623,7 @@ export default function InvestmentsPage() {
         <div className="border rounded-xl px-4 py-4 text-center">
           <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1">Unrealized Gain/Loss</p>
           <p className={`text-xl font-bold flex items-center justify-center gap-1 ${kpis.unrealized === null ? "" : kpis.unrealized >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
-            {kpis.unrealized !== null && (kpis.unrealized >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />)}
+            {kpis.unrealized !== null && (kpis.unrealized >= 0 ? <TrendUpIcon size={16} /> : <TrendDownIcon size={16} />)}
             {kpis.unrealized !== null ? formatCurrency(kpis.unrealized) : "-"}
           </p>
         </div>
@@ -668,7 +668,7 @@ export default function InvestmentsPage() {
                         </span>
                         <span className="shrink-0 tabular-nums">
                           <span className="font-medium">{formatCurrency(entry.value)}</span>
-                          <span className="text-[hsl(var(--muted-foreground))]"> · {Math.round(pct)}%</span>
+                          <span className="text-[hsl(var(--muted-foreground))]">, {Math.round(pct)}%</span>
                         </span>
                       </div>
                       <div
@@ -718,7 +718,7 @@ export default function InvestmentsPage() {
                       <tr className={`border-t ${hasLots ? "cursor-pointer hover:bg-[hsl(var(--muted))]/40" : ""}`}
                         onClick={() => hasLots && toggleExpanded(g.key)}>
                         <td className="px-4 py-2 text-[hsl(var(--muted-foreground))]">
-                          {hasLots && (isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
+                          {hasLots && (isOpen ? <CaretDownIcon size={14} /> : <CaretRightIcon size={14} />)}
                         </td>
                         <td className="px-4 py-2 max-w-xs truncate text-xs">{g.description}</td>
                         <td className="px-4 py-2 text-xs">{g.symbol ?? "-"}</td>
@@ -759,7 +759,7 @@ export default function InvestmentsPage() {
       })}
 
       <p className="text-xs text-[hsl(var(--muted-foreground))] flex items-start gap-1">
-        <Info size={12} className="shrink-0 mt-0.5" />
+        <InfoIcon size={12} className="shrink-0 mt-0.5" />
         Est. Annual Income figures reflect the brokerage's projected estimates as of the statement date, not a history of dividends actually paid.
         {activity.length > 0 && <> See the <strong>Income &amp; Gains</strong> tab for income actually received.</>}
       </p>

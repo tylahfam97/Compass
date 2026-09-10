@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatCurrency, formatAxisCurrency, lightenHex, formatDate, formatMonthLabel, combineAccountBalances } from "./utils";
+import { formatCurrency, formatAxisCurrency, lightenHex, formatDate, formatMonthLabel, combineAccountBalances , formatMonthLong } from "./utils";
 
 describe("formatCurrency", () => {
   it("formats positive cents as dollars", () => {
@@ -70,5 +70,15 @@ describe("combineAccountBalances", () => {
       { date: "2026-07-01", balance_cents: 5000 },
       { date: "2026-07-02", balance_cents: 7000 },
     ]);
+  });
+});
+
+describe("formatMonthLong", () => {
+  it("spells the month out with the year", () => {
+    expect(formatMonthLong("2026-09")).toBe("September 2026");
+    expect(formatMonthLong("2027-01")).toBe("January 2027");
+  });
+  it("returns malformed input unchanged", () => {
+    expect(formatMonthLong("nope")).toBe("nope");
   });
 });

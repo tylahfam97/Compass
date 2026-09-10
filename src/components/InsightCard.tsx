@@ -1,64 +1,59 @@
 ﻿import { useState } from "react";
 import type { Insight } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
-import {
-  AlertTriangle, CheckCircle, Target, Info, X,
-  TrendingUp, TrendingDown, Percent, Zap,
-  RefreshCw, ShoppingBag, Calendar, Shield, DollarSign, CreditCard,
-  Landmark, LineChart, PieChart,
-} from "lucide-react";
+import { WarningIcon, CheckCircleIcon, TargetIcon, InfoIcon, XIcon, TrendUpIcon, TrendDownIcon, PercentIcon, LightningIcon, ArrowsClockwiseIcon, ShoppingBagIcon, CalendarBlankIcon, ShieldIcon, CurrencyDollarIcon, CreditCardIcon, BankIcon, ChartLineIcon, ChartPieIcon } from "@phosphor-icons/react";
 
 // Maps insight type to a descriptive icon for row/scannable contexts.
-// Groups: budget (Target), rate/% (Percent), trend-up (TrendingUp),
-// improved (TrendingDown), velocity (Zap), recurring (RefreshCw),
-// merchant/spend (ShoppingBag/$), time (Calendar), safety (Shield).
+// Groups: budget (TargetIcon), rate/% (PercentIcon), trend-up (TrendUpIcon),
+// improved (TrendDownIcon), velocity (LightningIcon), recurring (ArrowsClockwiseIcon),
+// merchant/spend (ShoppingBag/$), time (CalendarBlankIcon), safety (ShieldIcon).
 const TYPE_ICONS: Record<string, React.ElementType> = {
   // ━━ Budget discipline ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  budget_gap:             Target,
-  overspend_streak:       Target,
-  positive_streak:        Target,
+  budget_gap:             TargetIcon,
+  overspend_streak:       TargetIcon,
+  positive_streak:        TargetIcon,
   // ━━ Rate / percentage ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  savings_rate_low:       Percent,
-  expense_ratio_drift:    Percent,
-  weekend_spending:       Percent,
+  savings_rate_low:       PercentIcon,
+  expense_ratio_drift:    PercentIcon,
+  weekend_spending:       PercentIcon,
   // ━━ Trending up (notable / bad in spend context) ━━━━━━━━━━━━━━━━━━━━━━
-  unusual_spike:          TrendingUp,
-  category_creep:         TrendingUp,
-  year_end_projection:    TrendingUp,
+  unusual_spike:          TrendUpIcon,
+  category_creep:         TrendUpIcon,
+  year_end_projection:    TrendUpIcon,
   // ━━ Improved / trending down (good) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  most_improved:          TrendingDown,
+  most_improved:          TrendDownIcon,
   // ━━ Velocity / pace ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  spending_velocity:      Zap,
+  spending_velocity:      LightningIcon,
   // ━━ Recurring charges / subscriptions ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ghost_subscription:     RefreshCw,
-  subscription_total:     RefreshCw,
-  redundant_spending:     RefreshCw,
+  ghost_subscription:     ArrowsClockwiseIcon,
+  subscription_total:     ArrowsClockwiseIcon,
+  redundant_spending:     ArrowsClockwiseIcon,
   // ━━ Merchant / shopping spend ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  top_merchants:          ShoppingBag,
-  food_delivery_spend:    ShoppingBag,
+  top_merchants:          ShoppingBagIcon,
+  food_delivery_spend:    ShoppingBagIcon,
   // ━━ Cost / money ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  bill_due_soon:          DollarSign,
+  bill_due_soon:          CurrencyDollarIcon,
   // ━━ Time / calendar ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  income_expected:        Calendar,
-  income_irregular:       Calendar,
+  income_expected:        CalendarBlankIcon,
+  income_irregular:       CalendarBlankIcon,
   // ━━ Account safety / health ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  emergency_fund_runway:  Shield,
-  overdraft_alert:        AlertTriangle,
+  emergency_fund_runway:  ShieldIcon,
+  overdraft_alert:        WarningIcon,
   // ━━ Credit card debt ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  credit_card_debt_high:      CreditCard,
-  credit_card_debt_growing:   CreditCard,
-  credit_card_debt_improving: CreditCard,  // ━━ Loan debt / payoff planning ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  loan_debt_high:              Landmark,
-  loan_debt_growing:           Landmark,
-  loan_debt_improving:         Landmark,
-  loan_payoff_projection:      Calendar,
-  debt_payoff_priority:        Landmark,
+  credit_card_debt_high:      CreditCardIcon,
+  credit_card_debt_growing:   CreditCardIcon,
+  credit_card_debt_improving: CreditCardIcon,  // ━━ Loan debt / payoff planning ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  loan_debt_high:              BankIcon,
+  loan_debt_growing:           BankIcon,
+  loan_debt_improving:         BankIcon,
+  loan_payoff_projection:      CalendarBlankIcon,
+  debt_payoff_priority:        BankIcon,
   // ━━ Investments ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  investment_performance:      LineChart,
-  dividend_income_projected:   DollarSign,
-  investment_income_received:  DollarSign,
-  realized_gains_ytd:          LineChart,
-  portfolio_concentration_risk: PieChart,};
+  investment_performance:      ChartLineIcon,
+  dividend_income_projected:   CurrencyDollarIcon,
+  investment_income_received:  CurrencyDollarIcon,
+  realized_gains_ytd:          ChartLineIcon,
+  portfolio_concentration_risk: ChartPieIcon,};
 
 const CARD_STYLES: Record<string, string> = {
   warning: "bg-gradient-to-br from-[hsl(var(--warning)/0.08)] to-[hsl(var(--warning)/0.02)] dark:from-[hsl(var(--warning)/0.12)] dark:to-[hsl(var(--warning)/0.04)]",
@@ -88,14 +83,14 @@ const ACTION_CLS: Record<string, string> = {
   success: "border border-[hsl(var(--success)/0.5)] text-[hsl(var(--success))] hover:bg-[hsl(var(--success)/0.12)] dark:hover:bg-[hsl(var(--success)/0.18)]",
 };
 const CARD_ICONS: Record<string, React.ElementType> = {
-  warning: AlertTriangle,
-  info:    Info,
-  success: CheckCircle,
+  warning: WarningIcon,
+  info:    InfoIcon,
+  success: CheckCircleIcon,
 };
 const ROW_ICONS: Record<string, React.ElementType> = {
-  warning: Target,
-  info:    Info,
-  success: CheckCircle,
+  warning: TargetIcon,
+  info:    InfoIcon,
+  success: CheckCircleIcon,
 };
 
 interface InsightCardProps {
@@ -134,7 +129,7 @@ export default function InsightCard({ insight, onApply, compact = false, variant
               onClick={() => onApply(insight)}
               className={`mt-2 text-xs font-semibold px-3 py-1 rounded-full transition-colors ${ACTION_CLS[insight.severity]}`}
             >
-              {insight.actionLabel} →
+              {insight.actionLabel}
             </button>
           )}
         </div>
@@ -144,7 +139,7 @@ export default function InsightCard({ insight, onApply, compact = false, variant
           className="text-[hsl(var(--muted-foreground))] opacity-0 group-hover:opacity-40
                      hover:!opacity-100 focus:!opacity-100 focus-visible:!opacity-100 transition-opacity shrink-0 mt-0.5"
         >
-          <X size={13} />
+          <XIcon size={13} />
         </button>
       </div>
     );
@@ -188,7 +183,7 @@ export default function InsightCard({ insight, onApply, compact = false, variant
         )}
         {expanded && hasAccountBlurb && (
           <div className="mt-2 pt-2 border-t border-[hsl(var(--border))]/50 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[hsl(var(--muted-foreground))]">
-            <span className="font-semibold uppercase tracking-wide">
+            <span className="font-semibold ">
               {rd!.accountType === "credit" ? "Credit Card" : "Loan"}
             </span>
             {rd!.accountBalanceCents != null && (
@@ -207,7 +202,7 @@ export default function InsightCard({ insight, onApply, compact = false, variant
             onClick={(e) => { e.stopPropagation(); onApply(insight); }}
             className={`mt-2 text-xs font-semibold px-3 py-1 rounded-full transition-colors ${ACTION_CLS[insight.severity]}`}
           >
-            {insight.actionLabel} →
+            {insight.actionLabel}
           </button>
         )}
       </div>
@@ -216,7 +211,7 @@ export default function InsightCard({ insight, onApply, compact = false, variant
         aria-label="Dismiss"
         className={`${ICON_CLS[insight.severity]} opacity-50 hover:opacity-100 transition-opacity shrink-0 mt-0.5`}
       >
-        <X size={14} />
+        <XIcon size={14} />
       </button>
     </div>
   );

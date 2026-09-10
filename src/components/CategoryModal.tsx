@@ -1,3 +1,4 @@
+import { CATEGORY_HUES } from "@/lib/chartTheme";
 import { useState } from "react";
 import { motion } from "motion/react";
 import { getDb } from "@/lib/db";
@@ -8,11 +9,7 @@ import { useModalDismiss } from "@/hooks/useModalDismiss";
 import CategoryOptions from "@/components/CategoryOptions";
 import type { Category } from "@/lib/types";
 
-const PRESET_COLORS = [
-  "#ef4444","#f97316","#eab308","#22c55e",
-  "#14b8a6","#3b82f6","#8b5cf6","#ec4899",
-  "#6b7280","#10b981",
-];
+const PRESET_COLORS: readonly string[] = CATEGORY_HUES;
 
 interface Props {
   category?: Category;   // undefined = create mode
@@ -103,7 +100,7 @@ export default function CategoryModal({ category, onClose, profileId, deleteMode
 
         <div className="space-y-4">
           <div>
-            <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">Name</label>
+            <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">Name</label>
             <input
               aria-label="Category name"
               value={name} onChange={(e) => setName(e.target.value)}
@@ -114,7 +111,7 @@ export default function CategoryModal({ category, onClose, profileId, deleteMode
           </div>
 
           <div>
-            <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">Color</label>
+            <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">Color</label>
             <div className="mt-1 flex flex-wrap gap-2">
               {PRESET_COLORS.map((c) => (
                 <button key={c} onClick={() => setColor(c)} aria-label={`Color ${c}`} aria-pressed={color === c}
@@ -127,11 +124,11 @@ export default function CategoryModal({ category, onClose, profileId, deleteMode
           </div>
 
           <div>
-            <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">Parent Category (optional)</label>
+            <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">Parent Category (optional)</label>
             <select value={parentId} aria-label="Parent category"
               onChange={(e) => setParentId(e.target.value ? Number(e.target.value) : "")}
               className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))]">
-              <option value="">— None (top level) —</option>
+              <option value="">None (top level)</option>
               <CategoryOptions categories={topLevel} />
             </select>
           </div>
@@ -152,7 +149,7 @@ export default function CategoryModal({ category, onClose, profileId, deleteMode
               <button onClick={() => setConfirmDelete(true)}
                 className="text-sm text-[hsl(var(--error))] hover:underline">Delete</button>
             )}
-            {isSystem && <span className="text-xs text-[hsl(var(--muted-foreground))]">System category — cannot delete</span>}
+            {isSystem && <span className="text-xs text-[hsl(var(--muted-foreground))]">System category, cannot delete</span>}
           </div>
           <div className="flex gap-2">
             <button onClick={onClose} className="px-4 py-2 border rounded-lg text-sm">Cancel</button>

@@ -1,3 +1,4 @@
+import { CATEGORY_HUES } from "@/lib/chartTheme";
 import { useState, useEffect, useRef } from "react";
 import { getDb } from "@/lib/db";
 import { incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
@@ -6,10 +7,7 @@ import { useCategoryStore } from "@/stores/categoryStore";
 import type { Profile, Category } from "@/lib/types";
 import PinModal, { hashPin } from "./PinModal";
 
-const AVATAR_COLORS = [
-  "#6366f1", "#ec4899", "#22c55e", "#f59e0b",
-  "#06b6d4", "#8b5cf6", "#ef4444", "#f97316",
-];
+const AVATAR_COLORS: readonly string[] = CATEGORY_HUES;
 
 function getInitials(name: string): string {
   return name
@@ -336,7 +334,7 @@ export default function ProfileSwitcher() {
                         {pStats && (
                           <p className="text-xs text-[hsl(var(--muted-foreground))]">
                             {pStats.txCount.toLocaleString()} txns
-                            {" · "}
+                            {", "}
                             <span className={pStats.monthlyNet >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}>
                               {pStats.monthlyNet >= 0 ? "+" : ""}
                               {(pStats.monthlyNet / 100).toLocaleString("en-US", {

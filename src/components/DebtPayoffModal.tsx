@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "motion/react";
-import { X, Scissors, Info, CheckCircle2, Circle, Sparkles, TrendingDown, SlidersHorizontal } from "lucide-react";
+import { XIcon, ScissorsIcon, InfoIcon, CheckCircleIcon, CircleIcon, SparkleIcon, TrendDownIcon, SlidersHorizontalIcon } from "@phosphor-icons/react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { computeDebtPayoffPlan, simulateCustomDebtPayoff } from "@/lib/agent";
 import type { DebtPayoffPlan } from "@/lib/types";
@@ -182,7 +182,7 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
             {subtitle && <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">{subtitle}</p>}
           </div>
           <button onClick={onClose} aria-label="Close" className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] shrink-0">
-            <X size={18} />
+            <XIcon size={18} />
           </button>
         </div>
 
@@ -193,22 +193,22 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
             {/* Summary strip */}
             <div className="grid grid-cols-3 gap-3">
               <div className="border rounded-xl p-3 text-center">
-                <p className="text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))] mb-1">Total Debt</p>
+                <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-1">Total Debt</p>
                 <p className="text-lg font-bold text-[hsl(var(--error))]">{formatCurrency(plan.totalDebtCents)}</p>
               </div>
               <div className="border rounded-xl p-3 text-center">
-                <p className="text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))] mb-1">Avg. Interest Rate</p>
+                <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-1">Avg. Interest Rate</p>
                 <p className="text-lg font-bold">{plan.weightedAvgRateBps != null ? `${(plan.weightedAvgRateBps / 100).toFixed(2)}%` : "—"}</p>
               </div>
               <div className="border rounded-xl p-3 text-center">
-                <p className="text-[10px] uppercase tracking-wide text-[hsl(var(--muted-foreground))] mb-1">Minimum Payments</p>
+                <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-1">Minimum Payments</p>
                 <p className="text-lg font-bold">{formatCurrency(plan.totalMinPaymentCents)}/mo</p>
               </div>
             </div>
 
             {!plan.hasRateData && (
               <p className="text-xs text-[hsl(var(--warning))] flex items-start gap-1.5">
-                <Info size={12} className="shrink-0 mt-0.5" />
+                <InfoIcon size={12} className="shrink-0 mt-0.5" />
                 No interest rate is on file for these accounts, so the timelines below assume 0% interest as a placeholder.
                 Add a rate via "Add a Statement" for an accurate estimate.
               </p>
@@ -222,7 +222,7 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
                     key={d.id}
                     className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success))]"
                   >
-                    <TrendingDown size={12} />
+                    <TrendDownIcon size={12} />
                     {d.pct}% paid off on {d.name} since you started tracking it
                   </span>
                 ))}
@@ -231,8 +231,8 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
 
             {/* What can be cut - now interactive: toggle categories in/out of the redirect */}
             <div>
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-[hsl(var(--muted-foreground))] mb-2 flex items-center gap-1.5">
-                <Scissors size={13} /> What Can Be Cut
+              <h3 className="text-xs font-semibold text-[hsl(var(--muted-foreground))] mb-2 flex items-center gap-1.5">
+                <ScissorsIcon size={13} /> What Can Be Cut
                 <InfoTooltip text="Average monthly spend over your recent history in categories that are typically discretionary - entertainment, shopping, subscriptions, personal care, gifts, gambling, and travel. Only counts spending from checking/savings accounts (real cash on hand) - purchases already made on a credit card or loan aren't available to redirect, since that balance is already part of the debt you're paying off. Essentials like housing, groceries, and bills aren't included either. Tap a category to include or exclude it from what you redirect below." />
               </h3>
               {plan.discretionaryBreakdown.length === 0 ? (
@@ -257,7 +257,7 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
                           onClick={() => toggleCategory(c.categoryId)}
                           className={`w-full flex items-center gap-2 text-sm rounded-lg px-1.5 py-1 -mx-1.5 transition-colors ${selected ? "" : "opacity-45"} hover:bg-[hsl(var(--muted))]`}
                         >
-                          {selected ? <CheckCircle2 size={14} className="text-[hsl(var(--gold-ink))] shrink-0" /> : <Circle size={14} className="text-[hsl(var(--muted-foreground))] shrink-0" />}
+                          {selected ? <CheckCircleIcon size={14} className="text-[hsl(var(--gold-ink))] shrink-0" /> : <CircleIcon size={14} className="text-[hsl(var(--muted-foreground))] shrink-0" />}
                           <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
                           <span className="flex-1 truncate text-left">{c.name}</span>
                           <span className="font-medium">{formatCurrency(c.avgMonthlyCents)}/mo</span>
@@ -275,8 +275,8 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
 
             {/* Live redirect slider */}
             <div className="border rounded-xl p-4 space-y-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-[hsl(var(--muted-foreground))] flex items-center gap-1.5">
-                <SlidersHorizontal size={13} /> Redirect Toward Debt
+              <h3 className="text-xs font-semibold text-[hsl(var(--muted-foreground))] flex items-center gap-1.5">
+                <SlidersHorizontalIcon size={13} /> Redirect Toward Debt
               </h3>
               <div className="flex items-center gap-3">
                 <input
@@ -316,7 +316,7 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
                 <span>vs. Stay the Course ({monthsLabel(plan.baseline.monthsToPayoff)}, {formatCurrency(plan.baseline.totalInterestCents)} interest)</span>
                 <span className="font-medium text-right">
                   {monthsSavedVsBaseline > 0 ? `${monthsLabel(monthsSavedVsBaseline)} faster` : ""}
-                  {monthsSavedVsBaseline > 0 && interestSavedVsBaseline > 0 ? " · " : ""}
+                  {monthsSavedVsBaseline > 0 && interestSavedVsBaseline > 0 ? ", " : ""}
                   {interestSavedVsBaseline > 0 ? `${formatCurrency(interestSavedVsBaseline)} saved` : ""}
                 </span>
               </div>
@@ -328,7 +328,7 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
                 settles a moment after dragging stops instead of flickering mid-drag. */}
             {plan.simDebts.length > 1 && (
               <div className="flex items-center gap-2 text-xs rounded-xl px-3 py-2.5 min-h-[52px] bg-[hsl(var(--primary)/0.06)] border border-[hsl(var(--primary)/0.25)]">
-                <Sparkles size={14} className="shrink-0 text-[hsl(var(--gold-ink))]" />
+                <SparkleIcon size={14} className="shrink-0 text-[hsl(var(--gold-ink))]" />
                 <p>
                   {quickWin ? (
                     <>
@@ -350,7 +350,7 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
                 doesn't shift the modal's height. */}
             {plan.simDebts.length > 1 && (
               <div>
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-[hsl(var(--muted-foreground))] mb-2">
+                <h3 className="text-xs font-semibold text-[hsl(var(--muted-foreground))] mb-2">
                   Payoff Timeline
                 </h3>
                 {timelineData.length > 0 ? (
@@ -381,7 +381,7 @@ export default function DebtPayoffModal({ profileIds, debts, title, subtitle, on
             )}
 
             <p className="text-[11px] text-[hsl(var(--muted-foreground))] flex items-start gap-1.5">
-              <Info size={11} className="shrink-0 mt-0.5" />
+              <InfoIcon size={11} className="shrink-0 mt-0.5" />
               Based on the avalanche method (highest interest rate paid down first - once one account is paid off, its
               minimum payment rolls into the next). Actual results will vary with real spending, rate changes, and new
               purchases.

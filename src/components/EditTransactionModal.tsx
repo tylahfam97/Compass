@@ -4,7 +4,7 @@ import { getDb, recomputeCalculatedBalances, shiftBalanceAnchorForTransactionCha
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import CategoryOptions from "@/components/CategoryOptions";
-import { Info } from "lucide-react";
+import { InfoIcon } from "@phosphor-icons/react";
 import type { Transaction } from "@/lib/types";
 
 interface Props {
@@ -141,14 +141,14 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
 
         <div className="space-y-4">
           <div>
-            <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">Date</label>
+            <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">Date</label>
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
               className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]" />
           </div>
 
           {isAdd && (
             <div>
-              <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">Account</label>
+              <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">Account</label>
               <select value={accountId} onChange={(e) => setAccountId(e.target.value ? Number(e.target.value) : "")}
                 className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
                 <option value="">Select an account…</option>
@@ -167,14 +167,14 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
           )}
 
           <div>
-            <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">Description</label>
+            <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">Description</label>
             <input value={desc} onChange={(e) => setDesc(e.target.value)}
               placeholder="e.g. Grocery run"
               className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]" />
           </div>
 
           <div>
-            <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">
+            <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">
               Amount (negative = expense)
             </label>
             <input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)}
@@ -183,21 +183,21 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
           </div>
 
           <div>
-            <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">Category</label>
+            <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">Category</label>
             <select value={catId} onChange={(e) => setCatId(Number(e.target.value))}
               className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
               <CategoryOptions categories={categories} />
             </select>
             {catId === 20 && (
               <div className="mt-1.5 flex items-start gap-1.5 text-xs text-[hsl(var(--warning))]">
-                <Info size={12} className="shrink-0 mt-0.5" />
+                <InfoIcon size={12} className="shrink-0 mt-0.5" />
                 <span>Transfers are excluded from income and expense totals across all reports and insights.</span>
               </div>
             )}
           </div>
 
           <div>
-            <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">
+            <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">
               Notes <span className="normal-case">(optional)</span>
             </label>
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { ChevronLeft, ChevronRight, Plus, Pencil, Trash2, Target, Check, AlertCircle } from "lucide-react";
+import { CaretLeftIcon, CaretRightIcon, PlusIcon, PencilSimpleIcon, TrashIcon, TargetIcon, CheckIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { getDb } from "@/lib/db";
 import { categorySpendSql, incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
 import { evaluateBudgetPeriod, completedBudgetMonths, type BudgetDefinition } from "@/lib/budgetMetrics";
@@ -538,12 +538,12 @@ export default function GoalsPage() {
         </div>
         <div className="flex items-center gap-1 flex-wrap">
           <button onClick={() => navMonth(-1)} aria-label="Previous month"
-            className="p-1.5 border rounded-lg leading-none hover:bg-[hsl(var(--muted))] transition-colors"><ChevronLeft size={16} /></button>
+            className="p-1.5 border rounded-lg leading-none hover:bg-[hsl(var(--muted))] transition-colors"><CaretLeftIcon size={16} /></button>
           <input type="month" value={month} onChange={(e) => setMonth(e.target.value)}
             className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]" />
           <button onClick={() => navMonth(1)} aria-label="Next month"
-            className="p-1.5 border rounded-lg leading-none hover:bg-[hsl(var(--muted))] transition-colors"><ChevronRight size={16} /></button>
-          <button onClick={() => { cancelEdit(); setFormOpen(true); }} className="ml-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] text-sm"><Plus size={15} /> New goal</button>
+            className="p-1.5 border rounded-lg leading-none hover:bg-[hsl(var(--muted))] transition-colors"><CaretRightIcon size={16} /></button>
+          <button onClick={() => { cancelEdit(); setFormOpen(true); }} className="ml-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] text-sm"><PlusIcon size={15} /> New goal</button>
         </div>
       </div>
 
@@ -625,9 +625,9 @@ export default function GoalsPage() {
           <div><p>Awaiting data</p><strong>{missingDataCount}</strong></div>
         </div>
         <div className="workspace-segments" role="group" aria-label="Goal status">
-          <button aria-pressed={goalFilter === "all"} onClick={() => setGoalFilter("all")}><Target size={14} /> All goals</button>
-          <button aria-pressed={goalFilter === "attention"} onClick={() => setGoalFilter("attention")}><AlertCircle size={14} /> Attention</button>
-          <button aria-pressed={goalFilter === "onTrack"} onClick={() => setGoalFilter("onTrack")}><Check size={14} /> On track</button>
+          <button aria-pressed={goalFilter === "all"} onClick={() => setGoalFilter("all")}><TargetIcon size={14} /> All goals</button>
+          <button aria-pressed={goalFilter === "attention"} onClick={() => setGoalFilter("attention")}><WarningCircleIcon size={14} /> Attention</button>
+          <button aria-pressed={goalFilter === "onTrack"} onClick={() => setGoalFilter("onTrack")}><CheckIcon size={14} /> On track</button>
         </div>
         {visibleGoals.length === 0 && <p className="text-sm text-[hsl(var(--muted-foreground))] py-8">No goals in this group.</p>}
       </>}
@@ -638,13 +638,13 @@ export default function GoalsPage() {
             className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl mb-1"
             style={{ backgroundColor: "hsl(var(--muted))" }}
           >
-            <Target size={24} />
+            <TargetIcon size={24} />
           </div>
           <p className="font-semibold text-[hsl(var(--foreground))]">No goals yet</p>
           <p className="text-sm text-[hsl(var(--muted-foreground))] max-w-md">
             Your next milestone starts here.
           </p>
-          <button onClick={() => setFormOpen(true)} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] text-sm"><Plus size={15} /> Create your first goal</button>
+          <button onClick={() => setFormOpen(true)} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] text-sm"><PlusIcon size={15} /> Create your first goal</button>
         </div>
       )}
 
@@ -681,17 +681,17 @@ export default function GoalsPage() {
                 </span>
                 {g.category_name && (
                   <span className="text-xs text-[hsl(var(--muted-foreground))]">
-                    {" · "}{g.category_name}
+                    {", "}{g.category_name}
                   </span>
                 )}
                 {g.account_name && (
                   <span className="text-xs text-[hsl(var(--muted-foreground))]">
-                    {" · "}{g.account_name}
+                    {", "}{g.account_name}
                   </span>
                 )}
                 {g.type === "debt_paydown" && !g.account_name && (
                   <span className="text-xs text-[hsl(var(--muted-foreground))]">
-                    {" · "}All debt accounts
+                    {", "}All debt accounts
                   </span>
                 )}
               </div>
@@ -712,11 +712,11 @@ export default function GoalsPage() {
                   <span className="flex items-center gap-1">
                     <button onClick={() => startEdit(g)}
                       title="Edit goal" aria-label={`Edit ${g.name}`} className="workspace-icon text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--gold-ink))]">
-                      <Pencil size={15} />
+                      <PencilSimpleIcon size={15} />
                     </button>
                     <button onClick={() => setConfirmDeleteId(g.id)}
                       title="Remove goal" aria-label={`Remove ${g.name}`} className="workspace-icon text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))]">
-                      <Trash2 size={15} />
+                      <TrashIcon size={15} />
                     </button>
                   </span>
                 )}
@@ -724,7 +724,7 @@ export default function GoalsPage() {
             </div>
 
             {hasData(g) && <p className={`flex items-center gap-1.5 text-xs mb-5 ${g.on_track ? "text-[hsl(var(--muted-foreground))]" : "text-[hsl(var(--warning))]"}`}>
-              {g.on_track ? <Check size={14} /> : <AlertCircle size={14} />}{g.on_track ? "On track" : "Needs attention"}
+              {g.on_track ? <CheckIcon size={14} /> : <WarningCircleIcon size={14} />}{g.on_track ? "On track" : "Needs attention"}
             </p>}
 
             {/* No-data banners */}
@@ -746,7 +746,7 @@ export default function GoalsPage() {
                   <span className="text-2xl font-bold">{streakCount}</span>
                   <span className="text-sm text-[hsl(var(--muted-foreground))]">/ {targetMonths} months</span>
                   {streakCount >= targetMonths && (
-                    <span className="text-sm font-semibold text-[hsl(var(--success))]">Goal reached!</span>
+                    <span className="text-sm font-semibold text-[hsl(var(--success))]">Goal reached</span>
                   )}
                 </div>
                 <div className="flex gap-1">
@@ -819,7 +819,7 @@ export default function GoalsPage() {
                     {isSpend
                       ? dailyNeeded < 0 ? "Over limit"
                         : `${formatCurrency(dailyNeeded)}/day left`
-                      : dailyNeeded <= 0 ? "Goal reached!"
+                      : dailyNeeded <= 0 ? "Goal reached"
                       : `${formatCurrency(dailyNeeded)}/day to go`}
                   </p>
                 </div>

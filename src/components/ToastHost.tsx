@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "motion/react";
-import { X } from "lucide-react";
+import { XIcon } from "@phosphor-icons/react";
 import { useToastStore, type ToastTone } from "@/stores/toastStore";
 
 const TONE_BORDER: Record<ToastTone, string> = {
@@ -57,7 +57,7 @@ export default function ToastHost() {
                 aria-label="Dismiss notification"
                 className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] shrink-0"
               >
-                <X size={16} />
+                <XIcon size={16} />
               </button>
             </div>
           </motion.div>
