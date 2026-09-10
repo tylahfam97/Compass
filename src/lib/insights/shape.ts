@@ -40,6 +40,10 @@ export interface MonthShape {
 export interface FixedFlexibleSummary {
   months: MonthShape[];
   avgIncomeCents: number;
+  /** Where `avgIncomeCents` came from: the user's own Plan rules, or averaged deposits when
+   *  nothing is scheduled. Planned is the honest basis for "what can this month afford" -
+   *  supplemental deposits are not money to plan bills around. */
+  incomeBasis: "planned" | "actual";
   avgBillsCents: number;
   avgRecurringCents: number;
   avgFlexibleCents: number;
@@ -91,19 +95,22 @@ export function shapeMonth(txns: ShapeTxn[], month: string, bills: ScheduledLike
 
 /**
  * Averages the shape over the given months (normally the last one to three complete months
- * that had income). Returns null when no months are supplied.
+ * that had income). When the user scheduled income in Plan, that figure is the income basis -
+ * one-off deposits then never stretch the track. Returns null when no months are supplied.
  */
 export function summarizeFixedFlexible(
   txns: ShapeTxn[],
   bills: ScheduledLike[],
   detected: ScheduledLike[],
-  months: string[]
+  months: string[],
+  plannedIncomeCents: number | null = null
 ): FixedFlexibleSummary | null {
   if (months.length === 0) return null;
   const shapes = months.map((m) => shapeMonth(txns, m, bills, detected));
   const n = shapes.length;
   const avg = (pick: (s: MonthShape) => number) => Math.round(shapes.reduce((sum, s) => sum + pick(s), 0) / n);
-  const avgIncomeCents = avg((s) => s.incomeCents);
+  const usePlanned = plannedIncomeCents !== null && plannedIncomeCents > 0;
+  const avgIncomeCents = usePlanned ? plannedIncomeCents : avg((s) => s.incomeCents);
   const avgBillsCents = avg((s) => s.billsCents);
   const avgRecurringCents = avg((s) => s.recurringCents);
   const avgFlexibleCents = avg((s) => s.flexibleCents);
@@ -112,6 +119,7 @@ export function summarizeFixedFlexible(
   return {
     months: shapes,
     avgIncomeCents, avgBillsCents, avgRecurringCents, avgFlexibleCents, avgLeftCents,
+    incomeBasis: usePlanned ? "planned" : "actual",
     billsShare: share(avgBillsCents),
     recurringShare: share(avgRecurringCents),
     flexibleShare: share(avgFlexibleCents),

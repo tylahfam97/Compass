@@ -36,7 +36,7 @@ Check the release notes for signing status and platform-specific installation in
 | **Transactions** | Search, filter, sort, edit, and categorize transactions; make bulk changes or export the filtered view as CSV. |
 | **Trends & Reports** | Compare periods, examine category and merchant spending, and review recurring charges. |
 | **Budgets & Goals** | Set weekly or monthly limits, enable monthly rollover, and track savings, spending, balance, and debt targets. |
-| **Insights** | Full-width financial context and scores, a fixed-and-flexible view of an average month, then action items, observations, and wins ordered by the money at stake. |
+| **Insights** | Full-width financial context and scores, a fixed-and-flexible view of an average month measured against your planned income, then action items, observations, and wins ordered by the money at stake. |
 | **Plan** | Forecast checking cash flow, review upcoming bills and income, and explore what-if spending and cushion adjustments. |
 | **Investments** | Track dated portfolio snapshots, allocation, holdings, statement activity, and income and gains. |
 | **All Accounts** | Review balances across profiles, with an option to include investments. |
@@ -58,7 +58,7 @@ Insights brings financial context and health scores to the top of the page, with
 
 Plan projects spendable checking cash over the rest of the month, to your next paycheck, or for the next 30 days. It combines scheduled bills and income, detected recurring charges, and historical spending to estimate **safe to spend** and your **projected lowest balance**. A forecast requires at least two months of history.
 
-Debt payoff tools compare **Avalanche**, **Snowball**, and **Cash-flow First** strategies and let you explore redirecting spending toward repayment. These are estimates, not promises or financial advice.
+Debt payoff tools compare **Avalanche**, **Snowball**, and **Cash-flow First** strategies. The interactive payoff plan redirects only money that is genuinely free - your planned income minus scheduled bills, recurring charges, and normal spending - with category cuts as explicit opt-in commitments on top. These are estimates, not promises or financial advice.
 
 ## Privacy and Data Safety
 

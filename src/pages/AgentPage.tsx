@@ -933,7 +933,7 @@ export default function AgentPage() {
 
       // The instrument: only complete months that actually had income count toward the average.
       const ffMonths = monthsWithIncome(fixedFlexInputs.txns, fixedFlexInputs.candidateMonths);
-      const ffSummary = summarizeFixedFlexible(fixedFlexInputs.txns, fixedFlexInputs.bills, fixedFlexInputs.detected, ffMonths);
+      const ffSummary = summarizeFixedFlexible(fixedFlexInputs.txns, fixedFlexInputs.bills, fixedFlexInputs.detected, ffMonths, fixedFlexInputs.plannedIncomeCents);
       if (ffSummary && ffSummary.avgIncomeCents > 0) {
         const newest = ffMonths[0];
         const oldest = ffMonths[ffMonths.length - 1];

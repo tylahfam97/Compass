@@ -9,8 +9,9 @@ import CountUp from "@/components/CountUp";
 /**
  * The Insights page's instrument: an average month as one track. Scheduled bills the user
  * confirmed in Plan, recurring charges Compass detected, flexible spending, and what was left,
- * as lengths of average income. The serif figure is the money not spoken for before the month
- * starts, because that is the part the user can direct.
+ * as lengths of income. Income is the user's own Plan schedule when one exists (paychecks,
+ * dividends - money that can be planned around), falling back to averaged deposits when
+ * nothing is scheduled. The serif figure is the money not spoken for before the month starts.
  */
 interface FixedFlexibleBarProps {
   summary: FixedFlexibleSummary;
@@ -24,6 +25,7 @@ const EASE = [0.2, 0.7, 0.2, 1] as const;
 
 export default function FixedFlexibleBar({ summary, monthsLabel, topCategory, className }: FixedFlexibleBarProps) {
   const reduced = useAppReducedMotion();
+  const planned = summary.incomeBasis === "planned";
   const income = summary.avgIncomeCents;
   const bills = summary.avgBillsCents;
   const recurring = summary.avgRecurringCents;
@@ -47,15 +49,16 @@ export default function FixedFlexibleBar({ summary, monthsLabel, topCategory, cl
 
   const share = (cents: number) => (income > 0 ? `${Math.round((cents / income) * 100)}% of income` : undefined);
   const noSchedule = committed === 0;
+  const incomeWord = planned ? "planned income" : "average income";
   const valueText = `${formatCurrency(bills)} scheduled bills, ${formatCurrency(recurring)} detected recurring charges, ${formatCurrency(flexible)} flexible spending`
-    + (over ? `, over average income of ${formatCurrency(income)} by ${formatCurrency(spentTotal - income)}` : `, ${formatCurrency(left)} left of ${formatCurrency(income)} average income`);
+    + (over ? `, over ${incomeWord} of ${formatCurrency(income)} by ${formatCurrency(spentTotal - income)}` : `, ${formatCurrency(left)} left of ${formatCurrency(income)} ${incomeWord}`);
 
   return (
     <section className={cn("fixed-flex", className)} aria-labelledby="fixed-flex-title">
       <div className="fixed-flex-head flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
         <div className="min-w-0">
           <h3 id="fixed-flex-title" className="text-[15px] font-semibold leading-tight">Fixed and flexible</h3>
-          <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">{monthsLabel}</p>
+          <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">{monthsLabel}{planned && ", against planned income"}</p>
         </div>
         <div className="text-right">
           <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">{committed > income ? "Committed beyond income" : "Flexible money each month"}</p>
@@ -76,7 +79,7 @@ export default function FixedFlexibleBar({ summary, monthsLabel, topCategory, cl
           { label: "Flexible spending", value: formatCurrencyWhole(flexible), hint: share(flexible) },
           over
             ? { label: "Over", value: formatCurrencyWhole(spentTotal - income), hint: share(spentTotal - income), tone: "error" as const }
-            : { label: "Left over", value: formatCurrencyWhole(left), hint: income > 0 ? `${Math.round((left / income) * 100)}%, savings rate` : undefined },
+            : { label: "Left over", value: formatCurrencyWhole(left), hint: income > 0 ? `${Math.round((left / income) * 100)}%${planned ? " of planned income" : ", savings rate"}` : undefined },
         ]}
       />
 
@@ -107,7 +110,8 @@ export default function FixedFlexibleBar({ summary, monthsLabel, topCategory, cl
           {noSchedule
             ? "No scheduled bills yet. Add them in Plan to see your fixed costs."
             : "Scheduled bills are the expenses that match your rules in Plan; recurring charges are the ones Compass detected but you have not confirmed."}
-          {income > 0 && <> Average income {formatCurrencyWhole(income)}.</>}
+          {planned && income > 0 && <> Planned income {formatCurrencyWhole(income)} a month, from your Plan schedule. Supplemental deposits are not counted.</>}
+          {!planned && income > 0 && <> Average income {formatCurrencyWhole(income)}. <Link to="/plan" className="text-[hsl(var(--gold-ink))] hover:underline">Schedule your paycheck in Plan</Link> and this will measure against planned income only.</>}
           {topCategory && topCategory.cents > 0 && <> Top category {topCategory.name}, {formatCurrencyWhole(topCategory.cents)} a month.</>}
         </p>
         <Link to="/plan" className="text-[hsl(var(--gold-ink))] hover:underline shrink-0">Manage scheduled bills &amp; income</Link>

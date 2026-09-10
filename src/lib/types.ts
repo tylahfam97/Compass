@@ -48,6 +48,7 @@ export type InsightType =
   | "food_delivery_spend"
   | "subscription_total"
   | "income_expected"
+  | "supplemental_income"
   | "overdraft_alert"
   | "category_creep"
   | "year_end_projection"
@@ -421,13 +422,27 @@ export interface DebtPayoffPlan {
   hasRateData: boolean;
   totalMinPaymentCents: number;
   discretionaryBreakdown: DebtPayoffCategoryBreakdown[];
-  discretionaryTotalCents: number;
-  monthsOfHistory: number;
+  /** Money genuinely left over in an average month - income minus bills, recurring charges and
+   *  normal flexible spending - the honest ceiling for an extra debt payment. Null when there is
+   *  no complete month with income to measure. */
+  freeCash: DebtPayoffFreeCash | null;
   /** Resolved simulation inputs - see `DebtPayoffSimDebt`. */
   simDebts: DebtPayoffSimDebt[];
   /** "Stay the course" (minimum payments only) scenario - the fixed reference point every
    *  custom/live scenario is compared against. */
   baseline: DebtPayoffCustomResult;
+}
+
+/** Derivation of the truly-free monthly money the Debt Payoff modal redirects from: income
+ *  (planned in Plan when scheduled, else averaged deposits) minus committed bills/recurring
+ *  minus typical flexible spending. `cents` can be negative when months run over. */
+export interface DebtPayoffFreeCash {
+  cents: number;
+  incomeBasis: "planned" | "actual";
+  incomeCents: number;
+  committedCents: number;
+  flexibleCents: number;
+  monthsAveraged: number;
 }
 
 /** A recurring charge (subscription/bill) detected by day-of-month or "Nth weekday of month"

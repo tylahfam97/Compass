@@ -57,6 +57,17 @@ describe("summarizeFixedFlexible", () => {
     expect(summarizeFixedFlexible(august, [], [], [])).toBeNull();
   });
 
+  it("uses planned income as the basis when provided, actual deposits otherwise", () => {
+    const s = summarizeFixedFlexible(august, [rent], [netflix], ["2026-08"], 400000)!;
+    expect(s.incomeBasis).toBe("planned");
+    expect(s.avgIncomeCents).toBe(400000);
+    expect(s.avgLeftCents).toBe(400000 - 140000 - 1599 - 22700);
+    expect(s.committedShare).toBeCloseTo((140000 + 1599) / 400000, 6);
+    const actual = summarizeFixedFlexible(august, [rent], [netflix], ["2026-08"], 0)!;
+    expect(actual.incomeBasis).toBe("actual");
+    expect(actual.avgIncomeCents).toBe(370000);
+  });
+
   it("lists only candidate months that had income, newest first", () => {
     expect(monthsWithIncome(august, ["2026-09", "2026-08", "2026-07"])).toEqual(["2026-08"]);
   });

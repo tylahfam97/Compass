@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, Legend, LineChart, Line, ReferenceLine,
+  ResponsiveContainer, LineChart, Line, ReferenceLine, AreaChart, Area,
 } from "recharts";
 import { motion, AnimatePresence } from "motion/react";
 import { TrendUpIcon, TrendDownIcon } from "@phosphor-icons/react";
@@ -284,7 +284,34 @@ function ProfileTrends() {
 
   const hasData = monthly.length > 0;
   const allTimeNet = allTimeIncome - allTimeExpenses;
-  const tooltipStyle = { backgroundColor:"hsl(var(--background))",border:"1px solid hsl(var(--border))",borderRadius:"8px",fontSize:"12px" };
+  const tooltipStyle = { backgroundColor:"hsl(var(--background))",border:"1px solid hsl(var(--border))",borderRadius:"8px",fontSize:"12px",boxShadow:"var(--shadow-raised)" };
+
+  // Header readouts: each section carries its own figure so a heading is never just a label.
+  const currentMonthKey = useMemo(() => {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+  }, []);
+  const avgMonthlyNet = useMemo(() => {
+    const complete = monthly.filter((m) => m.month < currentMonthKey);
+    if (complete.length === 0) return null;
+    return Math.round(complete.reduce((s, m) => s + (m.income - m.expenses), 0) / complete.length);
+  }, [monthly, currentMonthKey]);
+  const topCategoryOfRange = useMemo(() => {
+    let best: { name: string; total: number } | null = null;
+    for (const cat of catNames) {
+      if (cat === "Other") continue;
+      const total = stacked.reduce((s, row) => s + Number(row[cat] ?? 0), 0);
+      if (!best || total > best.total) best = { name: cat, total };
+    }
+    return best;
+  }, [stacked, catNames]);
+  const latestChecking = checkingBalanceMonthly.length > 0 ? checkingBalanceMonthly[checkingBalanceMonthly.length - 1] : null;
+  const latestCreditTotal = useMemo(() => {
+    if (creditBalanceMonthly.length === 0 || creditBalanceAccounts.length === 0) return null;
+    const last = creditBalanceMonthly[creditBalanceMonthly.length - 1];
+    return creditBalanceAccounts.reduce((s, a) => s + Number(last[String(a.id)] ?? 0), 0);
+  }, [creditBalanceMonthly, creditBalanceAccounts]);
+  const firstMonthOnRecord = cumulativeData.length > 0 ? cumulativeData[0].month : null;
 
   return (
     <>
@@ -301,11 +328,10 @@ function ProfileTrends() {
               <ScopeToggle isGlobal={viewMode === "global"} onToggle={() => viewMode === "global" ? handleSwitchToProfile() : handleSwitchToGlobal()} />
               <span className="text-sm font-semibold select-none" style={{ color: viewMode === "global" ? "var(--gold)" : "hsl(var(--muted-foreground))", transition:"color 0.3s" }}>Global</span>
             </div>
-            {/* Range buttons */}
-            <div className="flex gap-2">
+            {/* Range: the same segmented control the rest of the workspace uses */}
+            <div className="workspace-segments" role="group" aria-label="Range">
               {RANGE_OPTIONS.map(r => (
-                <button key={r} onClick={() => setRange(r)}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${range===r ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]" : "border hover:bg-[hsl(var(--muted))]"}`}>
+                <button key={r} onClick={() => setRange(r)} aria-pressed={range === r}>
                   {r}mo
                 </button>
               ))}
@@ -313,92 +339,281 @@ function ProfileTrends() {
           </div>
         </div>
 
-        {/* All-time summary tiles */}
-        <div className="grid grid-cols-3 gap-3">
-          <div className="border rounded-xl px-4 py-4 text-center">
-            <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1">All-Time Income</p>
-            <p className="text-xl font-bold text-[hsl(var(--success))]">{formatCurrency(allTimeIncome)}</p>
-          </div>
-          <div className="border rounded-xl px-4 py-4 text-center">
-            <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1">All-Time Expenses</p>
-            <p className="text-xl font-bold text-[hsl(var(--error))]">{formatCurrency(allTimeExpenses)}</p>
-          </div>
-          <div className="border rounded-xl px-4 py-4 text-center">
-            <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1">All-Time Net</p>
-            <p className={`text-xl font-bold ${allTimeNet >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>{formatCurrency(allTimeNet)}</p>
-          </div>
-        </div>
-
         {loading && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-3 gap-4">
-              {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)}
-            </div>
+          <div className="space-y-6">
+            <Skeleton className="h-28 rounded-xl" />
+            <Skeleton className="h-48 rounded-xl" />
             <Skeleton className="h-64 rounded-xl" />
           </div>
         )}
 
         {!loading && !hasData && (
-          <p className="text-[hsl(var(--muted-foreground))] text-center mt-16">No data yet. Import a bank statement to see trends.</p>
+          <p className="text-[hsl(var(--muted-foreground))] text-center mt-16">
+            Nothing in the log yet. <Link to="/import" className="text-[hsl(var(--gold-ink))] hover:underline">Import a statement</Link> and the record starts here.
+          </p>
         )}
 
         {!loading && hasData && (
           <>
+            {/* The voyage so far: everything the log records, in one figure and one line */}
+            <header className="trends-hero">
+              <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-3">
+                <div>
+                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                    {firstMonthOnRecord ? `The log since ${formatMonthLabel(firstMonthOnRecord)}` : "All time"}, net of everything in and out
+                  </p>
+                  <p className="hero-figure" data-size="xl" style={{ color: allTimeNet >= 0 ? "hsl(var(--gold-ink))" : "hsl(var(--error))" }}>
+                    {formatCurrency(allTimeNet)}
+                  </p>
+                </div>
+                <dl className="trends-hero-stats">
+                  <div>
+                    <dt>Came in</dt>
+                    <dd className="text-[hsl(var(--success))]">{formatCurrency(allTimeIncome)}</dd>
+                  </div>
+                  <div>
+                    <dt>Went out</dt>
+                    <dd className="text-[hsl(var(--error))]">{formatCurrency(allTimeExpenses)}</dd>
+                  </div>
+                </dl>
+              </div>
+              {cumulativeData.length >= 2 && (
+                <ResponsiveContainer width="100%" height={190}>
+                  <AreaChart data={cumulativeData} margin={{ left: 8, right: 8, top: 16, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="voyage-fill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.32} />
+                        <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="month" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={formatMonthLabel} axisLine={false} tickLine={false} />
+                    <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} width={64} />
+                    <Tooltip contentStyle={tooltipStyle} labelFormatter={(l) => formatMonthLabel(String(l))} formatter={(v) => [formatCurrency(v as number), "Running net"]} />
+                    <ReferenceLine y={0} stroke="hsl(var(--border))" strokeDasharray="3 3" />
+                    <Area type="monotone" dataKey="running" stroke="hsl(var(--gold-ink))" strokeWidth={2} fill="url(#voyage-fill)" dot={false}
+                      activeDot={{ r: 3, fill: "hsl(var(--gold-ink))", stroke: "hsl(var(--surface))" }} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </header>
+
             {categoryTrendNarrative && (
-              <div
-                className={`flex items-start gap-2.5 rounded-xl px-4 py-3 text-sm ${
-                  categoryTrendNarrative.rising
-                    ? "bg-gradient-to-br from-[hsl(var(--warning)/0.08)] to-[hsl(var(--warning)/0.02)] dark:from-[hsl(var(--warning)/0.12)] dark:to-[hsl(var(--warning)/0.04)]"
-                    : "bg-gradient-to-br from-[hsl(var(--success)/0.08)] to-[hsl(var(--success)/0.02)] dark:from-[hsl(var(--success)/0.12)] dark:to-[hsl(var(--success)/0.04)]"
-                }`}
-              >
+              <p className="trends-note">
                 {categoryTrendNarrative.rising
                   ? <TrendUpIcon size={15} className="shrink-0 mt-0.5 text-[hsl(var(--warning))]" />
                   : <TrendDownIcon size={15} className="shrink-0 mt-0.5 text-[hsl(var(--success))]" />}
-                <p className="text-[hsl(var(--foreground))]">
-                  {categoryTrendNarrative.text}
-                </p>
-              </div>
+                <span>{categoryTrendNarrative.text}</span>
+              </p>
             )}
 
-            {/* Cumulative net */}
-            {cumulativeData.length >= 2 && (
-              <div className="border rounded-xl p-5">
-                <h2 className="font-semibold mb-4">Cumulative Net (All Time)</h2>
-                <ResponsiveContainer width="100%" height={200}>
-                  <LineChart data={cumulativeData} margin={{ left:8,right:8,top:4,bottom:4 }}>
-                    <XAxis dataKey="month" tick={{ fontSize:11 }} tickFormatter={formatMonthLabel} />
-                    <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize:11 }} />
-                    <Tooltip contentStyle={tooltipStyle} labelFormatter={(l) => formatMonthLabel(String(l))} formatter={v => formatCurrency(v as number)} />
-                    <ReferenceLine y={0} stroke="hsl(var(--border))" strokeDasharray="3 3" />
-                    <Line type="monotone" dataKey="running" name="Running Net" stroke="#6366f1" strokeWidth={2} dot={false} />
-                  </LineChart>
+            {/* The monthly rhythm: in against out. Gold top rule marks a section you can click into. */}
+            <section className="trend-section" data-drill>
+              <div className="trend-section-head">
+                <div>
+                  <h2 className="font-semibold">The monthly rhythm</h2>
+                  <p className="trend-kicker">Money in against money out, last {range} months. Click a month for its top categories.</p>
+                </div>
+                {avgMonthlyNet !== null && (
+                  <p className="trend-readout">
+                    <strong className={avgMonthlyNet >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}>{formatCurrency(avgMonthlyNet)}</strong>
+                    <small>kept in a typical month</small>
+                  </p>
+                )}
+              </div>
+              <div className="trend-legend" aria-hidden="true">
+                <span><i style={{ background: "hsl(var(--success))" }} /> In</span>
+                <span><i style={{ background: "hsl(var(--error))" }} /> Out</span>
+              </div>
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart
+                  data={monthly}
+                  margin={{ left:8,right:8,top:4,bottom:4 }}
+                  onClick={(state) => {
+                    const label = state?.activeLabel as string | undefined;
+                    if (label) toggleMonthExpand(label);
+                  }}
+                >
+                  <XAxis dataKey="month" tick={{ fontSize:11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={formatMonthLabel} axisLine={false} tickLine={false} />
+                  <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize:11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} width={64} />
+                  <Tooltip cursor={false} contentStyle={tooltipStyle} labelFormatter={(l) => formatMonthLabel(String(l))} formatter={v => formatCurrency(v as number)} />
+                  <Bar dataKey="income" name="Income" fill="hsl(var(--success))" radius={[4,4,0,0]} cursor="pointer" background={false} activeBar={{ fill: "hsl(var(--success) / 0.75)" }} />
+                  <Bar dataKey="expenses" name="Expenses" fill="hsl(var(--error))" radius={[4,4,0,0]} cursor="pointer" background={false} activeBar={{ fill: "hsl(var(--error) / 0.75)" }} />
+                </BarChart>
+              </ResponsiveContainer>
+
+              <AnimatePresence initial={false} mode="wait">
+                {expandedMonth && (
+                  <motion.div
+                    key={expandedMonth}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.18 }}
+                  >
+                    <div className="mt-1 pt-3 border-t">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs font-semibold">Top categories - {formatMonthLabel(expandedMonth)}</p>
+                        <Link to="/transactions" state={{ month: expandedMonth }} className="text-[11px] text-[hsl(var(--gold-ink))] hover:underline">
+                          View month
+                        </Link>
+                      </div>
+                      {expandedMonthCats === null ? (
+                        <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">Loading…</p>
+                      ) : expandedMonthCats.length === 0 ? (
+                        <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">No expenses that month.</p>
+                      ) : (
+                        <div className="space-y-1">
+                          {expandedMonthCats.map((c) => (
+                            <div key={c.name} className="flex items-center justify-between text-xs py-1">
+                              <span className="flex items-center gap-1.5 text-[hsl(var(--muted-foreground))]">
+                                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
+                                {c.name}
+                              </span>
+                              <span>{formatCurrency(c.total)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </section>
+
+            {/* Where it went: the same months, cut by category */}
+            {stacked.length > 0 && catNames.length > 0 && (
+              <section className="trend-section" data-drill>
+                <div className="trend-section-head">
+                  <div>
+                    <h2 className="font-semibold">Where it went</h2>
+                    <p className="trend-kicker">The top categories stacked month by month. Pick a category, in the chart or below it, to follow its line.</p>
+                  </div>
+                  {topCategoryOfRange && (
+                    <p className="trend-readout">
+                      <strong>{topCategoryOfRange.name}</strong>
+                      <small>{formatCurrency(topCategoryOfRange.total)} over {range} months</small>
+                    </p>
+                  )}
+                </div>
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={stacked} margin={{ left:8,right:8,top:4,bottom:4 }}>
+                    <XAxis dataKey="month" tick={{ fontSize:11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={formatMonthLabel} axisLine={false} tickLine={false} />
+                    <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize:11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} width={64} />
+                    <Tooltip cursor={false} contentStyle={tooltipStyle} labelFormatter={(l) => formatMonthLabel(String(l))} formatter={v => formatCurrency(v as number)} />
+                    {catNames.map(cat => (
+                      <Bar
+                        key={cat}
+                        dataKey={cat}
+                        stackId="cats"
+                        fill={catColors[cat] ?? "#9ca3af"}
+                        cursor="pointer"
+                        background={false}
+                        activeBar={{ fill: lightenHex(catColors[cat] ?? "#9ca3af") }}
+                        onClick={() => toggleCatSegmentExpand(cat)}
+                        opacity={expandedCatName && expandedCatName !== cat ? 0.4 : 1}
+                      />
+                    ))}
+                  </BarChart>
                 </ResponsiveContainer>
-              </div>
+                <div className="trend-chips" role="group" aria-label="Categories">
+                  {catNames.map((cat) => (
+                    <button
+                      key={cat}
+                      onClick={() => toggleCatSegmentExpand(cat)}
+                      aria-pressed={expandedCatName === cat}
+                    >
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: catColors[cat] ?? "#9ca3af" }} />
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+
+                <AnimatePresence initial={false} mode="wait">
+                  {expandedCatName && (
+                    <motion.div
+                      key={expandedCatName}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.18 }}
+                    >
+                      <div className="mt-1 pt-3 border-t">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-semibold flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: catColors[expandedCatName] ?? "#9ca3af" }} />
+                            {expandedCatName} trend
+                          </p>
+                          {catIds[expandedCatName] !== undefined && (
+                            <Link
+                              to="/transactions"
+                              state={{ category: catIds[expandedCatName] }}
+                              className="text-[11px] text-[hsl(var(--gold-ink))] hover:underline"
+                            >
+                              View all
+                            </Link>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          {stacked.map((row) => {
+                            const amt = (row[expandedCatName] as number | undefined) ?? 0;
+                            if (amt === 0) return null;
+                            return (
+                              <div key={row.month} className="flex items-center justify-between text-xs py-1">
+                                <span className="text-[hsl(var(--muted-foreground))]">{formatMonthLabel(row.month)}</span>
+                                <span>{formatCurrency(amt)}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </section>
             )}
 
-            {/* Checking balance - combined into a single line (there's usually just one account) */}
+            {/* Cash on hand: end-of-month checking balance, whole record */}
             {checkingBalanceMonthly.length >= 2 && (
-              <div className="border rounded-xl p-5">
-                <h2 className="font-semibold mb-4">Checking Balance (All Time)</h2>
+              <section className="trend-section">
+                <div className="trend-section-head">
+                  <div>
+                    <h2 className="font-semibold">Cash on hand</h2>
+                    <p className="trend-kicker">End-of-month checking balance, every month on record.</p>
+                  </div>
+                  {latestChecking && (
+                    <p className="trend-readout">
+                      <strong>{formatCurrency(latestChecking.balance)}</strong>
+                      <small>as of {formatMonthLabel(latestChecking.month)}</small>
+                    </p>
+                  )}
+                </div>
                 <ResponsiveContainer width="100%" height={200}>
                   <LineChart data={checkingBalanceMonthly} margin={{ left:8,right:8,top:4,bottom:4 }}>
-                    <XAxis dataKey="month" tick={{ fontSize:11 }} tickFormatter={formatMonthLabel} />
-                    <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize:11 }} />
-                    <Tooltip contentStyle={tooltipStyle} labelFormatter={(l) => formatMonthLabel(String(l))} formatter={v => formatCurrency(v as number)} />
+                    <XAxis dataKey="month" tick={{ fontSize:11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={formatMonthLabel} axisLine={false} tickLine={false} />
+                    <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize:11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} width={64} />
+                    <Tooltip contentStyle={tooltipStyle} labelFormatter={(l) => formatMonthLabel(String(l))} formatter={v => [formatCurrency(v as number), "Balance"]} />
                     <ReferenceLine y={0} stroke="hsl(var(--border))" strokeDasharray="3 3" />
                     <Line type="monotone" dataKey="balance" name="Balance" stroke="hsl(var(--sea))" strokeWidth={2} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
-              </div>
+              </section>
             )}
 
-            {/* Credit card balances - kept separate from checking, one line per card */}
+            {/* What the cards carry: each card's balance line, kept apart from cash */}
             {creditBalanceMonthly.length >= 2 && (
-              <div className="border rounded-xl p-5 chart-clickable">
-                <h2 className="font-semibold mb-1">Credit Card Balances (All Time)</h2>
-                <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-1">Click a point for the per-card breakdown</p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">Each card shown separately - debt counts negatively against its own line.</p>
+              <section className="trend-section" data-drill>
+                <div className="trend-section-head">
+                  <div>
+                    <h2 className="font-semibold">What the cards carry</h2>
+                    <p className="trend-kicker">Each card's end-of-month balance, shown separately - debt counts against its own line. Click a point for the per-card breakdown.</p>
+                  </div>
+                  {latestCreditTotal !== null && (
+                    <p className="trend-readout">
+                      <strong className={latestCreditTotal < 0 ? "text-[hsl(var(--error))]" : undefined}>{formatCurrency(latestCreditTotal)}</strong>
+                      <small>across {creditBalanceAccounts.length === 1 ? "1 card" : `${creditBalanceAccounts.length} cards`} right now</small>
+                    </p>
+                  )}
+                </div>
                 <ResponsiveContainer width="100%" height={200}>
                   <LineChart
                     data={creditBalanceMonthly}
@@ -408,8 +623,8 @@ function ProfileTrends() {
                       if (label) toggleBalanceMonthExpand(label);
                     }}
                   >
-                    <XAxis dataKey="month" tick={{ fontSize:11 }} tickFormatter={formatMonthLabel} />
-                    <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize:11 }} />
+                    <XAxis dataKey="month" tick={{ fontSize:11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={formatMonthLabel} axisLine={false} tickLine={false} />
+                    <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize:11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} width={64} />
                     <Tooltip
                       contentStyle={tooltipStyle}
                       labelFormatter={(l) => formatMonthLabel(String(l))}
@@ -465,139 +680,7 @@ function ProfileTrends() {
                     </motion.div>
                   )}
                 </AnimatePresence>
-              </div>
-            )}
-
-            {/* Income vs Expenses */}
-            <div className="border rounded-xl p-5 chart-clickable">
-              <h2 className="font-semibold mb-1">Income vs Expenses ({range}mo)</h2>
-              <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-3">Click a month for its top categories</p>
-              <ResponsiveContainer width="100%" height={260}>
-                <BarChart
-                  data={monthly}
-                  margin={{ left:8,right:8,top:4,bottom:4 }}
-                  onClick={(state) => {
-                    const label = state?.activeLabel as string | undefined;
-                    if (label) toggleMonthExpand(label);
-                  }}
-                >
-                  <XAxis dataKey="month" tick={{ fontSize:11 }} tickFormatter={formatMonthLabel} />
-                  <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize:11 }} />
-                  <Tooltip cursor={false} contentStyle={tooltipStyle} labelFormatter={(l) => formatMonthLabel(String(l))} formatter={v => formatCurrency(v as number)} />
-                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize:"11px",paddingTop:"8px" }} />
-                  <Bar dataKey="income" name="Income" fill="#22c55e" radius={[4,4,0,0]} cursor="pointer" background={false} activeBar={{ fill: lightenHex("#22c55e") }} />
-                  <Bar dataKey="expenses" name="Expenses" fill="#ef4444" radius={[4,4,0,0]} cursor="pointer" background={false} activeBar={{ fill: lightenHex("#ef4444") }} />
-                </BarChart>
-              </ResponsiveContainer>
-
-              <AnimatePresence initial={false} mode="wait">
-                {expandedMonth && (
-                  <motion.div
-                    key={expandedMonth}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.18 }}
-                  >
-                    <div className="mt-1 pt-3 border-t">
-                      <div className="flex items-center justify-between mb-2">
-                        <p className="text-xs font-semibold">Top categories - {formatMonthLabel(expandedMonth)}</p>
-                        <Link to="/transactions" state={{ month: expandedMonth }} className="text-[11px] text-[hsl(var(--gold-ink))] hover:underline">
-                          View month
-                        </Link>
-                      </div>
-                      {expandedMonthCats === null ? (
-                        <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">Loading…</p>
-                      ) : expandedMonthCats.length === 0 ? (
-                        <p className="text-xs text-[hsl(var(--muted-foreground))] py-2">No expenses that month.</p>
-                      ) : (
-                        <div className="space-y-1">
-                          {expandedMonthCats.map((c) => (
-                            <div key={c.name} className="flex items-center justify-between text-xs py-1">
-                              <span className="flex items-center gap-1.5 text-[hsl(var(--muted-foreground))]">
-                                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
-                                {c.name}
-                              </span>
-                              <span>{formatCurrency(c.total)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
-            {/* Stacked by category */}
-            {stacked.length > 0 && catNames.length > 0 && (
-              <div className="border rounded-xl p-5 chart-clickable">
-                <h2 className="font-semibold mb-1">Spending by Category ({range}mo)</h2>
-                <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-3">Click a category segment for its trend</p>
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={stacked} margin={{ left:8,right:8,top:4,bottom:4 }}>
-                    <XAxis dataKey="month" tick={{ fontSize:11 }} tickFormatter={formatMonthLabel} />
-                    <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize:11 }} />
-                    <Tooltip cursor={false} contentStyle={tooltipStyle} labelFormatter={(l) => formatMonthLabel(String(l))} formatter={v => formatCurrency(v as number)} />
-                    <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize:"11px",paddingTop:"8px",lineHeight:"20px" }} />
-                    {catNames.map(cat => (
-                      <Bar
-                        key={cat}
-                        dataKey={cat}
-                        stackId="cats"
-                        fill={catColors[cat] ?? "#9ca3af"}
-                        cursor="pointer"
-                        background={false}
-                        activeBar={{ fill: lightenHex(catColors[cat] ?? "#9ca3af") }}
-                        onClick={() => toggleCatSegmentExpand(cat)}
-                        opacity={expandedCatName && expandedCatName !== cat ? 0.4 : 1}
-                      />
-                    ))}
-                  </BarChart>
-                </ResponsiveContainer>
-
-                <AnimatePresence initial={false} mode="wait">
-                  {expandedCatName && (
-                    <motion.div
-                      key={expandedCatName}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.18 }}
-                    >
-                      <div className="mt-1 pt-3 border-t">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-xs font-semibold flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: catColors[expandedCatName] ?? "#9ca3af" }} />
-                            {expandedCatName} trend
-                          </p>
-                          {catIds[expandedCatName] !== undefined && (
-                            <Link
-                              to="/transactions"
-                              state={{ category: catIds[expandedCatName] }}
-                              className="text-[11px] text-[hsl(var(--gold-ink))] hover:underline"
-                            >
-                              View all
-                            </Link>
-                          )}
-                        </div>
-                        <div className="space-y-1">
-                          {stacked.map((row) => {
-                            const amt = (row[expandedCatName] as number | undefined) ?? 0;
-                            if (amt === 0) return null;
-                            return (
-                              <div key={row.month} className="flex items-center justify-between text-xs py-1">
-                                <span className="text-[hsl(var(--muted-foreground))]">{formatMonthLabel(row.month)}</span>
-                                <span>{formatCurrency(amt)}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
+              </section>
             )}
           </>
         )}

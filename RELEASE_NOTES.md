@@ -2,6 +2,45 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.2.1 — Money That Is Actually Yours 🧭
+
+This release makes Compass honest about which money is spoken for and which is genuinely free,
+and gives Trends a voice of its own.
+
+### Planned income is the measure now
+- The "Fixed and flexible" instrument on Insights measures your month against the income you
+  scheduled in Plan - paychecks, dividends, anything you hard-set - instead of averaging every
+  deposit. A bonus or a one-off transfer no longer stretches the track and flatters the month.
+- With no income scheduled yet, the instrument still works from averaged deposits, says so, and
+  points at Plan; once a paycheck rule exists it switches to the planned figure automatically.
+- The "fixed costs take X% of income" insight runs on the same maths, so the row and the
+  instrument can never disagree.
+
+### Debt payoff spends only free money
+- The payoff plan now works out what a typical month genuinely leaves over - planned income
+  minus scheduled bills, minus detected recurring charges, minus your normal everyday spending -
+  and shows the derivation right above the slider. The slider redirects a share of that free
+  money, not a share of spending you were always going to do.
+- Cutting categories (dining, shopping, subscriptions...) is now an explicit opt-in on top of
+  the free-cash redirect, instead of being pre-counted as available. When spending runs past
+  income, the plan says there is no free cash rather than inventing some.
+
+### Trends is the ship's log now
+- The three summary tiles and the identical chart cards are gone. The page opens with one serif
+  figure - everything the log records, net - over a gold running line of the whole voyage,
+  then reads as one column: the monthly rhythm, where it went, cash on hand, what the cards carry.
+- Every section header carries its own figure (kept in a typical month, top category of the
+  range, latest balances), so a heading is never just a label. A gold rule on a section means
+  it opens for detail - the same affordance gold already means everywhere else in Compass.
+- Category chips under "Where it went" toggle a category's trend directly; the generic chart
+  legends are gone.
+
+### New insight
+- **Supplemental income**: when deposits land beyond your Plan schedule, Compass names them and
+  the total, and suggests directing the money - an extra debt payment or a goal contribution -
+  before it dissolves into the month. Only appears once you have scheduled income to measure
+  against.
+
 ## Compass 1.2.0 — Night Navigation 🧭
 
 This release gives Compass a visual identity of its own. The logo, the navy-and-gold palette,
