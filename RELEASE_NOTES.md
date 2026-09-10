@@ -43,6 +43,11 @@ real-world files, makes sure no row ever disappears silently, and quietly tighte
 - The column-layout question now speaks plainly: one amount column, a Debit/Credit label
   column, or two separate Debit and Credit columns.
 
+### The line chart knows its accounts
+- Slice a report by account and the line view draws one line per account. Keep the scope on
+  all accounts and it draws your cash &amp; debit and your credit cards as two independent
+  lines instead of one merged total - the two halves of your money, told apart.
+
 ### Trust, visibly
 - If your system's credential store ever loses Compass's encryption key, Compass restores it
   from the local backup key file - and now tells you it happened, right in the app, instead of

@@ -89,6 +89,9 @@ const SCOPE_SQL: Record<AccountScope, string> = {
   credit: "AND a.account_type='credit'",
 };
 
+/** Mirrors the "Cash & debit" scope: these types never count toward its line. */
+const IGNORED_IN_DEBIT = new Set(["credit", "loan"]);
+
 function loadConfig(): ReportConfig {
   try {
     const raw = localStorage.getItem(CONFIG_KEY);
@@ -128,6 +131,8 @@ export default function ReportBuilder({ profileId }: { profileId: number }) {
   const [accounts, setAccounts] = useState<string[]>([]);
   // month × account totals across the whole cut, for account-series lines.
   const [moAcct, setMoAcct] = useState<Map<string, Map<string, number>>>(new Map());
+  // account name → account_type, for the cash-vs-credit line pair.
+  const [acctTypes, setAcctTypes] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
 
   const set = <K extends keyof ReportConfig>(key: K, value: ReportConfig[K]) => {
@@ -162,8 +167,8 @@ export default function ReportBuilder({ profileId }: { profileId: number }) {
         month: "strftime('%Y-%m', t.date)",
         weekday: "strftime('%w', t.date)",
       }[cfg.slice];
-      const raw = await db.select<{ mo: string; k: string; acct: string; color: string | null; income: number; expense: number; cnt: number }[]>(
-        `SELECT strftime('%Y-%m', t.date) as mo, ${keyExpr} as k, a.name as acct,
+      const raw = await db.select<{ mo: string; k: string; acct: string; acct_type: string; color: string | null; income: number; expense: number; cnt: number }[]>(
+        `SELECT strftime('%Y-%m', t.date) as mo, ${keyExpr} as k, a.name as acct, a.account_type as acct_type,
                 ${cfg.slice === "category" ? "c.color" : "NULL"} as color,
                 ${incomeSumSql()} as income,
                 ${expenseSumSql()} as expense,
@@ -183,11 +188,13 @@ export default function ReportBuilder({ profileId }: { profileId: number }) {
       const monthSet = new Set<string>();
       const accountSet = new Set<string>();
       const matrix = new Map<string, Map<string, number>>();
+      const typeMap = new Map<string, string>();
       for (const r of raw) {
         const v = value(r);
         if (v === 0) continue;
         monthSet.add(r.mo);
         accountSet.add(r.acct);
+        typeMap.set(r.acct, r.acct_type);
         const acctRow = matrix.get(r.mo) ?? new Map<string, number>();
         acctRow.set(r.acct, (acctRow.get(r.acct) ?? 0) + v);
         matrix.set(r.mo, acctRow);
@@ -208,6 +215,7 @@ export default function ReportBuilder({ profileId }: { profileId: number }) {
       setMonths([...monthSet].sort());
       setAccounts([...accountSet].sort());
       setMoAcct(matrix);
+      setAcctTypes(typeMap);
       setRows(ordered);
       setLoading(false);
     }
@@ -245,15 +253,33 @@ export default function ReportBuilder({ profileId }: { profileId: number }) {
   const pivotLabel = (k: string) => (split === "month" ? formatMonthLabel(k) : k);
   const pivotValue = (r: Row, k: string) => (split === "month" ? r.perMonth.get(k) : r.perAccount.get(k)) ?? 0;
 
-  // Line view is inherently time-based: series follow the split (accounts, top slices), or one total.
+  // Line view is inherently time-based: series follow the account slice or split, the top
+  // slices under a month split, the cash-vs-credit pair when the scope holds both, or one total.
+  const hasCredit = accounts.some((a) => acctTypes.get(a) === "credit");
+  const hasDebit = accounts.some((a) => !IGNORED_IN_DEBIT.has(acctTypes.get(a) ?? ""));
   const lineSeries = useMemo(() => (
-    split === "account" ? accounts.map((a) => ({ key: a, label: a }))
+    split === "account" || cfg.slice === "account"
+      ? (cfg.slice === "account"
+          ? shown.filter((r) => r.key !== "__other").map((r) => ({ key: r.key, label: r.label }))
+          : accounts.map((a) => ({ key: a, label: a })))
       : split === "month" && cfg.slice !== "month" ? shown.filter((r) => r.key !== "__other").slice(0, 5).map((r) => ({ key: r.key, label: r.label }))
-      : null
-  ), [split, accounts, shown, cfg.slice]);
+      : cfg.accounts === "all" && hasCredit && hasDebit
+        ? [{ key: "__debit", label: "Cash & debit" }, { key: "__credit", label: "Credit cards" }]
+        : null
+  ), [split, accounts, shown, cfg.slice, cfg.accounts, hasCredit, hasDebit]);
   const lineData = useMemo(() => months.map((mo) => {
     const point: Record<string, string | number> = { mo };
-    if (split === "account") {
+    if (lineSeries?.[0]?.key === "__debit") {
+      // Same account groups as the Cash & debit / Credit cards scopes, drawn independently.
+      let debit = 0, credit = 0;
+      for (const [a, v] of moAcct.get(mo) ?? []) {
+        const t = acctTypes.get(a) ?? "";
+        if (t === "credit") credit += v;
+        else if (!IGNORED_IN_DEBIT.has(t)) debit += v;
+      }
+      point.__debit = debit;
+      point.__credit = credit;
+    } else if (split === "account" && cfg.slice !== "account") {
       for (const a of accounts) point[a] = moAcct.get(mo)?.get(a) ?? 0;
     } else if (lineSeries) {
       for (const s of lineSeries) point[s.key] = rows.find((r) => r.key === s.key)?.perMonth.get(mo) ?? 0;
@@ -261,7 +287,7 @@ export default function ReportBuilder({ profileId }: { profileId: number }) {
       point.total = rows.reduce((s, r) => s + (r.perMonth.get(mo) ?? 0), 0);
     }
     return point;
-  }), [months, rows, accounts, moAcct, split, lineSeries]);
+  }), [months, rows, accounts, moAcct, acctTypes, split, cfg.slice, lineSeries]);
 
   const savePreset = () => {
     const name = presetName.trim();
