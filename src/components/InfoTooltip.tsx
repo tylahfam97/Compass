@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Info } from "lucide-react";
+import { InfoIcon } from "@phosphor-icons/react";
 
 /**
  * Small "i" info affordance that reveals an explanatory tooltip on hover/focus.
@@ -20,9 +20,9 @@ export default function InfoTooltip({ text, className = "" }: { text: string; cl
         onBlur={() => setOpen(false)}
         onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
         className="w-3.5 h-3.5 rounded-full flex items-center justify-center text-[hsl(var(--muted-foreground))]
-                   hover:text-[hsl(var(--primary))] transition-colors"
+                   hover:text-[hsl(var(--gold-ink))] transition-colors"
       >
-        <Info size={13} />
+        <InfoIcon size={13} />
       </button>
       {open && (
         <span

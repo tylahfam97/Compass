@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Check, ChevronDown, Sparkles, X } from "lucide-react";
+import { CheckIcon, CaretDownIcon, SparkleIcon, XIcon } from "@phosphor-icons/react";
 import { useOnboardingStore } from "@/stores/onboardingStore";
 import { ONBOARDING_STEPS } from "@/lib/onboardingSteps";
 
@@ -38,7 +38,7 @@ export default function OnboardingChecklistWidget() {
       <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40" role="dialog" aria-modal="true" aria-label="Welcome to Compass">
         <div className="bg-[hsl(var(--background))] border rounded-2xl shadow-2xl w-full max-w-md p-6">
           <div className="flex items-center gap-2 mb-3">
-            <Sparkles size={18} style={{ color: "var(--gold)" }} />
+            <SparkleIcon size={18} style={{ color: "var(--gold)" }} />
             <h2 className="text-lg font-semibold">{welcome.title}</h2>
           </div>
           <p className="text-sm text-[hsl(var(--muted-foreground))] leading-relaxed mb-6">
@@ -90,7 +90,7 @@ export default function OnboardingChecklistWidget() {
                      border shadow-lg bg-[hsl(var(--background))] hover:bg-[hsl(var(--muted))] transition-colors text-sm font-medium"
           style={{ borderColor: "var(--gold)" }}
         >
-          <Sparkles size={14} style={{ color: "var(--gold)" }} />
+          <SparkleIcon size={14} style={{ color: "var(--gold)" }} />
           Getting Started
           <span className="text-[hsl(var(--muted-foreground))]">{visitedCount}/{total}</span>
         </motion.button>
@@ -107,12 +107,12 @@ export default function OnboardingChecklistWidget() {
           <div className="bg-[hsl(var(--background))] border rounded-2xl shadow-2xl overflow-hidden" style={{ borderColor: "var(--gold)" }}>
             <div className="flex items-center justify-between px-4 py-3 border-b">
               <span className="font-semibold text-sm flex items-center gap-1.5">
-                <Sparkles size={14} style={{ color: "var(--gold)" }} />
+                <SparkleIcon size={14} style={{ color: "var(--gold)" }} />
                 Getting Started
               </span>
               <div className="flex items-center gap-1">
                 <button onClick={() => setMinimized(true)} title="Minimize" className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors">
-                  <ChevronDown size={16} />
+                  <CaretDownIcon size={16} />
                 </button>
               </div>
             </div>
@@ -130,7 +130,7 @@ export default function OnboardingChecklistWidget() {
                       className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${done ? "border-transparent" : ""}`}
                       style={done ? { backgroundColor: "var(--gold)" } : undefined}
                     >
-                      {done && <Check size={10} className="text-white" />}
+                      {done && <CheckIcon size={10} className="text-white" />}
                     </span>
                     <span className={done ? "text-[hsl(var(--muted-foreground))] line-through" : ""}>{step.title}</span>
                   </button>
@@ -143,7 +143,7 @@ export default function OnboardingChecklistWidget() {
                 onClick={dismissForever}
                 className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors flex items-center gap-1"
               >
-                <X size={11} /> Don't show again
+                <XIcon size={11} /> Don't show again
               </button>
               <span className="text-xs text-[hsl(var(--muted-foreground))]">{visitedCount}/{total}</span>
             </div>

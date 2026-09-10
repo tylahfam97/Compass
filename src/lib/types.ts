@@ -1,3 +1,5 @@
+import type { GradeTone } from "./benchmarks";
+
 export interface Profile {
   id: number;
   name: string;
@@ -36,12 +38,11 @@ export interface RecurringRule {
 
 export type InsightType =
   | "budget_gap"
-  | "ghost_subscription"
   | "unusual_spike"
   | "savings_rate_low"
   | "overspend_streak"
   | "positive_streak"
-  | "redundant_spending"
+  | "frequent_merchant"
   | "income_irregular"
   | "top_merchants"
   | "food_delivery_spend"
@@ -54,8 +55,31 @@ export type InsightType =
   | "weekend_spending"
   | "spending_velocity"
   | "emergency_fund_runway"
-  | "bill_due_soon"
   | "expense_ratio_drift"
+  // Scheduled bills and income (from the user's own rules in Plan)
+  | "bills_this_week"
+  | "scheduled_missing"
+  // Recurring charges
+  | "recurring_price_change"
+  | "new_recurring_charge"
+  | "annual_renewal"
+  | "duplicate_charge"
+  // Shape of a month
+  | "fixed_costs_high"
+  | "no_spend_days"
+  | "payday_burst"
+  // Housekeeping
+  | "uncategorized_share"
+  | "stale_data"
+  // Budgets, goals, debt cost, investments
+  | "budget_pace"
+  | "goal_off_track"
+  | "goal_projection"
+  | "card_paid_in_full"
+  | "card_coverage_low"
+  | "interest_paid"
+  | "investment_fees"
+  | "large_purchase"
   | "credit_card_debt_high"
   | "credit_card_debt_growing"
   | "credit_card_debt_improving"
@@ -86,7 +110,12 @@ export const EXCLUSION_DISCLAIMER_TEXT =
   "Transfers tracks money moved between your own accounts (e.g. checking \u2192 savings) - including credit-card payments, so they're never double-counted as both a checking withdrawal and a card credit. Excluded is a catch-all for anything else you don't want counted (reimbursements, one-off adjustments, etc.). Both are left out of every income and expense total in the app.";
 
 export interface InsightAction {
-  type: "create_budget" | "create_goal";
+  /** Router actions carry the target page's state in `payload` (`view_transactions` takes the
+   *  Transactions router state `{ month?, category?, range?, search? }`); `open_payoff` and
+   *  `open_section` are handled by the Insights page itself. */
+  type:
+    | "create_budget" | "create_goal" | "view_transactions" | "open_plan" | "open_goals"
+    | "open_budgets" | "import" | "open_payoff" | "open_section";
   payload: Record<string, unknown>;
 }
 
@@ -96,10 +125,19 @@ export interface Insight {
   title: string;
   description: string;
   severity: "info" | "warning" | "success";
+  /** Only set when it adds information beyond the intent (an amount); otherwise the UI derives
+   *  the label from `action.type`. */
   actionLabel?: string;
   action?: InsightAction;
   dismissKey: string;
   richData?: InsightRichData;
+  /** Money at stake, used to order rows inside a severity band and shown as the row's figure.
+   *  Zero or undefined means "no figure". */
+  impactCents?: number;
+  /** Time frame of `impactCents`, from a fixed vocabulary so it fits one short line: "today",
+   *  "this week", "next 7 days", "this month", "last month", "3 months", "12 months",
+   *  "this year", "a year", "since Mar 2025". */
+  period?: string;
   /** Set when this insight is about one specific account (e.g. a single credit card's debt)
    *  rather than the profile as a whole - lets account-detail views show only insights that
    *  actually pertain to that account instead of every insight of a matching type. */
@@ -131,6 +169,14 @@ export interface InsightRichData {
   accountBalanceCents?: number | null;
   accountInterestRateBps?: number | null;
   accountMinimumPaymentCents?: number | null;
+  /** Ranked list (top merchants, subscriptions), drawn as bars in the row's detail panel. */
+  items?: { label: string; valueCents: number; color?: string | null }[];
+  /** Dated list (bills due this week, a missed bill), drawn as a small timeline. */
+  timeline?: { date: string; label: string; cents: number; kind?: "rule" | "detected" }[];
+  /** Segments of one track (fixed and flexible, card coverage), same fills as the page instrument. */
+  shareBar?: { segments: { label: string; cents: number; kind: "bills" | "recurring" | "flexible" | "left" | "unknown" }[] };
+  previousAmountCents?: number;
+  newAmountCents?: number;
 }
 
 export interface Account {
@@ -289,7 +335,9 @@ export interface HealthScore {
   total: number;
   grade: string;
   label: string;
+  /** CSS colour built from a design token (see `scoreGrade`). */
   color: string;
+  tone: GradeTone;
   components: {
     savingsRate:     HealthScoreComponent;
     budgetHealth:    HealthScoreComponent;
@@ -306,6 +354,7 @@ export interface MiniHealthScore {
   grade: string;
   label: string;
   color: string;
+  tone: GradeTone;
   detail: string;
 }
 
@@ -395,4 +444,8 @@ export interface RecurringCharge {
   category_color: string | null;
   /** Human-readable cadence, e.g. "21st of the month" or "3rd Thursday of the month". */
   patternLabel: string;
+  /** Absolute amounts across the streak, oldest first - lets callers notice a price change. */
+  amountHistory: number[];
+  /** The amount before the most recent one when it differs, otherwise null. */
+  previousAmountCents: number | null;
 }

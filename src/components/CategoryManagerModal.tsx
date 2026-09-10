@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowUp, ArrowDown, Pencil, Plus, Trash2, X, LockKeyhole } from "lucide-react";
+import { ArrowUpIcon, ArrowDownIcon, PencilSimpleIcon, PlusIcon, TrashIcon, XIcon, LockKeyIcon } from "@phosphor-icons/react";
 import CategoryModal from "./CategoryModal";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
@@ -39,29 +39,29 @@ function CategoryList({ profileId, onClose, onEdit }: Props & { onEdit: (categor
     <div className="w-full max-w-xl max-h-[85vh] overflow-y-auto border rounded-lg bg-[hsl(var(--background))] p-5 shadow-xl">
       <div className="flex items-center justify-between gap-3 mb-4">
         <h2 id="category-manager-title" className="text-lg font-semibold">Categories</h2>
-        <button onClick={onClose} className="workspace-icon" aria-label="Close categories" title="Close"><X size={18} /></button>
+        <button onClick={onClose} className="workspace-icon" aria-label="Close categories" title="Close"><XIcon size={18} /></button>
       </div>
       <div className="flex gap-2 mb-5">
         <input autoFocus aria-label="Search categories" placeholder="Search categories" value={search} onChange={(event) => setSearch(event.target.value)} className="min-w-0 flex-1 border rounded-lg px-3 py-2 bg-transparent text-sm" />
-        <button onClick={() => onEdit()} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"><Plus size={15} /> New</button>
+        <button onClick={() => onEdit()} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"><PlusIcon size={15} /> New</button>
       </div>
       {error && <p role="alert" className="text-sm text-[hsl(var(--error))] mb-3">{error}</p>}
-      <h3 className="text-xs text-[hsl(var(--muted-foreground))] mb-2">Your categories · {custom.length}</h3>
+      <h3 className="text-xs text-[hsl(var(--muted-foreground))] mb-2">Your categories, {custom.length}</h3>
       {custom.length === 0 && <p className="py-5 text-sm text-[hsl(var(--muted-foreground))]">No custom categories yet.</p>}
       {custom.filter(matches).map((category) => {
         const index = custom.findIndex((item) => item.id === category.id);
         return <div key={category.id} data-category-id={category.id} className="flex items-center gap-2 border-b py-2">
           <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: category.color }} />
           <span className="text-sm flex-1 min-w-0 break-words">{category.name}</span>
-          <button disabled={busy || index === 0 || !!search.trim()} onClick={() => move(index, -1)} className="workspace-icon disabled:opacity-25" aria-label={`Move ${category.name} up`} title="Move up"><ArrowUp size={15} /></button>
-          <button disabled={busy || index === custom.length - 1 || !!search.trim()} onClick={() => move(index, 1)} className="workspace-icon disabled:opacity-25" aria-label={`Move ${category.name} down`} title="Move down"><ArrowDown size={15} /></button>
-          <button disabled={busy} onClick={() => onEdit(category)} className="workspace-icon" aria-label={`Edit ${category.name}`} title="Rename or edit"><Pencil size={15} /></button>
-          <button disabled={busy} onClick={() => onEdit(category, true)} className="workspace-icon text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))]" aria-label={`Remove ${category.name}`} title="Remove"><Trash2 size={15} /></button>
+          <button disabled={busy || index === 0 || !!search.trim()} onClick={() => move(index, -1)} className="workspace-icon disabled:opacity-25" aria-label={`Move ${category.name} up`} title="Move up"><ArrowUpIcon size={15} /></button>
+          <button disabled={busy || index === custom.length - 1 || !!search.trim()} onClick={() => move(index, 1)} className="workspace-icon disabled:opacity-25" aria-label={`Move ${category.name} down`} title="Move down"><ArrowDownIcon size={15} /></button>
+          <button disabled={busy} onClick={() => onEdit(category)} className="workspace-icon" aria-label={`Edit ${category.name}`} title="Rename or edit"><PencilSimpleIcon size={15} /></button>
+          <button disabled={busy} onClick={() => onEdit(category, true)} className="workspace-icon text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))]" aria-label={`Remove ${category.name}`} title="Remove"><TrashIcon size={15} /></button>
         </div>;
       })}
       <details className="workspace-disclosure mt-5" open={search.trim() ? true : undefined}>
         <summary>System categories</summary>
-        {categories.filter((category) => category.is_system && matches(category)).map((category) => <div key={category.id} className="flex items-center gap-3 py-2 text-sm text-[hsl(var(--muted-foreground))]"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: category.color }} /><span className="flex-1">{category.name}</span><LockKeyhole size={13} aria-label="Protected" /></div>)}
+        {categories.filter((category) => category.is_system && matches(category)).map((category) => <div key={category.id} className="flex items-center gap-3 py-2 text-sm text-[hsl(var(--muted-foreground))]"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: category.color }} /><span className="flex-1">{category.name}</span><LockKeyIcon size={13} aria-label="Protected" /></div>)}
       </details>
     </div>
   </div>;

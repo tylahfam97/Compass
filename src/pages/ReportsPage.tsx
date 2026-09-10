@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
-import { Repeat2, ChevronRight } from "lucide-react";
+import { RepeatIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { getDb } from "@/lib/db";
 import { incomeSumSql, expenseSumSql, categorySpendSql } from "@/lib/reportingSql";
 import { detectRecurringCharges } from "@/lib/agent";
@@ -145,7 +145,7 @@ function ProfileReports({ profileId }: { profileId: number }) {
         ? monthBounds(prevYM(month))
         : [start, start]; // custom mode: no "prev" comparison (same range = 0% change)
 
-      // Start date for totals chart — use selected range
+      // Start date for totals chart, use selected range
       const chartStart = rangeMode === "custom" ? customStart : (() => {
         const [year, monthNumber] = month.split("-").map(Number);
         const chartDate = new Date(year, monthNumber - 6, 1);
@@ -327,22 +327,22 @@ function ProfileReports({ profileId }: { profileId: number }) {
       {!loading && validRange && hasData && (
         <>
           <div className="goal-summary report-summary">
-            <div><p>Income · selected period</p><strong>{formatCurrency(periodTotals.income_cents)}</strong></div>
-            <div><p>Spending · selected period</p><strong>{formatCurrency(periodTotals.expense_cents)}</strong></div>
-            <div><p>Net · selected period</p><strong className={periodTotals.income_cents < periodTotals.expense_cents ? "text-[hsl(var(--error))]" : ""}>{formatCurrency(periodTotals.income_cents - periodTotals.expense_cents)}</strong></div>
+            <div><p>Income, selected period</p><strong>{formatCurrency(periodTotals.income_cents)}</strong></div>
+            <div><p>Spending, selected period</p><strong>{formatCurrency(periodTotals.expense_cents)}</strong></div>
+            <div><p>Net, selected period</p><strong className={periodTotals.income_cents < periodTotals.expense_cents ? "text-[hsl(var(--error))]" : ""}>{formatCurrency(periodTotals.income_cents - periodTotals.expense_cents)}</strong></div>
           </div>
 
           {monthTotals.length > 0 && <section>
-            <div className="workspace-heading mb-4"><h2 className="font-semibold">Income &amp; spending trend</h2><div className="flex gap-4 text-xs text-[hsl(var(--muted-foreground))]"><span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-[hsl(var(--primary))]" />Income</span><span className="flex items-center gap-1.5"><span className="w-2 h-2" style={{ background: "var(--gold)" }} />Spending</span></div></div>
+            <div className="workspace-heading mb-4"><h2 className="font-semibold">Income &amp; spending trend</h2><div className="flex gap-4 text-xs text-[hsl(var(--muted-foreground))]"><span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-[hsl(var(--sea))]" />Income</span><span className="flex items-center gap-1.5"><span className="w-2 h-2" style={{ background: "var(--gold)" }} />Spending</span></div></div>
             <div className="h-56"><ResponsiveContainer width="100%" height="100%"><BarChart data={monthTotals} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
               <XAxis dataKey="month" tickFormatter={formatMonthLabel} tick={{ fontSize: 11 }} minTickGap={35} />
               <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize: 11 }} width={55} />
               <Tooltip labelFormatter={(value) => formatMonthLabel(String(value))} formatter={(value, name) => [formatCurrency(Number(value)), name === "income_cents" ? "Income" : "Spending"]} contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: 8 }} />
-              <Bar dataKey="income_cents" fill="hsl(var(--primary))" maxBarSize={28} radius={[3, 3, 0, 0]} />
+              <Bar dataKey="income_cents" fill="hsl(var(--sea))" maxBarSize={28} radius={[3, 3, 0, 0]} />
               <Bar dataKey="expense_cents" fill="var(--gold)" maxBarSize={28} radius={[3, 3, 0, 0]} />
             </BarChart></ResponsiveContainer></div>
-            <p className="text-xs text-[hsl(var(--muted-foreground))] mt-2">{rangeMode === "month" ? "Up to six months of recorded activity" : "Monthly totals within the selected dates"} · open months are partial</p>
+            <p className="text-xs text-[hsl(var(--muted-foreground))] mt-2">{rangeMode === "month" ? "Up to six months of recorded activity" : "Monthly totals within the selected dates"}, open months are partial</p>
           </section>}
           {/* ── CATEGORY BREAKDOWN ── */}
           <section>
@@ -403,10 +403,10 @@ function ProfileReports({ profileId }: { profileId: number }) {
                               {cat.category_name}
                             </span>
                           </td>
-                          <td className="px-4 py-2.5 text-right font-mono">
+                          <td className="px-4 py-2.5 text-right">
                             {formatCurrency(cat.total_cents)}
                           </td>
-                          {rangeMode === "month" && <><td className="px-4 py-2.5 text-right font-mono text-[hsl(var(--muted-foreground))]">
+                          {rangeMode === "month" && <><td className="px-4 py-2.5 text-right text-[hsl(var(--muted-foreground))]">
                             {prev > 0 ? formatCurrency(prev) : "—"}
                           </td>
                           <td className={`px-4 py-2.5 text-right font-medium
@@ -440,13 +440,13 @@ function ProfileReports({ profileId }: { profileId: number }) {
                     {monthTotals.map((r) => (
                       <tr key={r.month} className="border-t hover:bg-[hsl(var(--muted))]">
                         <td className="px-4 py-2.5 font-medium">{formatMonthLabel(r.month)}</td>
-                        <td className="px-4 py-2.5 text-right font-mono text-[hsl(var(--success))]">
+                        <td className="px-4 py-2.5 text-right text-[hsl(var(--success))]">
                           {formatCurrency(r.income_cents)}
                         </td>
-                        <td className="px-4 py-2.5 text-right font-mono text-[hsl(var(--error))]">
+                        <td className="px-4 py-2.5 text-right text-[hsl(var(--error))]">
                           {formatCurrency(r.expense_cents)}
                         </td>
-                        <td className={`px-4 py-2.5 text-right font-mono font-medium
+                        <td className={`px-4 py-2.5 text-right font-medium
                           ${r.net_cents >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
                           {formatCurrency(r.net_cents)}
                         </td>
@@ -462,14 +462,14 @@ function ProfileReports({ profileId }: { profileId: number }) {
           {balanceTrend.length > 1 && (
             <section>
               <h2 className="font-semibold mb-1">Checking &amp; credit balance</h2>
-              <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">Latest recorded balance per month · through the selected end date</p>
+              <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">Latest recorded balance per month, through the selected end date</p>
               <div>
                 <ResponsiveContainer width="100%" height={180}>
                   <AreaChart data={balanceTrend} margin={{ top: 4, right: 16, bottom: 4, left: 16 }}>
                     <defs>
                       <linearGradient id="balTrendGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.2} />
-                        <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                        <stop offset="5%" stopColor="hsl(var(--sea))" stopOpacity={0.2} />
+                        <stop offset="95%" stopColor="hsl(var(--sea))" stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <XAxis dataKey="month" tick={{ fontSize: 11 }} tickFormatter={formatMonthLabel} />
@@ -488,7 +488,7 @@ function ProfileReports({ profileId }: { profileId: number }) {
                       labelFormatter={(l) => formatMonthLabel(String(l))}
                       formatter={(v) => [formatCurrency(Number(v)), "Balance"]}
                     />
-                    <Area type="monotone" dataKey="balance" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#balTrendGrad)" dot={{ r: 3 }} />
+                    <Area type="monotone" dataKey="balance" stroke="hsl(var(--sea))" strokeWidth={2} fill="url(#balTrendGrad)" dot={{ r: 3 }} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
@@ -498,11 +498,11 @@ function ProfileReports({ profileId }: { profileId: number }) {
           {/* ── TOP EXPENSES ── */}
           {topExpenses.length > 0 && (
             <section>
-              <h2 className="font-semibold mb-3">Largest expenses · selected period</h2>
+              <h2 className="font-semibold mb-3">Largest expenses, selected period</h2>
               <div className="divide-y divide-[hsl(var(--border))]">
                 {topExpenses.map((transaction) => <button key={transaction.id} onClick={() => setSelectedTransaction(transaction)} className="flex items-center gap-3 py-3 w-full text-left hover:bg-[hsl(var(--muted))]">
-                  <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{transaction.description}</span><span className="text-xs text-[hsl(var(--muted-foreground))]">{formatDate(transaction.date)} · {transaction.category_name ?? "Uncategorized"}</span></span>
-                  <span className="text-sm font-semibold shrink-0">{formatCurrency(Math.abs(transaction.amount_cents))}</span><ChevronRight size={15} className="shrink-0" />
+                  <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{transaction.description}</span><span className="text-xs text-[hsl(var(--muted-foreground))]">{formatDate(transaction.date)}, {transaction.category_name ?? "Uncategorized"}</span></span>
+                  <span className="text-sm font-semibold shrink-0">{formatCurrency(Math.abs(transaction.amount_cents))}</span><CaretRightIcon size={15} className="shrink-0" />
                 </button>)}
               </div>
             </section>
@@ -511,7 +511,7 @@ function ProfileReports({ profileId }: { profileId: number }) {
           {/* ── MOST RECURRING ── */}
           {recurring.length > 0 && (
             <details className="workspace-disclosure">
-              <summary>Frequent payees · all time</summary>
+              <summary>Frequent payees, all time</summary>
               <div className="report-table">
                 <table className="w-full text-sm">
                   <thead>
@@ -533,10 +533,10 @@ function ProfileReports({ profileId }: { profileId: number }) {
                           </span>
                         </td>
                         <td className="px-4 py-2.5 text-right">{r.count}×</td>
-                        <td className="px-4 py-2.5 text-right font-mono text-[hsl(var(--muted-foreground))]">
+                        <td className="px-4 py-2.5 text-right text-[hsl(var(--muted-foreground))]">
                           {formatCurrency(r.avg_cents)}
                         </td>
-                        <td className="px-4 py-2.5 text-right font-mono">
+                        <td className="px-4 py-2.5 text-right">
                           {formatCurrency(r.total_cents)}
                         </td>
                       </tr>
@@ -550,7 +550,7 @@ function ProfileReports({ profileId }: { profileId: number }) {
           {/* ── GHOST SUBSCRIPTIONS ── */}
           {subscriptions.length > 0 && (
             <details className="workspace-disclosure">
-              <summary><Repeat2 size={14} className="inline mr-2" />Detected subscriptions · recent history</summary>
+              <summary><RepeatIcon size={14} className="inline mr-2" />Detected subscriptions, recent history</summary>
               <div className="space-y-3">
                 {subscriptions.map((s) => {
                   const yearly = s.amount_cents * 12;
@@ -566,7 +566,7 @@ function ProfileReports({ profileId }: { profileId: number }) {
                           </span>
                         </div>
                         <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                          {s.patternLabel} · {s.month_count} months running · First: {s.first_seen} · Last: {s.last_seen}
+                          {s.patternLabel}, {s.month_count} months running, First: {s.first_seen}, Last: {s.last_seen}
                         </p>
                       </div>
                       <div className="text-right shrink-0">

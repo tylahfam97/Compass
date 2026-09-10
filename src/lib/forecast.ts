@@ -598,3 +598,25 @@ export function chargeMatchesRule(
   const firstB = b.split(" ")[0];
   return firstA.length >= MIN_MATCHABLE_LENGTH && firstA === firstB;
 }
+
+/**
+ * Sums the scheduled money in a window for the "planned payments against planned income"
+ * summary on Plan and Dashboard: deposits in, bills out, and what is left for unplanned
+ * spending (negative when the schedule alone over-commits the income).
+ */
+export interface PlannedSummary {
+  plannedIncomeCents: number;
+  plannedPaymentsCents: number;
+  unplannedCents: number;
+  depositCount: number;
+  billCount: number;
+}
+
+export function summarizePlanned(events: ForecastEvent[]): PlannedSummary {
+  let plannedIncomeCents = 0, plannedPaymentsCents = 0, depositCount = 0, billCount = 0;
+  for (const e of events) {
+    if (e.amountCents > 0) { plannedIncomeCents += e.amountCents; depositCount++; }
+    else if (e.amountCents < 0) { plannedPaymentsCents += -e.amountCents; billCount++; }
+  }
+  return { plannedIncomeCents, plannedPaymentsCents, unplannedCents: plannedIncomeCents - plannedPaymentsCents, depositCount, billCount };
+}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Pencil, Check, X, Trash2, ChevronDown, ChevronUp, Info, Wallet, Eye, EyeOff, SlidersHorizontal } from "lucide-react";
+import { PencilSimpleIcon, CheckIcon, XIcon, TrashIcon, CaretDownIcon, CaretUpIcon, InfoIcon, WalletIcon, EyeIcon, EyeSlashIcon, SlidersHorizontalIcon } from "@phosphor-icons/react";
 import {
   getAccountsSummaryForProfile, renameAccount, deleteEmptyAccount, deleteAccountWithData,
   findDuplicateAccountGroups, mergeDuplicateAccounts,
@@ -143,16 +143,16 @@ export default function ManageAccountsPanel({ profileId, special = false }: Prop
         className="w-full flex items-center justify-between p-4 text-left"
       >
         <span className="font-semibold text-sm flex items-center gap-2">
-          {special && <Wallet size={16} style={{ color: "var(--gold)" }} />}
+          {special && <WalletIcon size={16} style={{ color: "var(--gold)" }} />}
           Manage Accounts
         </span>
-        {open ? <ChevronUp size={16} className="text-[hsl(var(--muted-foreground))]" /> : <ChevronDown size={16} className="text-[hsl(var(--muted-foreground))]" />}
+        {open ? <CaretUpIcon size={16} className="text-[hsl(var(--muted-foreground))]" /> : <CaretDownIcon size={16} className="text-[hsl(var(--muted-foreground))]" />}
       </button>
 
       {open && (
         <div className="px-4 pb-4 space-y-3">
           <p className="text-xs text-[hsl(var(--muted-foreground))] flex items-start gap-1.5 border-t pt-3">
-            <Info size={12} className="shrink-0 mt-0.5" />
+            <InfoIcon size={12} className="shrink-0 mt-0.5" />
             These are the individual accounts (checking, credit cards, investments) identified from
             this profile&apos;s imported or manually-entered transactions - not related to Profiles.
             Use the profile switcher for separate people or entities.
@@ -185,8 +185,8 @@ export default function ManageAccountsPanel({ profileId, special = false }: Prop
                             autoFocus
                             className="flex-1 border rounded-md px-2 py-1 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
                           />
-                          <button onClick={saveEdit} title="Save" className="text-[hsl(var(--success))] hover:opacity-80"><Check size={16} /></button>
-                          <button onClick={() => setEditingId(null)} title="Cancel" className="text-[hsl(var(--muted-foreground))] hover:opacity-80"><X size={16} /></button>
+                          <button onClick={saveEdit} title="Save" className="text-[hsl(var(--success))] hover:opacity-80"><CheckIcon size={16} /></button>
+                          <button onClick={() => setEditingId(null)} title="Cancel" className="text-[hsl(var(--muted-foreground))] hover:opacity-80"><XIcon size={16} /></button>
                         </>
                       ) : (
                         <>
@@ -203,17 +203,17 @@ export default function ManageAccountsPanel({ profileId, special = false }: Prop
                             title={a.hidden_from_dashboard ? "Show on dashboard/overview" : "Hide from dashboard/overview"}
                             className={a.hidden_from_dashboard ? "text-[hsl(var(--warning))]" : "text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"}
                           >
-                            {a.hidden_from_dashboard ? <EyeOff size={14} /> : <Eye size={14} />}
+                            {a.hidden_from_dashboard ? <EyeSlashIcon size={14} /> : <EyeIcon size={14} />}
                           </button>
                           <button
                             onClick={() => toggleExcluded(a)}
                             title={a.excluded_from_insights ? "Excluded from Insights - click to include" : "Included in Insights - click to exclude"}
                             className={a.excluded_from_insights ? "text-[hsl(var(--warning))]" : "text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"}
                           >
-                            <SlidersHorizontal size={14} />
+                            <SlidersHorizontalIcon size={14} />
                           </button>
                           <button onClick={() => startEdit(a)} title="Rename" className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]">
-                            <Pencil size={14} />
+                            <PencilSimpleIcon size={14} />
                           </button>
                           {isEmpty ? (
                             confirmDeleteId === a.id ? (
@@ -223,7 +223,7 @@ export default function ManageAccountsPanel({ profileId, special = false }: Prop
                               </span>
                             ) : (
                               <button onClick={() => setConfirmDeleteId(a.id)} title="Delete empty account" className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))]">
-                                <Trash2 size={14} />
+                                <TrashIcon size={14} />
                               </button>
                             )
                           ) : (
@@ -232,7 +232,7 @@ export default function ManageAccountsPanel({ profileId, special = false }: Prop
                               title="Delete account and its data"
                               className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))]"
                             >
-                              <Trash2 size={14} />
+                              <TrashIcon size={14} />
                             </button>
                           )}
                         </>
@@ -267,7 +267,7 @@ export default function ManageAccountsPanel({ profileId, special = false }: Prop
                         ) : (
                           <>
                             <p className="text-xs text-[hsl(var(--warning))] flex items-start gap-1.5">
-                              <Info size={12} className="shrink-0 mt-0.5" />
+                              <InfoIcon size={12} className="shrink-0 mt-0.5" />
                               This account has {dataDesc} - deleting it will permanently remove all of them too.
                             </p>
                             <div className="flex items-center gap-3 text-xs">
@@ -292,7 +292,7 @@ export default function ManageAccountsPanel({ profileId, special = false }: Prop
           {duplicateGroups.length > 0 && (
             <div className="pt-2 border-t space-y-2">
               <p className="text-xs text-[hsl(var(--warning))] flex items-start gap-1.5">
-                <Info size={12} className="shrink-0 mt-0.5" />
+                <InfoIcon size={12} className="shrink-0 mt-0.5" />
                 Found {duplicateCount} duplicate account{duplicateCount === 1 ? "" : "s"} (same type + name) -
                 merging combines their transactions/holdings into a single account.
               </p>

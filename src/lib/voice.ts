@@ -47,7 +47,7 @@ const PHRASING: Partial<Record<InsightType, PhrasingSet>> = {
   savings_rate_low: {
     improving: [
       "Your savings rate climbed to {current} - last time it was {previous}. Keep this up.",
-      "Nice movement: {previous} \u2192 {current} saved. Small steps count.",
+      "Nice movement: {previous} to {current} saved. Small steps count.",
     ],
     worsening: [
       "Your savings rate slipped to {current}, down from {previous}. Worth a look at what changed.",
@@ -78,7 +78,7 @@ const PHRASING: Partial<Record<InsightType, PhrasingSet>> = {
   credit_card_debt_improving: {
     improving: [
       "Down to {current} from {previous} - that's real progress.",
-      "Nice work: {previous} \u2192 {current} owed.",
+      "Nice work: {previous} to {current} owed.",
     ],
     flat: ["Balance is holding around {current}."],
     worsening: ["Balance moved to {current} from {previous}."],
@@ -96,7 +96,7 @@ const PHRASING: Partial<Record<InsightType, PhrasingSet>> = {
   net_worth_growing: {
     improving: [
       "Your net worth is up to {current}, from {previous} last month.",
-      "Climbing: {previous} \u2192 {current}.",
+      "Climbing: {previous} to {current}.",
     ],
     flat: ["Net worth is holding around {current}."],
     worsening: ["Net worth moved to {current} from {previous}."],
@@ -108,11 +108,11 @@ const PHRASING: Partial<Record<InsightType, PhrasingSet>> = {
   },
   most_improved: {
     improving: [
-      "Last month: {previous}. This month so far: {current}. Great progress - keep it up.",
-      "You cut this from {previous} to {current} - that adds up over a year.",
+      "The month before: {previous}. Last month: {current}. Great progress, keep it up.",
+      "You cut this from {previous} to {current}, and that adds up over a year.",
     ],
-    flat: ["Last month: {previous}. This month so far: {current}."],
-    worsening: ["Last month: {previous}. This month so far: {current}."],
+    flat: ["The month before: {previous}. Last month: {current}."],
+    worsening: ["The month before: {previous}. Last month: {current}."],
   },
 };
 

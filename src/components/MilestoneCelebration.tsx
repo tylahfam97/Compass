@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useAppReducedMotion } from "@/hooks/useAppReducedMotion";
-import { Trophy, TrendingUp, Target, PiggyBank, Award } from "lucide-react";
+import { TrophyIcon, TrendUpIcon, TargetIcon, PiggyBankIcon, MedalIcon } from "@phosphor-icons/react";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import type { MilestoneEvent, MilestoneIcon } from "@/lib/milestones";
 
@@ -27,12 +27,12 @@ interface BurstParticle {
   decay: number;
 }
 
-const ICONS: Record<MilestoneIcon, typeof Trophy> = {
-  trophy: Trophy,
-  "trending-up": TrendingUp,
-  target: Target,
-  piggy: PiggyBank,
-  award: Award,
+const ICONS: Record<MilestoneIcon, typeof TrophyIcon> = {
+  trophy: TrophyIcon,
+  "trending-up": TrendUpIcon,
+  target: TargetIcon,
+  piggy: PiggyBankIcon,
+  award: MedalIcon,
 };
 
 /** Full-screen canvas that fires a burst of confetti, then fades and unmounts itself - a
@@ -174,7 +174,7 @@ function CelebrationDialog({ event, onDismiss }: { event: MilestoneEvent; onDism
         </motion.div>
 
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.28em] mb-3" style={{ color: GREEN }}>
+          <p className="text-xs font-semibold tracking-[0.28em] mb-3" style={{ color: GREEN }}>
             Milestone
           </p>
           <h2 id="milestone-title" className="text-4xl font-bold leading-tight" style={{ color: GREEN }}>

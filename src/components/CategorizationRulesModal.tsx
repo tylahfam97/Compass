@@ -33,7 +33,7 @@ function parseDollar(s: string): number | null {
 }
 
 // ─── Regex cheat-sheet shown in the Advanced section ─────────────────────────
-const REGEX_CHEATSHEET = ".*  any text  ·  \\d+  digits  ·  |  or  ·  ^  start  ·  $  end";
+const REGEX_CHEATSHEET = ".*  any text ,  \\d+  digits ,  |  or ,  ^  start ,  $  end";
 
 // ─── Two-tier rule form (used for both Add and inline Edit) ───────────────────
 interface RuleFormState {
@@ -76,7 +76,7 @@ function RuleForm({ form, setForm, categories, onSubmit, submitLabel, saving, er
 
       {/* ── Simple mode ── */}
       <div>
-        <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">
+        <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">
           {form.matchType === "contains" ? "Description contains" : "Pattern"}
         </label>
         {form.matchType === "contains" ? (
@@ -104,7 +104,7 @@ function RuleForm({ form, setForm, categories, onSubmit, submitLabel, saving, er
 
       {/* ── Category ── */}
       <div>
-        <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">Category</label>
+        <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">Category</label>
         <select
           value={form.catId}
           onChange={(e) => set("catId", Number(e.target.value))}
@@ -118,7 +118,7 @@ function RuleForm({ form, setForm, categories, onSubmit, submitLabel, saving, er
       {/* ── Optional amount conditions ── */}
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">
+          <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">
             Min Amount <span className="normal-case font-normal">(optional)</span>
           </label>
           <input
@@ -134,7 +134,7 @@ function RuleForm({ form, setForm, categories, onSubmit, submitLabel, saving, er
           />
         </div>
         <div>
-          <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">
+          <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">
             Max Amount <span className="normal-case font-normal">(optional)</span>
           </label>
           <input
@@ -165,12 +165,12 @@ function RuleForm({ form, setForm, categories, onSubmit, submitLabel, saving, er
                             text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]
                             list-none flex items-center gap-1.5 transition-colors">
           <span className="group-open:rotate-90 transition-transform inline-block text-[10px]">▶</span>
-          Advanced — match type &amp; regex
+          Advanced, match type &amp; regex
         </summary>
         <div className="px-3 pb-3 space-y-3 border-t mt-0 pt-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">Match type</label>
+              <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">Match type</label>
               <select
                 value={form.matchType}
                 onChange={(e) => set("matchType", e.target.value as RuleFormState["matchType"])}
@@ -183,7 +183,7 @@ function RuleForm({ form, setForm, categories, onSubmit, submitLabel, saving, er
               </select>
             </div>
             <div>
-              <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">
+              <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">
                 Priority <span className="normal-case font-normal">(higher = checked first)</span>
               </label>
               <input
@@ -198,7 +198,7 @@ function RuleForm({ form, setForm, categories, onSubmit, submitLabel, saving, er
           </div>
           {form.matchType !== "contains" && (
             <div>
-              <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">
+              <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">
                 {form.matchType === "regex" ? "Regex pattern" : "Starts-with text"}
               </label>
               <input

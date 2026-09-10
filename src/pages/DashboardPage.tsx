@@ -1,34 +1,46 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import {
-  BarChart, Bar, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, Cell, AreaChart, Area, Rectangle,
-} from "recharts";
+import { XAxis, Tooltip, ResponsiveContainer, AreaChart, Area } from "recharts";
 import { motion, AnimatePresence } from "motion/react";
-import { TrendingUp, TrendingDown, EyeOff, Eye, Landmark, Plus } from "lucide-react";
+import { PlusIcon } from "@phosphor-icons/react";
 import {
   getDb, recomputeCalculatedBalances, setAccountHiddenFromDashboard,
   getLoanAccountsForProfile, getLoanBalanceHistory, type LoanAccount,
 } from "@/lib/db";
 import { seedDemoData } from "@/lib/demoData";
-import { formatCurrency, formatDate, formatAxisCurrency, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex, formatMonthLabel } from "@/lib/utils";
+import { formatCurrency, formatDate, formatMonthLabel, formatMonthLong, combineAccountBalances, separateAccountBalances, accountChartColor } from "@/lib/utils";
 import { staggerContainer, riseIn } from "@/lib/motionPresets";
 import type { Transaction, Insight } from "@/lib/types";
 import { EXCLUSION_DISCLAIMER_TEXT } from "@/lib/types";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
+import { useIsDark } from "@/hooks/useIsDark";
 import { useProfileStore } from "@/stores/profileStore";
 import { handleLoadFailure } from "@/stores/toastStore";
 import { generateInsights } from "@/lib/agent";
+import { pickDashboardInsights } from "@/lib/insights/rank";
+import { resolveInsightAction } from "@/lib/insightActions";
 import { latestHoldingPerAccount } from "@/lib/netWorth";
 import { incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
+import { toISODate, summarizePlanned } from "@/lib/forecast";
+import { getPlannedEvents } from "@/lib/forecastData";
+import { loadScenario } from "@/lib/planScenario";
+import { monthBoundsIso } from "@/lib/bearing";
+import { series, chartTooltipStyle, chartTooltipText, chartTooltipWrapper, harmonizeColor } from "@/lib/chartTheme";
 import InsightCard from "@/components/InsightCard";
 import LoanUploaderModal from "@/components/LoanUploaderModal";
 import InfoTooltip from "@/components/InfoTooltip";
-import ClickHint from "@/components/ClickHint";
 import CountUp from "@/components/CountUp";
 import TrendChip from "@/components/TrendChip";
 import AccountDetailModal, { type AccountDetailAccount } from "@/components/AccountDetailModal";
 import { Skeleton, CardListSkeleton } from "@/components/Skeleton";
+import StatRow from "@/components/StatRow";
+import SectionHeading from "@/components/SectionHeading";
+import EmptyState from "@/components/EmptyState";
+import MonthPicker from "@/components/MonthPicker";
+import AccountRow from "@/components/AccountRow";
+import RankedBars from "@/components/RankedBars";
+import ActivityRow from "@/components/ActivityRow";
+import BearingBar from "@/components/BearingBar";
 
 interface MonthStats {
   income: number;
@@ -69,6 +81,14 @@ interface CreditBalanceRow {
 interface CheckingBalancePoint {
   date: string;
   balance: number;
+}
+
+/** Scheduled money still ahead in the selected month, for the bearing bar. */
+interface PlannedAhead {
+  dueCents: number;
+  incomeCents: number;
+  billCount: number;
+  hasAny: boolean;
 }
 
 const INCLUDE_INVESTMENTS_KEY = "compass_include_investments";
@@ -120,6 +140,9 @@ export default function DashboardPage() {
   const [includeInvestments, setIncludeInvestments] = useState(
     () => localStorage.getItem(INCLUDE_INVESTMENTS_KEY) !== "false"
   );
+  const [planned, setPlanned] = useState<PlannedAhead>({ dueCents: 0, incomeCents: 0, billCount: 0, hasAny: false });
+  const isDark = useIsDark();
+  const mode = isDark ? "dark" : "light";
 
   const toggleIncludeInvestments = () => {
     setIncludeInvestments((prev) => {
@@ -127,12 +150,6 @@ export default function DashboardPage() {
       localStorage.setItem(INCLUDE_INVESTMENTS_KEY, String(next));
       return next;
     });
-  };
-
-  const navMonth = (dir: -1 | 1) => {
-    const [y, m] = month.split("-").map(Number);
-    const d = new Date(y, m - 1 + dir, 1);
-    setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
   };
 
   const loadData = useCallback(async () => {
@@ -162,8 +179,9 @@ export default function DashboardPage() {
         [start, end, profileId]
       ),
       db.select<Transaction[]>(
-        `SELECT t.*, c.name as category_name, c.color as category_color
+        `SELECT t.*, c.name as category_name, c.color as category_color, a.name as account_name
          FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
+         JOIN accounts a ON a.id=t.account_id
          WHERE t.profile_id=?
          ORDER BY t.date DESC, t.id DESC LIMIT 10`,
         [profileId]
@@ -226,6 +244,23 @@ export default function DashboardPage() {
     const prevExp = prevExpRow[0]?.total ?? 0;
     // No chips at all for a first month - a delta against an empty month is meaningless.
     setPrevStats(prevInc === 0 && prevExp === 0 ? null : { income: prevInc, expenses: prevExp, net: prevInc + prevExp });
+    // Scheduled bills still due and deposits still to come, so the bearing bar can show what
+    // is committed and what is free. Past months have nothing left to plan. Uses the same
+    // rules and "include detected charges" choice as the Plan page.
+    const todayIso = toISODate(new Date());
+    const bounds = monthBoundsIso(month);
+    const monthState = month < todayIso.slice(0, 7) ? "past" : month > todayIso.slice(0, 7) ? "future" : "current";
+    let plannedSummary: PlannedAhead = { dueCents: 0, incomeCents: 0, billCount: 0, hasAny: false };
+    if (monthState !== "past") {
+      try {
+        const events = await getPlannedEvents(profileId, monthState === "current" ? todayIso : bounds.start, bounds.end, loadScenario(profileId).detected);
+        const s = summarizePlanned(events);
+        plannedSummary = { dueCents: s.plannedPaymentsCents, incomeCents: s.plannedIncomeCents, billCount: s.billCount, hasAny: events.length > 0 };
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    setPlanned(plannedSummary);
     setCats(catRows.map((r) => ({ ...r, total: Math.max(0, -r.total) })));
     setRecent(recentRows);
     setMonthTxnCount(monthCountRow[0]?.n ?? 0);
@@ -381,17 +416,18 @@ export default function DashboardPage() {
     loadLoans().catch(console.error);
   }, [loadLoans]);
 
-  const visibleInsights = insights
-    .filter((i) => !dismissedInsights.includes(i.dismissKey))
-    .slice(0, 3);
+  // The short list: top-ranked rows, one per type, favouring ones the user can act on.
+  const visibleInsights = pickDashboardInsights(
+    insights.filter((i) => !dismissedInsights.includes(i.dismissKey)),
+    3,
+  );
 
   const handleApplyInsight = async (insight: Insight) => {
     if (!insight.action) return;
-    if (insight.action.type === "create_budget") {
-      navigate("/budgets", { state: { prefillBudget: insight.action.payload } });
-    } else if (insight.action.type === "create_goal") {
-      navigate("/goals");
-    }
+    const target = resolveInsightAction(insight.action);
+    // Page-local Insights actions (payoff plan, subscription table) live on the Insights page.
+    if (!target) { navigate("/agent"); return; }
+    navigate(target.to, target.state ? { state: target.state } : undefined);
   };
 
   /** Collapses/expands a single credit card tile in place - collapsing also excludes it from
@@ -405,174 +441,154 @@ export default function DashboardPage() {
 
   const hasData = stats.income !== 0 || stats.expenses !== 0;
 
+  const compareLabel = `vs ${formatMonthLabel(prevMonthOf(month)).split(" ")[0]}`;
+  const loanMeta = (rateBps: number | null, minCents: number | null) =>
+    [rateBps != null ? `${(rateBps / 100).toFixed(2)}% APR` : null, minCents != null ? `${formatCurrency(minCents)} minimum` : null]
+      .filter(Boolean).join(", ") || undefined;
+
   return (
-    <div className="workspace-page space-y-6 dashboard-workspace">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => navMonth(-1)}
-            aria-label="Previous month"
-            className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))]
-                       transition-colors"
-          >
-            ‹
-          </button>
-          <input
-            type="month"
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))]
-                       text-[hsl(var(--foreground))]"
-          />
-          <button
-            onClick={() => navMonth(1)}
-            aria-label="Next month"
-            className="p-1.5 border rounded-lg text-base leading-none hover:bg-[hsl(var(--muted))]
-                       transition-colors"
-          >
-            ›
-          </button>
+    <div className="workspace-page dashboard-workspace dash-grid">
+      <div className="workspace-heading dash-heading">
+        <div>
+          <h1>Dashboard</h1>
+          <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">{formatMonthLong(month)}</p>
         </div>
+        <MonthPicker value={month} onChange={setMonth} />
       </div>
 
       {loading && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-3 gap-4">
-            {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)}
-          </div>
-          <Skeleton className="h-40 rounded-xl" />
+        <div className="dash-hero space-y-6">
+          <Skeleton className="h-28" />
+          <Skeleton className="h-40" />
           <CardListSkeleton count={3} />
         </div>
       )}
 
       {!loading && !hasData && (
-        <div className="border-2 border-dashed rounded-xl p-16 text-center">
-          <p className="font-medium mb-2">No transactions for this month</p>
-          <p className="text-sm text-[hsl(var(--muted-foreground))] mb-6">
+        <div className="dash-hero">
+          <EmptyState
+            title="No transactions for this month"
+            actions={
+              <>
+                <Link
+                  to="/import"
+                  className="px-4 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
+                >
+                  Import transactions
+                </Link>
+                {/* Demo Mode is only offered when this profile has genuinely never had any real
+                    transactions - once any data exists (even in a different month, or after demo
+                    data itself was imported), it's no longer relevant. Recomputed live from
+                    totalTxnCount, so clearing all transactions brings it back automatically, and
+                    each profile is judged independently of every other profile's data. */}
+                {!hasDemoAccounts && totalTxnCount === 0 && (
+                  <button
+                    type="button"
+                    data-tour="demo-mode"
+                    onClick={async () => {
+                      setSeedingDemo(true);
+                      try {
+                        await seedDemoData(profileId);
+                        await loadData();
+                      } finally {
+                        setSeedingDemo(false);
+                      }
+                    }}
+                    disabled={seedingDemo}
+                    className="px-4 py-2 border rounded-md text-sm font-medium hover:bg-[hsl(var(--muted))] transition-colors disabled:opacity-50"
+                  >
+                    {seedingDemo ? "Loading demo data…" : "Try Demo Mode"}
+                  </button>
+                )}
+              </>
+            }
+          >
             Import a bank statement to get started.
-          </p>
-          <div className="flex items-center justify-center gap-3">
-            <Link
-              to="/import"
-              className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
-                         rounded-lg text-sm font-medium"
-            >
-              Import Transactions
-            </Link>
-            {/* Demo Mode is only offered when this profile has genuinely never had any real
-                transactions - once any data exists (even in a different month, or after demo
-                data itself was imported), it's no longer relevant. Recomputed live from
-                totalTxnCount, so clearing all transactions brings it back automatically, and
-                each profile is judged independently of every other profile's data. */}
-            {!hasDemoAccounts && totalTxnCount === 0 && (
-              <button
-                data-tour="demo-mode"
-                onClick={async () => {
-                  setSeedingDemo(true);
-                  try {
-                    await seedDemoData(profileId);
-                    await loadData();
-                  } finally {
-                    setSeedingDemo(false);
-                  }
-                }}
-                disabled={seedingDemo}
-                className="px-5 py-2 border rounded-lg text-sm font-medium hover:bg-[hsl(var(--muted))]
-                           transition-colors disabled:opacity-50"
-              >
-                {seedingDemo ? "Loading demo data…" : "✦ Try Demo Mode"}
-              </button>
-            )}
-          </div>
+          </EmptyState>
         </div>
       )}
 
       {!loading && hasData && (
         <>
-          {/* Agent insight cards */}
-          {visibleInsights.length > 0 && (
-            <div className="space-y-2">
-              {visibleInsights.map((insight) => (
-                <InsightCard
-                  key={insight.id}
-                  insight={insight}
-                  onApply={handleApplyInsight}
-                  compact
-                />
-              ))}
-              <Link
-                to="/agent"
-                className="block text-xs text-[hsl(var(--primary))] hover:opacity-80 transition-opacity"
-              >
-                See all Agent insights →
-              </Link>
-            </div>
-          )}
+          {/* ── The bearing: net, income and spending as figures, then the same month as one
+              track of income (spent, still due, free). The page's one orchestrated load. ── */}
+          <motion.section className="dash-hero" variants={staggerContainer} initial="hidden" animate="show" aria-label="This month">
+            <motion.div variants={riseIn}>
+              <StatRow
+                heroSize="xl"
+                items={[
+                  {
+                    label: "Net this month",
+                    hero: true,
+                    tone: stats.net < 0 ? "error" : "default",
+                    value: <CountUp value={stats.net} format={(v) => `${v >= 0 ? "+" : ""}${formatCurrency(Math.round(v))}`} />,
+                    hint: prevStats ? <TrendChip deltaCents={stats.net - prevStats.net} compareLabel={compareLabel} /> : undefined,
+                  },
+                  {
+                    label: <>Income <InfoTooltip text={EXCLUSION_DISCLAIMER_TEXT} /></>,
+                    value: <CountUp value={stats.income} format={(v) => formatCurrency(Math.round(v))} />,
+                    hint: prevStats ? <TrendChip deltaCents={stats.income - prevStats.income} compareLabel={compareLabel} /> : undefined,
+                  },
+                  {
+                    label: <>Spending <InfoTooltip text={EXCLUSION_DISCLAIMER_TEXT} /></>,
+                    value: <CountUp value={Math.abs(stats.expenses)} format={(v) => formatCurrency(Math.round(v))} />,
+                    hint: prevStats ? <TrendChip deltaCents={Math.abs(stats.expenses) - Math.abs(prevStats.expenses)} compareLabel={compareLabel} invert /> : undefined,
+                  },
+                ]}
+              />
+            </motion.div>
+            <motion.div variants={riseIn}>
+              <BearingBar
+                incomeCents={stats.income + planned.incomeCents}
+                spentCents={Math.abs(stats.expenses)}
+                dueCents={planned.dueCents}
+                dueCount={planned.billCount}
+                month={month}
+              />
+              {!planned.hasAny && (
+                <Link to="/plan" className="inline-block mt-2 text-xs text-[hsl(var(--gold-ink))] hover:underline">
+                  Manage scheduled bills &amp; income
+                </Link>
+              )}
+            </motion.div>
+          </motion.section>
 
-          {/* Summary cards */}
-          <motion.div className="grid grid-cols-3 gap-4" variants={staggerContainer} initial="hidden" animate="show">
-            {[
-              { label: "Income", value: stats.income, prev: prevStats?.income, invert: false, cls: "text-[hsl(var(--success))]" },
-              { label: "Expenses", value: Math.abs(stats.expenses), prev: prevStats ? Math.abs(prevStats.expenses) : undefined, invert: true, cls: "text-[hsl(var(--error))]" },
-              { label: "Net", value: stats.net, prev: prevStats?.net, invert: false, cls: stats.net >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]" },
-            ].map(({ label, value, prev, invert, cls }) => (
-              <motion.div key={label} variants={riseIn} className="border rounded-xl p-5">
-                <p className="text-sm text-[hsl(var(--muted-foreground))] mb-1 flex items-center gap-1">
-                  {label}
-                  {(label === "Income" || label === "Expenses") && <InfoTooltip text={EXCLUSION_DISCLAIMER_TEXT} />}
-                </p>
-                <p className={`text-2xl font-bold tabular-nums ${cls}`}>
-                  <CountUp value={value} format={(v) => formatCurrency(Math.round(v))} />
-                </p>
-                {prev !== undefined && (
-                  <p className="mt-1">
-                    <TrendChip deltaCents={value - prev} compareLabel={`vs ${formatMonthLabel(prevMonthOf(month)).split(" ")[0]}`} invert={invert} />
-                  </p>
-                )}
-              </motion.div>
-            ))}
-          </motion.div>
-
-          {/* Account balance card + checking sparkline */}
+          {/* ── Horizon: the checking balance over the month, drawn wide and quiet ── */}
           {currentBalance != null && (
-            <div className="border rounded-xl p-5 flex gap-6 items-center flex-wrap">
-              <div className="shrink-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <p className="text-sm text-[hsl(var(--muted-foreground))]">
-                    Checking Balance
-                  </p>
-                  {portfolioValueCents > 0 && (
-                    <button
-                      onClick={toggleIncludeInvestments}
-                      title="Toggle whether investments are included in this figure"
-                      className={`text-[10px] px-2 py-0.5 rounded-full border font-medium transition-colors ${
-                        includeInvestments
-                          ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent"
-                          : "hover:bg-[hsl(var(--muted))]"
-                      }`}
-                    >
-                      + Investments
-                    </button>
-                  )}
-                </div>
-                <p className={`text-2xl font-bold tabular-nums ${(currentBalance + (includeInvestments ? portfolioValueCents : 0)) >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
-                  <CountUp value={currentBalance + (includeInvestments ? portfolioValueCents : 0)} format={(v) => formatCurrency(Math.round(v))} />
-                </p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
-                  {portfolioValueCents > 0
-                    ? `${formatCurrency(currentBalance)} checking${includeInvestments ? ` + ${formatCurrency(portfolioValueCents)} investments` : ""} (excludes credit card debt)`
-                    : "Checking/bank accounts only - excludes credit card debt"}
-                </p>
-                {includeInvestments && portfolioChange && (
-                  <p className={`text-xs mt-0.5 ${portfolioChange.change >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
-                    {portfolioChange.change >= 0 ? "+" : ""}{formatCurrency(portfolioChange.change)} on your latest statement period
-                  </p>
+            <section className="dash-horizon">
+              <SectionHeading
+                title="Checking balance"
+                hint={portfolioValueCents > 0
+                  ? `${formatCurrency(currentBalance)} checking${includeInvestments ? ` + ${formatCurrency(portfolioValueCents)} investments` : ""} (excludes credit card debt)`
+                  : "Checking and bank accounts only, excludes credit card debt"}
+              >
+                {portfolioValueCents > 0 && (
+                  <button
+                    type="button"
+                    onClick={toggleIncludeInvestments}
+                    aria-pressed={includeInvestments}
+                    title="Include investments in this figure"
+                    className={`text-xs px-2.5 py-1 rounded-md border font-medium transition-colors ${
+                      includeInvestments
+                        ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] border-transparent"
+                        : "hover:bg-[hsl(var(--muted))]"
+                    }`}
+                  >
+                    Include investments
+                  </button>
                 )}
-              </div>
+              </SectionHeading>
+              <p className={`text-[26px] leading-tight font-medium tabular-nums mt-3 ${(currentBalance + (includeInvestments ? portfolioValueCents : 0)) < 0 ? "text-[hsl(var(--error))]" : ""}`}>
+                <CountUp value={currentBalance + (includeInvestments ? portfolioValueCents : 0)} format={(v) => formatCurrency(Math.round(v))} />
+              </p>
+              {includeInvestments && portfolioChange && (
+                <p className={`text-xs mt-0.5 ${portfolioChange.change >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
+                  {portfolioChange.change >= 0 ? "+" : ""}{formatCurrency(portfolioChange.change)} on your latest statement period
+                </p>
+              )}
               {checkingBalancePoints.length > 1 && (
                 <div
-                  className="flex-1 h-16 min-w-[140px]"
+                  className="h-40 mt-3"
                   role="img"
                   aria-label={(() => {
                     const first = checkingBalancePoints[0].balance;
@@ -582,376 +598,148 @@ export default function DashboardPage() {
                   })()}
                 >
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={checkingBalancePoints} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
+                    <AreaChart data={checkingBalancePoints} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
                       <defs>
                         <linearGradient id="balGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.2} />
-                          <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                          <stop offset="5%" stopColor={series.balance} stopOpacity={0.22} />
+                          <stop offset="95%" stopColor={series.balance} stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <XAxis dataKey="date" hide />
                       <Tooltip
-                        contentStyle={{
-                          backgroundColor: "hsl(var(--background))",
-                          border: "1px solid hsl(var(--border))",
-                          borderRadius: "8px",
-                          fontSize: "12px",
-                        }}
-                        wrapperStyle={{ zIndex: 50 }}
+                        contentStyle={chartTooltipStyle}
+                        labelStyle={chartTooltipText}
+                        itemStyle={chartTooltipText}
+                        wrapperStyle={chartTooltipWrapper}
                         formatter={(v) => [`$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "Balance"]}
                         labelFormatter={(l) => formatDate(String(l))}
                       />
-                      <Area type="monotone" dataKey="balance" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#balGrad)" dot={false} />
+                      <Area type="monotone" dataKey="balance" stroke={series.balance} strokeWidth={2} fill="url(#balGrad)" dot={false} isAnimationActive={false} />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
               )}
-            </div>
+            </section>
           )}
 
-          {/* Bank accounts - one clickable tile per checking account (balance + trend +
-              mini-sparkline), same pattern as Credit Cards below, so each account's own
-              recent activity and relevant insights are a click away instead of only ever
-              seeing the combined total above. */}
-          {bankAccountsMeta.length > 0 && (
-            <div className="space-y-3">
-              <div>
-                <h2 className="font-semibold">Bank Accounts</h2>
-                <p className="text-[10px] text-[hsl(var(--muted-foreground))]">Current balance and this month's trend, per account</p>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* ── Accounts: one row per account, grouped, instead of three copies of a tile ── */}
+          <section className="dash-accounts">
+            <SectionHeading title="Accounts" hint="Latest recorded balance and this month's movement" />
+
+            {bankAccountsMeta.length > 0 && (
+              <div className="mt-4">
+                <SectionHeading as="h3" title="Bank" />
                 {bankAccountsMeta.map((acc) => {
-                  const series = bankBalanceRows.map((r) => ({ date: r.date, value: Number(r[String(acc.id)] ?? 0) }));
-                  const last = series.length > 0 ? series[series.length - 1].value : 0;
-                  const first = series.length > 0 ? series[0].value : 0;
+                  const points = bankBalanceRows.map((r) => ({ date: r.date, value: Number(r[String(acc.id)] ?? 0) }));
+                  const last = points.length > 0 ? points[points.length - 1].value : 0;
+                  const first = points.length > 0 ? points[0].value : 0;
                   const changeCents = Math.round((last - first) * 100);
-                  const improved = changeCents > 0;
-                  // Headline number is the account's true latest balance, NOT derived from the
-                  // month-filtered sparkline series above - otherwise an account with no
-                  // activity in the currently-selected month would wrongly show $0.
+                  // Headline number is the account's true latest balance, not the month-filtered
+                  // series, so an account with no activity this month never shows $0.
                   const lastCents = acc.balanceCents ?? Math.round(last * 100);
-
                   return (
-                    <div
+                    <AccountRow
                       key={acc.id}
-                      role="button" tabIndex={0} aria-label={`${acc.name} details`}
-                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (e.currentTarget as HTMLElement).click(); } }}
-                      className="border rounded-xl p-4 cursor-pointer hover:border-[hsl(var(--primary))] transition-colors chart-clickable"
-                      onClick={() => setViewAccount({ id: acc.id, name: acc.name, accountType: "checking", color: acc.color, balanceCents: lastCents, series })}
-                    >
-                      <div className="flex items-center justify-between mb-1 gap-2">
-                        <span className="text-sm font-medium flex items-center gap-1.5 min-w-0">
-                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: acc.color }} />
-                          <span className="truncate">{acc.name}</span>
-                        </span>
-                        {series.length > 1 && Math.abs(changeCents) >= 100 && (
-                          <span className={`text-xs font-semibold flex items-center gap-0.5 shrink-0 ${improved ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
-                            {improved ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                            {formatCurrency(Math.abs(changeCents))}
-                          </span>
-                        )}
-                      </div>
-                      <p className={`text-xl font-bold mb-2 ${lastCents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
-                        {acc.balanceCents === null ? "No recorded balance" : formatCurrency(lastCents)}
-                      </p>
-                      {acc.balanceDate && <p className="text-xs text-[hsl(var(--muted-foreground))] mb-2">Recorded {formatDate(acc.balanceDate)}</p>}
-                      {series.length > 1 && (
-                        <div className="h-10 -mx-1">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={series} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
-                              <defs>
-                                <linearGradient id={`bank-grad-${acc.id}`} x1="0" y1="0" x2="0" y2="1">
-                                  <stop offset="5%" stopColor={acc.color} stopOpacity={0.3} />
-                                  <stop offset="95%" stopColor={acc.color} stopOpacity={0} />
-                                </linearGradient>
-                              </defs>
-                              <XAxis dataKey="date" hide />
-                              <Tooltip
-                                contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
-                                wrapperStyle={{ zIndex: 50 }}
-                                formatter={(v) => [formatCurrency(Math.round(Number(v) * 100)), acc.name]}
-                                labelFormatter={(l) => formatDate(String(l))}
-                              />
-                              <Area type="monotone" dataKey="value" stroke={acc.color} strokeWidth={1.5} fill={`url(#bank-grad-${acc.id})`} dot={false} />
-                            </AreaChart>
-                          </ResponsiveContainer>
-                        </div>
-                      )}
-                      <ClickHint />
-                    </div>
+                      kind="bank"
+                      name={acc.name}
+                      balanceCents={lastCents}
+                      balanceDate={acc.balanceDate}
+                      meta={acc.balanceCents === null ? "No recorded balance" : undefined}
+                      trendCents={points.length > 1 ? changeCents : null}
+                      series={points.map((p) => ({ date: p.date, balance_cents: Math.round(p.value * 100) }))}
+                      onOpen={() => setViewAccount({ id: acc.id, name: acc.name, accountType: "checking", color: acc.color, balanceCents: lastCents, series: points })}
+                    />
                   );
                 })}
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Credit card balances - one compact tile per card (balance + trend + mini-sparkline),
-              rather than a shared line chart where multiple near-flat debt lines are hard to
-              read and don't convey much at a glance. */}
-          {creditBalanceAccounts.length > 0 && (
-            <div className="space-y-3">
-              <div>
-                <h2 className="font-semibold">Credit Cards</h2>
-                <p className="text-[10px] text-[hsl(var(--muted-foreground))]">Current balance and this month's trend, per card</p>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {creditBalanceAccounts.length > 0 && (
+              <div className="mt-6">
+                <SectionHeading as="h3" title="Credit cards" />
                 {creditBalanceAccounts.map((acc) => {
-                  const series = creditBalanceRows.map((r) => ({ date: r.date, value: Number(r[String(acc.id)] ?? 0) }));
-                  const last = series.length > 0 ? series[series.length - 1].value : 0;
-                  const first = series.length > 0 ? series[0].value : 0;
+                  const points = creditBalanceRows.map((r) => ({ date: r.date, value: Number(r[String(acc.id)] ?? 0) }));
+                  const last = points.length > 0 ? points[points.length - 1].value : 0;
+                  const first = points.length > 0 ? points[0].value : 0;
+                  // Balances are stored negative (a liability): a less negative balance means the
+                  // card was paid down, which AccountRow's inverted TrendChip shows as good.
                   const changeCents = Math.round((last - first) * 100);
-                  // Balances are stored negative (a liability) - a LESS negative balance means
-                  // the card was paid down (improved), a MORE negative one means debt grew.
-                  const improved = changeCents > 0;
-                  // Headline number is the account's true latest balance, NOT derived from the
-                  // month-filtered sparkline series above - otherwise a card with no statement
-                  // dated within the currently-selected month (e.g. right after importing a
-                  // batch of historical statements) would wrongly show $0.
                   const lastCents = acc.balanceCents ?? Math.round(last * 100);
-
-                  // Collapsed: a slim row, still in its normal grid position - clicking it
-                  // expands the card back and re-includes it in net worth. This is the ONLY
-                  // way in and out of the hidden state, so it's never a dead end.
-                  if (acc.hidden) {
-                    return (
-                      <button
-                        key={acc.id}
-                        onClick={() => setCreditHidden(acc.id, false)}
-                        title="Show this card on the dashboard again"
-                        className="border rounded-xl px-4 py-3 flex items-center justify-between gap-2 text-left
-                                   hover:bg-[hsl(var(--muted))] transition-colors"
-                      >
-                        <span className="text-sm font-medium flex items-center gap-1.5 min-w-0 text-[hsl(var(--muted-foreground))]">
-                          <span className="w-2 h-2 rounded-full shrink-0 opacity-50" style={{ backgroundColor: acc.color }} />
-                          <span className="truncate">{acc.name}</span>
-                          <span className="text-[9px] font-semibold uppercase tracking-wide shrink-0 px-1.5 py-0.5 rounded-full border">
-                            Hidden
-                          </span>
-                        </span>
-                        <Eye size={14} className="text-[hsl(var(--muted-foreground))] shrink-0" />
-                      </button>
-                    );
-                  }
-
                   return (
-                    <div
+                    <AccountRow
                       key={acc.id}
-                      role="button" tabIndex={0} aria-label={`${acc.name} details`}
-                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (e.currentTarget as HTMLElement).click(); } }}
-                      className="border rounded-xl p-4 cursor-pointer hover:border-[hsl(var(--primary))] transition-colors chart-clickable"
-                      onClick={() => setViewAccount({ id: acc.id, name: acc.name, accountType: "credit", color: acc.color, balanceCents: lastCents, series, interestRateBps: acc.interestRateBps, minimumPaymentCents: acc.minimumPaymentCents })}
-                    >
-                      <div className="flex items-center justify-between mb-1 gap-2">
-                        <span className="text-sm font-medium flex items-center gap-1.5 min-w-0">
-                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: acc.color }} />
-                          <span className="truncate">{acc.name}</span>
-                        </span>
-                        <span className="flex items-center gap-2 shrink-0">
-                          {series.length > 1 && Math.abs(changeCents) >= 100 && (
-                            <span className={`text-xs font-semibold flex items-center gap-0.5 ${improved ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
-                              {improved ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                              {formatCurrency(Math.abs(changeCents))}
-                            </span>
-                          )}
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setCreditHidden(acc.id, true); }}
-                            title="Collapse this card (excludes it from net worth)"
-                            className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
-                          >
-                            <EyeOff size={13} />
-                          </button>
-                        </span>
-                      </div>
-                      <p className={`text-xl font-bold mb-2 ${lastCents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
-                        {acc.balanceCents === null ? "No recorded balance" : formatCurrency(lastCents)}
-                      </p>
-                      {acc.balanceDate && <p className="text-xs text-[hsl(var(--muted-foreground))] mb-2">Recorded {formatDate(acc.balanceDate)}</p>}
-                      {series.length > 1 && (
-                        <div className="h-10 -mx-1">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={series} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
-                              <defs>
-                                <linearGradient id={`credit-grad-${acc.id}`} x1="0" y1="0" x2="0" y2="1">
-                                  <stop offset="5%" stopColor={acc.color} stopOpacity={0.3} />
-                                  <stop offset="95%" stopColor={acc.color} stopOpacity={0} />
-                                </linearGradient>
-                              </defs>
-                              <XAxis dataKey="date" hide />
-                              <Tooltip
-                                contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
-                                wrapperStyle={{ zIndex: 50 }}
-                                formatter={(v) => [formatCurrency(Math.round(Number(v) * 100)), acc.name]}
-                                labelFormatter={(l) => formatDate(String(l))}
-                              />
-                              <Area type="monotone" dataKey="value" stroke={acc.color} strokeWidth={1.5} fill={`url(#credit-grad-${acc.id})`} dot={false} />
-                            </AreaChart>
-                          </ResponsiveContainer>
-                        </div>
-                      )}
-                      <ClickHint />
-                    </div>
+                      kind="credit"
+                      name={acc.name}
+                      balanceCents={lastCents}
+                      balanceDate={acc.balanceDate}
+                      meta={acc.balanceCents === null ? "No recorded balance" : loanMeta(acc.interestRateBps, acc.minimumPaymentCents)}
+                      trendCents={points.length > 1 ? changeCents : null}
+                      series={points.map((p) => ({ date: p.date, balance_cents: Math.round(p.value * 100) }))}
+                      hidden={acc.hidden}
+                      onToggleHidden={(next) => setCreditHidden(acc.id, next)}
+                      onOpen={() => setViewAccount({ id: acc.id, name: acc.name, accountType: "credit", color: acc.color, balanceCents: lastCents, series: points, interestRateBps: acc.interestRateBps, minimumPaymentCents: acc.minimumPaymentCents })}
+                    />
                   );
                 })}
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Loans - same per-account tile pattern as Credit Cards, but never counted toward
-              liquidity/income/expenses; balance history comes from statement uploads instead
-              of imported transactions. Always shown (even with zero loans) so "Add Loan" stays
-              discoverable. */}
-          <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="font-semibold flex items-center gap-1.5"><Landmark size={15} /> Loans</h2>
-                  <p className="text-[10px] text-[hsl(var(--muted-foreground))]">Not counted toward liquidity or income/expenses</p>
-                </div>
+            {/* Loans are never counted toward liquidity or income and expenses; their history
+                comes from statement uploads. Always shown so "Add loan" stays discoverable. */}
+            <div className="mt-6">
+              <SectionHeading as="h3" title="Loans">
                 <button
+                  type="button"
                   onClick={() => setLoanModal("new")}
-                  className="flex items-center gap-1 text-xs px-2.5 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))] transition-colors shrink-0"
+                  className="flex items-center gap-1 text-xs px-2.5 py-1 border rounded-md hover:bg-[hsl(var(--muted))] transition-colors shrink-0"
                 >
-                  <Plus size={13} /> Add Loan
+                  <PlusIcon size={13} /> Add loan
                 </button>
-              </div>
+              </SectionHeading>
               {loans.length === 0 ? (
-                <p className="text-sm text-[hsl(var(--muted-foreground))] italic border rounded-xl p-5 text-center">
-                  No loans added yet - car loans, student loans, mortgages, or personal loans.
-                </p>
+                <p className="text-sm text-[hsl(var(--muted-foreground))] mt-2">No loans added yet. Car loans, student loans, mortgages, or personal loans.</p>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {loans.map((loan, i) => {
-                    const series = loanSeries.get(loan.id) ?? [];
-                    const last = series.length > 0 ? series[series.length - 1].value : (loan.balance_cents ?? 0) / 100;
-                    const first = series.length > 0 ? series[0].value : last;
-                    const changeCents = Math.round((last - first) * 100);
-                    const improved = changeCents > 0; // less negative balance = paid down
-                    const lastCents = Math.round(last * 100);
-                    const color = accountChartColor(i);
-                    return (
-                      <div
-                        key={loan.id}
-                        role="button" tabIndex={0} aria-label={`${loan.name} details`}
-                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (e.currentTarget as HTMLElement).click(); } }}
-                        className="border rounded-xl p-4 cursor-pointer hover:border-[hsl(var(--primary))] transition-colors chart-clickable"
-                        onClick={() => setViewAccount({
-                          id: loan.id, name: loan.name, accountType: "loan", color, balanceCents: lastCents, series,
-                          interestRateBps: loan.interest_rate_bps, minimumPaymentCents: loan.minimum_payment_cents,
-                        })}
-                      >
-                        <div className="flex items-center justify-between mb-1 gap-2">
-                          <span className="text-sm font-medium flex items-center gap-1.5 min-w-0">
-                            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                            <span className="truncate">{loan.name}</span>
-                          </span>
-                          <span className="flex items-center gap-2 shrink-0">
-                            {series.length > 1 && Math.abs(changeCents) >= 100 && (
-                              <span className={`text-xs font-semibold flex items-center gap-0.5 ${improved ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
-                                {improved ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                                {formatCurrency(Math.abs(changeCents))}
-                              </span>
-                            )}
-                            <button
-                              onClick={(e) => { e.stopPropagation(); setLoanModal(loan); }}
-                              title="Add a new statement"
-                              className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
-                            >
-                              <Plus size={13} />
-                            </button>
-                          </span>
-                        </div>
-                        <p className={`text-xl font-bold mb-1 ${lastCents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
-                          {formatCurrency(lastCents)}
-                        </p>
-                        {(loan.interest_rate_bps != null || loan.minimum_payment_cents != null) && (
-                          <p className="text-[11px] text-[hsl(var(--muted-foreground))] mb-2">
-                            {loan.interest_rate_bps != null && <>{(loan.interest_rate_bps / 100).toFixed(2)}% APR</>}
-                            {loan.interest_rate_bps != null && loan.minimum_payment_cents != null && " · "}
-                            {loan.minimum_payment_cents != null && <>{formatCurrency(loan.minimum_payment_cents)} min/mo</>}
-                          </p>
-                        )}
-                        {series.length > 1 && (
-                          <div className="h-10 -mx-1">
-                            <ResponsiveContainer width="100%" height="100%">
-                              <AreaChart data={series} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
-                                <defs>
-                                  <linearGradient id={`loan-grad-${loan.id}`} x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor={color} stopOpacity={0.3} />
-                                    <stop offset="95%" stopColor={color} stopOpacity={0} />
-                                  </linearGradient>
-                                </defs>
-                                <XAxis dataKey="date" hide />
-                                <Tooltip
-                                  contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
-                                  wrapperStyle={{ zIndex: 50 }}
-                                  formatter={(v) => [formatCurrency(Math.round(Number(v) * 100)), loan.name]}
-                                  labelFormatter={(l) => formatDate(String(l))}
-                                />
-                                <Area type="monotone" dataKey="value" stroke={color} strokeWidth={1.5} fill={`url(#loan-grad-${loan.id})`} dot={false} />
-                              </AreaChart>
-                            </ResponsiveContainer>
-                          </div>
-                        )}
-                        <ClickHint />
-                      </div>
-                    );
-                  })}
-                </div>
+                loans.map((loan, i) => {
+                  const points = loanSeries.get(loan.id) ?? [];
+                  const last = points.length > 0 ? points[points.length - 1].value : (loan.balance_cents ?? 0) / 100;
+                  const first = points.length > 0 ? points[0].value : last;
+                  const changeCents = Math.round((last - first) * 100);
+                  const lastCents = Math.round(last * 100);
+                  const color = accountChartColor(i);
+                  return (
+                    <AccountRow
+                      key={loan.id}
+                      kind="loan"
+                      name={loan.name}
+                      balanceCents={lastCents}
+                      meta={loanMeta(loan.interest_rate_bps, loan.minimum_payment_cents)}
+                      trendCents={points.length > 1 ? changeCents : null}
+                      series={points.map((p) => ({ date: p.date, balance_cents: Math.round(p.value * 100) }))}
+                      extraAction={{ label: `Add a statement for ${loan.name}`, onClick: () => setLoanModal(loan), icon: <PlusIcon size={14} /> }}
+                      onOpen={() => setViewAccount({
+                        id: loan.id, name: loan.name, accountType: "loan", color, balanceCents: lastCents, series: points,
+                        interestRateBps: loan.interest_rate_bps, minimumPaymentCents: loan.minimum_payment_cents,
+                      })}
+                    />
+                  );
+                })
               )}
             </div>
+          </section>
 
-          {/* Top categories */}
+          {/* ── Top categories as ranked bars: shares compare by length ── */}
           {cats.length > 0 && (
-            <div className="border rounded-xl p-5 chart-clickable">
-              <h2 className="font-semibold mb-1">Top Spending Categories</h2>
-              <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-3">Click a bar for details</p>
-              <ResponsiveContainer width="100%" height={cats.length * 36 + 20}>
-                <BarChart
-                  layout="vertical"
-                  data={cats}
-                  margin={{ left: 8, right: 32, top: 0, bottom: 0 }}
-                >
-                  <XAxis
-                    type="number"
-                    tickFormatter={formatAxisCurrency}
-                    tick={{ fontSize: 11 }}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    tick={{ fontSize: 12 }}
-                    width={110}
-                  />
-                  <Tooltip
-                    cursor={false}
-                    contentStyle={{
-                      backgroundColor: "hsl(var(--background))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: "8px",
-                      fontSize: "12px",
-                    }}
-                    labelStyle={{ color: "hsl(var(--foreground))" }}
-                    itemStyle={{ color: "hsl(var(--foreground))" }}
-                    formatter={(v) => formatCurrency(v as number)}
-                  />
-                  <Bar
-                    dataKey="total"
-                    radius={[0, 4, 4, 0]}
-                    cursor="pointer"
-                    background={false}
-                    onClick={(data) => toggleCatExpand(data as unknown as CatStat)}
-                    activeBar={(props: unknown) => {
-                      const p = props as { payload?: CatStat } & React.SVGProps<SVGPathElement> & Record<string, unknown>;
-                      const fill = lightenHex(p.payload?.color ?? "#9ca3af");
-                      return <Rectangle {...(p as object)} fill={fill} />;
-                    }}
-                  >
-                    {cats.map((c, i) => (
-                      <Cell key={i} fill={c.color} opacity={expandedCat && expandedCat.name !== c.name ? 0.45 : 1} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-
+            <section className="dash-categories">
+              <SectionHeading title="Top spending categories" hint="Click a category for its largest transactions" />
+              <div className="mt-2">
+                <RankedBars
+                  items={cats.map((c) => ({ key: c.name, name: c.name, value: c.total, color: c.color ? harmonizeColor(c.color, mode) : "hsl(var(--neutral))" }))}
+                  formatValue={formatCurrency}
+                  context="of spending"
+                  onSelect={(item) => { const cat = cats.find((c) => c.name === item.name); if (cat) void toggleCatExpand(cat); }}
+                  selectedKey={expandedCat?.name ?? null}
+                />
+              </div>
               <AnimatePresence initial={false} mode="wait">
                 {expandedCat && (
                   <motion.div
@@ -964,15 +752,15 @@ export default function DashboardPage() {
                     <div className="mt-3 pt-3 border-t">
                       <div className="flex items-center justify-between mb-2">
                         <p className="text-xs font-semibold flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: expandedCat.color }} />
-                          {expandedCat.name} - {formatCurrency(expandedCat.total)}
+                          <span className="w-1.5 h-1.5 rounded-[2px]" style={{ backgroundColor: expandedCat.color ? harmonizeColor(expandedCat.color, mode) : "hsl(var(--neutral))" }} />
+                          {expandedCat.name}, {formatCurrency(expandedCat.total)}
                         </p>
                         <Link
                           to="/transactions"
                           state={{ month, category: expandedCat.categoryId }}
-                          className="text-[11px] text-[hsl(var(--primary))] hover:underline"
+                          className="text-[11px] text-[hsl(var(--gold-ink))] hover:underline"
                         >
-                          View all →
+                          View all
                         </Link>
                       </div>
                       {expandedCatTxns === null ? (
@@ -982,7 +770,7 @@ export default function DashboardPage() {
                           {expandedCatTxns.map((t) => (
                             <div key={t.id} className="flex items-center justify-between text-xs py-1">
                               <span className="truncate flex-1 text-[hsl(var(--muted-foreground))]">{t.description}</span>
-                              <span className="font-mono ml-3 shrink-0">{formatCurrency(Math.abs(t.amount_cents))}</span>
+                              <span className="ml-3 shrink-0 tabular-nums">{formatCurrency(Math.abs(t.amount_cents))}</span>
                             </div>
                           ))}
                         </div>
@@ -991,52 +779,50 @@ export default function DashboardPage() {
                   </motion.div>
                 )}
               </AnimatePresence>
-            </div>
+            </section>
           )}
 
-          {/* Recent transactions */}
-          {recent.length > 0 && (
-            <div className="border rounded-xl overflow-hidden">
-              <div className="px-5 py-3 border-b bg-[hsl(var(--muted))] flex items-center justify-between">
-                <h2 className="font-semibold">Recent Transactions</h2>
-                <Link to="/transactions" className="text-sm text-[hsl(var(--primary))]">
-                  View all →
-                </Link>
+          {/* ── Insights, below the numbers they refer to ── */}
+          {visibleInsights.length > 0 && (
+            <section className="dash-insights">
+              <SectionHeading title="Worth a look">
+                <Link to="/agent" className="text-xs text-[hsl(var(--gold-ink))] hover:underline">See all insights</Link>
+              </SectionHeading>
+              <div className="mt-2 space-y-2">
+                {visibleInsights.map((insight) => (
+                  <InsightCard key={insight.id} insight={insight} onApply={handleApplyInsight} compact />
+                ))}
               </div>
-              <table className="w-full text-sm">
-                <tbody>
-                  {recent.map((t) => (
-                    <tr key={t.id} className="border-b last:border-0 hover:bg-[hsl(var(--muted))]">
-                      <td className="px-5 py-3 text-[hsl(var(--muted-foreground))] whitespace-nowrap w-28">
-                        {formatDate(t.date)}
-                      </td>
-                      <td className="px-5 py-3 max-w-xs truncate">{t.description}</td>
-                      <td className="px-5 py-3">
-                        <span
-                          className="inline-block px-2 py-0.5 rounded-full text-xs text-white"
-                          style={{ backgroundColor: t.category_color ?? "hsl(var(--neutral))" }}
-                        >
-                          {t.category_name ?? "Uncategorized"}
-                        </span>
-                      </td>
-                      <td
-                        className={`px-5 py-3 text-right font-mono ${t.amount_cents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}
-                      >
-                        {formatCurrency(t.amount_cents)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            </section>
+          )}
+
+          {/* ── Recent activity in the same ledger rows Transactions uses ── */}
+          {recent.length > 0 && (
+            <section className="dash-activity">
+              <SectionHeading title="Recent activity">
+                <Link to="/transactions" className="text-xs text-[hsl(var(--gold-ink))] hover:underline">View all</Link>
+              </SectionHeading>
+              <div className="mt-2">
+                {recent.map((t) => {
+                  const row = t as Transaction & { account_name?: string | null };
+                  return (
+                    <ActivityRow
+                      key={t.id}
+                      compact
+                      transaction={{ ...row, category_color: row.category_color ? harmonizeColor(row.category_color, mode) : null }}
+                    />
+                  );
+                })}
+              </div>
+            </section>
           )}
         </>
       )}
 
-      {/* ── MANAGE DATA — only shown when there is something to clear ── */}
+      {/* ── MANAGE DATA, only shown when there is something to clear ── */}
       {(monthTxnCount > 0 || totalTxnCount > 0) && (
-        <details className="workspace-disclosure border-t pt-3">
-          <summary>Manage Data</summary>
+        <details className="workspace-disclosure dash-manage border-t pt-3">
+          <summary>Manage data</summary>
           {confirmClear === null ? (
             <div className="flex gap-4 text-sm flex-wrap">
               {monthTxnCount > 0 && (

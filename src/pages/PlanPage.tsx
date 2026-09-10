@@ -1,8 +1,9 @@
+import PlannedBar from "@/components/PlannedBar";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import CashFlowHorizon from "@/components/CashFlowHorizon";
 import { loadScenario, saveScenario } from "@/lib/planScenario";
-import { CalendarClock, TrendingUp, Sparkles, AlertTriangle, Wand2, EyeOff, Landmark, CalendarPlus, ChevronRight } from "lucide-react";
+import { CalendarCheckIcon, TrendUpIcon, SparkleIcon, WarningIcon, MagicWandIcon, EyeSlashIcon, BankIcon, CalendarPlusIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { motion } from "motion/react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { staggerContainer, riseIn } from "@/lib/motionPresets";
@@ -279,7 +280,7 @@ function ProfilePlan({ profileId }: { profileId: number }) {
     return (
       <div className="workspace-page space-y-6">
         {header}
-        <EmptyState icon={<CalendarClock size={24} className="text-[hsl(var(--muted-foreground))]" />} title="No checking account yet">
+        <EmptyState icon={<CalendarCheckIcon size={24} className="text-[hsl(var(--muted-foreground))]" />} title="No checking account yet">
           <p>
             The forecast projects your spendable cash, so it needs a checking or debit account.
             Import a bank statement and it'll appear here.
@@ -339,7 +340,7 @@ function ProfilePlan({ profileId }: { profileId: number }) {
             ))}
           </div>
           <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-1.5 text-right">
-            {windowDays} days · {inputs.checkingAccountCount} checking account{inputs.checkingAccountCount === 1 ? "" : "s"}
+            {windowDays} days, {inputs.checkingAccountCount} checking account{inputs.checkingAccountCount === 1 ? "" : "s"}
           </p>
         </div>
       </div>
@@ -357,8 +358,8 @@ function ProfilePlan({ profileId }: { profileId: number }) {
             style={{ backgroundColor: result.safeToSpendCents < 0 ? "hsl(var(--error)/0.12)" : "hsl(var(--muted))" }}
           >
             {result.safeToSpendCents < 0
-              ? <AlertTriangle size={22} style={{ color: "hsl(var(--error))" }} />
-              : <TrendingUp size={22} style={{ color: "hsl(var(--muted-foreground))" }} />}
+              ? <WarningIcon size={22} style={{ color: "hsl(var(--error))" }} />
+              : <TrendUpIcon size={22} style={{ color: "hsl(var(--muted-foreground))" }} />}
           </span>
           <div className="min-w-0">
             <h2 className="text-xl font-semibold">
@@ -373,14 +374,14 @@ function ProfilePlan({ profileId }: { profileId: number }) {
               </p>
             )}
             <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">
-              {baselineDaily > 0 ? "Includes typical spending" : "Bills-only forecast · everyday spending excluded"}
+              {baselineDaily > 0 ? "Includes typical spending" : "Bills-only forecast, everyday spending excluded"}
             </p>
           </div>
         </div>
 
         <div className="plan-metrics">
           <div className="plan-primary-metric">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">Safe to spend</p>
+            <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Safe to spend</p>
             <p className="plan-available tabular-nums" data-testid="safe-to-spend" style={{ color: result.safeToSpendCents < 0 ? "hsl(var(--error))" : undefined }}>
               {incomplete ? "Unavailable" : formatCurrency(result.safeToSpendCents)}
             </p>
@@ -389,43 +390,33 @@ function ProfilePlan({ profileId }: { profileId: number }) {
             </p>
           </div>
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] flex items-center gap-1">
-              Scheduled margin
-              <InfoTooltip text="Scheduled income minus bills in this window, before everyday spending." />
-            </p>
-            <p
-              className="text-2xl font-bold tabular-nums mt-1"
-              style={{ color: result.afterBillsCents < 0 ? "hsl(var(--error))" : undefined }}
-            >
-              {formatCurrency(result.afterBillsCents)}
-            </p>
-            <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">
-              {result.afterBillsCents < 0
-                ? "Bills exceed the income arriving"
-                : "Income less bills, before spending"}
-            </p>
-          </div>
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">Lowest point</p>
-            <p className="text-2xl font-bold tabular-nums mt-1" style={{ color: (low?.balanceCents ?? 0) < 0 ? "hsl(var(--error))" : undefined }}>
+            <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Lowest point</p>
+            <p className="text-2xl font-medium tabular-nums mt-1" style={{ color: (low?.balanceCents ?? 0) < 0 ? "hsl(var(--error))" : undefined }}>
               {low ? formatCurrency(low.balanceCents) : "—"}
             </p>
             <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">
               {low ? formatDate(low.date) : "No projection"}
             </p>
           </div>
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">In vs out</p>
-            <p className="text-2xl font-bold tabular-nums mt-1">
-              <span style={{ color: "hsl(var(--success))" }}>{formatCurrency(result.totalIncomeCents)}</span>
-              <span className="text-[hsl(var(--muted-foreground))] text-base"> / </span>
-              <span style={{ color: "hsl(var(--error))" }}>{formatCurrency(result.totalBillsCents)}</span>
-            </p>
-            <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">
-              {incomeCount === 0 && billCount === 0
-                ? `Nothing scheduled in these ${windowDays} days`
-                : `${incomeCount} deposit${incomeCount === 1 ? "" : "s"} · ${billCount} bill${billCount === 1 ? "" : "s"} over ${windowDays} day${windowDays === 1 ? "" : "s"}`}
-            </p>
+          {/* Planned payments against planned income: what the schedule commits, and what is
+              left for unplanned spending. Replaces the old "Scheduled margin" and "In vs out"
+              figures, which showed the same relationship twice as text. */}
+          <div style={{ gridColumn: "span 2" }}>
+            {incomeCount === 0 && billCount === 0 ? (
+              <>
+                <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Planned in this window</p>
+                <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">Nothing scheduled in these {windowDays} days. Add your bills and paycheck below to see what is left for unplanned spending.</p>
+              </>
+            ) : (
+              <PlannedBar
+                plannedIncomeCents={result.totalIncomeCents}
+                plannedPaymentsCents={result.totalBillsCents}
+                depositCount={incomeCount}
+                billCount={billCount}
+                windowDays={windowDays}
+                tooltip={<InfoTooltip text="Scheduled income minus bills in this window, before everyday spending." />}
+              />
+            )}
           </div>
         </div>
 
@@ -493,7 +484,7 @@ function ProfilePlan({ profileId }: { profileId: number }) {
       {/* ── What-if ────────────────────────────────────────────────────── */}
       <motion.section variants={riseIn} className="plan-scenarios space-y-5">
         <div>
-          <h2 className="font-semibold text-sm flex items-center gap-1.5"><Wand2 size={14} /> Your scenario</h2>
+          <h2 className="font-semibold text-sm flex items-center gap-1.5"><MagicWandIcon size={14} /> Your scenario</h2>
         </div>
 
         <div className="grid gap-6">
@@ -595,12 +586,12 @@ function ProfilePlan({ profileId }: { profileId: number }) {
                     style={{ backgroundColor: ACTION_TONE[a.tone].color }}
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: ACTION_TONE[a.tone].color }}>
+                    <p className="text-xs font-medium " style={{ color: ACTION_TONE[a.tone].color }}>
                       {ACTION_TONE[a.tone].label}
                     </p>
                     <p className="text-sm font-medium mt-0.5">{a.title}</p>
                   </div>
-                  {clickable && <ChevronRight size={16} className="shrink-0 self-center text-[hsl(var(--muted-foreground))]" />}
+                  {clickable && <CaretRightIcon size={16} className="shrink-0 self-center text-[hsl(var(--muted-foreground))]" />}
                 </>
               );
               return <div key={a.key} className="plan-action-row">{clickable ? (
@@ -623,7 +614,7 @@ function ProfilePlan({ profileId }: { profileId: number }) {
       {payoff && debtContext && (
         <motion.section variants={riseIn} className="plan-payoff">
           <h2 className="font-semibold text-sm flex items-center gap-1.5">
-            <Landmark size={14} style={{ color: "var(--gold)" }} /> Put your spare money to work
+            <BankIcon size={14} style={{ color: "var(--gold)" }} /> Put your spare money to work
           </h2>
           <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1 max-w-xl">
             Scheduled monthly margin:{" "}
@@ -635,14 +626,14 @@ function ProfilePlan({ profileId }: { profileId: number }) {
 
           <div className="grid sm:grid-cols-3 gap-4 mt-5">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">Minimums only</p>
+              <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Minimums only</p>
               <p className="text-xl font-bold tabular-nums mt-1">{payoff.baseline.payoffDate ?? "Never"}</p>
               <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">
                 {formatCurrency(payoff.baseline.totalInterestCents)} interest
               </p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--gold)" }}>
+              <p className="text-xs font-medium " style={{ color: "var(--gold)" }}>
                 Redirecting that margin
               </p>
               <p className="text-xl font-bold tabular-nums mt-1" style={{ color: "var(--gold)" }}>
@@ -653,7 +644,7 @@ function ProfilePlan({ profileId }: { profileId: number }) {
               </p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">You'd save</p>
+              <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">You'd save</p>
               <p className="text-xl font-bold tabular-nums mt-1" style={{ color: "hsl(var(--success))" }}>
                 {formatCurrency(Math.max(0, payoff.interestSaved))}
               </p>
@@ -679,7 +670,7 @@ function ProfilePlan({ profileId }: { profileId: number }) {
       <motion.section variants={riseIn} className="plan-upcoming" ref={upcomingRef}>
         <h2 className="font-semibold text-sm mb-1">Upcoming cash flow</h2>
         <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">
-          {incomeCount} deposits · {billCount} bills
+          {incomeCount} deposits, {billCount} bills
         </p>
 
         {forecast!.events.length === 0 ? (
@@ -690,7 +681,7 @@ function ProfilePlan({ profileId }: { profileId: number }) {
           <div className="space-y-5">
             {groupUpcomingEvents(forecast!.events).map((group) => (
               <div key={group.label}>
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--muted-foreground))] mb-2">
+                <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-2">
                   {group.label}
                 </p>
                 <div className="space-y-1.5">
@@ -703,7 +694,7 @@ function ProfilePlan({ profileId }: { profileId: number }) {
                           {formatDate(e.date)}
                           {e.source === "detected" && (
                             <span className="ml-1.5 inline-flex items-center gap-1 text-[hsl(var(--warning))]">
-                              <Sparkles size={12} /> Estimated
+                              <SparkleIcon size={12} /> Estimated
                             </span>
                           )}
                         </p>
@@ -725,7 +716,7 @@ function ProfilePlan({ profileId }: { profileId: number }) {
                               title="This is a real bill - schedule it so the forecast stops guessing"
                               className="workspace-icon text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--success))]"
                             >
-                              <CalendarPlus size={14} />
+                              <CalendarPlusIcon size={14} />
                             </button>
                             <button
                               onClick={() => handleHide(e.description)}
@@ -733,7 +724,7 @@ function ProfilePlan({ profileId }: { profileId: number }) {
                               title="Not a real bill - hide it from the forecast and subscriptions"
                               className="workspace-icon text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))]"
                             >
-                              <EyeOff size={14} />
+                              <EyeSlashIcon size={14} />
                             </button>
                           </>
                         )}

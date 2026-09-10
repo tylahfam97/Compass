@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowUpDown, ArrowUp, ArrowDown, Plus, Sparkles, Download, Tag, Settings, SlidersHorizontal, ChevronDown, ChevronUp, Upload, Pencil, StickyNote, Trash2, List, Table2, MoreHorizontal, ArrowDownLeft, ArrowUpRight } from "lucide-react";
+import { ArrowsDownUpIcon, ArrowUpIcon, ArrowDownIcon, PlusIcon, SparkleIcon, DownloadSimpleIcon, TagIcon, GearSixIcon, SlidersHorizontalIcon, CaretDownIcon, CaretUpIcon, UploadSimpleIcon, PencilSimpleIcon, NoteIcon, TrashIcon, ListIcon, TableIcon, DotsThreeIcon, ArrowDownLeftIcon, ArrowUpRightIcon } from "@phosphor-icons/react";
 import { getDb, reapplyCategorizationRules } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
@@ -38,10 +38,10 @@ const SORT_EXPR: Record<SortCol, string> = {
 
 /** Small sort indicator icon for a table header. */
 function SortIndicator({ col, sortCol, sortDir }: { col: SortCol; sortCol: SortCol | null; sortDir: SortDir }) {
-  if (sortCol !== col) return <ArrowUpDown size={13} className="opacity-30 shrink-0" />;
+  if (sortCol !== col) return <ArrowsDownUpIcon size={13} className="opacity-30 shrink-0" />;
   return sortDir === "asc"
-    ? <ArrowUp size={13} className="text-[hsl(var(--primary))] shrink-0" />
-    : <ArrowDown size={13} className="text-[hsl(var(--primary))] shrink-0" />;
+    ? <ArrowUpIcon size={13} className="text-[hsl(var(--gold-ink))] shrink-0" />
+    : <ArrowDownIcon size={13} className="text-[hsl(var(--gold-ink))] shrink-0" />;
 }
 
 function monthBounds(ym: string): [string, string] {
@@ -124,7 +124,7 @@ export default function TransactionsPage() {
 function ProfileTransactions({ profileId }: { profileId: number }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const navState = location.state as { month?: string; category?: number | null; range?: { start: string; end: string } } | null;
+  const navState = location.state as { month?: string; category?: number | null; range?: { start: string; end: string }; search?: string } | null;
   const [saved] = useState(() => loadTransactionView(profileId));
   useEffect(() => {
     if (location.state) navigate(location.pathname, { replace: true, state: null });
@@ -144,7 +144,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
     const d = new Date(y, m - 1 + dir, 1);
     setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
   };
-  const [search, setSearch] = useState(navState ? "" : saved.search);
+  const [search, setSearch] = useState(navState ? (navState.search ?? "") : saved.search);
   const [view, setView] = useState(saved.view);
   const [rows, setRows] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -182,7 +182,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
     () => filterCategory !== "" || filterType !== "all" || filterAmountMin !== "" || filterAmountMax !== ""
   );
 
-  // Column sort state — null = default (date DESC)
+  // Column sort state, null = default (date DESC)
   const [sortCol, setSortCol] = useState<SortCol | null>(saved.sort);
   const [sortDir, setSortDir] = useState<SortDir>(saved.direction);
   const scroll = useRef(navState ? 0 : saved.scroll);
@@ -421,7 +421,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
         await writable.write(csv);
         await writable.close();
       } catch (err: unknown) {
-        // AbortError = user dismissed the dialog — that's fine, do nothing.
+        // AbortError = user dismissed the dialog, that's fine, do nothing.
         if ((err as { name?: string })?.name !== "AbortError") {
           console.error("Export failed:", err);
         }
@@ -510,8 +510,8 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center
                         bg-black/20 backdrop-blur-sm border-2 border-dashed
                         border-[hsl(var(--primary))] rounded-xl pointer-events-none">
-          <Upload size={40} className="text-[hsl(var(--primary))] mb-3" />
-          <p className="font-semibold text-[hsl(var(--primary))] text-lg">Drop CSV to import</p>
+          <UploadSimpleIcon size={40} className="text-[hsl(var(--gold-ink))] mb-3" />
+          <p className="font-semibold text-[hsl(var(--gold-ink))] text-lg">Drop CSV to import</p>
           <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">Opens the import wizard</p>
         </div>
       )}
@@ -524,10 +524,10 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
             className="text-sm px-3 py-1.5 rounded-lg bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
                        hover:opacity-90 transition-opacity flex items-center gap-1.5 font-medium"
           >
-            <Plus size={14} /> Add
+            <PlusIcon size={14} /> Add
           </button>
           <details className="transaction-tools">
-            <summary className="workspace-icon" aria-label="Transaction tools" title="Transaction tools"><MoreHorizontal size={18} /></summary>
+            <summary className="workspace-icon" aria-label="Transaction tools" title="Transaction tools"><DotsThreeIcon size={18} /></summary>
             <div className="transaction-tools-menu">
           <button
             onClick={() => runAutoCategorize("uncategorized")}
@@ -535,7 +535,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
             title="Apply current rules to uncategorized transactions"
             className="disabled:opacity-50 flex items-center gap-2"
           >
-            <Sparkles size={16} /> {autoCatRunning ? "Running…" : "Categorize unreviewed"}
+            <SparkleIcon size={16} /> {autoCatRunning ? "Running…" : "Categorize unreviewed"}
           </button>
           <button
             onClick={exportCsv}
@@ -543,7 +543,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
             className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
                        transition-colors flex items-center gap-1.5"
           >
-            <Download size={14} /> Export
+            <DownloadSimpleIcon size={14} /> Export
           </button>
           <button
             onClick={() => setCatModalOpen(true)}
@@ -551,7 +551,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
             className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
                        transition-colors flex items-center gap-1.5"
           >
-            <Tag size={14} /> Categories
+            <TagIcon size={14} /> Categories
           </button>
           <button
             onClick={() => setRulesModalOpen(true)}
@@ -559,7 +559,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
             className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
                        transition-colors flex items-center gap-1.5"
           >
-            <Settings size={14} /> Rules Manager
+            <GearSixIcon size={14} /> Rules Manager
           </button>
             </div>
           </details>
@@ -589,8 +589,8 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
 
       {/* Filters */}
       <div className="space-y-2 mb-4">
-        {range && <div className="flex flex-wrap items-center gap-3 text-sm" role="status"><span>{formatDate(range.start)} to {formatDate(range.end)} (end exclusive)</span><button className="text-[hsl(var(--primary))]" onClick={() => setRange(null)}>Clear date range</button></div>}
-        {/* Row 1 — the essentials, always visible */}
+        {range && <div className="flex flex-wrap items-center gap-3 text-sm" role="status"><span>{formatDate(range.start)} to {formatDate(range.end)} (end exclusive)</span><button className="text-[hsl(var(--gold-ink))]" onClick={() => setRange(null)}>Clear date range</button></div>}
+        {/* Row 1, the essentials, always visible */}
         <div className="flex gap-3 flex-wrap items-center">
           {!allTime && (
             <div className="flex items-center gap-1">
@@ -632,17 +632,17 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
             onClick={() => setShowMoreFilters((v) => !v)}
             aria-expanded={showMoreFilters}
             className={`text-sm px-3 py-1.5 border rounded-lg transition-colors flex items-center gap-1.5 ${
-              hasActiveFilters ? "bg-[hsl(var(--primary)/0.1)] border-[hsl(var(--primary)/0.4)] text-[hsl(var(--primary))]" : "hover:bg-[hsl(var(--muted))]"
+              hasActiveFilters ? "bg-[hsl(var(--primary)/0.1)] border-[hsl(var(--primary)/0.4)] text-[hsl(var(--gold-ink))]" : "hover:bg-[hsl(var(--muted))]"
             }`}
           >
-            <SlidersHorizontal size={14} />
+            <SlidersHorizontalIcon size={14} />
             Filters
             {hasActiveFilters && (
               <span className="w-4 h-4 rounded-full bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] text-[10px] font-bold flex items-center justify-center">
                 {activeFilterCount}
               </span>
             )}
-            {showMoreFilters ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            {showMoreFilters ? <CaretUpIcon size={14} /> : <CaretDownIcon size={14} />}
           </button>
           {hasActiveFilters && (
             <button
@@ -655,7 +655,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
           )}
         </div>
 
-        {/* Row 2 — category + type + amount, tucked behind "More filters" so the common
+        {/* Row 2, category + type + amount, tucked behind "More filters" so the common
             case (just browsing a month or searching) isn't competing with 6+ controls */}
         {showMoreFilters && (
           <div className="flex gap-3 flex-wrap items-center border-t pt-3">
@@ -738,29 +738,29 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
       {!loading && rows.length > 0 && (
         <div className="transaction-summary">
           <div>
-            <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-1 flex items-center justify-center gap-1">
+            <p className="text-xs text-[hsl(var(--muted-foreground))] mb-1 flex items-center justify-center gap-1">
               Income <InfoTooltip text={EXCLUSION_DISCLAIMER_TEXT} />
             </p>
             <p className="text-xl font-semibold">{formatCurrency(totalIncome)}</p>
           </div>
           <div>
-            <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-1 flex items-center justify-center gap-1">
+            <p className="text-xs text-[hsl(var(--muted-foreground))] mb-1 flex items-center justify-center gap-1">
               Expenses <InfoTooltip text={EXCLUSION_DISCLAIMER_TEXT} />
             </p>
             <p className="text-xl font-semibold">{formatCurrency(Math.abs(totalExpenses))}</p>
           </div>
           <div>
-            <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-1">Net</p>
+            <p className="text-xs text-[hsl(var(--muted-foreground))] mb-1">Net</p>
             <p className={`text-lg font-bold ${netAmount >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>{formatCurrency(netAmount)}</p>
           </div>
         </div>
       )}
 
       <div className="transaction-viewbar">
-        <p className="text-xs text-[hsl(var(--muted-foreground))]">{rows.length.toLocaleString()} matching transactions · totals for loaded results</p>
+        <p className="text-xs text-[hsl(var(--muted-foreground))]">{rows.length.toLocaleString()} matching transactions, totals for loaded results</p>
         <div className="workspace-segments" role="group" aria-label="Transaction view">
-          <button aria-pressed={view === "activity"} onClick={() => setView("activity")}><List size={15} /> Activity</button>
-          <button aria-pressed={view === "table"} onClick={() => setView("table")}><Table2 size={15} /> Table</button>
+          <button aria-pressed={view === "activity"} onClick={() => setView("activity")}><ListIcon size={15} /> Activity</button>
+          <button aria-pressed={view === "table"} onClick={() => setView("table")}><TableIcon size={15} /> Table</button>
         </div>
       </div>
 
@@ -806,7 +806,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
               onClick={() => setBulkRecatOpen(true)}
               className="text-xs px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))] transition-colors flex items-center gap-1.5"
             >
-              <Tag size={13} /> Recategorize
+              <TagIcon size={13} /> Recategorize
             </button>
           )}
           {bulkDeleteConfirm ? (
@@ -828,7 +828,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
               onClick={() => setBulkDeleteConfirm(true)}
               className="text-xs px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--error)/0.1)] hover:border-[hsl(var(--error))] hover:text-[hsl(var(--error))] transition-colors flex items-center gap-1.5"
             >
-              <Trash2 size={13} /> Delete
+              <TrashIcon size={13} /> Delete
             </button>
           )}
           <button onClick={clearSelection} className="text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors px-1">
@@ -858,7 +858,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
                 className="mt-1 text-sm px-3 py-1.5 rounded-lg bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]
                            hover:opacity-90 transition-opacity flex items-center gap-1.5 font-medium"
               >
-                <Plus size={14} /> Add a transaction
+                <PlusIcon size={14} /> Add a transaction
               </button>
             </>
           ) : (
@@ -881,18 +881,18 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
               )}
               <div className="activity-row category-wash" data-selected={selectedIds.has(transaction.id)} style={{ "--category-color": transaction.category_color ?? "hsl(var(--muted-foreground))" } as CSSProperties}>
                 <input type="checkbox" checked={selectedIds.has(transaction.id)} onChange={() => toggleSelectOne(transaction.id)} aria-label={`Select ${transaction.description}`} />
-                <span className="activity-direction" aria-hidden="true">{transaction.amount_cents < 0 ? <ArrowUpRight size={18} /> : <ArrowDownLeft size={18} />}</span>
+                <span className="activity-direction" aria-hidden="true">{transaction.amount_cents < 0 ? <ArrowUpRightIcon size={18} /> : <ArrowDownLeftIcon size={18} />}</span>
                 <button className="activity-description" onClick={() => setViewTxn(transaction)}>
                   <span className="font-medium">{transaction.description}</span>
-                  <span className="text-xs text-[hsl(var(--muted-foreground))]">{transaction.account_name ?? formatDate(transaction.date)}{sortCol && sortCol !== "date" ? ` · ${formatDate(transaction.date)}` : ""}{transaction.notes ? ` · ${transaction.notes}` : ""}</span>
+                  <span className="text-xs text-[hsl(var(--muted-foreground))]">{transaction.account_name ?? formatDate(transaction.date)}{sortCol && sortCol !== "date" ? `, ${formatDate(transaction.date)}` : ""}{transaction.notes ? `, ${transaction.notes}` : ""}</span>
                 </button>
                 {editingId === transaction.id ? <select autoFocus onBlur={() => setEditingId(null)} aria-label={`Category for ${transaction.description}`} value={transaction.category_id ?? 15} onChange={(event) => recategorize(transaction, Number(event.target.value))} className="activity-category">
                   <CategoryOptions categories={categories} />
-                </select> : <button onClick={() => setEditingId(transaction.id)} className="activity-category flex items-center gap-1 text-left" title="Change category" aria-label={`Change category for ${transaction.description}`}><span className="truncate flex-1">{transaction.category_name ?? "Uncategorized"}</span><ChevronDown size={12} /></button>}
+                </select> : <button onClick={() => setEditingId(transaction.id)} className="activity-category flex items-center gap-1 text-left" title="Change category" aria-label={`Change category for ${transaction.description}`}><span className="truncate flex-1">{transaction.category_name ?? "Uncategorized"}</span><CaretDownIcon size={12} /></button>}
                 <button onClick={() => setViewTxn(transaction)} className={`activity-amount ${transaction.amount_cents > 0 ? "text-[hsl(var(--success))]" : ""}`}>
                   {formatCurrency(transaction.amount_cents)}
                 </button>
-                <button onClick={() => setEditTxn(transaction)} className="workspace-icon" title="Edit transaction" aria-label={`Edit ${transaction.description}`}><Pencil size={15} /></button>
+                <button onClick={() => setEditTxn(transaction)} className="workspace-icon" title="Edit transaction" aria-label={`Edit ${transaction.description}`}><PencilSimpleIcon size={15} /></button>
               </div>
             </div>
           ))}
@@ -967,7 +967,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
                     ) : (
                       <button
                         onClick={(e) => { e.stopPropagation(); setEditingId(t.id); }}
-                        title={`${t.category_name ?? "Uncategorized"} — click to change category`}
+                        title={`${t.category_name ?? "Uncategorized"}, click to change category`}
                         className="inline-block max-w-[10rem] truncate align-bottom px-2 py-0.5 text-xs text-[hsl(var(--muted-foreground))]
                                    hover:opacity-80 transition-opacity"
                       >
@@ -975,10 +975,10 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
                       </button>
                     )}
                   </td>
-                  <td className={`px-4 py-3 text-right font-mono ${t.amount_cents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
+                  <td className={`px-4 py-3 text-right ${t.amount_cents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
                     {formatCurrency(t.amount_cents)}
                   </td>
-                  <td className="px-4 py-3 text-right font-mono text-[hsl(var(--muted-foreground))]">
+                  <td className="px-4 py-3 text-right text-[hsl(var(--muted-foreground))]">
                     {t.balance_cents != null ? formatCurrency(t.balance_cents) : "—"}
                   </td>
                   <td className="px-2 py-3 text-center">
@@ -988,7 +988,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
                         title={t.notes ? `Note: ${t.notes}` : "Edit transaction"}
                         className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors"
                       >
-                        {t.notes ? <StickyNote size={14} /> : <Pencil size={14} />}
+                        {t.notes ? <NoteIcon size={14} /> : <PencilSimpleIcon size={14} />}
                       </button>
                       {confirmDeleteId === t.id ? (
                         <span className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
@@ -1015,7 +1015,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
                           className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))] transition-colors
                                      opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100"
                         >
-                          <Trash2 size={14} />
+                          <TrashIcon size={14} />
                         </button>
                       )}
                     </div>

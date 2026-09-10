@@ -1,7 +1,8 @@
+import ScopeToggle from "@/components/ScopeToggle";
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { LineChart, Line, XAxis, ResponsiveContainer, Tooltip } from "recharts";
-import { Eye, EyeOff, ChevronLeft, ChevronRight } from "lucide-react";
+import { EyeIcon, EyeSlashIcon, CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { getDb, setAccountHiddenFromDashboard } from "@/lib/db";
 import { incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
 import { formatCurrency, formatDate, formatMonthLabel, separateAccountBalances, accountChartColor } from "@/lib/utils";
@@ -52,27 +53,6 @@ function monthBounds(ym: string): [string, string] {
     `${y}-${String(m).padStart(2, "0")}-01`,
     new Date(y, m, 1).toISOString().split("T")[0],
   ];
-}
-
-interface ScopeToggleProps { isGlobal: boolean; onToggle: () => void; }
-function ScopeToggle({ isGlobal, onToggle }: ScopeToggleProps) {
-  return (
-    <button role="switch" aria-checked={isGlobal} onClick={onToggle}
-      style={{
-        width: 52, height: 28, borderRadius: 14, padding: 3,
-        backgroundColor: isGlobal ? "var(--gold)" : "hsl(var(--primary))",
-        transition: "background-color 0.3s", cursor: "pointer",
-        display: "inline-flex", alignItems: "center",
-        border: "none", flexShrink: 0, boxShadow: "inset 0 1px 3px rgba(0,0,0,0.18)",
-      }}>
-      <div style={{
-        width: 22, height: 22, borderRadius: 11, backgroundColor: "white",
-        transition: "transform 0.25s cubic-bezier(0.4,0,0.2,1)",
-        transform: isGlobal ? "translateX(24px)" : "translateX(0)",
-        boxShadow: "0 1px 4px rgba(0,0,0,0.28)", flexShrink: 0,
-      }} />
-    </button>
-  );
 }
 
 export default function OverviewPage() {
@@ -268,11 +248,11 @@ export default function OverviewPage() {
           </div>
           <div className="flex items-center gap-1">
             <button onClick={() => navMonth(-1)} aria-label="Previous month"
-              className="p-1.5 border rounded-lg leading-none hover:bg-[hsl(var(--muted))] transition-colors"><ChevronLeft size={16} /></button>
+              className="p-1.5 border rounded-lg leading-none hover:bg-[hsl(var(--muted))] transition-colors"><CaretLeftIcon size={16} /></button>
             <input type="month" value={month} onChange={(e) => setMonth(e.target.value)}
               className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]" />
             <button onClick={() => navMonth(1)} aria-label="Next month"
-              className="p-1.5 border rounded-lg leading-none hover:bg-[hsl(var(--muted))] transition-colors"><ChevronRight size={16} /></button>
+              className="p-1.5 border rounded-lg leading-none hover:bg-[hsl(var(--muted))] transition-colors"><CaretRightIcon size={16} /></button>
           </div>
         </div>
       </div>
@@ -285,7 +265,7 @@ export default function OverviewPage() {
           style={{ border: "1px solid rgba(245,158,11,0.35)", backgroundColor: "rgba(245,158,11,0.07)" }}>
           <p className="text-sm font-semibold" style={{ color: "#b45309" }}>
             {lockedExcluded.length === 1 ? "1 profile is PIN-locked" : `${lockedExcluded.length} profiles are PIN-locked`}
-            {" "}— excluded from combined totals below.
+            , excluded from combined totals below.
           </p>
           <div className="flex flex-wrap gap-2">
             {lockedExcluded.map((p) => (
@@ -305,8 +285,8 @@ export default function OverviewPage() {
       {/* Net worth + income/expenses banner */}
       {!loading && netWorth !== null && (
         <div className="border rounded-2xl p-5 bg-[hsl(var(--muted))]/40">
-          <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wide font-medium mb-3">
-            {isGlobalActive ? "Combined — unlocked profiles" : "This profile"}
+          <p className="text-xs text-[hsl(var(--muted-foreground))] font-medium mb-3">
+            {isGlobalActive ? "Combined, unlocked profiles" : "This profile"}
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
             <div>
@@ -381,7 +361,7 @@ export default function OverviewPage() {
                   <div>
                     <p className="font-semibold leading-tight">{profile.name}</p>
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                      {d?.hasTransactions ? "Click to switch \u2192" : "No data imported yet"}
+                      {d?.hasTransactions ? "Switch to this profile" : "No data imported yet"}
                     </p>
                   </div>
                 </div>
@@ -436,7 +416,7 @@ export default function OverviewPage() {
                               >
                                 <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: accountChartColor(i) }} />
                                 <span className="truncate max-w-[70px]">{acc.name}</span>
-                                <EyeOff size={9} />
+                                <EyeSlashIcon size={9} />
                               </button>
                             ))}
                           </div>
@@ -470,7 +450,7 @@ export default function OverviewPage() {
                               >
                                 <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: accountChartColor(i) }} />
                                 <span className="truncate max-w-[70px]">{acc.name}</span>
-                                <EyeOff size={9} />
+                                <EyeSlashIcon size={9} />
                               </button>
                             ))}
                           </div>
@@ -488,7 +468,7 @@ export default function OverviewPage() {
                             title="Show on dashboard/overview again"
                             className="flex items-center gap-1 px-1.5 py-0.5 rounded-full border hover:bg-[hsl(var(--muted))] transition-colors"
                           >
-                            <Eye size={9} /> {a.name}
+                            <EyeIcon size={9} /> {a.name}
                           </button>
                         ))}
                       </div>
@@ -514,7 +494,7 @@ export default function OverviewPage() {
                 </div>
               </div>
               <p className="text-sm text-[hsl(var(--muted-foreground))] italic py-4 text-center">
-                ?? Enter PIN to include in totals
+                Enter PIN to include in totals
               </p>
             </button>
           ))}

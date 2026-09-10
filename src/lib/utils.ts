@@ -1,3 +1,4 @@
+import { CATEGORY_HUES } from "./chartTheme";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -131,7 +132,7 @@ export function separateAccountBalances(
 
 /** A small, distinct color palette for drawing one line per account on a chart, cycling if
  *  a profile has more accounts than colors. */
-const ACCOUNT_CHART_COLORS = ["#3b82f6", "#f59e0b", "#10b981", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16"];
+const ACCOUNT_CHART_COLORS: readonly string[] = CATEGORY_HUES;
 
 /** Returns a stable, distinct color for the account at `index` in a sorted account list. */
 export function accountChartColor(index: number): string {
@@ -139,3 +140,12 @@ export function accountChartColor(index: number): string {
 }
 
 
+
+/** "September 2026" for a YYYY-MM key; used by page eyebrows. Returns the input unchanged if malformed. */
+export function formatMonthLong(ym: string): string {
+  if (!/^\d{4}-\d{2}$/.test(ym)) return ym;
+  const [y, m] = ym.split("-").map(Number);
+  const d = new Date(y, m - 1, 1);
+  if (Number.isNaN(d.getTime())) return ym;
+  return new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(d);
+}

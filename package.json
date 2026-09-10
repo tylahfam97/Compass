@@ -1,7 +1,7 @@
 {
   "name": "tauri-app",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.2.0",
   "engines": {
     "node": ">=24"
   },
@@ -14,12 +14,14 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@fontsource-variable/source-sans-3": "^5.3.0",
+    "@fontsource-variable/source-serif-4": "^5.3.0",
+    "@phosphor-icons/react": "^2.1.10",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
     "clsx": "^2.1.1",
-    "lucide-react": "^1.24.0",
     "motion": "^12.42.2",
     "papaparse": "^5.5.4",
     "pdfjs-dist": "^6.1.200",
@@ -28,7 +30,6 @@
     "react-router-dom": "^7.18.1",
     "recharts": "^3.9.2",
     "tailwind-merge": "^3.6.0",
-    "ui-ux-pro-max-cli": "^2.15.0",
     "xlsx": "^0.18.5",
     "zustand": "^5.0.14"
   },

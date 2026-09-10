@@ -1,6 +1,7 @@
+import ScopeToggle from "@/components/ScopeToggle";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Plus, Pencil, Trash2, RotateCcw, Globe, Wallet } from "lucide-react";
+import { WarningIcon, CheckCircleIcon, CaretLeftIcon, CaretRightIcon, PlusIcon, PencilSimpleIcon, TrashIcon, ArrowCounterClockwiseIcon, GlobeIcon, WalletIcon } from "@phosphor-icons/react";
 import { getDb } from "@/lib/db";
 import { categorySpendSql, categoryNetSql } from "@/lib/reportingSql";
 import { budgetCarryCents, evaluateBudgetPeriod, type BudgetDefinition } from "@/lib/budgetMetrics";
@@ -88,53 +89,6 @@ function daysElapsed(ym: string): number {
   return now.getDate();
 }
 
-
-interface ScopeToggleProps {
-  isGlobal: boolean;
-  onToggle: () => void;
-  size?: "sm" | "md";
-}
-function ScopeToggle({ isGlobal, onToggle, size = "md" }: ScopeToggleProps) {
-  const trackW = size === "sm" ? 40 : 52;
-  const trackH = size === "sm" ? 22 : 28;
-  const thumbS = size === "sm" ? 16 : 22;
-  const travel = trackW - 6 - thumbS;
-  return (
-    <button
-      role="switch"
-      aria-label="Global budget scope"
-      aria-checked={isGlobal}
-      onClick={onToggle}
-      style={{
-        width: trackW,
-        height: trackH,
-        borderRadius: trackH / 2,
-        padding: 3,
-        backgroundColor: isGlobal ? "var(--gold)" : "hsl(var(--primary))",
-        transition: "background-color 0.3s",
-        cursor: "pointer",
-        display: "inline-flex",
-        alignItems: "center",
-        border: "none",
-        flexShrink: 0,
-        boxShadow: "inset 0 1px 3px rgba(0,0,0,0.18)",
-      }}
-    >
-      <div
-        style={{
-          width: thumbS,
-          height: thumbS,
-          borderRadius: thumbS / 2,
-          backgroundColor: "white",
-          transition: "transform 0.25s cubic-bezier(0.4,0,0.2,1)",
-          transform: isGlobal ? `translateX(${travel}px)` : "translateX(0)",
-          boxShadow: "0 1px 4px rgba(0,0,0,0.28)",
-          flexShrink: 0,
-        }}
-      />
-    </button>
-  );
-}
 
 export default function BudgetsPage() {
   const [month, setMonth] = useAutoMonth("budgets");
@@ -329,7 +283,7 @@ export default function BudgetsPage() {
   }, [profileId, enqueueMilestones]);
 
   useEffect(() => {
-    // Don't clobber a prefill that was just applied — only default-init when truly empty
+    // Don't clobber a prefill that was just applied, only default-init when truly empty
     const hasPrefill = !!(location.state as { prefillBudget?: unknown } | null)?.prefillBudget;
     if (categories.length > 0 && formCatId === 0 && !hasPrefill) {
       setFormCatId(categories[0].id);
@@ -477,7 +431,7 @@ export default function BudgetsPage() {
     const db = await getDb();
     if (b.is_global) {
       await db.execute("UPDATE budgets SET is_global=0, profile_id=? WHERE id=?", [profileId, b.id]);
-      // In global view the budget is no longer global — remove it from the list.
+      // In global view the budget is no longer global, remove it from the list.
       // In profile view just flip the badge; the budget still belongs to this profile.
       if (viewMode === "global") {
         setBudgets((prev) => prev.filter((row) => row.id !== b.id));
@@ -531,7 +485,7 @@ export default function BudgetsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Budgets</h1>
           <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">
-            {formatMonthLabel(month)} · {isGlobalActive ? "Shared budgets" : activeProfile?.name ?? "Your budgets"}
+            {formatMonthLabel(month)}, {isGlobalActive ? "Shared budgets" : activeProfile?.name ?? "Your budgets"}
           </p>
         </div>
 
@@ -549,6 +503,7 @@ export default function BudgetsPage() {
           <ScopeToggle
             isGlobal={isGlobalActive}
             onToggle={() => isGlobalActive ? handleSwitchToProfile() : handleSwitchToGlobal()}
+            ariaLabel="Global budget scope"
           />
           <span
             className="text-sm font-semibold select-none"
@@ -572,7 +527,7 @@ export default function BudgetsPage() {
             aria-label="Previous month"
             className="p-1.5 border rounded-lg leading-none hover:bg-[hsl(var(--muted))] transition-colors"
           >
-            <ChevronLeft size={16} />
+            <CaretLeftIcon size={16} />
           </button>
           <input
             type="month"
@@ -585,9 +540,9 @@ export default function BudgetsPage() {
             aria-label="Next month"
             className="p-1.5 border rounded-lg leading-none hover:bg-[hsl(var(--muted))] transition-colors"
           >
-            <ChevronRight size={16} />
+            <CaretRightIcon size={16} />
           </button>
-          <button onClick={() => { cancelEdit(); setFormOpen(true); }} className="ml-2 flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"><Plus size={15} /> New budget</button>
+          <button onClick={() => { cancelEdit(); setFormOpen(true); }} className="ml-2 flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"><PlusIcon size={15} /> New budget</button>
         </div>
 
         {/* Locked-profile warning */}
@@ -598,7 +553,7 @@ export default function BudgetsPage() {
           >
             <p className="text-sm font-semibold" style={{ color: "#b45309" }}>
               {lockedExcluded.length === 1 ? "1 profile is PIN-locked" : `${lockedExcluded.length} profiles are PIN-locked`}
-              {" "}— their transactions are excluded from global totals.
+              , their transactions are excluded from global totals.
             </p>
             <div className="flex flex-wrap gap-2">
               {lockedExcluded.map((p) => (
@@ -637,7 +592,7 @@ export default function BudgetsPage() {
               <p className="text-sm font-semibold" style={{ color: "var(--gold)" }}>Global view active</p>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">
                 Showing budgets shared across all profiles
-                {profiles.length > 1 ? ` — aggregating ${profiles.length} profiles` : ""}
+                {profiles.length > 1 ? `, aggregating ${profiles.length} profiles` : ""}
               </p>
             </div>
           </div>
@@ -662,6 +617,7 @@ export default function BudgetsPage() {
                   isGlobal={formIsGlobal}
                   onToggle={() => setFormIsGlobal((v) => !v)}
                   size="sm"
+                  ariaLabel="Global budget scope"
                 />
                 <span
                   className="text-xs font-semibold select-none"
@@ -759,8 +715,8 @@ export default function BudgetsPage() {
             <div><p>Over limit</p><strong>{budgets.filter(isOverLimit).length}<span> / {budgets.length}</span></strong></div>
           </div>
           <div className="workspace-segments" role="group" aria-label="Budget status">
-            <button aria-pressed={!onlyOver} onClick={() => setOnlyOver(false)}><Wallet size={14} /> All budgets</button>
-            <button aria-pressed={onlyOver} onClick={() => setOnlyOver(true)}><AlertTriangle size={14} /> Over limit</button>
+            <button aria-pressed={!onlyOver} onClick={() => setOnlyOver(false)}><WalletIcon size={14} /> All budgets</button>
+            <button aria-pressed={onlyOver} onClick={() => setOnlyOver(true)}><WarningIcon size={14} /> Over limit</button>
           </div>
           {onlyOver && !budgets.some(isOverLimit) && <p className="text-sm py-6 text-[hsl(var(--muted-foreground))]">No budgets over their limit.</p>}
         </>}
@@ -772,7 +728,7 @@ export default function BudgetsPage() {
               className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl mb-1"
               style={{ backgroundColor: isGlobalActive ? "rgba(192,138,28,0.1)" : "hsl(var(--muted))" }}
             >
-              <Wallet size={24} />
+              <WalletIcon size={24} />
             </div>
             <p className="font-semibold text-[hsl(var(--foreground))]">
               {isGlobalActive ? "No global budgets yet" : "No budgets yet"}
@@ -855,7 +811,7 @@ export default function BudgetsPage() {
                     ) : (
                       <span
                         className="text-xs px-2 py-0.5 rounded-full font-semibold"
-                        style={{ backgroundColor: "hsl(var(--primary)/0.12)", color: "hsl(var(--primary))" }}
+                        style={{ backgroundColor: "hsl(var(--primary)/0.12)", color: "hsl(var(--gold-ink))" }}
                       >
                         Profile
                       </span>
@@ -885,7 +841,7 @@ export default function BudgetsPage() {
                         backgroundColor: "transparent",
                       }}
                     >
-                      <Pencil size={15} />
+                      <PencilSimpleIcon size={15} />
                     </button>
                     {b.period === "monthly" && (
                       <button
@@ -899,7 +855,7 @@ export default function BudgetsPage() {
                           backgroundColor: "transparent",
                         }}
                       >
-                        <RotateCcw size={15} />
+                        <ArrowCounterClockwiseIcon size={15} />
                       </button>
                     )}
                     <button
@@ -919,7 +875,7 @@ export default function BudgetsPage() {
                       }}
                       onMouseOut={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
                     >
-                      <Globe size={15} />
+                      <GlobeIcon size={15} />
                     </button>
                     {confirmDeleteId === b.id ? (
                       <span className="flex items-center gap-1.5">
@@ -946,7 +902,7 @@ export default function BudgetsPage() {
                         onMouseOver={(e) => { e.currentTarget.style.backgroundColor = "hsl(var(--error) / 0.07)"; }}
                         onMouseOut={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
                       >
-                        <Trash2 size={15} />
+                        <TrashIcon size={15} />
                       </button>
                     )}
                   </div>
@@ -994,11 +950,11 @@ export default function BudgetsPage() {
                     <span>Credits {formatCurrency(b.earned_cents)}</span>
                     {displayCents < 0 && <span className="text-[hsl(var(--success))]">Credits exceed debits</span>}
                     {!!b.rollover && <span>Next carry: {formatCurrency(budgetCarryCents(effectiveLimit, displayCents))}</span>}
-                    {viewMode === "profile" ? <button className="text-[hsl(var(--primary))]" onClick={() => navigate("/transactions", { state: { month, category: b.category_id, range: b.period === "weekly" ? { start: weekStart, end: weekEnd } : undefined } })}>View transactions</button> : <span>Global totals include unlocked profiles. View each profile's transactions for detail.</span>}
+                    {viewMode === "profile" ? <button className="text-[hsl(var(--gold-ink))]" onClick={() => navigate("/transactions", { state: { month, category: b.category_id, range: b.period === "weekly" ? { start: weekStart, end: weekEnd } : undefined } })}>View transactions</button> : <span>Global totals include unlocked profiles. View each profile's transactions for detail.</span>}
                   </div>
                 </details>}
                 {!isIncome && elapsed > 0 && effectiveLimit > 0 && (() => {
-                  const ToneIcon = over || projectedOver ? AlertTriangle : CheckCircle;
+                  const ToneIcon = over || projectedOver ? WarningIcon : CheckCircleIcon;
                   const toneColor = over || projectedOver ? "hsl(var(--warning))" : "hsl(var(--muted-foreground))";
                   return (
                     <p className="text-xs mt-2 flex items-start gap-1.5" style={{ color: toneColor }}>
@@ -1015,7 +971,7 @@ export default function BudgetsPage() {
                   className="pb-4 flex items-center justify-between gap-4"
                 >
                   {displayCents >= 0 && !over && remaining > 0 ? <div>
-                    <p className="text-xs text-[hsl(var(--muted-foreground))] mb-0.5">Daily allowance · {remaining} days left</p>
+                    <p className="text-xs text-[hsl(var(--muted-foreground))] mb-0.5">Daily allowance, {remaining} days left</p>
                     <p
                       className="text-sm font-semibold"
                       style={{ color: "hsl(var(--foreground))" }}

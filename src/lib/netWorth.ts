@@ -279,7 +279,8 @@ export async function computeInvestmentHealthScore(profileIds: number[]): Promis
   const benchmarkPct = AVG_US_MARKET_RETURN_PCT;
   const investmentReturn = await computeInvestmentReturn(profileIds);
   if (!investmentReturn.hasCostBasis) {
-    return { score: 0, hasData: false, grade: "—", label: "Getting Started", color: "#6b7280", detail: "", returnPct: null, benchmarkPct };
+    const none = scoreGrade(0);
+    return { score: 0, hasData: false, grade: none.grade, label: none.label, color: none.color, tone: none.tone, detail: "", returnPct: null, benchmarkPct };
   }
 
   const returnPct = investmentReturn.annualizedReturnPct ?? investmentReturn.absoluteReturnPct;
@@ -292,9 +293,9 @@ export async function computeInvestmentHealthScore(profileIds: number[]): Promis
   else if ((returnPct ?? 0) >= 0) score = 45;
   else score = 25;
 
-  const { grade, label, color } = scoreGrade(score);
+  const { grade, label, color, tone } = scoreGrade(score);
   const kind = investmentReturn.annualizedReturnPct !== null ? "annualized" : "absolute";
-  const detail = `${(returnPct ?? 0) >= 0 ? "+" : ""}${(returnPct ?? 0).toFixed(1)}% ${kind} vs the ~${benchmarkPct}%/yr long-run market average`;
+  const detail = `${(returnPct ?? 0) >= 0 ? "+" : ""}${(returnPct ?? 0).toFixed(1)}% ${kind} against the long-run market average of about ${benchmarkPct}% a year`;
 
-  return { score, hasData: true, grade, label, color, detail, returnPct: returnPct ?? null, benchmarkPct };
+  return { score, hasData: true, grade, label, color, tone, detail, returnPct: returnPct ?? null, benchmarkPct };
 }

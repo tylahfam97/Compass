@@ -1,5 +1,5 @@
 import { Component, type ReactNode } from "react";
-import { AlertTriangle, RotateCcw } from "lucide-react";
+import { WarningIcon, ArrowCounterClockwiseIcon } from "@phosphor-icons/react";
 
 interface Props {
   children: ReactNode;
@@ -30,7 +30,7 @@ export default class ErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       return (
         <div className="flex flex-col items-center justify-center gap-4 py-24 text-center px-6">
-          <AlertTriangle size={32} className="text-[hsl(var(--warning))]" />
+          <WarningIcon size={32} className="text-[hsl(var(--warning))]" />
           <div>
             <p className="font-semibold text-base">Something went wrong displaying this page</p>
             <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">
@@ -42,7 +42,7 @@ export default class ErrorBoundary extends Component<Props, State> {
             className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-full
                        border hover:bg-[hsl(var(--muted))] transition-colors"
           >
-            <RotateCcw size={14} />
+            <ArrowCounterClockwiseIcon size={14} />
             Try again
           </button>
         </div>

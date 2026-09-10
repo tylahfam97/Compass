@@ -1,11 +1,14 @@
-import { getDb, getRecurringRulesForProfile, getLoanAccountsForProfile, getCreditAccountsForProfile } from "./db";
-import { detectRecurringCharges, computeDebtPayoffPlan } from "./agent";
+import { getDb, getLoanAccountsForProfile, getCreditAccountsForProfile } from "./db";
+import { computeDebtPayoffPlan } from "./agent";
 import { latestBalancePerAccountSql } from "./reportingSql";
 import {
-  detectedChargeToRule, chargeMatchesRule, computeSpendingBaseline, toISODate, BASELINE_WEEKS,
+  chargeMatchesRule, computeSpendingBaseline, toISODate, BASELINE_WEEKS,
   type ForecastRule, type SpendingBaseline,
 } from "./forecast";
+import { getPlannedRules } from "./plannedRules";
 import type { DebtPayoffPlan } from "./types";
+
+export { getPlannedRules, getPlannedEvents, getFixedFlexibleInputs, type PlannedRules, type FixedFlexibleInputs } from "./plannedRules";
 
 /**
  * Gathers everything `projectCashFlow` needs from the database. Kept apart from `forecast.ts`
@@ -37,7 +40,7 @@ export async function getForecastInputs(profileId: number): Promise<ForecastInpu
     return toISODate(d);
   })();
 
-  const [balanceRows, ruleRows, detectedCharges, spendRows] = await Promise.all([
+  const [balanceRows, planned, spendRows] = await Promise.all([
     db.select<{ id: number; name: string; balance: number | null; date: string | null }[]>(
       `SELECT a.id, a.name, ${latestBalancePerAccountSql("a")} as balance,
        (SELECT t.date FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL ORDER BY t.date DESC,t.id DESC LIMIT 1) as date
@@ -45,8 +48,7 @@ export async function getForecastInputs(profileId: number): Promise<ForecastInpu
        WHERE a.profile_id=? AND a.account_type='checking' AND a.excluded_from_insights=0`,
       [profileId]
     ),
-    getRecurringRulesForProfile(profileId),
-    detectRecurringCharges([profileId]),
+    getPlannedRules(profileId),
     db.select<{ date: string; amount_cents: number; description: string }[]>(
       `SELECT t.date, t.amount_cents, t.description
        FROM transactions t
@@ -58,25 +60,7 @@ export async function getForecastInputs(profileId: number): Promise<ForecastInpu
     ),
   ]);
 
-  const activeRules = ruleRows.filter((r) => r.active);
-  const rules: ForecastRule[] = activeRules.map((r) => ({
-    id: r.id,
-    description: r.description,
-    amount_cents: r.amount_cents,
-    source: "rule",
-    cadence: r.cadence,
-    day_of_month: r.day_of_month,
-    day_of_week: r.day_of_week,
-    start_date: r.start_date,
-    category_name: r.category_name ?? null,
-    category_color: r.category_color ?? null,
-  }));
-
-  // A charge the user has already scheduled would otherwise be projected twice - matched
-  // loosely, since a hand-typed "SoFi" and the bank's full ACH descriptor are the same bill.
-  const detected: ForecastRule[] = detectedCharges
-    .filter((c) => !activeRules.some((r) => chargeMatchesRule(c, r)))
-    .map(detectedChargeToRule);
+  const { rules, detected, activeRules, detectedCharges } = planned;
 
   // Scheduled bills are already projected as events, so they must not count toward "typical
   // everyday spending" too. Detected charges are matched pre-dedup so a bill the user has
@@ -95,7 +79,7 @@ export async function getForecastInputs(profileId: number): Promise<ForecastInpu
     checkingAccountCount: balanceRows.length,
     rules,
     detected,
-    hasIncomeRule: activeRules.some((r) => r.amount_cents > 0),
+    hasIncomeRule: planned.hasIncomeRule,
     baseline: computeSpendingBaseline(discretionary),
   };
 }

@@ -12,7 +12,7 @@ type State =
   | { phase: "checking" }
   | { phase: "up-to-date" }
   | { phase: "available"; update: Update }
-  | { phase: "prompt"; update: Update }       // auto-check found an update — shows modal
+  | { phase: "prompt"; update: Update }       // auto-check found an update, shows modal
   | { phase: "downloading"; percent: number }
   | { phase: "restart" }
   | { phase: "error"; message: string };
@@ -20,7 +20,7 @@ type State =
 export default function UpdateChecker({ autoCheck = false }: Props) {
   const [state, setState] = useState<State>({ phase: "idle" });
 
-  // Silent background check on launch — never changes the sidebar UI on failure
+  // Silent background check on launch, never changes the sidebar UI on failure
   // or when already up-to-date, so it's invisible unless an update is found.
   useEffect(() => {
     if (!autoCheck) return;
@@ -29,7 +29,7 @@ export default function UpdateChecker({ autoCheck = false }: Props) {
         const update = await check();
         if (update) setState({ phase: "prompt", update });
       } catch {
-        // Silently swallow — user can still check manually from the sidebar.
+        // Silently swallow, user can still check manually from the sidebar.
       }
     }, 2500);
     return () => clearTimeout(timer);
