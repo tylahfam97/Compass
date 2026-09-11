@@ -655,6 +655,11 @@
 @layer components {
   .inaction-section { background: var(--bg); }
 
+  /* The signing line is the one download-requirement that is a reason to trust
+     rather than a system requirement, so it carries the gold. Scoped to beat the
+     base .req-item colour, which is defined further down this layer. */
+  .download-meta .req-item--verified { color: var(--primary-ink); }
+
   .showcase-stack {
     display: flex;
     flex-direction: column;

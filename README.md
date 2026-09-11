@@ -77,8 +77,11 @@ data up to date.
 | Windows | `.exe` installer or `.msi` package | Windows 10/11 64-bit. WebView2 is installed if missing. |
 | macOS (beta) | Universal `.dmg` | macOS 10.15+, Intel or Apple Silicon |
 
-Unsigned macOS builds may need approval in **System Settings > Privacy & Security** after the first
-launch attempt. Only approve a download you trust from the official release page.
+Windows builds are code-signed, and Windows will show the publisher as **Chrysis Networks**. If you
+see any other publisher, you did not get the file from here.
+
+macOS builds are not notarized yet, so the first launch needs approval in **System Settings >
+Privacy & Security**. Only approve a download you trust from the official release page.
 
 ### What imports
 
