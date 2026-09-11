@@ -3,7 +3,7 @@ import { useState, useEffect, Suspense, lazy } from "react";
 import {
   SquaresFourIcon, ArrowsLeftRightIcon, UploadSimpleIcon, TrendUpIcon, ChartLineIcon,
   WalletIcon, TargetIcon, ChartBarIcon, LightbulbIcon, GlobeIcon, CaretLeftIcon, CaretRightIcon, ChatCircleIcon, SparkleIcon, CalendarCheckIcon, GearSixIcon, LockKeyIcon,
-  IconContext,
+  MapTrifoldIcon, IconContext,
 } from "@phosphor-icons/react";
 import CompassMark from "@/components/CompassMark";
 import { useIsDark } from "@/hooks/useIsDark";
@@ -36,6 +36,7 @@ const ImportPage = lazy(() => import("@/pages/ImportPage"));
 const ReportsPage = lazy(() => import("@/pages/ReportsPage"));
 const InvestmentsPage = lazy(() => import("@/pages/InvestmentsPage"));
 const PlanPage = lazy(() => import("@/pages/PlanPage"));
+const ChartPage = lazy(() => import("@/pages/ChartPage"));
 
 function PageLoadingFallback() {
   return (
@@ -73,6 +74,7 @@ function RoutedContent() {
         <Route path="/transactions" element={<div className="py-6"><TransactionsPage /></div>} />
         <Route path="/import" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><ImportPage /></div></Suspense>} />
         <Route path="/trends" element={<div className="py-6"><TrendsPage /></div>} />
+        <Route path="/chart" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><ChartPage /></div></Suspense>} />
         <Route path="/investments" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><InvestmentsPage /></div></Suspense>} />
         <Route path="/budgets" element={<div className="py-6"><BudgetsPage /></div>} />
         <Route path="/goals" element={<div className="py-6"><GoalsPage /></div>} />
@@ -104,6 +106,7 @@ const NAV_ITEMS = [
   { to: "/transactions", label: "Transactions",  Icon: ArrowsLeftRightIcon,  showBadge: false, tourId: undefined },
   { to: "/import",       label: "Import",        Icon: UploadSimpleIcon,     showBadge: false, tourId: undefined },
   { to: "/trends",       label: "Trends",        Icon: TrendUpIcon,          showBadge: false, tourId: undefined },
+  { to: "/chart",        label: "Chart",         Icon: MapTrifoldIcon,       showBadge: false, tourId: undefined },
   { to: "/investments",  label: "Investments",   Icon: ChartLineIcon,        showBadge: false, tourId: undefined },
   { to: "/budgets",      label: "Budgets",       Icon: WalletIcon,           showBadge: false, tourId: undefined },
   { to: "/goals",        label: "Goals",         Icon: TargetIcon,           showBadge: false, tourId: undefined },
