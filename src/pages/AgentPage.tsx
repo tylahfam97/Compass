@@ -43,6 +43,9 @@ import DebtPayoffModal from "@/components/DebtPayoffModal";
 import MilestoneCelebration from "@/components/MilestoneCelebration";
 import LockedProfilesNotice from "@/components/LockedProfilesNotice";
 import FixedFlexibleBar from "@/components/FixedFlexibleBar";
+import CostOfMoney from "@/components/CostOfMoney";
+import { getCostOfMoneyInputs } from "@/lib/costOfMoneyData";
+import { summarizeCostOfMoney, ASSUMED_YIELD_KEY, DEFAULT_ASSUMED_YIELD_BPS, type CostOfMoneyInputs } from "@/lib/costOfMoney";
 import { detectNewMilestones } from "@/lib/milestones";
 import { useMilestoneQueue } from "@/hooks/useMilestoneQueue";
 import { CardListSkeleton } from "@/components/Skeleton";
@@ -797,6 +800,14 @@ export default function AgentPage() {
   const [topRoi, setTopRoi]                     = useState<Partial<Record<SecurityType, TopRoiHolding[]>>>({});
   const [loans, setLoans]                       = useState<DebtEntry[]>([]);
   const [fixedFlex, setFixedFlex]               = useState<{ summary: FixedFlexibleSummary; label: string } | null>(null);
+  const [costInputs, setCostInputs]             = useState<CostOfMoneyInputs | null>(null);
+  const [assumedYieldBps, setAssumedYieldBps]   = useState(() => {
+    const stored = Number(localStorage.getItem(ASSUMED_YIELD_KEY));
+    return Number.isFinite(stored) && stored > 0 ? stored : DEFAULT_ASSUMED_YIELD_BPS;
+  });
+  // The yield is the instrument's one assumption; summarising is pure, so changing it never
+  // needs another database round-trip.
+  const costOfMoney = useMemo(() => (costInputs ? summarizeCostOfMoney({ ...costInputs, assumedYieldBps }) : null), [costInputs, assumedYieldBps]);
   const [payoffModal, setPayoffModal] = useState<{ debts: DebtEntry[]; title: string; subtitle?: string } | null>(null);
   const { active: activeMilestone, enqueue: enqueueMilestones, dismiss: dismissMilestone } = useMilestoneQueue();
   const subsRef = useRef<HTMLDivElement | null>(null);
@@ -902,7 +913,7 @@ export default function AgentPage() {
       const db = await getDb();
       const ph = ids.map(() => "?").join(",");
 
-      const [allInsights, history, profile, globalScore, profileScore, nw, nwHistory, invReturn, topRoiHoldings, ccScore, invHealthScore, fixedFlexInputs] = await Promise.all([
+      const [allInsights, history, profile, globalScore, profileScore, nw, nwHistory, invReturn, topRoiHoldings, ccScore, invHealthScore, fixedFlexInputs, costOfMoneyInputs] = await Promise.all([
         generateInsights(ids),
         getSavingsHistory(ids, 12),
         getSpendingProfile(ids),
@@ -915,9 +926,11 @@ export default function AgentPage() {
         computeCreditCardHealthScore(ids),
         computeInvestmentHealthScore(ids),
         getFixedFlexibleInputs(ids),
+        getCostOfMoneyInputs(ids, prevYM(currentYM()), DEFAULT_ASSUMED_YIELD_BPS),
       ]);
       if (cancelled) return;
 
+      setCostInputs(costOfMoneyInputs);
       setHasEnoughData(!!profile && history.length >= 2);
       setInsights(allInsights);
       setSavingsHistory(history);
@@ -1207,6 +1220,17 @@ export default function AgentPage() {
             <FixedFlexibleBar
               summary={fixedFlex.summary}
               monthsLabel={fixedFlex.label}
+            />
+          </motion.div>
+        )}
+
+        {/* ── Cost of money: what borrowing cost against what the money earned, live today ── */}
+        {costOfMoney && (
+          <motion.div variants={riseIn}>
+            <CostOfMoney
+              summary={costOfMoney}
+              monthLabel={`${monthLong(prevYM(currentYM()))}, the last complete month`}
+              onYieldChange={(bps) => { setAssumedYieldBps(bps); localStorage.setItem(ASSUMED_YIELD_KEY, String(bps)); }}
             />
           </motion.div>
         )}

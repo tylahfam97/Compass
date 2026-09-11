@@ -2,6 +2,65 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.0 — The Chart 🧭
+
+Compass has always been able to tell you what your money did. This release shows you where it
+went, what it cost you to hold and borrow, and how fast this pay cycle is running against your
+own usual pace. Three new instruments, all computed on your computer from statements you have
+already imported.
+
+### New: The Chart
+- A new page draws one month of money as currents. Paychecks and other deposits run into your
+  accounts on the left, then out to scheduled bills (named by their Plan rule), recurring charges
+  Compass detected (named by the charge), spending categories, card payments, savings, investments,
+  and debt. Each card's own purchases fan out from the payment that funded it.
+- Ribbons are as wide as the money. A faint channel shows the whole month; the brighter current
+  fills it up to the day under the scrubber, and gold particles ride each ribbon. Scrub or play
+  the days to watch paydays arrive and rent leave; the rows that posted on the selected day send
+  a short burst.
+- Every account is drawn as an honest junction. When a month spent more than came in, a "From
+  balance" leg shows the difference; when less, "Stayed in checking" shows what was not spoken
+  for. A card whose purchases outran its payments shows the difference as "Carried on card"; one
+  paid down beyond its purchases shows "Paid down".
+- Moves between your own accounts are paired from both statements, so a transfer to savings or a
+  card payment is drawn once and never counted as spending or income. Card refunds net against
+  their category.
+- Click any ribbon or place to dim the rest and see the transactions behind it in the same ledger
+  rows Transactions uses, with a link into Transactions for categories. With nothing selected,
+  the panel shows the scrubbed day's movements.
+- The figures above the map: money that reached savings, investments and debt, what came in,
+  what was spent (card purchases counted once, never their payments), and what stayed in
+  checking or was drawn from balance.
+- Node positions never move while scrubbing. Reduced motion hides the particles and the Play
+  button. On a narrow window the map keeps its width and pans sideways.
+
+### New: Cost of money
+- Insights gains a second instrument under Fixed and flexible: what your money cost you or earned
+  you last month. Interest paid is read from the interest lines on your card statements and
+  estimated for loans from the balance and APR on file; interest and dividends earned come from
+  interest lines on your bank accounts and dividend and interest rows on brokerage statements.
+- Underneath, today's balances accrue by the second: what your debts are costing so far today,
+  and what idle checking above your Plan reserve is forgoing at a savings yield you can edit.
+  That yield is the one assumption on the page, labelled as such and remembered.
+- Each card and loan is listed with its balance, rate, and daily cost. A card that was not
+  charged interest costs nothing however large its statement balance; a loan with no APR on
+  file is named so you can add one.
+
+### New: This pay cycle
+- The Dashboard shows the current pay cycle when you are looking at the current month. Paydays
+  come from your Plan schedule, or, when nothing is scheduled, from the rhythm of your payroll
+  deposits (with a link to make it exact).
+- Everyday spending since payday is drawn as a gold line against the average of your past
+  cycles aligned on the same day, with past cycles faint behind it. Scheduled bills and detected
+  recurring charges are left out, since they land on fixed dates regardless of pace.
+- The figure that matters is what each remaining day can carry and still land where the cycle
+  usually does. Three-paycheck months are called out.
+
+### Below decks
+- Pure, unit-tested modules behind each instrument: transfer pairing and flow layout, cost of
+  money, and pay cycle detection.
+- Version 1.3.0 across the app, installers, and website.
+
 ## Compass 1.2.3 — Statements From Anywhere 🧭
 
 A statement should import correctly the first time, whatever bank it came from and however

@@ -842,8 +842,8 @@ body::after {
   .activity-row[data-compact="true"] .activity-category { display: none; }
 }
 @container (min-width: 1100px) {
-  .dash-grid { grid-template-columns: minmax(0, 1fr) 380px; grid-template-areas: "heading heading" "hero hero" "horizon horizon" "accounts categories" "accounts insights" "activity activity" "manage manage"; }
-  .dash-heading { grid-area: heading; } .dash-hero { grid-area: hero; } .dash-horizon { grid-area: horizon; } .dash-accounts { grid-area: accounts; }
+  .dash-grid { grid-template-columns: minmax(0, 1fr) 380px; grid-template-areas: "heading heading" "hero hero" "watch watch" "horizon horizon" "accounts categories" "accounts insights" "activity activity" "manage manage"; }
+  .dash-heading { grid-area: heading; } .dash-hero { grid-area: hero; } .dash-watch { grid-area: watch; } .dash-horizon { grid-area: horizon; } .dash-accounts { grid-area: accounts; }
   .dash-categories { grid-area: categories; } .dash-insights { grid-area: insights; } .dash-activity { grid-area: activity; } .dash-manage { grid-area: manage; }
   .choice-list { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 40px; }
   .investments-charts { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
@@ -1018,3 +1018,40 @@ body::after {
   .flow-particle { display: none; }
 }
 .reduce-motion .flow-particle { display: none; }
+
+/* ── Cost of money (Insights) ────────────────────────────────────────────────
+   Paid and earned as two lengths of one scale, the live accrual as two plain figures. */
+.cost-of-money { max-width: 1040px; padding-bottom: 24px; border-bottom: 1px solid hsl(var(--border)); }
+.cost-of-money .stat-row { border-bottom: 0; padding-bottom: 0; }
+.cost-tracks { display: grid; gap: 8px; max-width: 640px; }
+.cost-track-row { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 12px; align-items: center; font-size: 12px; color: hsl(var(--muted-foreground)); }
+.cost-track { position: relative; height: 8px; border-radius: 4px; background: hsl(var(--muted)); overflow: hidden; }
+.cost-track > i { display: block; height: 100%; border-radius: 4px; transform-origin: left center; }
+.cost-fill-paid { background: hsl(var(--error) / 0.8); }
+.cost-fill-earned { background: hsl(var(--success) / 0.8); }
+.cost-today { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; border-top: 1px solid hsl(var(--border)); padding-top: 16px; }
+.cost-today > div { min-width: 0; }
+.cost-account-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 100px 64px 150px; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid hsl(var(--border) / 0.6); }
+@container (max-width: 719px) {
+  .cost-today { grid-template-columns: minmax(0, 1fr); }
+  .cost-account-row { grid-template-columns: minmax(0, 1fr) auto 120px; }
+  .cost-account-row > :nth-child(3), .cost-account-row > :nth-child(4) { display: none; }
+}
+
+/* ── The Watch (Dashboard): this pay cycle against the usual curve ───────────── */
+.pay-watch { max-width: 1040px; border-top: 1px solid hsl(var(--border)); padding-top: 20px; }
+.pay-watch .stat-row { border-bottom: 0; padding-bottom: 0; }
+.pay-watch-plot { width: 100%; }
+.pay-watch-axis { stroke: hsl(var(--border)); }
+.pay-watch-tick { font-size: 11px; fill: hsl(var(--muted-foreground)); font-variant-numeric: tabular-nums; }
+.pay-watch-past { fill: none; stroke: hsl(var(--sea)); stroke-opacity: 0.22; stroke-width: 1.25; }
+.pay-watch-typical { fill: none; stroke: hsl(var(--muted-foreground)); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.pay-watch-current { fill: none; stroke: hsl(var(--primary)); stroke-width: 2.25; stroke-linejoin: round; stroke-linecap: round; }
+.pay-watch-today { fill: hsl(var(--primary)); stroke: hsl(var(--background)); stroke-width: 2; }
+.pay-watch-today-line { stroke: hsl(var(--foreground)); stroke-opacity: 0.25; stroke-dasharray: 2 4; }
+.pay-watch-legend { display: inline-flex; align-items: center; gap: 6px 8px; flex-wrap: wrap; }
+.pay-watch-legend i { display: inline-block; width: 14px; height: 0; border-top: 2px solid; margin-left: 8px; }
+.pay-watch-legend i:first-child { margin-left: 0; }
+.pay-watch-swatch-current { border-color: hsl(var(--primary)); }
+.pay-watch-swatch-typical { border-color: hsl(var(--muted-foreground)); border-top-style: dashed; }
+.pay-watch-swatch-past { border-color: hsl(var(--sea) / 0.4); }

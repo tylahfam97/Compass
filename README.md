@@ -32,11 +32,12 @@ Check the release notes for signing status and platform-specific installation in
 
 | Workspace | Purpose |
 |---|---|
-| **Dashboard** | Review the selected month's income, expenses, savings, and recent activity. |
+| **Dashboard** | Review the selected month's income, expenses, savings, and recent activity, and see this pay cycle's spending pace against your own usual curve. |
 | **Transactions** | Search, filter, sort, edit, and categorize transactions; make bulk changes or export the filtered view as CSV. |
+| **Chart** | Trace a month's money as currents: paychecks into accounts, out to bills, categories, card payments, savings, investments, and debt, with a day-by-day scrubber and the transactions behind every ribbon. |
 | **Trends & Reports** | Compare periods, examine category and merchant spending, and review recurring charges. |
 | **Budgets & Goals** | Set weekly or monthly limits, enable monthly rollover, and track savings, spending, balance, and debt targets. |
-| **Insights** | Full-width financial context and scores, a fixed-and-flexible view of an average month measured against your planned income, then action items, observations, and wins ordered by the money at stake. |
+| **Insights** | Full-width financial context and scores, a fixed-and-flexible view of an average month measured against your planned income, what your money cost or earned last month with today's interest accruing live, then action items, observations, and wins ordered by the money at stake. |
 | **Plan** | Forecast checking cash flow, review upcoming bills and income, and explore what-if spending and cushion adjustments. |
 | **Investments** | Track dated portfolio snapshots, allocation, holdings, statement activity, and income and gains. |
 | **All Accounts** | Review balances across profiles, with an option to include investments. |
@@ -55,6 +56,10 @@ Review imported balances and categories against your statement. Transfers and th
 ### Financial Context and Planning
 
 Insights brings financial context and health scores to the top of the page, with review items underneath. The bills and paychecks you schedule in Plan feed it directly (what is due this week, what has not posted), and it watches recurring charges for price changes, new charges, and duplicates. Scores and patterns are calculated locally from your available data, not by a cloud AI service. Limited history is identified rather than treated as a complete assessment.
+
+The Chart draws one month of money as a flow map. Income sources run into your accounts, then out to scheduled bills, recurring charges, spending categories, card payments (which continue into each card's own purchases), savings, investments, and debt. Transfers between your own accounts are paired from both statements so nothing is counted twice, every account is balanced with an honest "from balance" or "stayed in checking" leg, and a day scrubber replays the month. Click any ribbon for the transactions behind it.
+
+Cost of money, on Insights, reads the interest lines on your card statements and estimates loan interest from the APR on file, sets that against interest and dividends your accounts earned, and shows today's balances accruing by the second. The yield your idle checking could earn is an editable assumption, never a measurement. The Dashboard's pay cycle view takes your paydays from Plan, or infers them from payroll deposits, and compares this cycle's everyday spending with the average of your past cycles, day for day, so you can see what each remaining day can carry.
 
 Plan projects spendable checking cash over the rest of the month, to your next paycheck, or for the next 30 days. It combines scheduled bills and income, detected recurring charges, and historical spending to estimate **safe to spend** and your **projected lowest balance**. A forecast requires at least two months of history.
 
