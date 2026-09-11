@@ -461,7 +461,7 @@ for (const viewport of [390, 768, 1024, 1440, 1920, 2560].map((width) => ({ widt
     await page.setViewportSize(viewport);
     for (const theme of ["light", "dark"] as const) {
       await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
-      for (const route of ["overview", "", "plan", "transactions", "goals", "budgets", "reports", "import", "trends", "investments", "agent", "settings"]) {
+      for (const route of ["overview", "", "plan", "transactions", "goals", "budgets", "reports", "import", "trends", "chart", "investments", "agent", "settings"]) {
         await page.goto(`/${route}`);
         await expect(page.locator(".workspace-page")).toBeVisible();
         if (route === "plan") {
