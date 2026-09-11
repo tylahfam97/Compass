@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <img src="website/img/overview.png" width="900" alt="Compass Overview: net worth drawn as depth above and below a zero waterline, with a projected date it clears zero, and a table of every account" />
+  <img src="website/img/overview.webp" width="900" alt="Compass Overview: net worth drawn as depth above and below a zero waterline, with a projected date it clears zero, and a table of every account" />
 </p>
 
 Export a CSV from your bank, drop it in, and see where your money actually goes. No bank login, no
@@ -53,6 +53,14 @@ and stored in an encrypted database that only you can open.
 
 Light and dark themes, keyboard navigation and reduced motion throughout. Profiles keep separate
 financial histories, and Global views combine the ones you unlock.
+
+<p align="center">
+  <img src="website/img/dashboard-poster.webp" width="32%" alt="The Overview page with net worth above and below the waterline" />
+  <img src="website/img/import-wizard-poster.webp" width="32%" alt="The guided import wizard mapping a bank CSV" />
+  <img src="website/img/insights-poster.webp" width="32%" alt="The Insights page with health scores and spending analysis" />
+</p>
+
+<p align="center"><sub><a href="https://privatecompass.app#inaction">Watch these as full walkthroughs on the website</a></sub></p>
 
 ## Get started
 
