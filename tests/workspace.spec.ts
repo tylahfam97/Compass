@@ -443,19 +443,20 @@ test("workspace follows restored and maximized widths", async ({ page, database 
     })).toBeLessThanOrEqual(1);
   }
   await page.getByTitle('Plan', { exact: true }).click();
-  for (const width of [2560, 1024, 1440, 390]) {
+  for (const width of [2560, 1024, 1440]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.getByTitle('Expand sidebar', { exact: true }).click();
     await expect.poll(() => page.evaluate(() => {
       const main = document.querySelector('main')!;
       return main.scrollWidth <= main.clientWidth + 1;
     })).toBe(true);
-    if (width === 390) await expect(page.getByRole('button', { name: 'Close navigation' })).toBeVisible();
     await page.getByTitle('Collapse sidebar', { exact: true }).click();
   }
 });
 
-for (const viewport of [390, 768, 1024, 1440, 1920, 2560].map((width) => ({ width, height: width < 720 ? 844 : 1000 }))) {
+// Compass is a desktop app: these are the window sizes it actually runs at. Phone widths are
+// deliberately not covered.
+for (const viewport of [768, 1024, 1440, 1920, 2560].map((width) => ({ width, height: 1000 }))) {
   test(`workspace layouts at ${viewport.width}px`, async ({ page, database }, testInfo) => {
     expect(database.isOpen).toBe(true);
     await page.setViewportSize(viewport);

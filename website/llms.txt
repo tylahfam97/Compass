@@ -1,0 +1,62 @@
+# Compass
+
+> A free, open-source personal finance app for Windows and macOS that reads bank,
+> credit card, and brokerage statements you export yourself. It never asks for a
+> bank login, has no cloud account, and stores everything in a SQLCipher AES-256
+> encrypted database on the user's own machine.
+
+Compass is a desktop application built with Tauri, React and Rust. The user exports a
+CSV or spreadsheet from their own bank and imports it through a guided wizard.
+Categorisation, budgeting, forecasting, net worth and investment tracking all run
+locally. There is no server, no telemetry, and no subscription.
+
+## What it costs
+
+Free. MIT licensed. There is no paid tier, no trial, and no account to create.
+
+## Platforms
+
+- Windows 10 and 11, 64-bit. `.exe` installer or `.msi` package. WebView2 is installed if missing.
+- macOS 10.15 or later, Intel and Apple Silicon, universal `.dmg`. Currently beta and not yet notarised.
+- No mobile app. No supported Linux build.
+
+## How it differs from other finance apps
+
+- No bank credentials. Other apps connect to accounts through an aggregator; Compass reads files the user already has.
+- No cloud. There is no server that holds the data, so there is no account to breach and nothing to cancel.
+- No subscription. Monarch and Simplifi charge roughly $10 to $20 a month.
+- Simpler than self-hosted options like Firefly III, which need a server and a database.
+- Less budgeting-dogmatic than Actual Budget, which is built around envelope budgeting.
+
+## Main features
+
+- Guided CSV and spreadsheet import with column auto-detection, bank presets, batch import and duplicate detection
+- Automatic categorisation from built-in rules plus user rules with a live match preview
+- Overview: net worth drawn as depth above and below a zero waterline, with a projected month it clears zero
+- Dashboard: monthly income, spending, bills still due, and pay-cycle pace
+- The Chart: a month of money drawn as flows from income through accounts to bills, categories, savings and debt
+- Plan: cash-flow forecast, safe-to-spend, projected lowest balance, and Avalanche, Snowball and Cash-flow First debt payoff comparisons
+- Insights: health scores, fixed versus flexible spending, interest paid and earned, and detected recurring charges
+- Investments: dated portfolio snapshots, allocation, holdings, income and gains
+- Budgets, goals, trends, reports, and multiple PIN-protected profiles
+
+## Data and security
+
+- Storage: SQLCipher AES-256 encrypted SQLite database
+- Key storage: Windows Credential Manager or macOS Keychain, with a key file fallback in the app data directory
+- Location: `%APPDATA%\com.compass.app\` on Windows, `~/Library/Application Support/com.compass.app/` on macOS
+- Network: the only outbound request is an optional update check against the GitHub Releases API
+- Export: full backup file, or CSV export per profile
+
+## Limits
+
+No live bank connections, no cloud sync, no shared access, single currency only, no OFX or QIF import, and no arbitrary PDF bank statements. Forecasts need at least two months of history. Compass is not financial advice.
+
+## Links
+
+- Website: https://privatecompass.app
+- Source code: https://github.com/tylahfam97/Compass
+- Releases and downloads: https://github.com/tylahfam97/Compass/releases
+- Release notes: https://github.com/tylahfam97/Compass/blob/main/RELEASE_NOTES.md
+- Issues: https://github.com/tylahfam97/Compass/issues
+- Licence: MIT

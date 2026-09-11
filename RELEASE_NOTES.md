@@ -2,6 +2,53 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.1 — Soundings 🧭
+
+Overview used to repeat the Dashboard. It opened on account admin, then showed you the same
+month's income and spending you had just read one page over. It now answers the one question
+nothing else in Compass answered: where you stand across everything you own and owe, and which
+way that is moving.
+
+### New: Soundings
+- Overview opens on your net worth drawn as depth. Zero is a waterline across the page.
+  Everything you own rises above it, everything you owe hangs below it, and the line running
+  between them is your net worth, month by month, for the last two years.
+- When you are below the waterline, Compass measures the pace you have actually been climbing
+  at over the last six months and continues it as a dashed line to the month you cross zero.
+  That month is printed as a figure of its own, next to the date it lands on.
+- The pace is measured, never flattered. Three months of statements are needed before Compass
+  will name one at all, movement under a dollar a month is called level rather than progress,
+  and a net worth that is flat or falling is told plainly that it is not on course to clear
+  zero instead of being given an invented date.
+- Above water, the instrument says so, and names the month you last came up.
+
+### New: the account roster
+- Every account in view is listed in one table, grouped into bank, investments, credit cards
+  and loans, with its latest balance, the date that balance was recorded, and its recent
+  shape. Investment accounts appear here alongside the rest for the first time.
+- In Global view the table spans profiles, and each profile gets its own row of cash,
+  invested, owed and net, so you can see who is carrying what before switching.
+- Accounts you have hidden are still listed, marked as not counted, rather than disappearing.
+
+### Changed
+- The month picker and the monthly income, expenses and net figures have left Overview. They
+  belong to the Dashboard, which is where the month lives; Overview is about standing, not
+  about a month.
+- Manage Accounts moved from the top of the page to the foot, and lost its box. It is account
+  housekeeping, not the first thing worth your attention.
+- Overview now uses the same type, spacing and icons as the rest of the app, including the
+  shared notice for PIN-locked profiles in place of its old amber banner.
+
+### Below decks
+- The net worth history behind Soundings is read in two queries instead of forty-eight, so
+  Overview settles immediately rather than sitting in a loading state.
+- Its figures and the roster beneath them are computed from one shared set of rules, so a
+  statement dated ahead of today can no longer make the headline and the table disagree.
+- Compass is a desktop application, so the phone-width layout tests and the leftover mobile
+  navigation drawer have been removed rather than maintained.
+- The end-to-end layout suite no longer times out on slower continuous integration machines.
+- Version 1.3.1 across the app, installers, and website.
+
 ## Compass 1.3.0 — The Chart 🧭
 
 Compass has always been able to tell you what your money did. This release shows you where it

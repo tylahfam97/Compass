@@ -143,8 +143,7 @@
   .section-eyebrow {
     font-size: 0.75rem;
     font-weight: 600;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
+    letter-spacing: 0.01em;
     color: var(--primary);
     margin-bottom: var(--sp-3);
   }
@@ -335,7 +334,6 @@
   .btn-tag {
     font-size: 0.65rem;
     font-weight: 700;
-    text-transform: uppercase;
     letter-spacing: 0.06em;
     background: rgba(255, 255, 255, 0.18);
     padding: 0.15rem 0.45rem;
@@ -366,11 +364,38 @@
 
   .hero {
     position: relative;
-    min-height: 100svh;
+    /* Capped rather than a full 100svh: on a tall monitor the product shot below
+       should already be breaking the fold, not waiting a whole screen down. */
+    min-height: min(100svh, 760px);
     display: flex;
     align-items: center;
     padding-top: 64px;
     overflow: hidden;
+  }
+
+  .hero-shot-section {
+    background: var(--bg);
+    padding-bottom: var(--sp-8);
+  }
+
+  .hero-shot {
+    margin: 0 auto;
+    max-width: 1080px;
+  }
+
+  .hero-shot picture { display: block; }
+
+  .hero-shot img {
+    width: 100%;
+    height: auto;
+    display: block;
+    border-radius: var(--r-lg) var(--r-lg) 0 0;
+    border: 1px solid var(--border);
+    border-bottom: 0;
+    box-shadow: var(--shadow-lg), 0 0 110px rgba(0, 0, 0, 0.45);
+    /* Fades into the section beneath instead of ending on a hard edge. */
+    -webkit-mask-image: linear-gradient(to bottom, #000 80%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 80%, transparent 100%);
   }
 
   .hero-bg {
@@ -630,6 +655,11 @@
 @layer components {
   .inaction-section { background: var(--bg); }
 
+  /* The signing line is the one download-requirement that is a reason to trust
+     rather than a system requirement, so it carries the gold. Scoped to beat the
+     base .req-item colour, which is defined further down this layer. */
+  .download-meta .req-item--verified { color: var(--primary-ink); }
+
   .showcase-stack {
     display: flex;
     flex-direction: column;
@@ -643,8 +673,7 @@
   .showcase-figure figcaption {
     font-size: 0.75rem;
     font-weight: 600;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
+    letter-spacing: 0.01em;
     color: var(--primary);
     margin-bottom: var(--sp-3);
     padding-left: 2px;
@@ -764,7 +793,6 @@
     color: var(--text-muted);
     font-weight: 600;
     font-size: 0.8125rem;
-    text-transform: uppercase;
     letter-spacing: 0.05em;
     border-bottom: 1px solid var(--border);
   }
@@ -1134,4 +1162,36 @@
   .why-card, .step, .feature-card, .qa-card { animation: none !important; opacity: 1; transform: none; }
   .btn-primary { transition: none; }
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+
+
+/* ── 404 ──────────────────────────────────────────────────────────────────── */
+@layer components {
+  .lost {
+    min-height: 78vh;
+    display: grid;
+    place-items: center;
+    text-align: center;
+    padding: var(--sp-16) var(--sp-4);
+  }
+  .lost-mark { width: 64px; height: 64px; opacity: 0.85; margin-bottom: var(--sp-6); }
+  .lost h1 {
+    font-family: var(--font-serif);
+    font-size: clamp(2rem, 5vw, 3rem);
+    font-weight: 500;
+    letter-spacing: -0.02em;
+  }
+  .lost p {
+    color: var(--text-muted);
+    margin-top: var(--sp-3);
+    max-width: 46ch;
+    margin-inline: auto;
+  }
+  .lost-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-3);
+    justify-content: center;
+    margin-top: var(--sp-8);
+  }
 }

@@ -328,7 +328,6 @@ function App() {
               <NavLink
                 key={to}
                 to={to}
-                onClick={() => { if (window.innerWidth < 720) setSidebarOpen(false); }}
                 end={to === "/"}
                 data-tour={tourId}
                 title={!sidebarOpen ? label : undefined}
@@ -398,7 +397,6 @@ function App() {
             </div>
           )}
         </aside>
-        {sidebarOpen && <button className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} />}
 
         {/* Main content */}
         <main className="app-main flex-1 min-w-0 overflow-y-auto">

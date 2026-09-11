@@ -8,9 +8,11 @@
   <!-- Domain: privatecompass.app                                              -->
   <title>Compass | Private Finance Tracker for Windows &amp; macOS</title>
   <meta name="description" content="Track your spending without giving anyone your bank login. Import bank statements, credit card statements, and investment portfolios from CSV. Free, open-source, AES-256 encrypted desktop app for Windows and macOS (beta). No account required.">
-  <meta name="keywords" content="personal finance, budget tracker, Windows, macOS, local, private, no cloud, CSV import, free, open source, spending tracker, investment tracker, portfolio tracker, brokerage, Fidelity, Schwab, Thrivent, Wells Fargo, Mint alternative, YNAB alternative">
   <meta name="author" content="Compass">
-  <meta name="robots" content="index, follow">
+  <!-- max-image-preview:large is what lets Google and AI answer engines show the
+       screenshot rather than a thumbnail; the snippet caps are lifted so a full
+       answer can be quoted. -->
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
   <link rel="canonical" href="https://privatecompass.app/">
 
   <!-- ── Open Graph (Facebook, LinkedIn, Discord) ─────────────────────────── -->
@@ -18,27 +20,139 @@
   <meta property="og:url" content="https://privatecompass.app/">
   <meta property="og:title" content="Compass | Private Finance Tracker for Windows &amp; macOS">
   <meta property="og:description" content="Export a CSV from your bank. Drop it in. See where your money went, privately and locally, with no account required.">
-  <meta property="og:image" content="https://privatecompass.app/img/logo.png">
-  <meta property="og:image:width" content="256">
-  <meta property="og:image:height" content="256">
+  <meta property="og:image" content="https://privatecompass.app/img/og-cover.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Compass, a private finance tracker for Windows and macOS, showing net worth drawn above and below a zero waterline.">
   <meta property="og:site_name" content="Compass">
   <meta property="og:locale" content="en_US">
 
   <!-- ── Twitter / X card ─────────────────────────────────────────────────── -->
-  <meta name="twitter:card" content="summary">
+  <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Compass | Private Finance Tracker for Windows &amp; macOS">
   <meta name="twitter:description" content="Track your spending privately. CSV import from any bank. No account, no cloud, no subscription. Free and open source.">
-  <meta name="twitter:image" content="https://privatecompass.app/img/logo.png">
+  <meta name="twitter:image" content="https://privatecompass.app/img/og-cover.png">
+  <meta name="twitter:image:alt" content="Compass, a private finance tracker for Windows and macOS, showing net worth drawn above and below a zero waterline.">
 
   <!-- ── Theme / PWA ──────────────────────────────────────────────────────── -->
   <meta name="theme-color" content="#0A1124">
   <link rel="icon" type="image/png" href="/img/favicon.png">
 
   <!-- ── Security ─────────────────────────────────────────────────────────── -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; img-src 'self' https://github.com https://*.githubusercontent.com; connect-src 'self' https://api.github.com; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; img-src 'self' https://github.com https://*.githubusercontent.com; media-src 'self'; connect-src 'self' https://api.github.com; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';">
   <meta name="referrer" content="strict-origin-when-cross-origin">
 
   <link rel="stylesheet" href="/css/style.css">
+
+  <!-- ── Structured data ───────────────────────────────────────────────────
+       Tells search engines and AI answer engines what Compass is, that it runs
+       on Windows and macOS, and that it costs nothing. No rating is claimed,
+       because there is no review corpus to base one on. -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "SoftwareApplication",
+        "@id": "https://privatecompass.app/#app",
+        "name": "Compass",
+        "applicationCategory": "FinanceApplication",
+        "applicationSubCategory": "Personal finance and budgeting",
+        "operatingSystem": "Windows 10, Windows 11, macOS 10.15+",
+        "softwareVersion": "1.3.1",
+        "url": "https://privatecompass.app/",
+        "downloadUrl": "https://github.com/tylahfam97/Compass/releases/latest",
+        "installUrl": "https://privatecompass.app/#download",
+        "softwareHelp": "https://github.com/tylahfam97/Compass#readme",
+        "releaseNotes": "https://github.com/tylahfam97/Compass/blob/main/RELEASE_NOTES.md",
+        "license": "https://opensource.org/licenses/MIT",
+        "isAccessibleForFree": true,
+        "screenshot": "https://privatecompass.app/img/overview.png",
+        "description": "A free, open-source personal finance app for Windows and macOS that reads bank, credit card and brokerage statements you export yourself. No bank login, no cloud account, and an AES-256 encrypted database stored on your own machine.",
+        "featureList": [
+          "Guided CSV and spreadsheet import with column auto-detection and bank presets",
+          "Automatic categorisation with editable rules and a live match preview",
+          "Net worth tracked as depth, with a projected month it clears zero",
+          "Cash-flow forecasting, safe-to-spend and projected lowest balance",
+          "Debt payoff comparison across Avalanche, Snowball and Cash-flow First",
+          "Recurring charge and subscription detection",
+          "Investment portfolio snapshots, allocation and holdings",
+          "SQLCipher AES-256 encrypted local database with no telemetry"
+        ],
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD",
+          "availability": "https://schema.org/InStock"
+        },
+        "author": { "@id": "https://privatecompass.app/#org" },
+        "publisher": { "@id": "https://privatecompass.app/#org" }
+      },
+      {
+        "@type": "Organization",
+        "@id": "https://privatecompass.app/#org",
+        "name": "Compass",
+        "url": "https://privatecompass.app/",
+        "logo": "https://privatecompass.app/img/logo.png",
+        "sameAs": ["https://github.com/tylahfam97/Compass"]
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://privatecompass.app/#website",
+        "name": "Compass",
+        "url": "https://privatecompass.app/",
+        "publisher": { "@id": "https://privatecompass.app/#org" },
+        "inLanguage": "en-US"
+      },
+      {
+        "@type": "FAQPage",
+        "@id": "https://privatecompass.app/#faq",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Where is my data stored?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "In a local encrypted SQLite database in your own user profile: %APPDATA%\\com.compass.app\\ on Windows, or ~/Library/Application Support/com.compass.app/ on macOS. Only your operating system account can reach it. There is no remote copy."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Is the Compass database encrypted?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes. SQLCipher encrypts the database at rest with AES-256. The key is a 32-byte random value held in Windows Credential Manager or the macOS Keychain, bound to your operating system account, and is never shown in the app."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Does Compass need my bank login?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. Compass never asks for bank credentials and has no way to connect to an account. You export a CSV or spreadsheet from your bank, credit card issuer or brokerage yourself, and import that file."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What data leaves my device?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Nothing financial. The only outbound request is an optional update check against the GitHub Releases API, which sends version numbers and no personal data. The app works fully offline after installation."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Does Compass collect telemetry or cost anything?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No telemetry, analytics or error reporting exists in the codebase, and there is no subscription. Compass is free and MIT licensed."
+            }
+          }
+        ]
+      }
+    ]
+  }
+  </script>
 </head>
 <body>
 <svg class="svg-defs" aria-hidden="true" focusable="false"><symbol id="compass-mark" viewBox="0 0 512 512"><defs><radialGradient id="cm-bg" cx="50%" cy="40%" r="70%"><stop offset="0%" stop-color="#1C2E54"/><stop offset="100%" stop-color="#070D1E"/></radialGradient><linearGradient id="cm-bezel" x1="15%" y1="5%" x2="85%" y2="95%"><stop offset="0%" stop-color="#F0D068"/><stop offset="40%" stop-color="#C08A1C"/><stop offset="100%" stop-color="#7C5208"/></linearGradient><linearGradient id="cm-north" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#C08A1C"/><stop offset="55%" stop-color="#FFD050"/><stop offset="100%" stop-color="#D09820"/></linearGradient><radialGradient id="cm-hub" cx="33%" cy="28%" r="70%"><stop offset="0%" stop-color="#F0D068"/><stop offset="55%" stop-color="#C08A1C"/><stop offset="100%" stop-color="#7C5208"/></radialGradient></defs><circle cx="256" cy="256" r="256" fill="url(#cm-bg)"/><circle cx="256" cy="256" r="244" fill="none" stroke="#C08A1C" stroke-width="1.5" opacity="0.35"/><circle cx="256" cy="256" r="234" fill="none" stroke="url(#cm-bezel)" stroke-width="6"/><g stroke="#F0D068" stroke-width="5.5" stroke-linecap="round"><line x1="256" y1="28" x2="256" y2="43"/><line x1="256" y1="469" x2="256" y2="484"/><line x1="469" y1="256" x2="484" y2="256"/><line x1="28" y1="256" x2="43" y2="256"/></g><path d="M256,74 L256,256 L238,248 Z" fill="#9C6E0E"/><path d="M256,74 L274,248 L256,256 Z" fill="url(#cm-north)"/><path d="M256,438 L238,264 L256,256 Z" fill="#1C2E54"/><path d="M256,438 L256,256 L274,264 Z" fill="#0A1428"/><path d="M416,256 L268,240 L256,256 L268,272 Z" fill="#B07C10" opacity="0.88"/><path d="M96,256 L244,240 L256,256 L244,272 Z" fill="#B07C10" opacity="0.88"/><circle cx="256" cy="256" r="27" fill="#050C1A"/><circle cx="256" cy="256" r="22" fill="url(#cm-hub)"/><circle cx="256" cy="256" r="13" fill="#050C1A"/><circle cx="256" cy="256" r="7" fill="#F0D068" opacity="0.95"/></symbol></svg>
@@ -125,8 +239,9 @@
     <div class="badge-row" role="list" aria-label="App highlights">
       <span class="chip" role="listitem">Free &amp; Open Source</span>
       <span class="chip" role="listitem">No Account Required</span>
-      <span class="chip chip-blue" role="listitem">Windows · macOS (beta)</span>
-      <span class="chip chip-gold" role="listitem">v1.3.0</span>
+      <span class="chip chip-blue" role="listitem">Windows and macOS (beta)</span>
+      <span class="chip chip-gold" role="listitem">v1.3.1</span>
+    </div>
 
     <h1 class="hero-title" id="hero-title">
       Your money.<br>
@@ -188,6 +303,14 @@
       </div>
       <div class="trust-item" role="listitem">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M8 1.4 2.5 3.8v3.9c0 3.3 2.3 6.3 5.5 7 3.2-.7 5.5-3.7 5.5-7V3.8L8 1.4Z"
+                stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+          <path d="M5.6 8.1 7.2 9.7l3.2-3.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>Signed installer</span>
+      </div>
+      <div class="trust-item" role="listitem">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.5"/>
           <path d="M5.5 8l1.5 1.5 3.5-3.5"
                 stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -201,6 +324,22 @@
         <span>MIT License</span>
       </div>
     </div>
+  </div>
+</section>
+
+<!-- ── Product shot ─────────────────────────────────────────────────────────── -->
+<!-- The first thing a visitor should see is the instrument itself. WebP with a PNG
+     fallback, sized and priority-hinted so it is a fast LCP rather than a slow one. -->
+<section class="hero-shot-section" aria-label="The Compass Overview page">
+  <div class="container">
+    <figure class="hero-shot">
+      <picture>
+        <source srcset="/img/overview.webp" type="image/webp">
+        <img src="/img/overview.png" width="1400" height="880"
+             alt="The Compass Overview page. Net worth of minus $13,610 is drawn as depth, with everything owned above a zero waterline and everything owed below it, and a dashed line projecting the month it clears zero in September 2027."
+             fetchpriority="high" decoding="async">
+      </picture>
+    </figure>
   </div>
 </section>
 
@@ -292,32 +431,36 @@
     <div class="section-header">
       <p class="section-eyebrow">See it working</p>
       <h2 id="inaction-title">See it in action.</h2>
-      <p class="section-sub">Recorded at full resolution.</p>
+      <p class="section-sub">Recorded at full resolution, from the real app.</p>
     </div>
 
+    <!-- Screen recordings ship as H.264 rather than GIF: the same three clips
+         went from 67 MB to under 7 MB. Each one loads only when it scrolls into
+         view, and holds on its poster frame when the visitor prefers reduced
+         motion. -->
     <div class="showcase-stack">
       <figure class="showcase-figure">
-        <figcaption>Dashboard &amp; Spending Overview</figcaption>
-        <img src="/img/dashboard.gif?v=20260716"
-             alt="Compass dashboard showing monthly spending summary, top categories, and profile overview"
-             referrerpolicy="no-referrer"
-             class="showcase-img">
+        <figcaption>Overview and net worth</figcaption>
+        <video class="showcase-img" muted loop playsinline preload="none"
+               poster="/img/dashboard-poster.webp" data-src="/img/dashboard.mp4"
+               aria-label="The Compass dashboard showing a monthly spending summary, top categories, and the profile overview">
+        </video>
       </figure>
 
       <figure class="showcase-figure">
-        <figcaption>6-Step Import Wizard</figcaption>
-        <img src="/img/import-wizard.gif?v=20260716"
-             alt="The guided import wizard walking through column detection, date parsing, amount mapping, and import preview"
-             referrerpolicy="no-referrer"
-             class="showcase-img">
+        <figcaption>The six-step import wizard</figcaption>
+        <video class="showcase-img" muted loop playsinline preload="none"
+               poster="/img/import-wizard-poster.webp" data-src="/img/import-wizard.mp4"
+               aria-label="The guided import wizard walking through column detection, date parsing, amount mapping, and the import preview">
+        </video>
       </figure>
 
       <figure class="showcase-figure">
-        <figcaption>Insights &amp; Spending Analysis</figcaption>
-        <img src="/img/insights.gif?v=20260716"
-             alt="The Insights page showing budget pace warnings, top merchant spend, and detected subscription totals"
-             referrerpolicy="no-referrer"
-             class="showcase-img">
+        <figcaption>Insights and spending analysis</figcaption>
+        <video class="showcase-img" muted loop playsinline preload="none"
+               poster="/img/insights-poster.webp" data-src="/img/insights.mp4"
+               aria-label="The Insights page showing budget pace warnings, top merchant spend, and detected subscription totals">
+        </video>
       </figure>
     </div>
   </div>
@@ -519,7 +662,7 @@
           Where is my data stored?
         </div>
         <div class="qa-a">
-          In a local SQLite database at <code>%APPDATA%\com.compass.app\</code> on your Windows machine. Only your user account can access it. No other location, no remote copy.
+          In a local SQLite database in your own user profile: <code>%APPDATA%\com.compass.app\</code> on Windows, or <code>~/Library/Application Support/com.compass.app/</code> on macOS. Only your operating system account can reach it. No other location, no remote copy.
         </div>
       </div>
 
@@ -585,7 +728,7 @@
   <div class="container">
     <div class="download-cards">
       <div class="download-card">
-        <div class="version-badge">v1.3.0</div>
+        <div class="version-badge">v1.3.1</div>
         <div class="download-header">
           <svg width="56" height="56" class="download-logo" aria-hidden="true" focusable="false"><use href="#compass-mark"/></svg>
           <div>
@@ -627,6 +770,15 @@
             </svg>
             Windows 10 / 11 (64-bit)
           </div>
+          <div class="req-item req-item--verified">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <path d="M7 1.2 2.2 3.3v3.4c0 2.9 2 5.5 4.8 6.1 2.8-.6 4.8-3.2 4.8-6.1V3.3L7 1.2Z"
+                    stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+              <path d="M4.9 7.1 6.3 8.5l2.8-2.8"
+                    stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Code-signed as Chrysis Networks
+          </div>
           <div class="req-item">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
               <path d="M7 1.5a5.5 5.5 0 1 0 0 11A5.5 5.5 0 0 0 7 1.5Z" stroke="currentColor" stroke-width="1.3"/>
@@ -654,7 +806,7 @@
       </div>
 
       <div class="download-card">
-        <div class="version-badge">v1.3.0</div>
+        <div class="version-badge">v1.3.1</div>
         <div class="download-header">
           <svg width="56" height="56" class="download-logo" aria-hidden="true" focusable="false"><use href="#compass-mark"/></svg>
           <div>
@@ -703,7 +855,7 @@
 
         <p class="download-note">
           Not code-signed or notarized yet - macOS will warn that the app "can't be opened" or "is damaged".
-          Right-click the app → <strong>Open</strong> (or run <code>xattr -cr Compass.app</code> in Terminal) to launch it anyway.
+          Right-click the app and choose <strong>Open</strong> (or run <code>xattr -cr Compass.app</code> in Terminal) to launch it anyway.
           This goes away once Compass is signed with an Apple Developer ID.
         </p>
 
@@ -730,7 +882,7 @@
       <span>Compass</span>
     </a>
     <p class="footer-copy">
-      Free &amp; open source &middot; MIT License &middot; Built with Tauri, React, Rust, SQLite
+      Free and open source. MIT License. Built with Tauri, React, Rust and SQLite.
     </p>
     <nav class="footer-links" aria-label="Footer navigation">
       <a href="https://github.com/tylahfam97/Compass" target="_blank" rel="noopener noreferrer">GitHub</a>
@@ -751,8 +903,33 @@
     })
     .catch(() => {}); // Falls back to hardcoded version silently
 
-  // Placeholder boxes for images that fail to load (e.g. when previewing locally)
-  // (removed: error handler was swallowing GIFs before they finished loading)
+  // Showcase clips: fetch and play only once one scrolls near the viewport, so the
+  // page costs nothing to load until someone actually wants to watch. Anyone who
+  // prefers reduced motion gets the poster frame and normal player controls instead.
+  const clips = document.querySelectorAll('video[data-src]');
+  const stillPreferred = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (stillPreferred) {
+    clips.forEach(clip => {
+      clip.controls = true;
+      clip.preload = 'metadata';
+      clip.src = clip.dataset.src;
+    });
+  } else if (clips.length && 'IntersectionObserver' in window) {
+    const watcher = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting) return;
+        const clip = entry.target;
+        if (!clip.src) {
+          clip.src = clip.dataset.src;
+          clip.play().catch(() => { clip.controls = true; });
+        }
+        watcher.unobserve(clip);
+      });
+    }, { rootMargin: '300px 0px' });
+    clips.forEach(clip => watcher.observe(clip));
+  } else {
+    clips.forEach(clip => { clip.src = clip.dataset.src; clip.controls = true; });
+  }
 
   // Mobile nav toggle
   const toggle = document.getElementById('navToggle');

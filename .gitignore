@@ -20,6 +20,9 @@ sample-data/
 # AI assistant config (local only)
 .claude/
 
+# Marketing collateral kept local rather than published with the source
+marketing/
+
 # Logs
 *.log
 npm-debug.log*
