@@ -149,12 +149,6 @@ h1, h2, h3 {
   font-variant-numeric: tabular-nums lining-nums;
 }
 .app-main { container-type: inline-size; }
-.mobile-nav-backdrop { display: none; }
-@media (max-width: 719px) {
-  .app-sidebar[data-expanded="true"] { position: fixed; inset: 0 auto 0 0; z-index: 45; }
-  .app-sidebar[data-expanded="true"] ~ .app-main { margin-left: 56px; }
-  .mobile-nav-backdrop { display: block; position: fixed; inset: 0; z-index: 40; background: hsl(var(--scrim) / 0.35); }
-}
 .app-workspace { min-width: 0; }
 .app-workspace > div > .py-6 { padding-block: 0; }
 .workspace-page > *, .workspace-page .grid > * { min-width: 0; }
@@ -176,7 +170,6 @@ h1, h2, h3 {
 }
 @container (min-width: 1600px) {
   .app-workspace .goal-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .overview-workspace > .grid, .overview-workspace > .grid.grid-cols-2 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 @container (max-width: 1099px) {
   .workspace-page { padding-inline: 24px; }
@@ -185,7 +178,7 @@ h1, h2, h3 {
 }
 @container (max-width: 719px) {
   .workspace-page { padding: 20px 16px 32px; }
-  .overview-workspace > .grid { grid-template-columns: minmax(0, 1fr); }
+  .soundings-plot { height: 190px; }
   .app-workspace .goal-grid { grid-template-columns: minmax(0, 1fr); }
   .insights-heading { padding-inline: 16px; }
   .insights-context-content .grid-cols-2 { grid-template-columns: minmax(0, 1fr); }
@@ -827,8 +820,54 @@ body::after {
 .choice-row:hover { background: hsl(var(--foreground) / 0.04); }
 .dash-grid { display: grid; gap: 28px 40px; align-items: start; }
 .dash-grid > * { min-width: 0; }
+.overview-grid {
+  display: grid;
+  gap: 28px 40px;
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "heading" "sounding" "accounts" "people" "manage";
+}
+.overview-grid > * { min-width: 0; }
+.overview-heading { grid-area: heading; }
+.overview-sounding { grid-area: sounding; }
+.overview-accounts { grid-area: accounts; }
+.overview-people { grid-area: people; }
+.overview-manage { grid-area: manage; }
+
+/* Soundings: net worth as depth. The plot sizes itself to the column; the waterline and
+   the projected ray are drawn by the chart, not by this sheet. */
+.soundings-plot { width: 100%; height: 240px; }
+
+/* The account roster is a lookup table, so it scrolls sideways inside its own box rather
+   than widening the page. [data-num] carries the alignment so a Tailwind text utility
+   never has to outrank these selectors. */
+.overview-roster { overflow-x: auto; max-width: 100%; }
+/* Five columns never need the full width of a wide window; capping it keeps the name and
+   its balance in one eyeful instead of separated by a field of empty space. */
+.overview-roster table { width: 100%; min-width: 520px; max-width: 880px; border-collapse: collapse; }
+.overview-roster [data-num] { text-align: right; }
+.overview-roster thead th { font-size: 11px; font-weight: 500; color: hsl(var(--muted-foreground)); text-align: left; padding: 0 12px 8px 0; border-bottom: 1px solid hsl(var(--border)); }
+.overview-roster tbody th[scope="colgroup"] { font-size: 12px; font-weight: 600; color: hsl(var(--muted-foreground)); text-align: left; padding: 18px 0 4px; border: 0; }
+.overview-roster tbody th[scope="row"] { font-size: 13px; font-weight: 500; text-align: left; }
+.overview-roster tbody td, .overview-roster tbody th[scope="row"] { padding: 9px 12px 9px 0; border-bottom: 1px solid hsl(var(--border) / 0.6); font-size: 13px; vertical-align: middle; }
+.overview-roster tbody tr[data-hidden="true"] { opacity: 0.5; }
+.overview-roster .roster-dot { display: inline-block; width: 6px; height: 6px; border-radius: 999px; margin-right: 8px; vertical-align: middle; }
+.overview-roster .roster-muted { color: hsl(var(--muted-foreground)); font-size: 12px; }
+.overview-roster .roster-note { margin-left: 8px; font-size: 11px; font-weight: 400; color: hsl(var(--muted-foreground)); }
+.overview-roster .roster-spark { width: 96px; padding-right: 0; }
+
 .overview-profiles { display: grid; }
 .profile-row { border-top: 1px solid hsl(var(--border)); padding: 20px 0; min-width: 0; }
+.profile-figures { display: flex; flex-wrap: wrap; gap: 10px 28px; margin-top: 12px; }
+.profile-figures > div { min-width: 0; }
+.profile-figures p { font-size: 11px; color: hsl(var(--muted-foreground)); }
+.profile-figures strong { display: block; font-size: 15px; font-weight: 500; line-height: 1.2; font-variant-numeric: tabular-nums lining-nums; }
+
+/* Manage Accounts keeps its own collapsing behaviour but drops the card chrome, so the
+   foot of Overview reads as a rule like every other section boundary. */
+.overview-manage > div { border: 0; border-top: 1px solid hsl(var(--border)); border-radius: 0; background: none; }
+.overview-manage > div > button { padding-left: 0; padding-right: 0; }
+.overview-manage > div > div { padding-left: 0; padding-right: 0; }
 .insights-table { overflow-x: auto; max-width: 100%; }
 .insights-table table { min-width: 540px; }
 .score-meters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; }
@@ -851,7 +890,12 @@ body::after {
 }
 @container (min-width: 1600px) {
   .dash-grid { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); }
-  .overview-profiles { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 40px; }
+  /* Only pair the roster with the profile rail when there are profile rows to put there;
+     otherwise the roster keeps the full width instead of leaving an empty gutter. */
+  .overview-grid:has(.overview-people) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 360px);
+    grid-template-areas: "heading heading" "sounding sounding" "accounts people" "manage manage";
+  }
 }
 @container (max-width: 719px) {
   .stat-row { grid-template-columns: 1fr !important; gap: 12px; }
