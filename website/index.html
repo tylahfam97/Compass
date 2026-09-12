@@ -894,6 +894,100 @@
   </div>
 </section>
 
+<!-- ── Support ───────────────────────────────────────────────────────────────── -->
+<!-- Placed after the download, deliberately. Someone who has not decided yet
+     should never meet a wallet address, and nothing on this page is gated
+     behind one. The heading renounces before it asks, so a suspicious reader
+     reaches the addresses having already been told they buy nothing. -->
+<section class="section donate-section" id="support" aria-labelledby="support-title">
+  <div class="container">
+    <div class="section-header">
+      <p class="section-eyebrow">Support</p>
+      <h2 id="support-title">Donations change nothing about the software.</h2>
+      <p class="section-sub">
+        Most of this category runs on a subscription, or pays for itself by selling what it
+        learns about you. Compass is one person's work, and it is free because there is no
+        server to fund, not because a paid tier is waiting.
+      </p>
+    </div>
+
+    <div class="donate-card">
+      <p class="donate-lede">
+        I build and maintain Compass alone, and I would rather it existed than be paid for
+        building it. That is most of the reason it can be free, and there is nothing
+        underneath it.
+      </p>
+      <p class="donate-lede">
+        Sending something is <strong>absolutely not expected</strong>, and nothing changes if
+        nobody does. There is one build and one source tree, so nothing below buys a version
+        of Compass you do not already have.
+      </p>
+
+      <a href="https://buymeacoffee.com/tylahfam"
+         class="donate-cta" target="_blank" rel="noopener noreferrer">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M2.5 5.5h9v5a3 3 0 0 1-3 3h-3a3 3 0 0 1-3-3v-5Zm9 1h1.5a1.5 1.5 0 0 1 0 3H11.5M4 3V1.8M7 3V1.8M10 3V1.8"
+                stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Buy me a coffee
+      </a>
+
+      <ul class="chain-list" role="list">
+        <li class="chain">
+          <div class="chain-head">
+            <span class="chain-name">Bitcoin</span>
+            <span class="chain-net">Bitcoin network, native segwit</span>
+          </div>
+          <div class="chain-row">
+            <code class="chain-addr" id="addr-btc" translate="no">bc1quygw2ja2cavvr47m4wq6mynxfxkp4gs8n02ez8</code>
+            <button type="button" class="chain-copy" data-addr="addr-btc" data-chain="Bitcoin">Copy</button>
+          </div>
+        </li>
+        <li class="chain">
+          <div class="chain-head">
+            <span class="chain-name">Ethereum</span>
+            <span class="chain-net">Ethereum mainnet</span>
+          </div>
+          <div class="chain-row">
+            <code class="chain-addr" id="addr-eth" translate="no">0x5d7fDB0ECfAee39cA263714895B9DD7A51Fb375f</code>
+            <button type="button" class="chain-copy" data-addr="addr-eth" data-chain="Ethereum">Copy</button>
+          </div>
+        </li>
+        <li class="chain">
+          <div class="chain-head">
+            <span class="chain-name">XRP</span>
+            <span class="chain-net">XRP Ledger, classic address</span>
+          </div>
+          <div class="chain-row">
+            <code class="chain-addr" id="addr-xrp" translate="no">rPapQaPmtLv6HX3YS34gnhVDYrsyfHgL5o</code>
+            <button type="button" class="chain-copy" data-addr="addr-xrp" data-chain="XRP">Copy</button>
+          </div>
+        </li>
+      </ul>
+
+      <div class="donate-fine">
+        <p>
+          An address printed on a page is not something you can verify by looking at it. The
+          same four are in the
+          <a href="https://github.com/tylahfam97/Compass#support" target="_blank" rel="noopener noreferrer">README on GitHub</a>,
+          where every change to them is a commit with a date and my name on it. If a Compass
+          address appears anywhere other than those two places, it did not come from me.
+        </p>
+        <p>
+          Send each asset on the network named beside it and nothing else. Transfers cannot be
+          undone and there is no support desk on either end. If you have not done this before,
+          send a small amount first.
+        </p>
+        <p>
+          Buy Me a Coffee is a payment processor, so they will know you paid. The app on your
+          machine never contacts them. Nothing recurs unless you choose it there, and you can
+          stop it there.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
 </main>
 
 <!-- ── Footer ────────────────────────────────────────────────────────────────── -->
@@ -966,6 +1060,37 @@
     toggle.setAttribute('aria-expanded', 'false');
     menu.setAttribute('aria-hidden', 'true');
   }));
+
+  // Wallet copy buttons. If the clipboard is refused or unavailable, the text
+  // is selected instead, so the click always leaves something the visitor can
+  // act on rather than failing silently. The label is the confirmation, and it
+  // is announced because the button still holds focus after the click.
+  document.querySelectorAll('.chain-copy').forEach(btn => {
+    const code = document.getElementById(btn.dataset.addr);
+    if (!code) return;
+    let timer;
+    btn.addEventListener('click', async () => {
+      const address = code.textContent.trim();
+      let label = 'Selected';
+      try {
+        await navigator.clipboard.writeText(address);
+        label = 'Copied';
+      } catch {
+        const range = document.createRange();
+        range.selectNodeContents(code);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+      btn.textContent = label;
+      btn.classList.add('is-done');
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        btn.textContent = 'Copy';
+        btn.classList.remove('is-done');
+      }, 2400);
+    });
+  });
 
   // Nav scrolled state
   const nav    = document.getElementById('nav');

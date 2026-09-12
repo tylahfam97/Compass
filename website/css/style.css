@@ -1132,6 +1132,175 @@
   }
 }
 
+/* ── Support ──────────────────────────────────────────────────────────────── */
+@layer components {
+  /* Bridges the download section's --bg-surface into the footer's --bg, so the
+     page settles rather than introducing a fifth band of colour at the end.
+     Deliberately shorter than a normal .section: this is the quietest thing on
+     the page and should not occupy a full screen on the way out. .section sets
+     its padding in @layer layout, which @layer components outranks, so no
+     extra specificity is needed here. */
+  .donate-section {
+    background: linear-gradient(180deg, var(--bg-surface) 0%, var(--bg) 100%);
+    padding-block: clamp(var(--sp-12), 6vw, var(--sp-16));
+  }
+
+  .donate-card {
+    max-width: 680px;
+    margin-inline: auto;
+    padding: clamp(var(--sp-6), 4vw, var(--sp-8));
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--r-lg);
+  }
+
+  .donate-lede {
+    font-size: 0.9375rem;
+    line-height: 1.7;
+    color: var(--text-muted);
+    text-wrap: pretty;
+  }
+  .donate-lede + .donate-lede { margin-top: var(--sp-4); }
+  .donate-lede strong { color: var(--text); font-weight: 700; }
+
+  /* Outlined, not gold. Gold belongs to the download button; a donation link
+     that outshouts it would invert the page's priorities. This is the
+     .github-link idiom one step up in weight. */
+  .donate-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-2);
+    margin-top: var(--sp-6);
+    padding: var(--sp-3) var(--sp-6);
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--text);
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    transition: background var(--t), border-color var(--t), color var(--t);
+  }
+  .donate-cta:hover {
+    background: var(--bg-card-hover);
+    border-color: color-mix(in srgb, var(--primary) 30%, var(--border));
+    color: var(--text);
+    opacity: 1;
+  }
+  .donate-cta svg { color: var(--primary); flex-shrink: 0; }
+
+  .chain-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    margin-top: var(--sp-6);
+  }
+
+  .chain {
+    padding: var(--sp-3) var(--sp-4);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--r-md);
+  }
+
+  .chain-head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--sp-1) var(--sp-3);
+    margin-bottom: var(--sp-2);
+  }
+  .chain-name { font-size: 0.875rem; font-weight: 700; color: var(--text); }
+  /* The network is named on every row because sending on the wrong one loses
+     the money, and losing it on this site's instructions is the worst outcome
+     this block could produce. */
+  .chain-net  { font-size: 0.75rem; color: var(--text-subtle); }
+
+  .chain-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--sp-3);
+  }
+
+  /* min-width 0 plus both wrapping properties: break-all still works in Safari
+     before 15.4, which has no overflow-wrap: anywhere. body has
+     overflow-x: hidden, so a wrapping failure here would silently clip a
+     payment address rather than produce a scrollbar. */
+  .chain-addr {
+    min-width: 0;
+    padding: var(--sp-2) var(--sp-3);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--r-sm);
+    word-break: break-all;
+    overflow-wrap: anywhere;
+    user-select: all;
+    -webkit-user-select: all;
+  }
+
+  .chain-copy {
+    flex-shrink: 0;
+    min-width: 5.5rem;
+    padding: var(--sp-2) var(--sp-3);
+    font-family: var(--font);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    transition: color var(--t), border-color var(--t), background var(--t);
+  }
+  .chain-copy:hover { color: var(--text); background: var(--bg-card); }
+  /* --success, not gold, for the same reason the CTA is not gold. */
+  .chain-copy.is-done {
+    color: var(--success);
+    border-color: color-mix(in srgb, var(--success) 40%, transparent);
+  }
+
+  .chain-copy:focus-visible,
+  .donate-cta:focus-visible,
+  .donate-fine a:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+
+  .donate-fine {
+    margin-top: var(--sp-6);
+    padding-top: var(--sp-6);
+    border-top: 1px solid var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+  }
+  .donate-fine p {
+    font-size: 0.8125rem;
+    line-height: 1.65;
+    color: var(--text-subtle);
+    text-wrap: pretty;
+  }
+  /* Muted and underlined rather than gold: this link exists so a claim can be
+     checked, not because the page wants it clicked. */
+  .donate-fine a {
+    color: var(--text-muted);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .donate-fine a:hover { color: var(--text); opacity: 1; }
+
+  /* 720px, matching .download-cards and .listing-strip directly above. */
+  @media (max-width: 720px) {
+    .chain-row { grid-template-columns: minmax(0, 1fr); }
+    .chain-copy { justify-self: start; }
+    .donate-cta { width: 100%; justify-content: center; }
+  }
+}
+
 /* ── Footer ───────────────────────────────────────────────────────────────── */
 @layer components {
   .footer {
