@@ -14,6 +14,8 @@ src-tauri/gen/
 .vscode/
 .idea/
 
+.github/copilot-instructions.md
+
 # Sample / test data
 sample-data/
 

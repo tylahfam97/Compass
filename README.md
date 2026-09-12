@@ -164,6 +164,33 @@ For import problems, include the institution, the file type and the step that fa
 and a few rows of **invented data** are enough. Never attach real statements, account numbers,
 databases, keys or backups.
 
+## Support
+
+I build and maintain Compass alone. Most of this category runs on a subscription, or pays for itself
+by selling what it learns about you; Compass is free because there is no server to fund, not because
+a paid tier is waiting, and I would rather it existed than be paid for building it.
+
+Sending something is absolutely not expected, and nothing changes if nobody does. There is one build
+and one source tree, so nothing below buys a version of Compass you do not already have.
+
+| Where | Network | Destination |
+|---|---|---|
+| Buy Me a Coffee | | <https://buymeacoffee.com/tylahfam> |
+| Bitcoin | Bitcoin network, native segwit | `bc1quygw2ja2cavvr47m4wq6mynxfxkp4gs8n02ez8` |
+| Ethereum | Ethereum mainnet | `0x5d7fDB0ECfAee39cA263714895B9DD7A51Fb375f` |
+| XRP | XRP Ledger, classic address | `rPapQaPmtLv6HX3YS34gnhVDYrsyfHgL5o` |
+
+An address printed on a page is not something you can verify by looking at it. The same four are on
+[privatecompass.app](https://privatecompass.app/#support), and every change to them here is a commit
+with a date and my name on it. If a Compass address appears anywhere other than those two places, it
+did not come from me.
+
+Send each asset on the network named beside it and nothing else. Transfers cannot be undone and there
+is no support desk on either end. If you have not done this before, send a small amount first.
+
+Buy Me a Coffee is a payment processor, so they will know you paid. The app on your machine never
+contacts them. Nothing recurs unless you choose it there, and you can stop it there.
+
 ## License
 
 [MIT](LICENSE.txt).

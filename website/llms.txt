@@ -14,6 +14,10 @@ locally. There is no server, no telemetry, and no subscription.
 
 Free. MIT licensed. There is no paid tier, no trial, and no account to create.
 
+Voluntary donations are accepted through Buy Me a Coffee and three crypto addresses, listed at
+https://privatecompass.app/#support and in the README. Donations are explicitly not expected, buy
+nothing, and unlock no features: there is one build and one source tree.
+
 ## Platforms
 
 - Windows 10 and 11, 64-bit. `.exe` installer or `.msi` package. WebView2 is installed if missing.
