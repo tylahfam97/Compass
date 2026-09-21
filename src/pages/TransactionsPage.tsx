@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowsDownUpIcon, ArrowUpIcon, ArrowDownIcon, PlusIcon, SparkleIcon, DownloadSimpleIcon, TagIcon, GearSixIcon, SlidersHorizontalIcon, CaretDownIcon, CaretUpIcon, UploadSimpleIcon, PencilSimpleIcon, NoteIcon, TrashIcon, ListIcon, TableIcon, DotsThreeIcon, ArrowDownLeftIcon, ArrowUpRightIcon, ArrowsLeftRightIcon, XIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { getDb, reapplyCategorizationRules } from "@/lib/db";
+import { monthBounds } from "@/lib/goals";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
 import type { Transaction } from "@/lib/types";
@@ -42,14 +43,6 @@ function SortIndicator({ col, sortCol, sortDir }: { col: SortCol; sortCol: SortC
   return sortDir === "asc"
     ? <ArrowUpIcon size={13} className="text-[hsl(var(--gold-ink))] shrink-0" />
     : <ArrowDownIcon size={13} className="text-[hsl(var(--gold-ink))] shrink-0" />;
-}
-
-function monthBounds(ym: string): [string, string] {
-  const [y, m] = ym.split("-").map(Number);
-  return [
-    `${y}-${String(m).padStart(2, "0")}-01`,
-    new Date(y, m, 1).toISOString().split("T")[0],
-  ];
 }
 
 /** Build the WHERE clause + params array shared by loadRows and exportCsv. */

@@ -4,6 +4,7 @@ import {
 } from "recharts";
 import { RepeatIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { getDb } from "@/lib/db";
+import { monthBounds } from "@/lib/goals";
 import { incomeSumSql, expenseSumSql, categorySpendSql } from "@/lib/reportingSql";
 import { detectRecurringCharges } from "@/lib/agent";
 import { formatCurrency, formatDate, formatMonthLabel, formatAxisCurrency, combineAccountBalances } from "@/lib/utils";
@@ -41,14 +42,6 @@ interface RecurringItem {
   avg_cents: number;
   category_name: string;
   category_color: string;
-}
-
-function monthBounds(ym: string): [string, string] {
-  const [y, m] = ym.split("-").map(Number);
-  return [
-    `${y}-${String(m).padStart(2, "0")}-01`,
-    new Date(y, m, 1).toISOString().split("T")[0],
-  ];
 }
 
 function prevYM(ym: string): string {

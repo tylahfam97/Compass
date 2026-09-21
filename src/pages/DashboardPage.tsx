@@ -21,6 +21,7 @@ import { pickDashboardInsights } from "@/lib/insights/rank";
 import { resolveInsightAction } from "@/lib/insightActions";
 import { latestHoldingPerAccount } from "@/lib/netWorth";
 import { incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
+import { monthBounds } from "@/lib/goals";
 import { toISODate, summarizePlanned } from "@/lib/forecast";
 import { getPlannedEvents } from "@/lib/forecastData";
 import { loadScenario } from "@/lib/planScenario";
@@ -95,13 +96,6 @@ interface PlannedAhead {
 }
 
 const INCLUDE_INVESTMENTS_KEY = "compass_include_investments";
-
-function monthBounds(ym: string): [string, string] {
-  const [y, m] = ym.split("-").map(Number);
-  const start = `${y}-${String(m).padStart(2, "0")}-01`;
-  const end = new Date(y, m, 1).toISOString().split("T")[0];
-  return [start, end];
-}
 
 function prevMonthOf(ym: string): string {
   const [y, m] = ym.split("-").map(Number);
