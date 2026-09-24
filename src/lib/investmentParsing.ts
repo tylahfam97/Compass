@@ -4,6 +4,7 @@
 // `extractPdfRows()` all normalize to, and returns a `ParsedInvestment`.
 
 import { parseAmount, parseDate } from "./importParsing";
+import { toISODate } from "./forecast";
 import type { ActivityType, SecurityType } from "./types";
 
 export interface InvestmentRow {
@@ -86,7 +87,7 @@ function positionsOnly(asOfDate: string, sections: InvestmentSection[]): ParsedI
 }
 
 function todayIso(): string {
-  return new Date().toISOString().split("T")[0];
+  return toISODate(new Date());
 }
 
 /** Maps a section title (as printed in the export) to a broad security type. */

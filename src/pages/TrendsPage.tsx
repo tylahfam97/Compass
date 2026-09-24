@@ -10,6 +10,7 @@ import { TrendUpIcon, TrendDownIcon } from "@phosphor-icons/react";
 import { getDb } from "@/lib/db";
 import { incomeSumSql, expenseSumSql, categorySpendSql } from "@/lib/reportingSql";
 import { formatCurrency, formatMonthLabel, formatAxisCurrency, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
+import { toISODate } from "@/lib/forecast";
 import { pickVariantIndex } from "@/lib/voice";
 import { useProfileStore } from "@/stores/profileStore";
 import { handleLoadFailure } from "@/stores/toastStore";
@@ -165,7 +166,7 @@ function ProfileTrends() {
       const d = new Date();
       d.setDate(1);
       d.setMonth(d.getMonth() - (range - 1));
-      const start = d.toISOString().split("T")[0];
+      const start = toISODate(d);
 
       const [incExpRows, catRows, allTimeRow, cumRows, balanceRows, balanceAcctRows] = await Promise.all([
         db.select<{ month: string; income: number; expenses: number }[]>(
