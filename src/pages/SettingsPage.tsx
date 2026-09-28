@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { DownloadSimpleIcon, UploadSimpleIcon, CalendarCheckIcon, ShieldWarningIcon, WarningIcon, CheckCircleIcon, SparkleIcon, EyeIcon, TrashIcon } from "@phosphor-icons/react";
 import { getBalanceAnchorRiskReport, deleteAllProfileData, type BalanceAnchorRiskEntry } from "@/lib/db";
 import { clearProfileLocalState } from "@/lib/profileReset";
-import { exportBackup, restoreBackup, getLastBackupAt } from "@/lib/backup";
+import { exportBackup, previewBackup, restoreBackup, getLastBackupAt, type BackupPreview } from "@/lib/backup";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useProfileStore } from "@/stores/profileStore";
 import { useSettingsStore } from "@/stores/settingsStore";
@@ -37,7 +37,8 @@ function ProfileSettings() {
   const [backupBusy, setBackupBusy] = useState(false);
   const [backupMsg, setBackupMsg] = useState<{ text: string; tone: "success" | "error" } | null>(null);
   const [restoreBusy, setRestoreBusy] = useState(false);
-  const [restoreConfirm, setRestoreConfirm] = useState(false);
+  const [restorePreview, setRestorePreview] = useState<BackupPreview | null>(null);
+  const [restoreStaging, setRestoreStaging] = useState(false);
   const [lastBackupAt, setLastBackupAt] = useState<string | null>(() => getLastBackupAt());
 
   // ── Balance anchor check ─────────────────────────────────────────────────
@@ -79,15 +80,32 @@ function ProfileSettings() {
     else if (result.error !== "cancelled") setBackupMsg({ text: `Backup failed: ${result.error}`, tone: "error" });
   };
 
-  const handleRestore = async () => {
-    if (!restoreConfirm) { setRestoreConfirm(true); return; }
-    setRestoreConfirm(false);
+  const handlePreview = async () => {
+    setRestorePreview(null);
     setRestoreBusy(true);
     setBackupMsg(null);
-    const result = await restoreBackup();
+    const result = await previewBackup();
+    setRestoreBusy(false);
+    if (result.ok) setRestorePreview(result.preview);
+    else if (result.error !== "cancelled") setBackupMsg({ text: `Backup validation failed: ${result.error}`, tone: "error" });
+  };
+
+  const handleRestore = async () => {
+    if (!restorePreview || restoreBusy) return;
+    setRestoreBusy(true);
+    setRestoreStaging(true);
+    setBackupMsg(null);
+    const result = await restoreBackup(restorePreview);
+    setRestorePreview(null);
     if (!result.ok) {
-      setRestoreBusy(false);
-      if (result.error !== "cancelled") setBackupMsg({ text: `Restore failed: ${result.error}`, tone: "error" });
+      setRestoreBusy(result.staged);
+      setRestoreStaging(result.staged);
+      setBackupMsg({
+        text: result.staged
+          ? `Backup is staged, but Compass could not relaunch: ${result.error}. Restart Compass manually to finish restoring.`
+          : `Restore failed: ${result.error}`,
+        tone: "error",
+      });
     }
     // On success the app relaunches itself - nothing more to do here.
   };
@@ -178,7 +196,7 @@ function ProfileSettings() {
         })()}
 
         {backupMsg && (
-          <p className={`text-sm px-3 py-2 rounded-lg ${
+          <p role={backupMsg.tone === "error" ? "alert" : "status"} className={`text-sm px-3 py-2 rounded-lg ${
             backupMsg.tone === "success"
               ? "bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success))]"
               : "bg-[hsl(var(--error)/0.1)] text-[hsl(var(--error))]"
@@ -197,38 +215,58 @@ function ProfileSettings() {
             <DownloadSimpleIcon size={14} /> {backupBusy ? "Preparing…" : "Export Backup"}
           </button>
 
-          {restoreConfirm ? (
-            <span className="flex items-center gap-2">
-              <span className="text-xs text-[hsl(var(--muted-foreground))]">
-                This replaces all current data and relaunches the app. Continue?
-              </span>
+          <button
+            onClick={handlePreview}
+            disabled={restoreBusy || backupBusy || erasing || balanceCheckBusy}
+            title="Choose a .compassbackup file to validate before restoring"
+            className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
+                       transition-colors flex items-center gap-1.5 disabled:opacity-50"
+          >
+            <UploadSimpleIcon size={14} /> {restoreBusy ? (restoreStaging ? "Restoring…" : "Validating…") : (restorePreview ? "Choose another backup" : "Restore Backup")}
+          </button>
+        </div>
+
+        {restorePreview && (
+          <section aria-label="Backup preview" className="border rounded-lg p-4 space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold">Backup preview</h3>
+              <p className="text-sm break-all">{restorePreview.filename}</p>
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">{restorePreview.sizeBytes.toLocaleString()} bytes</p>
+            </div>
+            <div role="status" className="text-sm text-[hsl(var(--success))]">
+              <p className="font-medium flex items-center gap-1.5"><CheckCircleIcon size={15} /> Validation passed</p>
+              <ul className="list-disc pl-5 text-xs mt-1 space-y-1">
+                <li>Compass backup format recognized.</li>
+                <li>Encryption key opens the database.</li>
+                <li>Database integrity check passed.</li>
+              </ul>
+            </div>
+            <p className="text-xs text-[hsl(var(--muted-foreground))]">
+              Nothing has been staged or changed. These checks confirm readability and integrity,
+              not that this is the backup you intended to restore.
+            </p>
+            <p className="text-xs" style={{ color: "hsl(var(--error))" }}>
+              Restoring replaces all current data across all profiles and relaunches the app. Continue?
+            </p>
+            <div className="flex flex-wrap gap-2">
               <button
                 onClick={handleRestore}
                 disabled={restoreBusy || backupBusy || erasing || balanceCheckBusy}
-                className="text-xs px-2.5 py-1.5 rounded-lg font-medium"
+                className="text-xs px-2.5 py-1.5 rounded-lg font-medium disabled:opacity-50"
                 style={{ color: "white", backgroundColor: "hsl(var(--error))" }}
               >
                 Yes, restore
               </button>
               <button
-                onClick={() => setRestoreConfirm(false)}
-                className="text-xs px-2.5 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]"
+                onClick={() => setRestorePreview(null)}
+                disabled={restoreBusy}
+                className="text-xs px-2.5 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))] disabled:opacity-50"
               >
                 Cancel
               </button>
-            </span>
-          ) : (
-            <button
-              onClick={handleRestore}
-              disabled={restoreBusy || backupBusy || erasing || balanceCheckBusy}
-              title="Choose a .compassbackup file to restore from"
-              className="text-sm px-3 py-1.5 border rounded-lg hover:bg-[hsl(var(--muted))]
-                         transition-colors flex items-center gap-1.5 disabled:opacity-50"
-            >
-              <UploadSimpleIcon size={14} /> {restoreBusy ? "Restoring…" : "Restore Backup"}
-            </button>
-          )}
-        </div>
+            </div>
+          </section>
+        )}
       </section>
 
       {/* ── Scheduled bills & income (lives on the Plan page, linked from here) ─ */}

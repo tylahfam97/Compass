@@ -199,6 +199,94 @@ test("Plan keeps profile scenarios separate while an old load is pending", async
   expect(amounts).toEqual([12500, 5000]);
 });
 
+test("Settings previews a backup before confirmation and only stages on restore", async ({ page, database }, testInfo) => {
+  const before = database.prepare('SELECT COUNT(*) AS total FROM transactions').get()?.total;
+  const calls: { command: string; args: unknown }[] = [];
+  await page.exposeBinding('backupTestInvoke', async (_source, command: string, args: unknown) => {
+    calls.push({ command, args });
+  });
+  await page.goto('/settings');
+  await page.evaluate(() => {
+    const host = window as unknown as {
+      showOpenFilePicker: () => Promise<unknown[]>;
+      backupTestInvoke: (command: string, args: unknown) => Promise<unknown>;
+      __TAURI_INTERNALS__: { invoke: (command: string, args: unknown) => Promise<unknown> };
+    };
+    host.showOpenFilePicker = async () => [{ getFile: async () => new File(['test snapshot'], 'chosen.compassbackup') }];
+    const original = host.__TAURI_INTERNALS__.invoke;
+    host.__TAURI_INTERNALS__.invoke = (command, args) =>
+      ['validate_backup', 'stage_backup_restore', 'plugin:process|restart'].includes(command)
+        ? host.backupTestInvoke(command, args) : original(command, args);
+  });
+  await page.getByRole('button', { name: 'Restore Backup', exact: true }).click();
+  const preview = page.getByRole('region', { name: 'Backup preview', exact: true });
+  await expect(preview).toContainText('chosen.compassbackup');
+  await expect(preview).toContainText('Validation passed');
+  await expect(preview).toContainText('Nothing has been staged');
+  expect(calls.map((call) => call.command)).toEqual(['validate_backup']);
+  expect(database.prepare('SELECT COUNT(*) AS total FROM transactions').get()?.total).toBe(before);
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await testInfo.attach(`backup-preview-${width}`, { body: await preview.screenshot(), contentType: 'image/png' });
+  }
+  await preview.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(preview).toHaveCount(0);
+  expect(calls.map((call) => call.command)).toEqual(['validate_backup']);
+  await page.getByRole('button', { name: 'Restore Backup', exact: true }).click();
+  await preview.getByRole('button', { name: 'Yes, restore', exact: true }).click();
+  await expect.poll(() => calls.map((call) => call.command)).toEqual([
+    'validate_backup', 'validate_backup', 'stage_backup_restore', 'plugin:process|restart',
+  ]);
+  expect(calls[2].args).toEqual(calls[1].args);
+});
+
+test("Settings blocks failed backup validation and explains a staged restart failure", async ({ page, database }) => {
+  expect(database.isOpen).toBe(true);
+  let validationError: string | null = 'backup file is truncated or corrupt';
+  let stagingError: string | null = 'could not stage the database';
+  const calls: string[] = [];
+  await page.exposeBinding('backupTestInvoke', async (_source, command: string) => {
+    calls.push(command);
+    if (command === 'validate_backup' && validationError) throw new Error(validationError);
+    if (command === 'stage_backup_restore' && stagingError) throw new Error(stagingError);
+    if (command === 'plugin:process|restart') throw new Error('restart unavailable');
+  });
+  await page.goto('/settings');
+  await page.evaluate(() => {
+    const host = window as unknown as {
+      showOpenFilePicker: () => Promise<unknown[]>;
+      backupTestInvoke: (command: string) => Promise<unknown>;
+      __TAURI_INTERNALS__: { invoke: (command: string, args: unknown) => Promise<unknown> };
+    };
+    host.showOpenFilePicker = async () => [{ getFile: async () => new File(['test snapshot'], 'chosen.compassbackup') }];
+    const original = host.__TAURI_INTERNALS__.invoke;
+    host.__TAURI_INTERNALS__.invoke = (command, args) =>
+      ['validate_backup', 'stage_backup_restore', 'plugin:process|restart'].includes(command)
+        ? host.backupTestInvoke(command) : original(command, args);
+  });
+  const select = page.getByRole('button', { name: 'Restore Backup', exact: true });
+  await select.click();
+  await expect(page.getByRole('alert')).toContainText('Backup validation failed: backup file is truncated or corrupt');
+  await expect(page.getByRole('button', { name: 'Yes, restore', exact: true })).toHaveCount(0);
+  await expect(select).toBeEnabled();
+  expect(calls).toEqual(['validate_backup']);
+
+  validationError = null;
+  await select.click();
+  await page.getByRole('button', { name: 'Yes, restore', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Restore failed: could not stage the database');
+  await expect(select).toBeEnabled();
+  expect(calls).not.toContain('plugin:process|restart');
+
+  stagingError = null;
+  await select.click();
+  await page.getByRole('button', { name: 'Yes, restore', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Backup is staged');
+  await expect(page.getByRole('alert')).toContainText('Restart Compass manually to finish restoring');
+  await expect(page.getByRole('region', { name: 'Backup preview', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Restoring…', exact: true })).toBeDisabled();
+});
+
 test("Settings restores theme preference and recovers from account-check failure", async ({ page, database }) => {
   expect(database.isOpen).toBe(true);
   await page.goto('/settings');

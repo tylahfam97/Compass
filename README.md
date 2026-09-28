@@ -112,7 +112,10 @@ both files and any backup of them.** Encryption at rest is not a substitute for 
 
 - **Full backup:** **Settings > Backup & Restore > Export Backup** writes a `.compassbackup` file.
   It contains the database and its key, so treat it as sensitive.
-- **Restore:** **Restore Backup** validates the file and relaunches to finish.
+- **Restore:** **Restore Backup** lets you choose a file and preview its format, key/readability,
+  and database integrity checks without staging a restore. **Yes, restore** revalidates the
+  selected snapshot, replaces data across all profiles on relaunch, and keeps the existing
+  startup rollback behavior. Validation does not verify financial accuracy or backup provenance.
 - **CSV export:** in Transactions, select **All time**, clear filters and export. Repeat per profile.
 - **Erase:** **Settings > Erase this profile's data** permanently removes one profile's data after a
   typed confirmation. Uninstalling does not erase anything; remove the app data directory yourself.
