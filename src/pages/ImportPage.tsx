@@ -11,7 +11,7 @@ import {
 } from "@/lib/db";
 import type { AccountChoice } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { parseDate, parseAmount, dedupeRowHash, hashRow, findDuplicateCandidates } from "@/lib/importParsing";
+import { parseDate, parseAmount, parseSplitAmount, dedupeRowHash, hashRow, findDuplicateCandidates } from "@/lib/importParsing";
 import type { DuplicateCandidate } from "@/lib/importParsing";
 import {
   parseInvestmentWorkbook, buildInvestmentRow, columnFillCount, sectionHasNoValueData,
@@ -373,17 +373,15 @@ function autoDetect(headers: string[]): ColMap {
 }
 
 /** Computes the signed dollar amount for one row, given the active column mapping. When
- *  `debitCol`/`creditCol` are both set (banks with two amount columns, e.g. Capital One), a
- *  non-blank debit cell means an expense (negative) and a non-blank credit cell means a credit
- *  (positive) - whichever cell actually has a value wins, since a row typically populates only
- *  one of the two. Falls back to the existing single-amount-column logic otherwise. */
+ *  `debitCol` or `creditCol` is set (banks with two amount columns, e.g. Capital One), a
+ *  nonzero parsed debit wins as an expense (negative); otherwise a nonzero parsed credit is
+ *  positive. Returns 0 if neither parses nonzero. Falls back to the existing single-amount-column
+ *  logic otherwise. */
 function computeRowAmount(row: string[], colMap: ColMap): number {
   if (colMap.debitCol >= 0 || colMap.creditCol >= 0) {
     const debitRaw = colMap.debitCol >= 0 ? (row[colMap.debitCol] ?? "").trim() : "";
     const creditRaw = colMap.creditCol >= 0 ? (row[colMap.creditCol] ?? "").trim() : "";
-    if (debitRaw) return -Math.abs(parseAmount(debitRaw));
-    if (creditRaw) return Math.abs(parseAmount(creditRaw));
-    return 0;
+    return parseSplitAmount(debitRaw, creditRaw);
   }
   const rawAmount = parseAmount(row[colMap.amountCol] ?? "0");
   let amount = rawAmount;

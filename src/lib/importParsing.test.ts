@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseDate, parseAmount, hashRow, dedupeRowHash } from "./importParsing";
+import { parseDate, parseAmount, parseSplitAmount, hashRow, dedupeRowHash } from "./importParsing";
 
 describe("parseDate", () => {
   it("parses MM/DD/YYYY into ISO", () => {
@@ -101,6 +101,35 @@ describe("parseAmount", () => {
   it("still treats a US thousands comma as a separator", () => {
     expect(parseAmount("1,234")).toBe(1234);
     expect(parseAmount("12,345.67")).toBe(12345.67);
+  });
+});
+
+describe("parseSplitAmount", () => {
+  it("uses a nonzero credit when the debit is zero", () => {
+    expect(parseSplitAmount("0.00", "123.45")).toBe(123.45);
+  });
+
+  it("uses a nonzero credit when the debit is blank", () => {
+    expect(parseSplitAmount("", "123.45")).toBe(123.45);
+  });
+
+  it("returns a nonzero debit as negative when the credit is zero or blank", () => {
+    expect(parseSplitAmount("123.45", "0.00")).toBe(-123.45);
+    expect(parseSplitAmount("123.45", "")).toBe(-123.45);
+  });
+
+  it("preserves debit precedence when both amounts are nonzero", () => {
+    expect(parseSplitAmount("123.45", "67.89")).toBe(-123.45);
+  });
+
+  it("returns zero when neither amount parses nonzero", () => {
+    expect(parseSplitAmount("0.00", "0.00")).toBe(0);
+    expect(parseSplitAmount("", "")).toBe(0);
+    expect(parseSplitAmount("n/a", "-")).toBe(0);
+  });
+
+  it("uses a nonzero credit when the debit is unparseable", () => {
+    expect(parseSplitAmount("n/a", "123.45")).toBe(123.45);
   });
 });
 

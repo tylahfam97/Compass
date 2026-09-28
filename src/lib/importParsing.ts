@@ -84,6 +84,13 @@ export function parseAmount(s: string): number {
   return isNaN(n) ? 0 : neg ? -Math.abs(n) : Math.abs(n);
 }
 
+/** Uses a nonzero parsed debit first (negative), otherwise credit (positive), or 0. */
+export function parseSplitAmount(debitRaw: string, creditRaw: string): number {
+  const debit = parseAmount(debitRaw);
+  if (debit !== 0) return -Math.abs(debit);
+  return Math.abs(parseAmount(creditRaw));
+}
+
 /** SHA-256 hex hash of a raw CSV row, used for import dedup. */
 export async function hashRow(row: string[]): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(row.join("||")));
