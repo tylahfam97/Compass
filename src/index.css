@@ -149,12 +149,6 @@ h1, h2, h3 {
   font-variant-numeric: tabular-nums lining-nums;
 }
 .app-main { container-type: inline-size; }
-.mobile-nav-backdrop { display: none; }
-@media (max-width: 719px) {
-  .app-sidebar[data-expanded="true"] { position: fixed; inset: 0 auto 0 0; z-index: 45; }
-  .app-sidebar[data-expanded="true"] ~ .app-main { margin-left: 56px; }
-  .mobile-nav-backdrop { display: block; position: fixed; inset: 0; z-index: 40; background: hsl(var(--scrim) / 0.35); }
-}
 .app-workspace { min-width: 0; }
 .app-workspace > div > .py-6 { padding-block: 0; }
 .workspace-page > *, .workspace-page .grid > * { min-width: 0; }
@@ -176,7 +170,6 @@ h1, h2, h3 {
 }
 @container (min-width: 1600px) {
   .app-workspace .goal-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .overview-workspace > .grid, .overview-workspace > .grid.grid-cols-2 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 @container (max-width: 1099px) {
   .workspace-page { padding-inline: 24px; }
@@ -185,7 +178,7 @@ h1, h2, h3 {
 }
 @container (max-width: 719px) {
   .workspace-page { padding: 20px 16px 32px; }
-  .trends-workspace .grid-cols-3, .overview-workspace > .grid { grid-template-columns: minmax(0, 1fr); }
+  .soundings-plot { height: 190px; }
   .app-workspace .goal-grid { grid-template-columns: minmax(0, 1fr); }
   .insights-heading { padding-inline: 16px; }
   .insights-context-content .grid-cols-2 { grid-template-columns: minmax(0, 1fr); }
@@ -367,6 +360,158 @@ select.activity-category { background: hsl(var(--surface)); }
 .goal-current { display: block; font-size: 28px; line-height: 1.4; font-weight: 600; overflow-wrap: anywhere; }
 .budget-item { border-bottom: 1px solid hsl(var(--border)); }
 .budget-summary strong { font-size: 26px; overflow-wrap: anywhere; }
+
+/* ── Trends: the ship's log ──────────────────────────────────────────
+   One editorial column: a serif hero over the gold voyage line, then hairline sections.
+   A gold top rule on a section is the app's existing "click for detail" affordance (same
+   code as .chart-clickable); plain sections keep the quiet grey hairline. */
+.trends-hero { padding-block: 4px 8px; }
+.trends-hero-stats { display: flex; gap: 12px 36px; flex-wrap: wrap; margin: 0; }
+.trends-hero-stats dt { font-size: 12px; color: hsl(var(--muted-foreground)); margin-bottom: 4px; }
+.trends-hero-stats dd { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.trends-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+  padding: 10px 14px;
+  border-left: 2px solid hsl(var(--primary));
+  border-radius: 0 8px 8px 0;
+  background: hsl(var(--surface-raised) / 0.6);
+}
+.trend-section { border-top: 1px solid hsl(var(--border)); padding-top: 18px; }
+.trend-section[data-drill] { border-top-color: hsl(var(--primary) / 0.55); }
+.trend-section-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 32px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.trend-section-head h2 { font-size: 15px; line-height: 1.3; }
+.trend-kicker { font-size: 12px; color: hsl(var(--muted-foreground)); margin-top: 3px; max-width: 62ch; }
+.trend-readout { text-align: right; }
+.trend-readout strong { display: block; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.trend-readout small { font-size: 11px; color: hsl(var(--muted-foreground)); }
+.trend-legend { display: flex; gap: 16px; font-size: 12px; color: hsl(var(--muted-foreground)); margin-bottom: 4px; }
+.trend-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.trend-legend i { width: 10px; height: 10px; border-radius: 9999px; }
+.trend-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.trend-chips button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  border: 1px solid hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+.trend-chips button:hover { color: hsl(var(--foreground)); background: hsl(var(--muted)); }
+.trend-chips button[aria-pressed="true"] {
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--primary) / 0.6);
+  background: hsl(var(--primary) / 0.08);
+}
+@media (max-width: 640px) {
+  .trend-readout { text-align: left; }
+  .trends-hero-stats { gap: 8px 24px; }
+  .trends-hero-stats dd { font-size: 17px; }
+}
+
+/* ── Reports: the plotting table ────────────────────────────────────
+   Any cut of the ledger, drawn four ways. The gold top rule marks it as an instrument you
+   work; the control rail sits on a raised chart-paper surface, the result reads in serif. */
+.report-builder { border-top: 1px solid hsl(var(--primary) / 0.55); padding-top: 18px; }
+.rb-rail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 28px;
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: hsl(var(--surface-raised) / 0.55);
+  border-radius: 8px;
+}
+.rb-group { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.rb-group > span { font-size: 11px; font-weight: 500; color: hsl(var(--muted-foreground)); }
+.rb-search {
+  background: hsl(var(--surface));
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 13px;
+  width: 180px;
+}
+.rb-presets { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+.rb-preset {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid hsl(var(--border));
+  border-radius: 9999px;
+  overflow: hidden;
+  font-size: 12px;
+}
+.rb-preset > button:first-child { padding: 4px 6px 4px 10px; }
+.rb-preset > button:first-child:hover { background: hsl(var(--muted)); }
+.rb-preset > button:last-child { padding: 4px 8px 4px 4px; color: hsl(var(--muted-foreground)); }
+.rb-preset > button:last-child:hover { color: hsl(var(--error)); }
+.rb-preset-naming input { background: transparent; border: 0; outline: none; padding: 4px 4px 4px 10px; font-size: 12px; width: 140px; }
+.rb-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  border: 1px dashed hsl(var(--border));
+  color: hsl(var(--gold-ink));
+}
+.rb-save:hover { border-style: solid; background: hsl(var(--primary) / 0.08); }
+.rb-canvas { margin-top: 16px; }
+.rb-sheet { overflow-x: auto; }
+.rb-sheet table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 520px; }
+.rb-sheet th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+  padding: 8px 10px;
+  border-bottom: 1px solid hsl(var(--border));
+  white-space: nowrap;
+}
+.rb-sheet td { padding: 9px 10px; border-bottom: 1px solid hsl(var(--border) / 0.5); max-width: 260px; }
+.rb-sheet th.rb-num, .rb-sheet td.rb-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rb-sheet tbody tr:hover { background: hsl(var(--muted) / 0.4); }
+.rb-sheet tfoot td { border-top: 1px solid hsl(var(--border)); border-bottom: 0; font-weight: 600; }
+.rb-donut { display: grid; grid-template-columns: minmax(0, 1fr) minmax(200px, 280px); gap: 24px; align-items: center; }
+.rb-donut-plot { position: relative; }
+.rb-donut-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.rb-donut-center strong {
+  font-family: var(--font-serif);
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.rb-donut-center small { font-size: 11px; color: hsl(var(--muted-foreground)); margin-top: 2px; }
+.rb-donut-legend { font-size: 12px; min-width: 0; }
+.rb-donut-legend li { display: flex; align-items: center; gap: 8px; padding-block: 7px; border-bottom: 1px solid hsl(var(--border) / 0.5); min-width: 0; }
+.rb-donut-legend li .truncate { flex: 1; }
+.rb-donut-legend strong { font-variant-numeric: tabular-nums; font-weight: 500; }
+@container (max-width: 719px) {
+  .rb-donut { grid-template-columns: minmax(0, 1fr); }
+  .rb-search { width: 100%; }
+}
 .report-summary strong { font-size: 28px; overflow-wrap: anywhere; }
 .reports-workspace > section { border-bottom: 1px solid hsl(var(--border)); padding-bottom: 24px; }
 .report-category-row { padding-block: 10px; }
@@ -675,8 +820,54 @@ body::after {
 .choice-row:hover { background: hsl(var(--foreground) / 0.04); }
 .dash-grid { display: grid; gap: 28px 40px; align-items: start; }
 .dash-grid > * { min-width: 0; }
+.overview-grid {
+  display: grid;
+  gap: 28px 40px;
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "heading" "sounding" "accounts" "people" "manage";
+}
+.overview-grid > * { min-width: 0; }
+.overview-heading { grid-area: heading; }
+.overview-sounding { grid-area: sounding; }
+.overview-accounts { grid-area: accounts; }
+.overview-people { grid-area: people; }
+.overview-manage { grid-area: manage; }
+
+/* Soundings: net worth as depth. The plot sizes itself to the column; the waterline and
+   the projected ray are drawn by the chart, not by this sheet. */
+.soundings-plot { width: 100%; height: 240px; }
+
+/* The account roster is a lookup table, so it scrolls sideways inside its own box rather
+   than widening the page. [data-num] carries the alignment so a Tailwind text utility
+   never has to outrank these selectors. */
+.overview-roster { overflow-x: auto; max-width: 100%; }
+/* Five columns never need the full width of a wide window; capping it keeps the name and
+   its balance in one eyeful instead of separated by a field of empty space. */
+.overview-roster table { width: 100%; min-width: 520px; max-width: 880px; border-collapse: collapse; }
+.overview-roster [data-num] { text-align: right; }
+.overview-roster thead th { font-size: 11px; font-weight: 500; color: hsl(var(--muted-foreground)); text-align: left; padding: 0 12px 8px 0; border-bottom: 1px solid hsl(var(--border)); }
+.overview-roster tbody th[scope="colgroup"] { font-size: 12px; font-weight: 600; color: hsl(var(--muted-foreground)); text-align: left; padding: 18px 0 4px; border: 0; }
+.overview-roster tbody th[scope="row"] { font-size: 13px; font-weight: 500; text-align: left; }
+.overview-roster tbody td, .overview-roster tbody th[scope="row"] { padding: 9px 12px 9px 0; border-bottom: 1px solid hsl(var(--border) / 0.6); font-size: 13px; vertical-align: middle; }
+.overview-roster tbody tr[data-hidden="true"] { opacity: 0.5; }
+.overview-roster .roster-dot { display: inline-block; width: 6px; height: 6px; border-radius: 999px; margin-right: 8px; vertical-align: middle; }
+.overview-roster .roster-muted { color: hsl(var(--muted-foreground)); font-size: 12px; }
+.overview-roster .roster-note { margin-left: 8px; font-size: 11px; font-weight: 400; color: hsl(var(--muted-foreground)); }
+.overview-roster .roster-spark { width: 96px; padding-right: 0; }
+
 .overview-profiles { display: grid; }
 .profile-row { border-top: 1px solid hsl(var(--border)); padding: 20px 0; min-width: 0; }
+.profile-figures { display: flex; flex-wrap: wrap; gap: 10px 28px; margin-top: 12px; }
+.profile-figures > div { min-width: 0; }
+.profile-figures p { font-size: 11px; color: hsl(var(--muted-foreground)); }
+.profile-figures strong { display: block; font-size: 15px; font-weight: 500; line-height: 1.2; font-variant-numeric: tabular-nums lining-nums; }
+
+/* Manage Accounts keeps its own collapsing behaviour but drops the card chrome, so the
+   foot of Overview reads as a rule like every other section boundary. */
+.overview-manage > div { border: 0; border-top: 1px solid hsl(var(--border)); border-radius: 0; background: none; }
+.overview-manage > div > button { padding-left: 0; padding-right: 0; }
+.overview-manage > div > div { padding-left: 0; padding-right: 0; }
 .insights-table { overflow-x: auto; max-width: 100%; }
 .insights-table table { min-width: 540px; }
 .score-meters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; }
@@ -690,8 +881,8 @@ body::after {
   .activity-row[data-compact="true"] .activity-category { display: none; }
 }
 @container (min-width: 1100px) {
-  .dash-grid { grid-template-columns: minmax(0, 1fr) 380px; grid-template-areas: "heading heading" "hero hero" "horizon horizon" "accounts categories" "accounts insights" "activity activity" "manage manage"; }
-  .dash-heading { grid-area: heading; } .dash-hero { grid-area: hero; } .dash-horizon { grid-area: horizon; } .dash-accounts { grid-area: accounts; }
+  .dash-grid { grid-template-columns: minmax(0, 1fr) 380px; grid-template-areas: "heading heading" "hero hero" "watch watch" "horizon horizon" "accounts categories" "accounts insights" "activity activity" "manage manage"; }
+  .dash-heading { grid-area: heading; } .dash-hero { grid-area: hero; } .dash-watch { grid-area: watch; } .dash-horizon { grid-area: horizon; } .dash-accounts { grid-area: accounts; }
   .dash-categories { grid-area: categories; } .dash-insights { grid-area: insights; } .dash-activity { grid-area: activity; } .dash-manage { grid-area: manage; }
   .choice-list { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 40px; }
   .investments-charts { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
@@ -699,7 +890,12 @@ body::after {
 }
 @container (min-width: 1600px) {
   .dash-grid { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); }
-  .overview-profiles { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 40px; }
+  /* Only pair the roster with the profile rail when there are profile rows to put there;
+     otherwise the roster keeps the full width instead of leaving an empty gutter. */
+  .overview-grid:has(.overview-people) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 360px);
+    grid-template-areas: "heading heading" "sounding sounding" "accounts people" "manage manage";
+  }
 }
 @container (max-width: 719px) {
   .stat-row { grid-template-columns: 1fr !important; gap: 12px; }
@@ -769,3 +965,137 @@ body::after {
   animation-duration: 2.4s !important;
   animation-iteration-count: infinite !important;
 }
+
+/* ── The Chart: money as currents ─────────────────────────────────────────────
+   A layered flow map drawn in SVG. Ribbons are strokes as wide as the money; the faint
+   channel is the whole month and the brighter current fills it to the scrubbed day. Gold
+   particles ride each ribbon as HTML spans on a CSS motion path, so the SVG itself never
+   re-renders for motion. Labels sit on the ribbons with a paper halo so they stay legible. */
+.chart-workspace { display: flex; flex-direction: column; gap: 28px; }
+.chart-workspace > * { min-width: 0; }
+.chart-hero .stat-row { border-bottom: 0; padding-bottom: 0; }
+.chart-map { border-top: 1px solid hsl(var(--primary) / 0.55); padding-top: 18px; }
+.flow-scroll { overflow-x: auto; overflow-y: hidden; max-width: 100%; }
+.flow-map { position: relative; width: 100%; margin-top: 12px; }
+@container (max-width: 719px) {
+  .flow-map { min-width: 720px; }
+}
+.flow-captions { position: relative; font-size: 11px; color: hsl(var(--muted-foreground)); }
+.flow-captions span { position: absolute; top: 0; white-space: nowrap; }
+.flow-svg { display: block; overflow: visible; }
+.flow-channel { opacity: calc(var(--ribbon-alpha, 0.42) * 0.3); transition: opacity 0.25s ease; }
+.flow-current { opacity: var(--ribbon-alpha, 0.42); transition: opacity 0.25s ease, stroke-width 0.35s cubic-bezier(0.2, 0.7, 0.2, 1); }
+.flow-centerline { stroke: hsl(var(--primary)); stroke-width: 1.5; stroke-dasharray: 7 3; opacity: 0; pointer-events: none; transition: opacity 0.2s ease; }
+.flow-hit { stroke: transparent; cursor: pointer; outline: none; }
+.flow-ribbon:hover .flow-channel, .flow-ribbon[data-selected] .flow-channel { opacity: calc(var(--ribbon-alpha, 0.42) * 0.5); }
+.flow-ribbon:hover .flow-current, .flow-ribbon[data-selected] .flow-current { opacity: min(0.85, calc(var(--ribbon-alpha, 0.42) * 1.6)); }
+.flow-ribbon[data-selected] .flow-centerline, .flow-ribbon:has(.flow-hit:focus-visible) .flow-centerline { opacity: 0.9; }
+.flow-ribbon[data-active] .flow-current { opacity: min(0.8, calc(var(--ribbon-alpha, 0.42) * 1.4)); }
+.flow-ribbon[data-dim] .flow-channel { opacity: 0.05; }
+.flow-ribbon[data-dim] .flow-current { opacity: 0.12; }
+
+.flow-node { cursor: pointer; outline: none; transition: opacity 0.25s ease; }
+.flow-node[data-dim] { opacity: 0.35; }
+.flow-node-rect { transition: filter 0.2s ease; }
+.flow-node:hover .flow-node-rect { filter: brightness(1.15); }
+.flow-node-ring { fill: none; stroke: hsl(var(--primary)); stroke-width: 1.5; }
+.flow-node:focus-visible .flow-node-rect { stroke: hsl(var(--ring)); stroke-width: 2; }
+.flow-label {
+  fill: hsl(var(--foreground));
+  font-weight: 500;
+  paint-order: stroke;
+  stroke: hsl(var(--background));
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.flow-amount {
+  fill: hsl(var(--muted-foreground));
+  font-size: 11px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  paint-order: stroke;
+  stroke: hsl(var(--background));
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.flow-particles { position: absolute; left: 0; right: 0; bottom: 0; pointer-events: none; overflow: hidden; }
+@keyframes flow-drift {
+  0% { offset-distance: 0%; opacity: 0; }
+  6% { opacity: 0.9; }
+  94% { opacity: 0.9; }
+  100% { offset-distance: 100%; opacity: 0; }
+}
+@keyframes flow-burst {
+  0% { offset-distance: 0%; opacity: 0; transform: translateY(var(--ty, 0px)) scale(0.6); }
+  12% { opacity: 1; transform: translateY(var(--ty, 0px)) scale(1.3); }
+  100% { offset-distance: 100%; opacity: 0; transform: translateY(var(--ty, 0px)) scale(0.8); }
+}
+.flow-particle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  border-radius: 9999px;
+  background: var(--gold);
+  box-shadow: 0 0 6px 1px hsl(var(--primary) / 0.55);
+  offset-rotate: 0deg;
+  transform: translateY(var(--ty, 0px));
+  animation: flow-drift var(--dur, 7s) linear var(--delay, 0s) infinite;
+  will-change: offset-distance, opacity;
+}
+.flow-burst {
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  box-shadow: 0 0 10px 2px hsl(var(--primary) / 0.7);
+  animation: flow-burst var(--dur, 1.3s) cubic-bezier(0.2, 0.7, 0.2, 1) var(--delay, 0s) 1 forwards;
+}
+.flow-transport { display: flex; gap: 8px; align-items: center; border-block: 1px solid hsl(var(--border)); padding: 8px 0; margin-top: 12px; }
+.flow-transport input { min-width: 0; flex: 1; accent-color: var(--gold); }
+.flow-transport time { width: 96px; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
+.chart-inspector { min-width: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .flow-particle { display: none; }
+}
+.reduce-motion .flow-particle { display: none; }
+
+/* ── Cost of money (Insights) ────────────────────────────────────────────────
+   Paid and earned as two lengths of one scale, the live accrual as two plain figures. */
+.cost-of-money { max-width: 1040px; padding-bottom: 24px; border-bottom: 1px solid hsl(var(--border)); }
+.cost-of-money .stat-row { border-bottom: 0; padding-bottom: 0; }
+.cost-tracks { display: grid; gap: 8px; max-width: 640px; }
+.cost-track-row { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 12px; align-items: center; font-size: 12px; color: hsl(var(--muted-foreground)); }
+.cost-track { position: relative; height: 8px; border-radius: 4px; background: hsl(var(--muted)); overflow: hidden; }
+.cost-track > i { display: block; height: 100%; border-radius: 4px; transform-origin: left center; }
+.cost-fill-paid { background: hsl(var(--error) / 0.8); }
+.cost-fill-earned { background: hsl(var(--success) / 0.8); }
+.cost-today { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; border-top: 1px solid hsl(var(--border)); padding-top: 16px; }
+.cost-today > div { min-width: 0; }
+.cost-account-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 100px 64px 150px; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid hsl(var(--border) / 0.6); }
+@container (max-width: 719px) {
+  .cost-today { grid-template-columns: minmax(0, 1fr); }
+  .cost-account-row { grid-template-columns: minmax(0, 1fr) auto 120px; }
+  .cost-account-row > :nth-child(3), .cost-account-row > :nth-child(4) { display: none; }
+}
+
+/* ── The Watch (Dashboard): this pay cycle against the usual curve ───────────── */
+.pay-watch { max-width: 1040px; border-top: 1px solid hsl(var(--border)); padding-top: 20px; }
+.pay-watch .stat-row { border-bottom: 0; padding-bottom: 0; }
+.pay-watch-plot { width: 100%; }
+.pay-watch-axis { stroke: hsl(var(--border)); }
+.pay-watch-tick { font-size: 11px; fill: hsl(var(--muted-foreground)); font-variant-numeric: tabular-nums; }
+.pay-watch-past { fill: none; stroke: hsl(var(--sea)); stroke-opacity: 0.22; stroke-width: 1.25; }
+.pay-watch-typical { fill: none; stroke: hsl(var(--muted-foreground)); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.pay-watch-current { fill: none; stroke: hsl(var(--primary)); stroke-width: 2.25; stroke-linejoin: round; stroke-linecap: round; }
+.pay-watch-today { fill: hsl(var(--primary)); stroke: hsl(var(--background)); stroke-width: 2; }
+.pay-watch-today-line { stroke: hsl(var(--foreground)); stroke-opacity: 0.25; stroke-dasharray: 2 4; }
+.pay-watch-legend { display: inline-flex; align-items: center; gap: 6px 8px; flex-wrap: wrap; }
+.pay-watch-legend i { display: inline-block; width: 14px; height: 0; border-top: 2px solid; margin-left: 8px; }
+.pay-watch-legend i:first-child { margin-left: 0; }
+.pay-watch-swatch-current { border-color: hsl(var(--primary)); }
+.pay-watch-swatch-typical { border-color: hsl(var(--muted-foreground)); border-top-style: dashed; }
+.pay-watch-swatch-past { border-color: hsl(var(--sea) / 0.4); }

@@ -21,6 +21,7 @@ import { pickDashboardInsights } from "@/lib/insights/rank";
 import { resolveInsightAction } from "@/lib/insightActions";
 import { latestHoldingPerAccount } from "@/lib/netWorth";
 import { incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
+import { monthBounds } from "@/lib/goals";
 import { toISODate, summarizePlanned } from "@/lib/forecast";
 import { getPlannedEvents } from "@/lib/forecastData";
 import { loadScenario } from "@/lib/planScenario";
@@ -41,6 +42,9 @@ import AccountRow from "@/components/AccountRow";
 import RankedBars from "@/components/RankedBars";
 import ActivityRow from "@/components/ActivityRow";
 import BearingBar from "@/components/BearingBar";
+import PayCycleWatch from "@/components/PayCycleWatch";
+import { getWatchInputs } from "@/lib/payCycleData";
+import { detectPayCycle, summarizeWatch, type WatchSummary } from "@/lib/payCycle";
 
 interface MonthStats {
   income: number;
@@ -93,13 +97,6 @@ interface PlannedAhead {
 
 const INCLUDE_INVESTMENTS_KEY = "compass_include_investments";
 
-function monthBounds(ym: string): [string, string] {
-  const [y, m] = ym.split("-").map(Number);
-  const start = `${y}-${String(m).padStart(2, "0")}-01`;
-  const end = new Date(y, m, 1).toISOString().split("T")[0];
-  return [start, end];
-}
-
 function prevMonthOf(ym: string): string {
   const [y, m] = ym.split("-").map(Number);
   const d = new Date(y, m - 2, 1);
@@ -141,6 +138,7 @@ export default function DashboardPage() {
     () => localStorage.getItem(INCLUDE_INVESTMENTS_KEY) !== "false"
   );
   const [planned, setPlanned] = useState<PlannedAhead>({ dueCents: 0, incomeCents: 0, billCount: 0, hasAny: false });
+  const [watch, setWatch] = useState<WatchSummary | null>(null);
   const isDark = useIsDark();
   const mode = isDark ? "dark" : "light";
 
@@ -416,6 +414,21 @@ export default function DashboardPage() {
     loadLoans().catch(console.error);
   }, [loadLoans]);
 
+  // The pay cycle is about today, so it loads once per profile and only shows on the current month.
+  useEffect(() => {
+    let cancelled = false;
+    const today = toISODate(new Date());
+    getWatchInputs(profileId, today)
+      .then((inputs) => {
+        if (cancelled) return;
+        const detection = detectPayCycle({ plannedPaydays: inputs.plannedPaydays, deposits: inputs.deposits, today });
+        setWatch(detection ? summarizeWatch({ detection, txns: inputs.txns, bills: inputs.bills, detected: inputs.detected, today }) : null);
+      })
+      .catch((err) => { console.error(err); if (!cancelled) setWatch(null); });
+    return () => { cancelled = true; };
+  }, [profileId]);
+  const isCurrentMonth = month === toISODate(new Date()).slice(0, 7);
+
   // The short list: top-ranked rows, one per type, favouring ones the user can act on.
   const visibleInsights = pickDashboardInsights(
     insights.filter((i) => !dismissedInsights.includes(i.dismissKey)),
@@ -552,6 +565,13 @@ export default function DashboardPage() {
               )}
             </motion.div>
           </motion.section>
+
+          {/* ── The Watch: this pay cycle against the usual curve, today only ── */}
+          {watch && isCurrentMonth && (
+            <section className="dash-watch">
+              <PayCycleWatch watch={watch} />
+            </section>
+          )}
 
           {/* ── Horizon: the checking balance over the month, drawn wide and quiet ── */}
           {currentBalance != null && (

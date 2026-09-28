@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { PlusIcon, PencilSimpleIcon, TrashIcon, PauseIcon, PlayIcon, CalendarCheckIcon, ArrowCounterClockwiseIcon } from "@phosphor-icons/react";
+import { PlusIcon, PencilSimpleIcon, TrashIcon, PauseIcon, PlayIcon, CalendarCheckIcon, ArrowCounterClockwiseIcon, XIcon } from "@phosphor-icons/react";
 import {
   getDb,
   getRecurringRulesForProfile, createRecurringRule, updateRecurringRule,
@@ -215,7 +215,7 @@ export default function RecurringRulesPanel({ profileId, onChanged, openFormRequ
                 {confirmDeleteId === r.id ? (
                   <span className="flex items-center gap-1 shrink-0">
                     <button onClick={() => removeRule(r.id)} className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ color: "white", backgroundColor: "hsl(var(--error))" }}>Delete?</button>
-                    <button onClick={() => setConfirmDeleteId(null)} className="text-[hsl(var(--muted-foreground))]">✕</button>
+                    <button onClick={() => setConfirmDeleteId(null)} aria-label="Cancel" className="text-[hsl(var(--muted-foreground))]"><XIcon size={14} /></button>
                   </span>
                 ) : (
                   <button onClick={() => setConfirmDeleteId(r.id)} title="Delete" className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--error))] shrink-0">

@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { WarningIcon, CheckCircleIcon, CaretLeftIcon, CaretRightIcon, PlusIcon, PencilSimpleIcon, TrashIcon, ArrowCounterClockwiseIcon, GlobeIcon, WalletIcon } from "@phosphor-icons/react";
 import { getDb } from "@/lib/db";
+import { monthBounds } from "@/lib/goals";
 import { categorySpendSql, categoryNetSql } from "@/lib/reportingSql";
 import { budgetCarryCents, evaluateBudgetPeriod, type BudgetDefinition } from "@/lib/budgetMetrics";
 import { formatCurrency, formatMonthLabel, formatDate } from "@/lib/utils";
@@ -41,14 +42,6 @@ interface BudgetRow {
 
 function viewModeKey(profileId: number) {
   return `compass_budget_view_${profileId}`;
-}
-
-function monthBounds(ym: string): [string, string] {
-  const [y, m] = ym.split("-").map(Number);
-  return [
-    `${y}-${String(m).padStart(2, "0")}-01`,
-    new Date(y, m, 1).toISOString().split("T")[0],
-  ];
 }
 
 /** The most recent month that has actually finished - the only period a "you held your budget"
@@ -583,10 +576,10 @@ export default function BudgetsPage() {
             style={{ border: "1px solid rgba(192,138,28,0.35)", backgroundColor: "rgba(192,138,28,0.07)" }}
           >
             <div
-              className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-base"
+              className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
               style={{ backgroundColor: "rgba(192,138,28,0.15)" }}
             >
-              &#127760;
+              <GlobeIcon size={16} className="text-[hsl(var(--gold-ink))]" aria-hidden />
             </div>
             <div>
               <p className="text-sm font-semibold" style={{ color: "var(--gold)" }}>Global view active</p>

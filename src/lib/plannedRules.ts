@@ -1,6 +1,6 @@
 import { getDb, getRecurringRulesForProfile } from "./db";
 import { detectRecurringCharges } from "./recurringCharges";
-import { detectedChargeToRule, chargeMatchesRule, expandOccurrences, type ForecastEvent, type ForecastRule } from "./forecast";
+import { detectedChargeToRule, chargeMatchesRule, expandOccurrences, monthlyEquivalentCents, type ForecastEvent, type ForecastRule } from "./forecast";
 import type { RecurringCharge, RecurringRule } from "./types";
 import type { ShapeTxn, ScheduledLike } from "./insights/shape";
 
@@ -57,6 +57,23 @@ export async function getPlannedEvents(profileId: number, fromIso: string, toIso
   return expandOccurrences(rules, new Date(`${fromIso}T00:00:00`), new Date(`${toIso}T00:00:00`));
 }
 
+/**
+ * The income the user hard-set in Plan (paychecks, dividends, anything scheduled), normalised
+ * to a monthly figure. Supplemental deposits have no rule, so they never inflate this.
+ */
+export function plannedMonthlyIncomeCents(activeRules: Pick<RecurringRule, "amount_cents" | "cadence">[]): number {
+  return activeRules
+    .filter((r) => r.amount_cents > 0)
+    .reduce((sum, r) => sum + monthlyEquivalentCents(r), 0);
+}
+
+/** The bills the user scheduled in Plan as a positive monthly figure - the committed side. */
+export function plannedMonthlyBillsCents(activeRules: Pick<RecurringRule, "amount_cents" | "cadence">[]): number {
+  return activeRules
+    .filter((r) => r.amount_cents < 0)
+    .reduce((sum, r) => sum + Math.abs(monthlyEquivalentCents(r)), 0);
+}
+
 /** Rows and schedules the "Fixed and flexible" instrument needs, summed across profiles. */
 export interface FixedFlexibleInputs {
   txns: ShapeTxn[];
@@ -64,6 +81,10 @@ export interface FixedFlexibleInputs {
   detected: ScheduledLike[];
   /** The last three complete months, newest first; the caller keeps the ones with income. */
   candidateMonths: string[];
+  /** Monthly-equivalent income from the user's own Plan rules; 0 when none are scheduled. */
+  plannedIncomeCents: number;
+  /** Monthly-equivalent bills from the user's own Plan rules, as a positive number. */
+  plannedBillsCents: number;
 }
 
 export async function getFixedFlexibleInputs(profileIds: number[], today: Date = new Date()): Promise<FixedFlexibleInputs> {
@@ -76,11 +97,14 @@ export async function getFixedFlexibleInputs(profileIds: number[], today: Date =
   const txns: ShapeTxn[] = [];
   const bills: ScheduledLike[] = [];
   const detected: ScheduledLike[] = [];
+  let plannedIncomeCents = 0;
+  let plannedBillsCents = 0;
   for (const profileId of profileIds) {
     const [rows, planned] = await Promise.all([
       db.select<ShapeTxn[]>(
-        `SELECT t.date, t.amount_cents, t.description, a.account_type, t.category_id
+        `SELECT t.date, t.amount_cents, t.description, a.account_type, t.category_id, c.name as category_name
          FROM transactions t JOIN accounts a ON a.id=t.account_id
+         LEFT JOIN categories c ON c.id=t.category_id
          WHERE t.profile_id=? AND a.excluded_from_insights=0 AND a.account_type!='loan'
            AND t.date>=? AND t.date<?`,
         [profileId, windowStart, thisStart]
@@ -90,6 +114,8 @@ export async function getFixedFlexibleInputs(profileIds: number[], today: Date =
     txns.push(...rows);
     bills.push(...planned.activeRules.filter((r) => r.amount_cents < 0).map((r) => ({ description: r.description, amount_cents: r.amount_cents })));
     detected.push(...planned.detectedCharges.map((c) => ({ description: c.description, amount_cents: c.amount_cents })));
+    plannedIncomeCents += plannedMonthlyIncomeCents(planned.activeRules);
+    plannedBillsCents += plannedMonthlyBillsCents(planned.activeRules);
   }
-  return { txns, bills, detected, candidateMonths };
+  return { txns, bills, detected, candidateMonths, plannedIncomeCents, plannedBillsCents };
 }

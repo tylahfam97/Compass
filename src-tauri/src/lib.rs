@@ -389,7 +389,16 @@ mod batch_tx_tests {
 
 const KEYRING_SERVICE: &str = "com.compass.app";
 const KEYRING_USER: &str = "db_encryption_key";
+/// Set when the encryption key had to be recovered from the compass.key backup file because the
+/// OS keyring lost or couldn't read its entry - surfaced in-app so repeated keyring loss
+/// (Credential Manager resets, Keychain corruption) is visible instead of stderr-only.
+static KEY_RESTORED_FROM_BACKUP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// True when this launch had to fall back to the compass.key backup file for the DB key.
+#[tauri::command]
+fn key_recovered_from_backup() -> bool {
+    KEY_RESTORED_FROM_BACKUP.load(std::sync::atomic::Ordering::Relaxed)
+}
 /// Load the encryption key, using a two-tier strategy:
 ///  1. OS native credential store (via `keyring`) - primary, backward-compatible.
 ///     Windows Credential Manager on Windows, Keychain on macOS - `keyring`
@@ -425,6 +434,7 @@ fn load_or_create_key(data_dir: &std::path::Path, db_exists: bool) -> Result<Str
             // because a new key would make the existing DB permanently unreadable.
             if let Some(key) = read_key_file_with_retry(&key_file) {
                 eprintln!("[compass] Keyring entry missing — key restored from backup file.");
+                KEY_RESTORED_FROM_BACKUP.store(true, std::sync::atomic::Ordering::Relaxed);
                 if let Err(e) = entry.set_password(&key) {
                     eprintln!("[compass] Failed to re-populate keyring after restoring from backup: {e}");
                 }
@@ -452,6 +462,7 @@ fn load_or_create_key(data_dir: &std::path::Path, db_exists: bool) -> Result<Str
             // treating it as "no entry" and generating a new (wrong) key.
             eprintln!("[compass] Keyring read error ({e}) — falling back to key file.");
             if let Some(key) = read_key_file_with_retry(&key_file) {
+                KEY_RESTORED_FROM_BACKUP.store(true, std::sync::atomic::Ordering::Relaxed);
                 return Ok(key);
             }
             Err(format!("keyring read: {e}"))
@@ -860,7 +871,8 @@ pub fn run() {
             db_execute_batch,
             import_transactions_batch,
             export_backup_bytes,
-            stage_backup_restore
+            stage_backup_restore,
+            key_recovered_from_backup
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

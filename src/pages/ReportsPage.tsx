@@ -4,6 +4,7 @@ import {
 } from "recharts";
 import { RepeatIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { getDb } from "@/lib/db";
+import { monthBounds } from "@/lib/goals";
 import { incomeSumSql, expenseSumSql, categorySpendSql } from "@/lib/reportingSql";
 import { detectRecurringCharges } from "@/lib/agent";
 import { formatCurrency, formatDate, formatMonthLabel, formatAxisCurrency, combineAccountBalances } from "@/lib/utils";
@@ -13,6 +14,7 @@ import { useProfileStore } from "@/stores/profileStore";
 import { handleLoadFailure } from "@/stores/toastStore";
 import { Skeleton } from "@/components/Skeleton";
 import TransactionDetailModal from "@/components/TransactionDetailModal";
+import ReportBuilder from "@/components/ReportBuilder";
 
 interface BalanceTrendPoint {
   month: string;
@@ -40,14 +42,6 @@ interface RecurringItem {
   avg_cents: number;
   category_name: string;
   category_color: string;
-}
-
-function monthBounds(ym: string): [string, string] {
-  const [y, m] = ym.split("-").map(Number);
-  return [
-    `${y}-${String(m).padStart(2, "0")}-01`,
-    new Date(y, m, 1).toISOString().split("T")[0],
-  ];
 }
 
 function prevYM(ym: string): string {
@@ -326,6 +320,8 @@ function ProfileReports({ profileId }: { profileId: number }) {
 
       {!loading && validRange && hasData && (
         <>
+          <ReportBuilder profileId={profileId} />
+
           <div className="goal-summary report-summary">
             <div><p>Income, selected period</p><strong>{formatCurrency(periodTotals.income_cents)}</strong></div>
             <div><p>Spending, selected period</p><strong>{formatCurrency(periodTotals.expense_cents)}</strong></div>

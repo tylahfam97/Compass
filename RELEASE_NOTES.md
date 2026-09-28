@@ -2,6 +2,237 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.1 — Soundings 🧭
+
+Overview used to repeat the Dashboard. It opened on account admin, then showed you the same
+month's income and spending you had just read one page over. It now answers the one question
+nothing else in Compass answered: where you stand across everything you own and owe, and which
+way that is moving.
+
+### New: Soundings
+- Overview opens on your net worth drawn as depth. Zero is a waterline across the page.
+  Everything you own rises above it, everything you owe hangs below it, and the line running
+  between them is your net worth, month by month, for the last two years.
+- When you are below the waterline, Compass measures the pace you have actually been climbing
+  at over the last six months and continues it as a dashed line to the month you cross zero.
+  That month is printed as a figure of its own, next to the date it lands on.
+- The pace is measured, never flattered. Three months of statements are needed before Compass
+  will name one at all, movement under a dollar a month is called level rather than progress,
+  and a net worth that is flat or falling is told plainly that it is not on course to clear
+  zero instead of being given an invented date.
+- Above water, the instrument says so, and names the month you last came up.
+
+### New: the account roster
+- Every account in view is listed in one table, grouped into bank, investments, credit cards
+  and loans, with its latest balance, the date that balance was recorded, and its recent
+  shape. Investment accounts appear here alongside the rest for the first time.
+- In Global view the table spans profiles, and each profile gets its own row of cash,
+  invested, owed and net, so you can see who is carrying what before switching.
+- Accounts you have hidden are still listed, marked as not counted, rather than disappearing.
+
+### Changed
+- The month picker and the monthly income, expenses and net figures have left Overview. They
+  belong to the Dashboard, which is where the month lives; Overview is about standing, not
+  about a month.
+- Manage Accounts moved from the top of the page to the foot, and lost its box. It is account
+  housekeeping, not the first thing worth your attention.
+- Overview now uses the same type, spacing and icons as the rest of the app, including the
+  shared notice for PIN-locked profiles in place of its old amber banner.
+
+### Below decks
+- The net worth history behind Soundings is read in two queries instead of forty-eight, so
+  Overview settles immediately rather than sitting in a loading state.
+- Its figures and the roster beneath them are computed from one shared set of rules, so a
+  statement dated ahead of today can no longer make the headline and the table disagree.
+- Compass is a desktop application, so the phone-width layout tests and the leftover mobile
+  navigation drawer have been removed rather than maintained.
+- The end-to-end layout suite no longer times out on slower continuous integration machines.
+- Version 1.3.1 across the app, installers, and website.
+
+## Compass 1.3.0 — The Chart 🧭
+
+Compass has always been able to tell you what your money did. This release shows you where it
+went, what it cost you to hold and borrow, and how fast this pay cycle is running against your
+own usual pace. Three new instruments, all computed on your computer from statements you have
+already imported.
+
+### New: The Chart
+- A new page draws one month of money as currents. Paychecks and other deposits run into your
+  accounts on the left, then out to scheduled bills (named by their Plan rule), recurring charges
+  Compass detected (named by the charge), spending categories, card payments, savings, investments,
+  and debt. Each card's own purchases fan out from the payment that funded it.
+- Ribbons are as wide as the money. A faint channel shows the whole month; the brighter current
+  fills it up to the day under the scrubber, and gold particles ride each ribbon. Scrub or play
+  the days to watch paydays arrive and rent leave; the rows that posted on the selected day send
+  a short burst.
+- Every account is drawn as an honest junction. When a month spent more than came in, a "From
+  balance" leg shows the difference; when less, "Stayed in checking" shows what was not spoken
+  for. A card whose purchases outran its payments shows the difference as "Carried on card"; one
+  paid down beyond its purchases shows "Paid down".
+- Moves between your own accounts are paired from both statements, so a transfer to savings or a
+  card payment is drawn once and never counted as spending or income. Card refunds net against
+  their category.
+- Click any ribbon or place to dim the rest and see the transactions behind it in the same ledger
+  rows Transactions uses, with a link into Transactions for categories. With nothing selected,
+  the panel shows the scrubbed day's movements.
+- The figures above the map: money that reached savings, investments and debt, what came in,
+  what was spent (card purchases counted once, never their payments), and what stayed in
+  checking or was drawn from balance.
+- Node positions never move while scrubbing. Reduced motion hides the particles and the Play
+  button. On a narrow window the map keeps its width and pans sideways.
+
+### New: Cost of money
+- Insights gains a second instrument under Fixed and flexible: what your money cost you or earned
+  you last month. Interest paid is read from the interest lines on your card statements and
+  estimated for loans from the balance and APR on file; interest and dividends earned come from
+  interest lines on your bank accounts and dividend and interest rows on brokerage statements.
+- Underneath, today's balances accrue by the second: what your debts are costing so far today,
+  and what idle checking above your Plan reserve is forgoing at a savings yield you can edit.
+  That yield is the one assumption on the page, labelled as such and remembered.
+- Each card and loan is listed with its balance, rate, and daily cost. A card that was not
+  charged interest costs nothing however large its statement balance; a loan with no APR on
+  file is named so you can add one.
+
+### New: This pay cycle
+- The Dashboard shows the current pay cycle when you are looking at the current month. Paydays
+  come from your Plan schedule, or, when nothing is scheduled, from the rhythm of your payroll
+  deposits (with a link to make it exact).
+- Everyday spending since payday is drawn as a gold line against the average of your past
+  cycles aligned on the same day, with past cycles faint behind it. Scheduled bills and detected
+  recurring charges are left out, since they land on fixed dates regardless of pace.
+- The figure that matters is what each remaining day can carry and still land where the cycle
+  usually does. Three-paycheck months are called out.
+
+### Below decks
+- Pure, unit-tested modules behind each instrument: transfer pairing and flow layout, cost of
+  money, and pay cycle detection.
+- Version 1.3.0 across the app, installers, and website.
+
+## Compass 1.2.3 — Statements From Anywhere 🧭
+
+A statement should import correctly the first time, whatever bank it came from and however
+that bank likes to write its dates. This release widens the import wizard's understanding of
+real-world files, makes sure no row ever disappears silently, and quietly tightens the hull.
+
+### The import wizard reads more banks' dialects
+- Dates now parse in the forms banks actually export: two-digit years ("3/5/24"), dash
+  separators ("03-05-2024"), compact "20260905", trailing times ("09/05/2026 14:32", "2:32 PM"),
+  and unambiguous day-first dates ("25/12/2026"). Impossible dates are still rejected rather
+  than guessed.
+- Amounts now understand trailing minus signs ("12.34-"), currency codes ("USD 12.34"),
+  euro/pound/yen symbols, and European decimal commas ("1.234,56") - alongside the existing
+  parentheses, CR/DR suffixes, and separate debit/credit columns.
+- Multi-sheet Excel workbooks no longer assume the first sheet is the statement: the wizard
+  finds the sheet with a date-labeled header and data under it, so a "Summary" cover sheet
+  can't hijack the import.
+- A brokerage statement's "Priced as of" date is now found even behind a cover page or a long
+  disclaimer block, instead of silently stamping holdings with today's date.
+- Nothing vanishes without a trace: rows left out because they had no usable date and amount
+  (headers, totals, memo lines) are counted and named on the import summary, separate from
+  duplicates and real errors.
+- Fixed a subtle timezone bug where a written-out date ("March 5, 2024") could import as the
+  previous day for anyone east of UTC.
+
+### Rules that show their work
+- The Rules Manager now tests every rule as you type it: a live preview shows how many of your
+  last 1,000 transactions match, with the matched text marked in gold on real examples - so you
+  know a rule works before you save it, not after.
+- Saving a rule can now categorize your existing uncategorized transactions in the same breath,
+  and tells you exactly how many it touched.
+- Each rule row shows its priority, and editing tools moved to proper icons.
+
+### The amount step shows, not tells
+- Every previewed amount on the import wizard's Amount step is now labeled with exactly what
+  Compass will record it as - "money out" or "money in" on bank files, "purchase / charge" or
+  "payment / refund" on card statements. Flip the signs and the labels update in front of you;
+  two dense paragraphs of sign theory are gone.
+- The column-layout question now speaks plainly: one amount column, a Debit/Credit label
+  column, or two separate Debit and Credit columns.
+
+### The line chart knows its accounts
+- Slice a report by account and the line view draws one line per account. Keep the scope on
+  all accounts and it draws your cash &amp; debit and your credit cards as two independent
+  lines instead of one merged total - the two halves of your money, told apart.
+
+### Trust, visibly
+- If your system's credential store ever loses Compass's encryption key, Compass restores it
+  from the local backup key file - and now tells you it happened, right in the app, instead of
+  only whispering to a terminal nobody has open.
+
+### Blending in
+- The Transfers &amp; Excluded explainer on Transactions traded its bright blue emoji box for
+  the app's own quiet hairline-and-gold language.
+- The last off-palette colors are gone: indigo bars and lines in the debt payoff timeline and
+  portfolio charts now use Compass's own sea and success tones, stray emoji gave way to the
+  app's icon set, and new categories default to Compass gold instead of a borrowed blue.
+
+### Below decks
+- Deleting an account with a long import history now cleans up its orphaned import sessions in
+  one statement instead of one query per session.
+- Version 1.2.3 across the app, installers, and website.
+
+## Compass 1.2.2 — Money That Is Actually Yours 🧭
+
+This release makes Compass honest about which money is spoken for and which is genuinely free,
+puts a report builder on the plotting table, and gives Trends a voice of its own.
+
+### New: The report builder
+- Reports opens with a plotting table: measure spending, income, net, or purchase counts;
+  slice by category, merchant, account, month, or weekday; look back 3, 6, 12 months or all
+  time; and draw the result as a line-by-line sheet, ranked bars, a wheel, or a line through
+  time. Split any cut by month or by account - pivot columns on the sheet, segments on the
+  bars, one series per account on the line - and scope it to all accounts, cash &amp; debit
+  only, or credit cards only.
+- Merchants fold on their cleaned identity ("SQ *BLUE BOTTLE 05/21…" and "BLUE BOTTLE #12"
+  are one row), a description search narrows any cut, and everything past the top rows folds
+  into one honest "Everything else" line. Name a cut and save it; presets live on the page.
+
+### Your plan is the source of truth now
+- The "Fixed and flexible" instrument on Insights runs on your Plan schedule: planned income
+  (paychecks, dividends, anything you hard-set) and scheduled bills at their planned monthly
+  amounts, exactly matching the Plan page. A bonus, a one-off deposit, or a bank descriptor
+  that doesn't match a rule name no longer distorts the picture.
+- Flexible spending measured from history is now an overlay you turn on, off by default. It
+  inherits your categorization - card payments or moves between your own accounts that aren't
+  categorized as Transfers read as spending - so the instrument names its top flexible
+  categories to help you find and fix exactly that.
+- Money into investment categories (crypto, brokerage, retirement) and single purchases of
+  $1,000+ are reported separately as set-aside money, never as flexible spending.
+- Months that spend past planned income but are covered by supplemental deposits say so
+  plainly; the track only turns red when spending passed all income. With no income scheduled
+  yet, the instrument still works from averaged deposits, says so, and points at Plan.
+- The plan view and the measured view never mix: measured mode shows the bill payments actually
+  matched from history next to measured flexible spending, so a bill whose bank descriptor
+  doesn't match its rule is never counted twice - once as a planned bill and again as
+  "flexible" - which had been inflating both flexible spending and the over-income figure.
+- The "fixed costs take X% of income" insight runs on the same maths, so the row and the
+  instrument can never disagree.
+
+### Debt payoff spends only free money
+- The payoff plan now works out what a typical month genuinely leaves over - planned income
+  minus scheduled bills, minus detected recurring charges, minus your normal everyday spending -
+  and shows the derivation right above the slider. The slider redirects a share of that free
+  money, not a share of spending you were always going to do.
+- Cutting categories (dining, shopping, subscriptions...) is now an explicit opt-in on top of
+  the free-cash redirect, instead of being pre-counted as available. When spending runs past
+  income, the plan says there is no free cash rather than inventing some.
+
+### Trends is the ship's log now
+- The three summary tiles and the identical chart cards are gone. The page opens with one serif
+  figure - everything the log records, net - over a gold running line of the whole voyage,
+  then reads as one column: the monthly rhythm, where it went, cash on hand, what the cards carry.
+- Every section header carries its own figure (kept in a typical month, top category of the
+  range, latest balances), so a heading is never just a label. A gold rule on a section means
+  it opens for detail - the same affordance gold already means everywhere else in Compass.
+- Category chips under "Where it went" toggle a category's trend directly; the generic chart
+  legends are gone.
+
+### New insight
+- **Supplemental income**: when deposits land beyond your Plan schedule, Compass names them and
+  the total, and suggests directing the money - an extra debt payment or a goal contribution -
+  before it dissolves into the month. Only appears once you have scheduled income to measure
+  against.
+
 ## Compass 1.2.0 — Night Navigation 🧭
 
 This release gives Compass a visual identity of its own. The logo, the navy-and-gold palette,

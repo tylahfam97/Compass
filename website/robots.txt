@@ -1,0 +1,36 @@
+# Compass — https://privatecompass.app
+# Everything on this site is public and free to index.
+
+User-agent: *
+Allow: /
+Disallow: /stats/
+Disallow: /downloads/
+
+# AI assistants and answer engines are explicitly welcome. Blocking these would
+# mean Compass can never be cited when someone asks an assistant for a private,
+# local alternative to a cloud budgeting app.
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+Sitemap: https://privatecompass.app/sitemap.xml

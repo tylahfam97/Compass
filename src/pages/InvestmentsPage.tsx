@@ -513,7 +513,7 @@ export default function InvestmentsPage() {
                   <XAxis dataKey="month" tick={{ fontSize: 11 }} />
                   <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize: 11 }} />
                   <Tooltip contentStyle={tooltipStyle} formatter={(v) => formatCurrency(v as number)} />
-                  <Bar dataKey="total" name="Income" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="total" name="Income" fill="hsl(var(--success))" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -647,7 +647,7 @@ export default function InvestmentsPage() {
                   <XAxis dataKey="as_of_date" tick={{ fontSize: 11 }} />
                   <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize: 11 }} />
                   <Tooltip contentStyle={tooltipStyle} formatter={(v) => formatCurrency(v as number)} />
-                  <Line type="monotone" dataKey="value" name="Portfolio Value" stroke="#6366f1" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="value" name="Portfolio Value" stroke="hsl(var(--sea))" strokeWidth={2} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             </div>

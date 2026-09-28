@@ -1552,14 +1552,15 @@ export async function deleteAccountWithData(accountId: number): Promise<void> {
   await db.execute("DELETE FROM holdings WHERE account_id=?", [accountId]);
   await db.execute("DELETE FROM investment_activity WHERE account_id=?", [accountId]);
   await db.execute("DELETE FROM investment_summaries WHERE account_id=?", [accountId]);
-  for (const { id } of sessions) {
-    const [remaining] = await db.select<{ n: number }[]>(
-      "SELECT COUNT(*) as n FROM transactions WHERE import_session_id=?",
-      [id]
+  if (sessions.length > 0) {
+    // One statement instead of a COUNT-per-session loop; scoped to this account's session ids
+    // so holdings-only sessions from other imports are never swept up.
+    await db.execute(
+      `DELETE FROM import_sessions
+        WHERE id IN (${sessions.map(() => "?").join(",")})
+          AND NOT EXISTS (SELECT 1 FROM transactions t WHERE t.import_session_id = import_sessions.id)`,
+      sessions.map((s) => s.id)
     );
-    if ((remaining?.n ?? 0) === 0) {
-      await db.execute("DELETE FROM import_sessions WHERE id=?", [id]);
-    }
   }
   await db.execute("DELETE FROM accounts WHERE id=?", [accountId]);
 }
@@ -1815,14 +1816,13 @@ export async function deleteLoanAccount(accountId: number): Promise<void> {
     [accountId]
   );
   await db.execute("DELETE FROM transactions WHERE account_id=?", [accountId]);
-  for (const { id } of sessions) {
-    const [remaining] = await db.select<{ n: number }[]>(
-      "SELECT COUNT(*) as n FROM transactions WHERE import_session_id=?",
-      [id]
+  if (sessions.length > 0) {
+    await db.execute(
+      `DELETE FROM import_sessions
+        WHERE id IN (${sessions.map(() => "?").join(",")})
+          AND NOT EXISTS (SELECT 1 FROM transactions t WHERE t.import_session_id = import_sessions.id)`,
+      sessions.map((s) => s.id)
     );
-    if ((remaining?.n ?? 0) === 0) {
-      await db.execute("DELETE FROM import_sessions WHERE id=?", [id]);
-    }
   }
   await db.execute("DELETE FROM accounts WHERE id=? AND account_type='loan'", [accountId]);
 }

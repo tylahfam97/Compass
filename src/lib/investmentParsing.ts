@@ -214,9 +214,10 @@ export function sectionHasNoValueData(rows: InvestmentRow[]): boolean {
   );
 }
 
-/** Detects a brokerage statement's "Priced as of ..." date from the first few rows. */
+/** Detects a brokerage statement's "Priced as of ..." date. Scans the first 30 rows - enough to
+ *  clear a cover page or long disclaimer block, while never reading a trade date mid-table. */
 export function detectStatementDate(rows: string[][]): string | null {
-  for (const row of rows.slice(0, 6)) {
+  for (const row of rows.slice(0, 30)) {
     for (const cell of row) {
       if (!cell) continue;
       const m = cell.match(/priced as of.*?(\d{1,2}\/\d{1,2}\/\d{4})/i);

@@ -4,6 +4,9 @@ export default defineConfig({
   testDir: './tests',
   fullyParallel: false,
   workers: 1,
+  // The layout sweep visits every route in both themes and screenshots each one, which runs
+  // close to 25s on a developer machine and overran Playwright's 30s default on CI runners.
+  timeout: 120_000,
   forbidOnly: !!process.env.CI,
   retries: 0,
   reporter: [['html', { open: 'never' }]],

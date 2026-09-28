@@ -1,80 +1,49 @@
-import ScopeToggle from "@/components/ScopeToggle";
 import { useState, useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
-import { LineChart, Line, XAxis, ResponsiveContainer, Tooltip } from "recharts";
-import { EyeIcon, EyeSlashIcon, CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
-import { getDb, setAccountHiddenFromDashboard } from "@/lib/db";
-import { incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
-import { formatCurrency, formatDate, formatMonthLabel, separateAccountBalances, accountChartColor } from "@/lib/utils";
+import { Link, useNavigate } from "react-router-dom";
 import { motion } from "motion/react";
-import { staggerContainer, riseIn } from "@/lib/motionPresets";
-import { computeNetWorth, latestHoldingPerAccount, type NetWorthSnapshot } from "@/lib/netWorth";
-import { useProfileStore } from "@/stores/profileStore";
-import { toast, handleLoadFailure } from "@/stores/toastStore";
-import { useAutoMonth } from "@/hooks/useAutoMonth";
+import ScopeToggle from "@/components/ScopeToggle";
 import PinModal from "@/components/PinModal";
 import ManageAccountsPanel from "@/components/ManageAccountsPanel";
+import LockedProfilesNotice from "@/components/LockedProfilesNotice";
+import SectionHeading from "@/components/SectionHeading";
+import EmptyState from "@/components/EmptyState";
+import Soundings from "@/components/Soundings";
+import AccountRoster from "@/components/AccountRoster";
 import { Skeleton } from "@/components/Skeleton";
-import InfoTooltip from "@/components/InfoTooltip";
-import CountUp from "@/components/CountUp";
+import { staggerContainer, riseIn } from "@/lib/motionPresets";
+import { getOverviewAccounts, getSoundingHistory, standingsByProfile, type OverviewAccount } from "@/lib/overviewData";
+import { soundings, type Sounding } from "@/lib/soundings";
+import { toISODate } from "@/lib/forecast";
+import { formatCurrency } from "@/lib/utils";
+import { useProfileStore } from "@/stores/profileStore";
+import { handleLoadFailure } from "@/stores/toastStore";
 import type { Profile } from "@/lib/types";
-import { EXCLUSION_DISCLAIMER_TEXT } from "@/lib/types";
 
-interface ProfileData {
-  sources: { name: string; date: string | null }[];
-  profileId: number;
-  /** Sum of bank (checking) account balances only - excludes credit card debt and investments,
-   *  so this card shows spendable/liquid cash rather than a blended net-worth figure (the
-   *  banner above already shows the correct full Liquid/Investments/Debt/Net Worth breakdown). */
-  liquidCents: number | null;
-  income: number;
-  expenses: number;
-  /** Each bank account kept as its own series (never blended) - one thin line per account,
-   *  same treatment as credit cards below. */
-  bankSparkline: { date: string; byAccount: Record<number, number> }[];
-  bankAccounts: { id: number; name: string }[];
-  /** Each credit card kept as its own series (never blended) - drawn as one thin line per card. */
-  creditSparkline: { date: string; byAccount: Record<number, number> }[];
-  creditAccounts: { id: number; name: string }[];
-  /** Accounts (checking/credit) hidden from the dashboard/overview via the eye-off toggle -
-   *  kept separately so they can be restored from the same card. */
-  hiddenAccounts: { id: number; name: string }[];
-  hasTransactions: boolean;
-  portfolioValue: number;
-}
+/** Months of history the soundings are taken over. */
+const HISTORY_MONTHS = 24;
 
 function viewModeKey(profileId: number) {
   return `compass_overview_view_${profileId}`;
-}
-
-function monthBounds(ym: string): [string, string] {
-  const [y, m] = ym.split("-").map(Number);
-  return [
-    `${y}-${String(m).padStart(2, "0")}-01`,
-    new Date(y, m, 1).toISOString().split("T")[0],
-  ];
 }
 
 export default function OverviewPage() {
   const navigate = useNavigate();
   const { profiles, setActiveProfile, activeProfile, unlockedIds, unlockProfile } = useProfileStore();
   const profileId = activeProfile?.id ?? profiles[0]?.id ?? 1;
-  const [month, setMonth] = useAutoMonth("overview");
-  const [data, setData] = useState<Map<number, ProfileData>>(new Map());
+
+  const [accounts, setAccounts] = useState<OverviewAccount[]>([]);
+  const [sounding, setSounding] = useState<Sounding | null>(null);
   const [loading, setLoading] = useState(true);
-  const [netWorth, setNetWorth] = useState<NetWorthSnapshot | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
 
-  const [viewMode, setViewMode] = useState<"profile" | "global">(() => {
-    const saved = localStorage.getItem(viewModeKey(profileId));
-    return saved === "global" ? "global" : "profile";
-  });
+  const [viewMode, setViewMode] = useState<"profile" | "global">(() =>
+    localStorage.getItem(viewModeKey(profileId)) === "global" ? "global" : "profile"
+  );
   const [pinQueue, setPinQueue] = useState<Profile[]>([]);
   const [pinQueueIdx, setPinQueueIdx] = useState(0);
 
   useEffect(() => {
-    const saved = localStorage.getItem(viewModeKey(profileId));
-    setViewMode(saved === "global" ? "global" : "profile");
+    setViewMode(localStorage.getItem(viewModeKey(profileId)) === "global" ? "global" : "profile");
   }, [profileId]);
 
   const unlockedProfileIds = useMemo(
@@ -109,397 +78,181 @@ export default function OverviewPage() {
     ? profiles.filter((p) => p.pin_hash && p.id !== profileId && !unlockedIds.has(p.id))
     : [];
 
-  const navMonth = (dir: -1 | 1) => {
-    const [y, m] = month.split("-").map(Number);
-    const d = new Date(y, m - 1 + dir, 1);
-    setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
-  };
-
   useEffect(() => {
-    if (visibleProfiles.length === 0) { setData(new Map()); setLoading(false); return; }
+    const ids = visibleProfiles.map((p) => p.id);
+    if (ids.length === 0) { setAccounts([]); setSounding(null); setLoading(false); return; }
     setLoading(true);
+    let cancelled = false;
     (async () => {
-      const db = await getDb();
-      const [start, end] = monthBounds(month);
-      const entries = await Promise.all(
-        visibleProfiles.map(async (p) => {
-          const [balRow, incRow, expRow, txRow, sparkRows, portfolioRow, hiddenRow] = await Promise.all([
-            db.select<{ account_id: number; account_type: string; name: string; balance_cents: number | null; balance_date: string | null }[]>(
-              `SELECT a.id as account_id, a.account_type, a.name,
-                 (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL
-                  ORDER BY t.date DESC, t.id DESC LIMIT 1) as balance_cents,
-                 (SELECT t.date FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL ORDER BY t.date DESC,t.id DESC LIMIT 1) as balance_date
-               FROM accounts a WHERE a.profile_id=? AND a.account_type IN ('checking','credit') AND a.hidden_from_dashboard=0`,
-              [p.id]
-            ),
-            db.select<{ total: number }[]>(
-              `SELECT ${incomeSumSql()} as total FROM transactions t JOIN accounts a ON a.id=t.account_id
-               WHERE t.profile_id=? AND t.date>=? AND t.date<?`,
-              [p.id, start, end]
-            ),
-            db.select<{ total: number }[]>(
-              `SELECT -${expenseSumSql()} as total FROM transactions t JOIN accounts a ON a.id=t.account_id
-               WHERE t.profile_id=? AND t.date>=? AND t.date<?`,
-              [p.id, start, end]
-            ),
-            db.select<{ n: number }[]>(
-              "SELECT COUNT(*) as n FROM transactions WHERE profile_id=?",
-              [p.id]
-            ),
-            db.select<{ date: string; account_id: number; account_type: string; balance_cents: number }[]>(
-              `SELECT t.date, t.account_id, a.account_type, t.balance_cents FROM transactions t
-               JOIN accounts a ON a.id=t.account_id
-               WHERE t.profile_id=? AND t.balance_cents IS NOT NULL AND a.account_type IN ('checking','credit')
-                 AND a.hidden_from_dashboard=0 AND t.date >= date('now','-60 days')
-               ORDER BY t.date ASC, t.id ASC`,
-              [p.id]
-            ),
-            db.select<{ total: number | null }[]>(
-              `SELECT SUM(h.market_value_cents) as total FROM holdings h
-               WHERE h.profile_id=? AND ${latestHoldingPerAccount()}`,
-              [p.id]
-            ),
-            db.select<{ id: number; name: string }[]>(
-              "SELECT id, name FROM accounts WHERE profile_id=? AND account_type IN ('checking','credit') AND hidden_from_dashboard=1 ORDER BY name",
-              [p.id]
-            ),
-          ]);
-          const trackedAccounts = balRow.filter((r) => r.balance_cents !== null);
-          const bankAccounts = balRow.filter((r) => r.account_type === "checking").map((r) => ({ id: r.account_id, name: r.name }));
-          const creditAccounts = balRow.filter((r) => r.account_type === "credit").map((r) => ({ id: r.account_id, name: r.name }));
-          const trackedBankAccounts = trackedAccounts.filter((r) => r.account_type === "checking");
-          return [p.id, {
-            sources: balRow.map((row) => ({ name: row.name, date: row.balance_date })),
-            profileId: p.id,
-            liquidCents: trackedBankAccounts.length > 0 ? trackedBankAccounts.reduce((s, r) => s + (r.balance_cents ?? 0), 0) : null,
-            income: incRow[0]?.total ?? 0,
-            expenses: expRow[0]?.total ?? 0,
-            bankSparkline: separateAccountBalances(sparkRows.filter((r) => r.account_type === "checking")),
-            bankAccounts,
-            creditSparkline: separateAccountBalances(sparkRows.filter((r) => r.account_type === "credit")),
-            creditAccounts,
-            hiddenAccounts: hiddenRow,
-            hasTransactions: (txRow[0]?.n ?? 0) > 0,
-            portfolioValue: portfolioRow[0]?.total ?? 0,
-          }] as [number, ProfileData];
-        })
-      );
-      setData(new Map(entries));
+      const [roster, history] = await Promise.all([
+        getOverviewAccounts(ids),
+        getSoundingHistory(ids, HISTORY_MONTHS, toISODate(new Date())),
+      ]);
+      if (cancelled) return;
+      setAccounts(roster);
+      setSounding(soundings(history));
       setLoading(false);
     })().catch(handleLoadFailure("your account overview", setLoading, () => setReloadTick((t) => t + 1)));
-  }, [visibleProfiles, month, reloadTick]);
+    return () => { cancelled = true; };
+  }, [visibleProfiles, reloadTick]);
 
-  useEffect(() => {
-    const ids = isGlobalActive ? unlockedProfileIds : [profileId];
-    if (ids.length === 0) { setNetWorth(null); return; }
-    computeNetWorth(ids).then(setNetWorth).catch(() => setNetWorth(null));
-  }, [isGlobalActive, unlockedProfileIds, profileId]);
+  const standings = useMemo(
+    () => standingsByProfile(accounts, visibleProfiles.map((p) => p.id)),
+    [accounts, visibleProfiles]
+  );
+  const profileNames = useMemo(
+    () => new Map(visibleProfiles.map((p) => [p.id, p.name] as const)),
+    [visibleProfiles]
+  );
 
-  const allData = [...data.values()];
-  const totalIncome = allData.reduce((s, d) => s + d.income, 0);
-  const totalExpenses = allData.reduce((s, d) => s + d.expenses, 0);
-  const totalNet = totalIncome + totalExpenses;
+  const otherProfiles = profiles.filter((p) => p.id !== profileId);
+  const hasReadings = sounding !== null && sounding.latest !== null;
 
   function handleSwitch(profile: Profile) {
     setActiveProfile(profile);
     navigate("/");
   }
 
-  /** Hides an account's chart/balance from the Dashboard/Overview (and net worth) - triggered
-   *  by the eye-off icon next to each credit-card legend chip. */
-  const hideAccount = async (id: number, name: string) => {
-    await setAccountHiddenFromDashboard(id, true);
-    toast.info(<><strong>{name}</strong> hidden from the dashboard/overview.</>, {
-      action: { label: "Undo", onClick: () => void restoreAccount(id).catch(console.error) },
-    });
-    setReloadTick((t) => t + 1);
-  };
-
-  const restoreAccount = async (id: number) => {
-    await setAccountHiddenFromDashboard(id, false);
-    setReloadTick((t) => t + 1);
-  };
-
   return (
-    <div className="workspace-page space-y-6 overview-workspace">
+    <div className="workspace-page overview-workspace overview-grid">
       {pinTarget && (
         <PinModal profile={pinTarget} onSuccess={() => advancePinQueue(pinTarget.id)} onCancel={() => advancePinQueue()} />
       )}
 
-      {/* Header + scope toggle + month picker */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="workspace-heading overview-heading">
         <div>
-          <h1 className="text-2xl font-semibold">Overview</h1>
-          <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">
+          <h1>Overview</h1>
+          <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
             {isGlobalActive
-              ? `${visibleProfiles.length} of ${profiles.length} profile${profiles.length !== 1 ? "s" : ""}`
-              : "This profile only"}
+              ? `${visibleProfiles.length} of ${profiles.length} profile${profiles.length !== 1 ? "s" : ""} combined`
+              : `Every account in ${activeProfile?.name ?? "this profile"}`}
           </p>
         </div>
-        <div className="flex items-center gap-4 flex-wrap">
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-semibold select-none" style={{ color: !isGlobalActive ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))", transition: "color 0.3s" }}>
-              Profile
-            </span>
-            <ScopeToggle isGlobal={isGlobalActive} onToggle={() => isGlobalActive ? handleSwitchToProfile() : handleSwitchToGlobal()} />
-            <span className="text-sm font-semibold select-none" style={{ color: isGlobalActive ? "var(--gold)" : "hsl(var(--muted-foreground))", transition: "color 0.3s" }}>
-              Global
-            </span>
-          </div>
-          <div className="flex items-center gap-1">
-            <button onClick={() => navMonth(-1)} aria-label="Previous month"
-              className="p-1.5 border rounded-lg leading-none hover:bg-[hsl(var(--muted))] transition-colors"><CaretLeftIcon size={16} /></button>
-            <input type="month" value={month} onChange={(e) => setMonth(e.target.value)}
-              className="border rounded-lg px-3 py-1.5 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]" />
-            <button onClick={() => navMonth(1)} aria-label="Next month"
-              className="p-1.5 border rounded-lg leading-none hover:bg-[hsl(var(--muted))] transition-colors"><CaretRightIcon size={16} /></button>
-          </div>
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-medium select-none" style={{ color: !isGlobalActive ? "hsl(var(--gold-ink))" : "hsl(var(--muted-foreground))", transition: "color 0.3s" }}>
+            Profile
+          </span>
+          <ScopeToggle isGlobal={isGlobalActive} onToggle={() => isGlobalActive ? handleSwitchToProfile() : handleSwitchToGlobal()} />
+          <span className="text-sm font-medium select-none" style={{ color: isGlobalActive ? "hsl(var(--gold-ink))" : "hsl(var(--muted-foreground))", transition: "color 0.3s" }}>
+            Global
+          </span>
         </div>
       </div>
 
-      <ManageAccountsPanel profileId={profileId} special />
+      {loading && (
+        <div className="overview-sounding space-y-6">
+          <Skeleton className="h-28" />
+          <Skeleton className="h-56" />
+        </div>
+      )}
 
-      {/* Locked-profile warning */}
-      {lockedExcluded.length > 0 && (
-        <div className="rounded-2xl px-5 py-4 flex flex-col gap-3"
-          style={{ border: "1px solid rgba(245,158,11,0.35)", backgroundColor: "rgba(245,158,11,0.07)" }}>
-          <p className="text-sm font-semibold" style={{ color: "#b45309" }}>
-            {lockedExcluded.length === 1 ? "1 profile is PIN-locked" : `${lockedExcluded.length} profiles are PIN-locked`}
-            , excluded from combined totals below.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {lockedExcluded.map((p) => (
-              <button key={p.id} onClick={() => { setPinQueue([p]); setPinQueueIdx(0); }}
-                className="text-xs px-3 py-1.5 rounded-lg transition-colors"
-                style={{ border: "1px solid rgba(245,158,11,0.5)", color: "#92400e", backgroundColor: "transparent" }}
-                onMouseOver={(e) => (e.currentTarget.style.backgroundColor = "rgba(245,158,11,0.12)")}
-                onMouseOut={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
-              >
-                Unlock {p.name}
+      {!loading && !hasReadings && (
+        <div className="overview-sounding">
+          <EmptyState
+            title="No soundings yet"
+            actions={
+              <Link to="/import" className="px-4 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-md text-sm font-medium hover:opacity-90 transition-opacity">
+                Import transactions
+              </Link>
+            }
+          >
+            Compass takes a sounding of what you own and what you owe from every statement you import. One import places the first mark.
+          </EmptyState>
+        </div>
+      )}
+
+      {!loading && hasReadings && sounding && (
+        <motion.section className="overview-sounding" variants={staggerContainer} initial="hidden" animate="show" aria-label="Net worth">
+          <motion.div variants={riseIn}>
+            <Soundings
+              sounding={sounding}
+              scopeLabel={isGlobalActive ? "Combined, unlocked profiles" : "This profile"}
+            />
+          </motion.div>
+          {lockedExcluded.length > 0 && (
+            <motion.div variants={riseIn} className="mt-5">
+              <LockedProfilesNotice
+                profiles={lockedExcluded}
+                onUnlock={(p) => { setPinQueue([p]); setPinQueueIdx(0); }}
+                context="excluded from the figures above."
+              />
+            </motion.div>
+          )}
+        </motion.section>
+      )}
+
+      {!loading && accounts.length > 0 && (
+        <section className="overview-accounts">
+          <SectionHeading title="Accounts" hint="Every account in scope, and the date each balance was recorded" />
+          <div className="mt-3">
+            <AccountRoster accounts={accounts} profileNames={profileNames} />
+          </div>
+        </section>
+      )}
+
+      {!loading && isGlobalActive && visibleProfiles.length > 0 && (
+        <section className="overview-people">
+          <SectionHeading title="Profiles" hint="Each profile's own standing inside the combined figures" />
+          <div className="overview-profiles">
+            {visibleProfiles.map((p) => {
+              const st = standings.get(p.id);
+              return (
+                <div key={p.id} className="profile-row">
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0" style={{ backgroundColor: p.avatar_color }}>
+                      {p.name.charAt(0).toUpperCase()}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{p.name}</p>
+                      <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                        {st?.accountCount ?? 0} {st?.accountCount === 1 ? "account" : "accounts"}
+                      </p>
+                    </div>
+                    {p.id === profileId ? (
+                      <span className="ml-auto text-xs text-[hsl(var(--muted-foreground))]">Active</span>
+                    ) : (
+                      <button type="button" onClick={() => handleSwitch(p)} className="ml-auto text-xs px-2.5 py-1 border rounded-md hover:bg-[hsl(var(--muted))] transition-colors shrink-0">
+                        Switch
+                      </button>
+                    )}
+                  </div>
+                  <div className="profile-figures">
+                    <div><p>Cash</p><strong>{formatCurrency(st?.liquidCents ?? 0)}</strong></div>
+                    <div><p>Invested</p><strong>{formatCurrency(st?.investmentCents ?? 0)}</strong></div>
+                    <div><p>Owed</p><strong>{formatCurrency(Math.abs(st?.owedCents ?? 0))}</strong></div>
+                    <div>
+                      <p>Net</p>
+                      <strong style={{ color: (st?.netWorthCents ?? 0) >= 0 ? "hsl(var(--success))" : "hsl(var(--error))" }}>
+                        {formatCurrency(st?.netWorthCents ?? 0)}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {!loading && !isGlobalActive && otherProfiles.length > 0 && (
+        <section className="overview-people">
+          <SectionHeading title="Other profiles" hint="Switch to one, or use the Global toggle to combine them" />
+          <div className="flex flex-wrap gap-2 mt-3">
+            {otherProfiles.map((p) => (
+              <button key={p.id} type="button" onClick={() => handleSwitch(p)} className="flex items-center gap-2 text-sm px-3 py-1.5 border rounded-md hover:bg-[hsl(var(--muted))] transition-colors">
+                <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0" style={{ backgroundColor: p.avatar_color }}>
+                  {p.name.charAt(0).toUpperCase()}
+                </span>
+                {p.name}
               </button>
             ))}
           </div>
-        </div>
+        </section>
       )}
 
-      {/* Net worth + income/expenses banner */}
-      {!loading && netWorth !== null && (
-        <div className="border rounded-2xl p-5 bg-[hsl(var(--muted))]/40">
-          <p className="text-xs text-[hsl(var(--muted-foreground))] font-medium mb-3">
-            {isGlobalActive ? "Combined, unlocked profiles" : "This profile"}
-          </p>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
-            <div>
-              <p className="text-xs text-[hsl(var(--muted-foreground))]">Liquid</p>
-              <p className="text-xl font-bold">{formatCurrency(netWorth.liquidCents)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-[hsl(var(--muted-foreground))]">Investments</p>
-              <p className="text-xl font-bold">{formatCurrency(netWorth.investmentCents)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-[hsl(var(--muted-foreground))]">Debt</p>
-              <p className={`text-xl font-bold ${(netWorth.debtCents + netWorth.loanDebtCents) < 0 ? "text-[hsl(var(--error))]" : ""}`}>
-                {formatCurrency(netWorth.debtCents + netWorth.loanDebtCents)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-[hsl(var(--muted-foreground))]">Net Worth</p>
-              <p className={`text-xl font-bold ${netWorth.netWorthCents >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
-                {formatCurrency(netWorth.netWorthCents)}
-              </p>
-            </div>
-          </div>
-          <div className="flex gap-8 flex-wrap pt-3 border-t">
-            <div>
-              <p className="text-xs text-[hsl(var(--muted-foreground))] flex items-center gap-1">
-                Income <InfoTooltip text={EXCLUSION_DISCLAIMER_TEXT} />
-              </p>
-              <p className="text-lg font-bold text-[hsl(var(--success))]">{formatCurrency(totalIncome)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-[hsl(var(--muted-foreground))] flex items-center gap-1">
-                Expenses <InfoTooltip text={EXCLUSION_DISCLAIMER_TEXT} />
-              </p>
-              <p className="text-lg font-bold text-[hsl(var(--error))]">{formatCurrency(Math.abs(totalExpenses))}</p>
-            </div>
-            <div>
-              <p className="text-xs text-[hsl(var(--muted-foreground))]">Net</p>
-              <p className={`text-lg font-bold ${totalNet >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
-                {formatCurrency(totalNet)}
-              </p>
-            </div>
-          </div>
-          {totalIncome === 0 && totalExpenses === 0 && (
-            <p className="text-xs text-[hsl(var(--muted-foreground))] italic pt-2">
-              No transactions recorded for {formatMonthLabel(month)} yet - not a calculation error, just an empty month. Use the arrows above to check a month you've imported data for.
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Profile cards grid */}
-      {loading ? (
-        <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-48 rounded-2xl" />)}
-        </div>
-      ) : (
-        <motion.div className="grid grid-cols-2 gap-4 xl:grid-cols-3" variants={staggerContainer} initial="hidden" animate="show">
-          {visibleProfiles.map((profile) => {
-            const d = data.get(profile.id);
-            return (
-              <motion.button key={profile.id} variants={riseIn} onClick={() => handleSwitch(profile)}
-                className="border rounded-2xl p-5 text-left hover:shadow-md hover:border-[var(--gold)] transition-all duration-150
-                           bg-[hsl(var(--background))] active:scale-[0.99] chart-clickable"
-              >
-                {/* Profile avatar + name */}
-                <div className="flex items-center gap-2.5 mb-4">
-                  <span className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white shrink-0"
-                    style={{ backgroundColor: profile.avatar_color }}>
-                    {profile.name.charAt(0).toUpperCase()}
-                  </span>
-                  <div>
-                    <p className="font-semibold leading-tight">{profile.name}</p>
-                    <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                      {d?.hasTransactions ? "Switch to this profile" : "No data imported yet"}
-                    </p>
-                  </div>
-                </div>
-
-                {!d?.hasTransactions ? (
-                  <p className="text-sm text-[hsl(var(--muted-foreground))] italic py-4 text-center">
-                    Import a bank statement to get started
-                  </p>
-                ) : (
-                  <>
-                    <details className="workspace-disclosure mb-3" onClick={(event) => event.stopPropagation()}>
-                      <summary>Recorded balances</summary>
-                      {d.sources.map((source) => <p key={source.name} className="text-xs py-1">{source.name}: {source.date ? formatDate(source.date) : "No recorded balance"}</p>)}
-                    </details>
-                    {d.liquidCents !== null && (
-                      <div className="mb-3">
-                        <p className="text-xs text-[hsl(var(--muted-foreground))] mb-0.5">Liquid</p>
-                        <p className={`text-2xl font-bold tabular-nums ${d.liquidCents >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
-                          <CountUp value={d.liquidCents} format={(v) => formatCurrency(Math.round(v))} />
-                        </p>
-                      </div>
-                    )}
-
-                    {((d.bankAccounts.length > 0 && d.bankSparkline.length > 1) || (d.creditAccounts.length > 0 && d.creditSparkline.length > 1)) && (
-                      <div className="mb-3 -mx-1">
-                        {d.bankAccounts.length > 0 && d.bankSparkline.length > 1 && (
-                          <div className="h-14" role="img" aria-label={`Balance history for ${d.bankAccounts.length} bank account${d.bankAccounts.length === 1 ? "" : "s"}`}>
-                            <ResponsiveContainer width="100%" height="100%">
-                              <LineChart data={d.bankSparkline} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
-                                <XAxis dataKey="date" hide />
-                                <Tooltip contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
-                                  wrapperStyle={{ zIndex: 50 }}
-                                  formatter={(v, name) => [`$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`, name]}
-                                  labelFormatter={(l) => formatDate(String(l))} />
-                                {d.bankAccounts.map((acc, i) => (
-                                  <Line key={acc.id} type="monotone" isAnimationActive={false} name={acc.name}
-                                    dataKey={(pt: { byAccount: Record<number, number> }) => (pt.byAccount[acc.id] ?? 0) / 100}
-                                    stroke={accountChartColor(i)} strokeWidth={1.5} dot={false} />
-                                ))}
-                              </LineChart>
-                            </ResponsiveContainer>
-                          </div>
-                        )}
-                        {d.bankAccounts.length > 0 && (
-                          <div className="flex items-center gap-1.5 flex-wrap mt-1">
-                            {d.bankAccounts.map((acc, i) => (
-                              <button
-                                key={acc.id}
-                                onClick={(e) => { e.stopPropagation(); hideAccount(acc.id, acc.name); }}
-                                title="Hide this account from the dashboard/overview"
-                                className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border hover:bg-[hsl(var(--muted))] transition-colors"
-                              >
-                                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: accountChartColor(i) }} />
-                                <span className="truncate max-w-[70px]">{acc.name}</span>
-                                <EyeSlashIcon size={9} />
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                        {d.creditAccounts.length > 0 && d.creditSparkline.length > 1 && (
-                          <div className="h-8 mt-0.5" role="img" aria-label={`Balance history for ${d.creditAccounts.length} credit account${d.creditAccounts.length === 1 ? "" : "s"}`}>
-                            <ResponsiveContainer width="100%" height="100%">
-                              <LineChart data={d.creditSparkline} margin={{ top: 1, right: 2, bottom: 1, left: 2 }}>
-                                <XAxis dataKey="date" hide />
-                                <Tooltip contentStyle={{ backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
-                                  wrapperStyle={{ zIndex: 50 }}
-                                  formatter={(v, name) => [`$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`, name]}
-                                  labelFormatter={(l) => formatDate(String(l))} />
-                                {d.creditAccounts.map((acc, i) => (
-                                  <Line key={acc.id} type="monotone" isAnimationActive={false} name={acc.name}
-                                    dataKey={(pt: { byAccount: Record<number, number> }) => (pt.byAccount[acc.id] ?? 0) / 100}
-                                    stroke={accountChartColor(i)} strokeWidth={1.25} dot={false} />
-                                ))}
-                              </LineChart>
-                            </ResponsiveContainer>
-                          </div>
-                        )}
-                        {d.creditAccounts.length > 0 && (
-                          <div className="flex items-center gap-1.5 flex-wrap mt-1">
-                            {d.creditAccounts.map((acc, i) => (
-                              <button
-                                key={acc.id}
-                                onClick={(e) => { e.stopPropagation(); hideAccount(acc.id, acc.name); }}
-                                title="Hide this card from the dashboard/overview"
-                                className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border hover:bg-[hsl(var(--muted))] transition-colors"
-                              >
-                                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: accountChartColor(i) }} />
-                                <span className="truncate max-w-[70px]">{acc.name}</span>
-                                <EyeSlashIcon size={9} />
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {d.hiddenAccounts.length > 0 && (
-                      <div className="flex items-center gap-1.5 flex-wrap mb-3 text-[10px] text-[hsl(var(--muted-foreground))]">
-                        <span>Hidden:</span>
-                        {d.hiddenAccounts.map((a) => (
-                          <button
-                            key={a.id}
-                            onClick={(e) => { e.stopPropagation(); restoreAccount(a.id); }}
-                            title="Show on dashboard/overview again"
-                            className="flex items-center gap-1 px-1.5 py-0.5 rounded-full border hover:bg-[hsl(var(--muted))] transition-colors"
-                          >
-                            <EyeIcon size={9} /> {a.name}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
-              </motion.button>
-            );
-          })}
-          {isGlobalActive && lockedExcluded.map((profile) => (
-            <button key={profile.id} onClick={() => { setPinQueue([profile]); setPinQueueIdx(0); }}
-              className="border border-dashed rounded-2xl p-5 text-left hover:shadow-md transition-all duration-150
-                         bg-[hsl(var(--background))] active:scale-[0.99]"
-            >
-              <div className="flex items-center gap-2.5 mb-4">
-                <span className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white shrink-0"
-                  style={{ backgroundColor: profile.avatar_color }}>
-                  {profile.name.charAt(0).toUpperCase()}
-                </span>
-                <div>
-                  <p className="font-semibold leading-tight">{profile.name}</p>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">PIN-locked</p>
-                </div>
-              </div>
-              <p className="text-sm text-[hsl(var(--muted-foreground))] italic py-4 text-center">
-                Enter PIN to include in totals
-              </p>
-            </button>
-          ))}
-        </motion.div>
-      )}
+      <div className="overview-manage">
+        <ManageAccountsPanel profileId={profileId} />
+      </div>
     </div>
   );
 }

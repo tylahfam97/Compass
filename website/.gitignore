@@ -5,3 +5,5 @@ build/
 
 # nginx config — kept on the server only, not tracked in the public repo
 nginx.conf
+chrysis-networks.conf
+reverse-proxy.conf

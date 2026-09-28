@@ -24,7 +24,7 @@ export default function CategoryModal({ category, onClose, profileId, deleteMode
   const ownerId = profileId ?? activeProfile?.id;
   const { onBackdropClick, containerRef } = useModalDismiss(onClose);
   const [name, setName] = useState(category?.name ?? "");
-  const [color, setColor] = useState(category?.color ?? "#3b82f6");
+  const [color, setColor] = useState(category?.color ?? "#C08A1C");
   const [parentId, setParentId] = useState<number | "">(category?.parent_id ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

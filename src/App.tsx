@@ -3,7 +3,7 @@ import { useState, useEffect, Suspense, lazy } from "react";
 import {
   SquaresFourIcon, ArrowsLeftRightIcon, UploadSimpleIcon, TrendUpIcon, ChartLineIcon,
   WalletIcon, TargetIcon, ChartBarIcon, LightbulbIcon, GlobeIcon, CaretLeftIcon, CaretRightIcon, ChatCircleIcon, SparkleIcon, CalendarCheckIcon, GearSixIcon, LockKeyIcon,
-  IconContext,
+  MapTrifoldIcon, IconContext,
 } from "@phosphor-icons/react";
 import CompassMark from "@/components/CompassMark";
 import { useIsDark } from "@/hooks/useIsDark";
@@ -26,6 +26,7 @@ import Spotlight from "@/components/Spotlight";
 import OnboardingChecklistWidget from "@/components/OnboardingChecklistWidget";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import ToastHost from "@/components/ToastHost";
+import { useToastStore } from "@/stores/toastStore";
 import { CardListSkeleton } from "@/components/Skeleton";
 
 // Lazy-loaded: these 3 pages pull in the heaviest deps (xlsx, pdfjs-dist,
@@ -35,6 +36,7 @@ const ImportPage = lazy(() => import("@/pages/ImportPage"));
 const ReportsPage = lazy(() => import("@/pages/ReportsPage"));
 const InvestmentsPage = lazy(() => import("@/pages/InvestmentsPage"));
 const PlanPage = lazy(() => import("@/pages/PlanPage"));
+const ChartPage = lazy(() => import("@/pages/ChartPage"));
 
 function PageLoadingFallback() {
   return (
@@ -72,6 +74,7 @@ function RoutedContent() {
         <Route path="/transactions" element={<div className="py-6"><TransactionsPage /></div>} />
         <Route path="/import" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><ImportPage /></div></Suspense>} />
         <Route path="/trends" element={<div className="py-6"><TrendsPage /></div>} />
+        <Route path="/chart" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><ChartPage /></div></Suspense>} />
         <Route path="/investments" element={<Suspense fallback={<PageLoadingFallback />}><div className="py-6"><InvestmentsPage /></div></Suspense>} />
         <Route path="/budgets" element={<div className="py-6"><BudgetsPage /></div>} />
         <Route path="/goals" element={<div className="py-6"><GoalsPage /></div>} />
@@ -103,6 +106,7 @@ const NAV_ITEMS = [
   { to: "/transactions", label: "Transactions",  Icon: ArrowsLeftRightIcon,  showBadge: false, tourId: undefined },
   { to: "/import",       label: "Import",        Icon: UploadSimpleIcon,     showBadge: false, tourId: undefined },
   { to: "/trends",       label: "Trends",        Icon: TrendUpIcon,          showBadge: false, tourId: undefined },
+  { to: "/chart",        label: "Chart",         Icon: MapTrifoldIcon,       showBadge: false, tourId: undefined },
   { to: "/investments",  label: "Investments",   Icon: ChartLineIcon,        showBadge: false, tourId: undefined },
   { to: "/budgets",      label: "Budgets",       Icon: WalletIcon,           showBadge: false, tourId: undefined },
   { to: "/goals",        label: "Goals",         Icon: TargetIcon,           showBadge: false, tourId: undefined },
@@ -149,6 +153,25 @@ function App() {
   useEffect(() => {
     import("@tauri-apps/api/app").then(({ getVersion }) => {
       getVersion().then(setAppVersion).catch(() => {});
+    });
+  }, []);
+
+  // One-time trust notice: the OS keyring lost the DB encryption key this launch and Compass
+  // recovered it from the compass.key backup file. Everything works, but the user deserves to
+  // know it happened - repeated losses point at Credential Manager/Keychain trouble.
+  useEffect(() => {
+    import("@tauri-apps/api/core").then(({ invoke }) => {
+      invoke<boolean>("key_recovered_from_backup")
+        .then((restored) => {
+          if (!restored) return;
+          useToastStore.getState().show(
+            "Your system's credential store lost Compass's encryption key, so it was restored " +
+            "from the local backup key file. Your data was never at risk - but if this keeps " +
+            "happening, your OS credential store may need attention.",
+            { tone: "info", duration: 0 }
+          );
+        })
+        .catch(() => {});
     });
   }, []);
 
@@ -305,7 +328,6 @@ function App() {
               <NavLink
                 key={to}
                 to={to}
-                onClick={() => { if (window.innerWidth < 720) setSidebarOpen(false); }}
                 end={to === "/"}
                 data-tour={tourId}
                 title={!sidebarOpen ? label : undefined}
@@ -375,7 +397,6 @@ function App() {
             </div>
           )}
         </aside>
-        {sidebarOpen && <button className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} />}
 
         {/* Main content */}
         <main className="app-main flex-1 min-w-0 overflow-y-auto">

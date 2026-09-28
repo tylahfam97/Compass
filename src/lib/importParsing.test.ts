@@ -25,6 +25,30 @@ describe("parseDate", () => {
   it("falls back to native Date parsing for other recognizable formats", () => {
     expect(parseDate("March 5, 2024")).toBe("2024-03-05");
   });
+
+  it("parses 2-digit years with a sensible century pivot", () => {
+    expect(parseDate("3/5/24")).toBe("2024-03-05");
+    expect(parseDate("12/31/99")).toBe("1999-12-31");
+  });
+
+  it("parses dash-separated MM-DD-YYYY", () => {
+    expect(parseDate("03-05-2024")).toBe("2024-03-05");
+  });
+
+  it("recognizes unambiguous DD/MM/YYYY (day > 12) and swaps", () => {
+    expect(parseDate("25/12/2026")).toBe("2026-12-25");
+  });
+
+  it("strips a trailing time-of-day", () => {
+    expect(parseDate("09/05/2026 14:32")).toBe("2026-09-05");
+    expect(parseDate("2026-09-05 14:32:15")).toBe("2026-09-05");
+    expect(parseDate("3/5/2024 2:32 PM")).toBe("2024-03-05");
+  });
+
+  it("parses compact YYYYMMDD", () => {
+    expect(parseDate("20260905")).toBe("2026-09-05");
+    expect(parseDate("20260231")).toBe("");
+  });
 });
 
 describe("parseAmount", () => {
@@ -56,6 +80,27 @@ describe("parseAmount", () => {
 
   it("returns 0 for unparseable input", () => {
     expect(parseAmount("n/a")).toBe(0);
+  });
+
+  it("treats a trailing minus as negative", () => {
+    expect(parseAmount("12.34-")).toBe(-12.34);
+  });
+
+  it("strips currency codes and extra symbols", () => {
+    expect(parseAmount("USD 12.34")).toBe(12.34);
+    expect(parseAmount("12.34 EUR")).toBe(12.34);
+    expect(parseAmount("€1,234.56")).toBe(1234.56);
+  });
+
+  it("parses European decimal commas", () => {
+    expect(parseAmount("1.234,56")).toBe(1234.56);
+    expect(parseAmount("1234,56")).toBe(1234.56);
+    expect(parseAmount("-0,50")).toBe(-0.5);
+  });
+
+  it("still treats a US thousands comma as a separator", () => {
+    expect(parseAmount("1,234")).toBe(1234);
+    expect(parseAmount("12,345.67")).toBe(12345.67);
   });
 });
 
