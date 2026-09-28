@@ -7,6 +7,7 @@ import {
 } from "@/lib/db";
 import { computeNextOccurrence, daysUntil, formatCadenceLabel } from "@/lib/recurring";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { toISODate } from "@/lib/forecast";
 import { reportLoadError } from "@/stores/toastStore";
 import { useCategoryStore } from "@/stores/categoryStore";
 import CategoryOptions from "@/components/CategoryOptions";
@@ -37,7 +38,7 @@ interface RuleFormState {
 function blankForm(): RuleFormState {
   return {
     id: null, description: "", amount: "", categoryId: 15, cadence: "monthly",
-    dayOfMonth: "1", dayOfWeek: 0, startDate: new Date().toISOString().split("T")[0], accountId: "",
+    dayOfMonth: "1", dayOfWeek: 0, startDate: toISODate(new Date()), accountId: "",
   };
 }
 
@@ -200,7 +201,7 @@ export default function RecurringRulesPanel({ profileId, onChanged, openFormRequ
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">
                     {formatCadenceLabel(r)}
                     {r.account_name ? `, ${r.account_name}` : ""}
-                    {nextInfo ? `, next ${formatDate(nextInfo.next.toISOString().split("T")[0])} (${nextInfo.days <= 0 ? "today" : `${nextInfo.days}d`})` : ""}
+                    {nextInfo ? `, next ${formatDate(toISODate(nextInfo.next))} (${nextInfo.days <= 0 ? "today" : `${nextInfo.days}d`})` : ""}
                   </p>
                 </div>
                 <span className={`text-sm font-semibold shrink-0 ${r.amount_cents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>

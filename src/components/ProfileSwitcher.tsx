@@ -2,6 +2,7 @@ import { CATEGORY_HUES } from "@/lib/chartTheme";
 import { useState, useEffect, useRef } from "react";
 import { getDb } from "@/lib/db";
 import { incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
+import { toISODate } from "@/lib/forecast";
 import { useProfileStore } from "@/stores/profileStore";
 import { useCategoryStore } from "@/stores/categoryStore";
 import type { Profile, Category } from "@/lib/types";
@@ -67,9 +68,7 @@ export default function ProfileSwitcher() {
       const db = await getDb();
       const now = new Date();
       const start = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-      const end = new Date(now.getFullYear(), now.getMonth() + 1, 1)
-        .toISOString()
-        .split("T")[0];
+      const end = toISODate(new Date(now.getFullYear(), now.getMonth() + 1, 1));
 
       const newStats: Record<number, ProfileStats> = {};
       await Promise.all(

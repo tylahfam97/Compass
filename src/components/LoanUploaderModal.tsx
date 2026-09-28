@@ -6,6 +6,7 @@ import { useModalDismiss } from "@/hooks/useModalDismiss";
 import { upsertLoanStatement, getLoanAccountsForProfile, type LoanAccount } from "@/lib/db";
 import { parseLoanStatementFile } from "@/lib/pdfParse";
 import { parseDollarInput } from "@/lib/utils";
+import { toISODate } from "@/lib/forecast";
 
 interface Props {
   profileId: number;
@@ -26,7 +27,7 @@ function parseLooseDate(s: string): string {
   }
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   const d = new Date(s);
-  return isNaN(d.getTime()) ? new Date().toISOString().split("T")[0] : d.toISOString().split("T")[0];
+  return toISODate(isNaN(d.getTime()) ? new Date() : d);
 }
 
 /** True if `guess` (a loosely-extracted lender name) plausibly refers to `loan` - used to
@@ -46,7 +47,7 @@ export default function LoanUploaderModal({ profileId, existingLoan, onClose, on
 
   const [name, setName] = useState(existingLoan?.name ?? "");
   const [institution, setInstitution] = useState(existingLoan?.institution ?? "");
-  const [statementDate, setStatementDate] = useState(new Date().toISOString().split("T")[0]);
+  const [statementDate, setStatementDate] = useState(toISODate(new Date()));
   const [balance, setBalance] = useState(
     existingLoan?.balance_cents != null ? (Math.abs(existingLoan.balance_cents) / 100).toFixed(2) : ""
   );

@@ -1,6 +1,7 @@
 import { getDb } from "./db";
 import type { SecurityType, InvestmentHealthScore } from "./types";
 import { AVG_US_MARKET_RETURN_PCT, scoreGrade } from "./benchmarks";
+import { toISODate } from "./forecast";
 
 /**
  * SQL predicate selecting each investment ACCOUNT's own most recent holdings snapshot.
@@ -121,8 +122,8 @@ export async function getNetWorthHistory(
     const monthLabel = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     const isCurrent = i === 0;
     const cutoff = isCurrent
-      ? now.toISOString().split("T")[0]
-      : new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().split("T")[0]; // last day of that month
+      ? toISODate(now)
+      : toISODate(new Date(d.getFullYear(), d.getMonth() + 1, 0)); // last day of that month
     points.push({ month: monthLabel, cutoff });
   }
   const snapshots = await Promise.all(points.map((p) => computeNetWorth(profileIds, p.cutoff)));

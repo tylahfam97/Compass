@@ -20,6 +20,7 @@ import {
 import type { InvestmentRow, ParsedInvestment } from "@/lib/investmentParsing";
 import type { CategorizationRule, Account, ActivityType } from "@/lib/types";
 import { TRANSFER_CATEGORY_ID, EXCLUDED_CATEGORY_ID } from "@/lib/types";
+import { toISODate } from "@/lib/forecast";
 import { useProfileStore } from "@/stores/profileStore";
 import { reportLoadError } from "@/stores/toastStore";
 import { takePendingImportFiles } from "@/lib/pendingImport";
@@ -1182,7 +1183,7 @@ export default function ImportPage() {
         // user typed it as a positive "amount owed" or already-negative number.
         const rawAnchorCents = Math.round(parseAmount(currentBalanceInput) * 100);
         const anchorCents = importKind === "credit" ? -Math.abs(rawAnchorCents) : rawAnchorCents;
-        const anchorDate = new Date().toISOString().split("T")[0];
+        const anchorDate = toISODate(new Date());
         await db.execute(
           "UPDATE accounts SET balance_anchor_cents=?, balance_anchor_date=? WHERE id=?",
           [anchorCents, anchorDate, accountId]

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { getDb, recomputeCalculatedBalances, shiftBalanceAnchorForTransactionChange } from "@/lib/db";
+import { toISODate } from "@/lib/forecast";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import CategoryOptions from "@/components/CategoryOptions";
@@ -34,7 +35,7 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
   const isAdd = !transaction;
   const { onBackdropClick, containerRef } = useModalDismiss(onClose);
 
-  const [date, setDate]         = useState(transaction?.date ?? new Date().toISOString().split("T")[0]);
+  const [date, setDate]         = useState(transaction?.date ?? toISODate(new Date()));
   const [desc, setDesc]         = useState(transaction?.description ?? "");
   const [amount, setAmount]     = useState(transaction ? centsToDisplay(transaction.amount_cents) : "");
   const [catId, setCatId]       = useState<number>(transaction?.category_id ?? 15);
