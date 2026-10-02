@@ -106,52 +106,6 @@
         "url": "https://privatecompass.app/",
         "publisher": { "@id": "https://privatecompass.app/#org" },
         "inLanguage": "en-US"
-      },
-      {
-        "@type": "FAQPage",
-        "@id": "https://privatecompass.app/#faq",
-        "mainEntity": [
-          {
-            "@type": "Question",
-            "name": "Where is my data stored?",
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": "In a local encrypted SQLite database in your own user profile: %APPDATA%\\com.compass.app\\ on Windows, or ~/Library/Application Support/com.compass.app/ on macOS. Only your operating system account can reach it. There is no remote copy."
-            }
-          },
-          {
-            "@type": "Question",
-            "name": "Is the Compass database encrypted?",
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": "Yes. SQLCipher encrypts the database at rest with AES-256. The key is a 32-byte random value held in Windows Credential Manager or the macOS Keychain, bound to your operating system account, and is never shown in the app."
-            }
-          },
-          {
-            "@type": "Question",
-            "name": "Does Compass need my bank login?",
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": "No. Compass never asks for bank credentials and has no way to connect to an account. You export a CSV or spreadsheet from your bank, credit card issuer or brokerage yourself, and import that file."
-            }
-          },
-          {
-            "@type": "Question",
-            "name": "What data leaves my device?",
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": "Nothing financial. The only outbound request is an optional update check against the GitHub Releases API, which sends version numbers and no personal data. The app works fully offline after installation."
-            }
-          },
-          {
-            "@type": "Question",
-            "name": "Does Compass collect telemetry or cost anything?",
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": "No telemetry, analytics or error reporting exists in the codebase, and there is no subscription. Compass is free and MIT licensed."
-            }
-          }
-        ]
       }
     ]
   }
@@ -605,7 +559,7 @@
             <td>No bank login needed</td>
             <td class="col-compass"><span class="check" aria-label="Yes">✓</span></td>
             <td><span class="cross" aria-label="No">✗</span></td>
-            <td><span class="cross" aria-label="No">✗</span></td>
+            <td><span class="check" aria-label="Yes">✓</span></td>
             <td><span class="cross" aria-label="No">✗</span></td>
             <td><span class="check" aria-label="Yes">✓</span></td>
           </tr>
@@ -637,7 +591,7 @@
             <td>Try before importing</td>
             <td class="col-compass"><span class="check" aria-label="Yes">✓</span> Demo Mode</td>
             <td><span class="cross" aria-label="No">✗</span></td>
-            <td><span class="cross" aria-label="No">✗</span></td>
+            <td><span class="check" aria-label="Yes">✓</span></td>
             <td><span class="cross" aria-label="No">✗</span></td>
             <td><span class="cross" aria-label="No">✗</span></td>
           </tr>
