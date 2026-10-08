@@ -1,6 +1,6 @@
 import { CATEGORY_HUES } from "@/lib/chartTheme";
 import { useState, useEffect, useRef } from "react";
-import { getDb } from "@/lib/db";
+import { getDb, deleteAllProfileData } from "@/lib/db";
 import { incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
 import { useProfileStore } from "@/stores/profileStore";
 import { useCategoryStore } from "@/stores/categoryStore";
@@ -223,14 +223,7 @@ export default function ProfileSwitcher() {
     if (profiles.length <= 1) return; // can't delete last profile
     setSaving(true);
     const db = await getDb();
-    // Cascade delete profile data
-    await db.execute("DELETE FROM transactions WHERE profile_id=?", [id]);
-    await db.execute("DELETE FROM import_sessions WHERE profile_id=?", [id]);
-    await db.execute("DELETE FROM budgets WHERE profile_id=?", [id]);
-    await db.execute("DELETE FROM goals WHERE profile_id=?", [id]);
-    await db.execute("DELETE FROM accounts WHERE profile_id=?", [id]);
-    await db.execute("DELETE FROM categories WHERE profile_id=?", [id]);
-    await db.execute("DELETE FROM column_profiles WHERE profile_id=?", [id]);
+    await deleteAllProfileData(id);
     await db.execute("DELETE FROM profiles WHERE id=?", [id]);
 
     const rows = await reloadProfiles();
