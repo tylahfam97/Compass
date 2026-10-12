@@ -137,37 +137,41 @@ export async function getNetWorthHistory(
 }
 
 /**
- * Estimates the portfolio's return using each profile's latest snapshot: absolute return is
+ * Estimates the portfolio's return using each account's latest snapshot: absolute return is
  * (market value - cost basis) / cost basis; annualized return additionally requires at least
  * some holdings to carry a trade date (used to estimate a cost-basis-weighted average holding
  * period).
  *
  * Holdings are grouped first (matching how the Investments page groups lots, by security type
- * + symbol/description) since some statement formats (e.g. a 401(k)) never report a real cost
+ * + symbol/description, per account) since some statement formats (e.g. a 401(k)) never report a real cost
  * basis at all - only ever a period's ending balance. Those groups fall back to comparing
  * their OWN earliest tracked snapshot against the latest one, so they still contribute once at
  * least two snapshots exist, rather than being silently excluded from Investment Health
  * forever no matter how much import history accumulates. A holding imported for the first time
  * (no earlier snapshot yet) has no baseline to compare against and is skipped until its next
- * statement is imported.
+ * statement is imported. A group missing from its account's latest snapshot was sold and is
+ * skipped (its older rows only ever serve as a baseline while it is still held).
  */
 export async function computeInvestmentReturn(profileIds: number[]): Promise<InvestmentReturn> {
   if (profileIds.length === 0) return { absoluteReturnPct: null, annualizedReturnPct: null, hasCostBasis: false };
   const db = await getDb();
   const ph = profileIds.map(() => "?").join(",");
   const allRows = await db.select<{
-    security_type: SecurityType; symbol: string | null; description: string; as_of_date: string;
+    account_id: number; security_type: SecurityType; symbol: string | null; description: string; as_of_date: string;
     cost_basis_cents: number | null; market_value_cents: number | null; trade_date: string | null;
   }[]>(
-    `SELECT h.security_type, h.symbol, h.description, h.as_of_date, h.cost_basis_cents, h.market_value_cents, h.trade_date
+    `SELECT h.account_id, h.security_type, h.symbol, h.description, h.as_of_date, h.cost_basis_cents, h.market_value_cents, h.trade_date
      FROM holdings h WHERE h.profile_id IN (${ph})`,
     [...profileIds]
   );
   if (allRows.length === 0) return { absoluteReturnPct: null, annualizedReturnPct: null, hasCostBasis: false };
 
+  const acctLatest = new Map<number, string>();
   const byGroup = new Map<string, typeof allRows>();
   for (const r of allRows) {
-    const key = `${r.security_type}|${r.symbol ?? r.description}`;
+    const prev = acctLatest.get(r.account_id);
+    if (!prev || r.as_of_date > prev) acctLatest.set(r.account_id, r.as_of_date);
+    const key = `${r.account_id}|${r.security_type}|${r.symbol ?? r.description}`;
     const arr = byGroup.get(key);
     if (arr) arr.push(r); else byGroup.set(key, [r]);
   }
@@ -177,6 +181,7 @@ export async function computeInvestmentReturn(profileIds: number[]): Promise<Inv
 
   for (const rows of byGroup.values()) {
     const latestDate = rows.reduce((max, r) => (r.as_of_date > max ? r.as_of_date : max), rows[0].as_of_date);
+    if (latestDate !== acctLatest.get(rows[0].account_id)) continue; // sold: absent from its account's latest snapshot
     const latestRows = rows.filter((r) => r.as_of_date === latestDate);
     const latestMv = latestRows.reduce((s, r) => s + (r.market_value_cents ?? 0), 0);
     const latestCostRows = latestRows.filter((r) => r.cost_basis_cents !== null && r.cost_basis_cents !== 0);
