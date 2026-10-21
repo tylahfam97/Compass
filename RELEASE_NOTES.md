@@ -2,6 +2,36 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.2 — Dead Reckoning 🧭
+
+A maintenance release. Five fixes, no new instruments: imports that refuse bad dates instead
+of swallowing them, profile deletion that actually deletes everything, investment returns that
+only count what you still hold, and a website that says what the app says.
+
+### Fixed
+- **Import: unparseable dates are rejected, not imported.** Statement cells like "Pending",
+  "N/A" or "Total" used to slip through as raw text in the date column. The parser now returns
+  nothing for anything it cannot turn into a real date, and the import skips those rows. (#99)
+- **Import: the first-five-rows preview no longer crashes on a bad date.** A blank, "Pending"
+  or impossible date (02/30/2026) in the preview threw a formatting error before you could see
+  the table. It now shows "Couldn't parse" for that cell, same as the column-mapping card. (#100)
+- **Profiles: deleting a profile erases all of its data.** The old deletion path covered seven
+  tables and left orphaned rows behind — holdings, investment activity and summaries, recurring
+  rules and categorization rules survived the profile that owned them. Deletion now uses the
+  same complete-erasure path as Settings, covering all twelve profile-owned tables. Other
+  profiles and shared categories are untouched. (#97)
+- **Investments: returns are measured against what each account currently holds.** The return
+  calculation grouped securities across accounts and could keep counting positions you had
+  already sold, or let one account's newer statement hide another account's holding. It now
+  follows each account's own latest snapshot, the same way net worth already did. Displayed
+  returns and Investment Health grades can change — intentionally. (#98)
+- **Website: the FAQ schema and the Actual Budget comparison now match reality.** Drifted
+  structured data was removed and two comparison cells corrected. (#96)
+
+### Notes
+- No schema migrations, no new dependencies. Previously imported invalid-date rows are not
+  retroactively cleaned up.
+
 ## Compass 1.3.1 — Soundings 🧭
 
 Overview used to repeat the Dashboard. It opened on account admin, then showed you the same

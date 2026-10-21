@@ -2613,10 +2613,12 @@ export default function ImportPage() {
                 {parsed.rows.slice(0, 5).map((row, i) => {
                   const amt = computeRowAmount(row, colMap);
                   const balRaw = colMap.balanceCol >= 0 ? (row[colMap.balanceCol] ?? "") : "";
+                  // formatDate throws on an Invalid Date, so only format what parseDate turned into ISO.
+                  const iso = parseDate(row[colMap.dateCol] ?? "");
                   return (
                     <tr key={i} className="border-t">
                       <td className="px-4 py-2 whitespace-nowrap text-[hsl(var(--muted-foreground))] text-xs">
-                        {formatDate(parseDate(row[colMap.dateCol] ?? ""))}
+                        {/^\d{4}-\d{2}-\d{2}$/.test(iso) ? formatDate(iso) : "Couldn't parse"}
                       </td>
                       <td className="px-4 py-2 max-w-xs truncate text-xs">{row[colMap.descCol]}</td>
                       <td className={`px-4 py-2 text-right text-xs ${amt < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
