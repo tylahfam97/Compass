@@ -14,7 +14,7 @@ function isRealCalendarDate(y: number, m: number, d: number): boolean {
  *  use: MM/DD/YYYY and MM-DD-YYYY (2- or 4-digit years), ISO, compact YYYYMMDD, month names
  *  ("Jan 5, 2026", "05-Jan-2026"), and any of these with a trailing time ("09/05/2026 14:32").
  *  Unambiguous DD/MM/YYYY (day > 12) is recognized too. Unrecognized formats fall back to JS's
- *  native Date parser. */
+ *  native Date parser; anything that still doesn't parse (e.g. "Pending", "N/A") returns "". */
 export function parseDate(s: string): string {
   // Strip a trailing time-of-day ("14:32", "14:32:15", "2:32 PM") - several banks export
   // datetimes; the extra token otherwise pushes the whole cell to the native-Date fallback.
@@ -46,7 +46,7 @@ export function parseDate(s: string): string {
     return isRealCalendarDate(year, month, day) ? `${compact[1]}-${compact[2]}-${compact[3]}` : "";
   }
   const d = new Date(cleaned);
-  if (isNaN(d.getTime())) return s;
+  if (isNaN(d.getTime())) return "";
   // Local date parts, NOT toISOString() - native parsing lands on local midnight, which
   // toISOString would roll back a day for anyone east of UTC.
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;

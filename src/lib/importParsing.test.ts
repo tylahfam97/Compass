@@ -26,6 +26,12 @@ describe("parseDate", () => {
     expect(parseDate("March 5, 2024")).toBe("2024-03-05");
   });
 
+  it("returns empty string (not the raw text) for an unparseable cell", () => {
+    expect(parseDate("Pending")).toBe("");
+    expect(parseDate("N/A")).toBe("");
+    expect(parseDate("Total")).toBe("");
+  });
+
   it("parses 2-digit years with a sensible century pivot", () => {
     expect(parseDate("3/5/24")).toBe("2024-03-05");
     expect(parseDate("12/31/99")).toBe("1999-12-31");
