@@ -2,6 +2,31 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.3 — Rafting Up 🧭
+
+A one-fix maintenance release. Merging duplicate accounts now brings everything attached to
+the duplicate along with it, not just its transactions and holdings.
+
+### Fixed
+- **Accounts: merging duplicates keeps investment data, goals and scheduled rules.** Merging
+  duplicate accounts (same type and name) kept the oldest account and moved only transactions
+  and holdings onto it before deleting the rest. Investment activity, investment statement
+  summaries, goal links and recurring/scheduled-rule links on a duplicate were left pointing
+  at an account that no longer existed. The merge now moves all of them onto the surviving
+  account before the duplicate is deleted. (#101)
+
+### Notes
+- The oldest account in each duplicate group survives the merge, as before.
+- When both accounts hold the same record, the surviving account's copy wins. Investment
+  activity with the same import fingerprint, and statement summaries for the same period end,
+  are kept from the surviving account and the duplicate's copy is discarded, even if the
+  duplicate's summary is newer or corrected. This matches how duplicate transactions were
+  already handled.
+- The merge is still a series of individual database steps, not one atomic operation.
+- Investment rows, goal links and scheduled-rule links already detached by merges in earlier
+  versions are not retroactively repaired.
+- No schema migrations, no new dependencies.
+
 ## Compass 1.3.2 — Dead Reckoning 🧭
 
 A maintenance release. Five fixes, no new instruments: imports that refuse bad dates instead
