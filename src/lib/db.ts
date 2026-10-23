@@ -1626,9 +1626,10 @@ export async function findDuplicateAccountGroups(profileId: number): Promise<Dup
 
 /**
  * Merges every duplicate-account group in a profile (same type + name) into one account each -
- * keeps the oldest account as the primary, reassigns every other duplicate's transactions and
- * holdings onto it, deletes the emptied duplicates, then recomputes the primary's running
- * balance. Returns the number of duplicate rows merged away.
+ * keeps the oldest account as the primary, reassigns every other duplicate's transactions,
+ * holdings, investment activity/summaries and goal/scheduled-rule links onto it (the primary's
+ * copy wins wherever both hold the same imported row), deletes the emptied duplicates, then
+ * recomputes the primary's running balance. Returns the number of duplicate rows merged away.
  */
 export async function mergeDuplicateAccounts(profileId: number): Promise<number> {
   const db = await getDb();
@@ -1649,6 +1650,16 @@ export async function mergeDuplicateAccounts(profileId: number): Promise<number>
       );
       await db.execute("UPDATE transactions SET account_id=? WHERE account_id=?", [primary.id, dupe.id]);
       await db.execute("UPDATE holdings SET account_id=? WHERE account_id=?", [primary.id, dupe.id]);
+      // Same primary-wins rule for the investment tables' UNIQUE(account_id, import_hash) /
+      // UNIQUE(account_id, period_end): OR IGNORE moves every row that fits, then the DELETE
+      // drops the duplicate's leftover copies of rows the primary already has.
+      await db.execute("UPDATE OR IGNORE investment_activity SET account_id=? WHERE account_id=?", [primary.id, dupe.id]);
+      await db.execute("DELETE FROM investment_activity WHERE account_id=?", [dupe.id]);
+      await db.execute("UPDATE OR IGNORE investment_summaries SET account_id=? WHERE account_id=?", [primary.id, dupe.id]);
+      await db.execute("DELETE FROM investment_summaries WHERE account_id=?", [dupe.id]);
+      // Goal and scheduled-rule links would otherwise dangle (foreign keys are never enforced).
+      await db.execute("UPDATE goals SET account_id=? WHERE account_id=?", [primary.id, dupe.id]);
+      await db.execute("UPDATE recurring_rules SET account_id=? WHERE account_id=?", [primary.id, dupe.id]);
       await db.execute("DELETE FROM accounts WHERE id=?", [dupe.id]);
       merged++;
     }
