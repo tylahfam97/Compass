@@ -16,30 +16,30 @@ your database.
   open it. Compass now creates or converts a database only after `compass.key` has been saved
   (flushed to disk, read back; created 0600 on macOS/Linux, inheriting the per-user app data folder
   permissions on Windows). If it cannot be saved, Compass stops with an error naming the folder to
-  fix and creates nothing. (#PR_NUMBER_PENDING)
+  fix and creates nothing. (#104)
 - **A new key is never used unless it was saved.** 1.3.4 ignored key-file write failures, so a key
   that reached only the keyring, or nowhere, could encrypt a database that Export Backup or a later
-  launch could not use. (#PR_NUMBER_PENDING)
+  launch could not use. (#104)
 - **The key that opens your database wins, and no key is thrown away.** 1.3.4 copied the keyring's
   key over `compass.key` on every launch, and overwrote an unreadable or invalid key file with a new
   key. Compass now tries each saved key against the database and keeps the one that opens it. Any
   different key in the credential store or `compass.key` is first saved as a new
   `compass.key.unmatched-<n>` (never overwriting an earlier one); if that copy cannot be made, the
-  old key is left in place. Leftover key temp files are never overwritten or deleted. (#PR_NUMBER_PENDING)
+  old key is left in place. Leftover key temp files are never overwritten or deleted. (#104)
 - **Unencrypted databases from earlier versions are converted safely.** A plaintext `compass.db`
   (including one created by the bug above) is now encrypted on launch instead of blocking startup.
   The encrypted copy is checked with the key before the original is moved, and any failure puts the
   original back unchanged. A leftover `compass.db.bak` or `compass.enc.db` is no longer deleted or
-  reused: it stops the conversion with a message saying what to move. (#PR_NUMBER_PENDING)
+  reused: it stops the conversion with a message saying what to move. (#104)
 - **Never an empty start next to your data.** If `compass.db` is missing while an interrupted upgrade
   or restore left `compass.db.bak`, `compass.enc.db`, `compass.db.pending` or
   `compass.db.beforerestore*` behind, Compass stops instead of creating an empty database.
-  (#PR_NUMBER_PENDING)
+  (#104)
 - **Backup and restore.** Export Backup now confirms the key file opens the database snapshot. A
   restore that cannot stage its key reports an error instead of claiming success. Applying a restore
   no longer overwrites an earlier `.beforerestore` copy (it uses `.beforerestore-<n>`), and if a
   failed restore cannot be fully undone, Compass stops at startup naming the files instead of
-  opening an empty database. (#PR_NUMBER_PENDING)
+  opening an empty database. (#104)
 
 ### Unchanged
 - An existing encrypted database is still never re-keyed, replaced, renamed or opened as empty: with
@@ -51,7 +51,7 @@ your database.
 - New Rust tests run real SQLCipher databases in temp folders with a stand-in credential store,
   including a backup -> restore round trip. A new test-only `Rust Tests` pull-request workflow runs
   them on the exact PR commit, then runs the same tests against the 1.3.4 code and requires exactly
-  the expected ones to fail. (#PR_NUMBER_PENDING)
+  the expected ones to fail. (#104)
 
 ### Website and docs
 - **New import guide.** `privatecompass.app/import-guide.html` walks through importing a bank or
@@ -59,18 +59,18 @@ your database.
   mapping, the three amount layouts and sign labels, the preview and import summary, saved
   layouts versus category rules, and keeping backups private. It reuses the existing import
   poster plus a labelled field-mapping illustration with no real data, and is linked from the
-  homepage, README and llms.txt and listed in the sitemap. (#PR_NUMBER_PENDING)
+  homepage, README and llms.txt and listed in the sitemap. (#104)
 - **Security answers say where things live.** The homepage security section now states that the
   `compass.key` fallback can decrypt the database, that a `.compassbackup` contains the database
   and its key, where the app data folder is, and that the app checks GitHub for updates, replacing
   the earlier "only you can open it" and "only outbound request" wording. The visible questions
-  and the FAQPage structured data use the same text. (#PR_NUMBER_PENDING)
+  and the FAQPage structured data use the same text. (#104)
 - **Comparison table rebuilt from vendor documentation.** `#compare` now covers Actual Budget,
   Quicken Simplifi and Firefly III with dated source links, and drops the unsupported price,
-  Monarch and HomeBank cells. (#PR_NUMBER_PENDING)
+  Monarch and HomeBank cells. (#104)
 - **Homepage, README and llms.txt name Excel (.xlsx) import** alongside CSV, and the trust row
   reads "Signed Windows installer" and "No paid tier" instead of "Signed installer" and "Free
-  forever". The import showcase caption no longer gives a step count. (#PR_NUMBER_PENDING)
+  forever". The import showcase caption no longer gives a step count. (#104)
 
 ### Notes
 - No dependency or data-format changes.
