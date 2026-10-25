@@ -21,6 +21,22 @@ const test = base.extend<{ database: DatabaseSync }>({
         }
         return;
       }
+      if (command === "import_transactions_batch") {
+        // Mirrors insert_import_batch_tx: UNIQUE violations are duplicates, anything else an error.
+        const duplicateIndices: number[] = [];
+        const errors: { index: number; message: string }[] = [];
+        database.exec("BEGIN");
+        (args.statements ?? []).forEach((statement, index) => {
+          try { database.prepare(statement.sql).run(...(statement.params ?? [])); }
+          catch (error) {
+            const message = String((error as Error).message);
+            if (message.includes("UNIQUE constraint failed")) duplicateIndices.push(index);
+            else errors.push({ index, message });
+          }
+        });
+        database.exec("COMMIT");
+        return { duplicateIndices, errors };
+      }
       if (command === "plugin:app|version") return "1.0.2";
       if (command === "plugin:event|listen") return 1;
       if (command.startsWith("plugin:event|") || command.startsWith("plugin:window|") || command === "plugin:updater|check") return null;
@@ -429,6 +445,147 @@ test("Reports uses exact selected dates and opens expense details", async ({ pag
   await expect(page.locator(".report-summary")).toContainText((expected / 100).toLocaleString("en-US", { style: "currency", currency: "USD" }));
   await page.getByRole("button", { name: /Green Market Groceries/ }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
+});
+
+test("credit card import keeps payments from a separate Credit column", async ({ page, database }) => {
+  // Synthetic statement: purchases in Debit, the card payment only in Credit.
+  const csv = "Date,Description,Debit,Credit\n2026-10-02,Synthetic Grocer,120.00,\n2026-10-05,Synthetic Fuel,80.00,\n2026-10-10,PAYMENT THANK YOU,,150.00\n";
+  await page.goto("/import");
+  await page.getByRole("button", { name: /Credit Card Statement/ }).click();
+  await page.locator("#csv-input").setInputFiles({ name: "synthetic-card.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
+  await page.getByPlaceholder("e.g. Chase Sapphire").fill("Synthetic Card");
+  for (let i = 0; i < 5; i++) await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Continue to Preview" }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("button", { name: /^Import \d+ Transactions$/ }).click();
+  await expect(page.getByText("Import complete")).toBeVisible();
+  const rows = database.prepare(
+    "SELECT t.description, t.amount_cents FROM transactions t JOIN accounts a ON a.id=t.account_id WHERE a.account_type='credit' ORDER BY t.date"
+  ).all();
+  expect(rows).toEqual([
+    { description: "Synthetic Grocer", amount_cents: -12000 },
+    { description: "Synthetic Fuel", amount_cents: -8000 },
+    { description: "PAYMENT THANK YOU", amount_cents: 15000 },
+  ]);
+});
+
+const cardRows = (database: DatabaseSync) => database.prepare(
+  "SELECT t.description, t.amount_cents, t.category_id, t.balance_cents FROM transactions t JOIN accounts a ON a.id=t.account_id WHERE a.account_type='credit' ORDER BY t.date"
+).all();
+// A column profile saved by an older import: only Debit mapped as one amount column, signs flipped by hand.
+const saveSingleColumnCardProfile = (database: DatabaseSync) => database.prepare(
+  "INSERT INTO column_profiles (header_sig,date_col,desc_col,amount_col,type_col,balance_col,profile_id,invert_amounts,debit_col,credit_col) VALUES ('credit|date|debit|description',0,1,2,-1,-1,1,1,-1,-1)"
+).run();
+
+test("zero-filled Credit-before-Debit card import keeps the payment as a transfer", async ({ page, database }) => {
+  const csv = "Date,Description,Credit,Debit\n2026-10-02,Synthetic Grocer,0.00,120.00\n2026-10-05,Synthetic Fuel,0.00,80.00\n2026-10-10,PAYMENT THANK YOU,150.00,0.00\n";
+  await page.goto("/import");
+  await page.getByRole("button", { name: /Credit Card Statement/ }).click();
+  await page.locator("#csv-input").setInputFiles({ name: "synthetic-card.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
+  await page.getByPlaceholder("e.g. Chase Sapphire").fill("Synthetic Card");
+  for (let i = 0; i < 5; i++) await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Continue to Preview" }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("button", { name: /^Import \d+ Transactions$/ }).click();
+  await expect(page.getByText("Import complete")).toBeVisible();
+  await expect(page.getByText(/1 of those\s+was recognized as a transfer/)).toBeVisible();
+  expect(cardRows(database)).toEqual([
+    { description: "Synthetic Grocer", amount_cents: -12000, category_id: expect.anything(), balance_cents: -12000 },
+    { description: "Synthetic Fuel", amount_cents: -8000, category_id: expect.anything(), balance_cents: -20000 },
+    { description: "PAYMENT THANK YOU", amount_cents: 15000, category_id: 20, balance_cents: -5000 },
+  ]);
+});
+
+test("single signed Amount card import is unchanged and shows no Debit/Credit warning", async ({ page, database }) => {
+  const csv = "Date,Description,Amount\n2026-10-02,Synthetic Grocer,-120.00\n2026-10-10,PAYMENT THANK YOU,150.00\n";
+  await page.goto("/import");
+  await page.getByRole("button", { name: /Credit Card Statement/ }).click();
+  await page.locator("#csv-input").setInputFiles({ name: "synthetic-signed.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
+  await page.getByPlaceholder("e.g. Chase Sapphire").fill("Synthetic Card");
+  for (let i = 0; i < 5; i++) await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Continue to Preview" }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("button", { name: /^Import \d+ Transactions$/ }).click();
+  await expect(page.getByText("Import complete")).toBeVisible();
+  expect(cardRows(database).map(({ description, amount_cents }) => ({ description, amount_cents }))).toEqual([
+    { description: "Synthetic Grocer", amount_cents: -12000 },
+    { description: "PAYMENT THANK YOU", amount_cents: 15000 },
+  ]);
+});
+
+test("saved single-column card mapping warns, then reimport adds only the missing payments", async ({ page, database }) => {
+  saveSingleColumnCardProfile(database);
+  // Payment leaves Debit blank; refund zero-fills it. Both live only in Credit.
+  const csv = "Date,Description,Debit,Credit\n2026-10-02,Synthetic Grocer,120.00,\n2026-10-10,PAYMENT THANK YOU,,100.00\n2026-10-12,Synthetic Refund,0.00,5.00\n";
+  const importCard = async (readBoth: boolean, existingAccount = true) => {
+    await page.goto("/import");
+    await page.getByRole("button", { name: /Credit Card Statement/ }).click();
+    await page.locator("#csv-input").setInputFiles({ name: "synthetic-card.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
+    if (existingAccount) await page.getByRole("button", { name: "Existing account", exact: true }).click();
+    else await page.getByPlaceholder("e.g. Chase Sapphire").fill("Synthetic Card");
+    for (let i = 0; i < 5; i++) await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await page.getByRole("button", { name: "Continue to Preview" }).click();
+    if (readBoth) {
+      await expect(page.getByRole("alert")).toContainText('2 rows have an amount only in the "Credit" column');
+      await page.getByRole("button", { name: "Read both Debit and Credit columns" }).click();
+    }
+    await page.getByRole("button", { name: /^Import \d+ Transactions$/ }).click();
+  };
+
+  // 1st import keeps the stale mapping (warning ignored): only the purchase lands.
+  await importCard(false, false);
+  await expect(page.getByText("Import complete")).toBeVisible();
+  expect(cardRows(database).map((r) => r.description)).toEqual(["Synthetic Grocer"]);
+
+  // 2nd import reads both columns: purchase is a duplicate, the two Credit rows are added once.
+  await importCard(true);
+  await expect(page.getByText(/2 transactions\s+imported, 1 duplicates skipped/)).toBeVisible();
+  expect(cardRows(database)).toEqual([
+    { description: "Synthetic Grocer", amount_cents: -12000, category_id: expect.anything(), balance_cents: -12000 },
+    { description: "PAYMENT THANK YOU", amount_cents: 10000, category_id: 20, balance_cents: -2000 },
+    { description: "Synthetic Refund", amount_cents: 500, category_id: expect.anything(), balance_cents: -1500 },
+  ]);
+  expect(database.prepare("SELECT debit_col, credit_col FROM column_profiles WHERE header_sig='credit|date|debit|description'").get())
+    .toEqual({ debit_col: 2, credit_col: 3 });
+
+  // 3rd import: nothing new, no warning (the saved profile now reads both columns).
+  await importCard(false);
+  await expect(page.getByText("Already imported")).toBeVisible();
+  expect(cardRows(database)).toHaveLength(3);
+});
+
+test("Auto-Import All pauses on a later file whose payments the first file's mapping would drop", async ({ page, database }) => {
+  saveSingleColumnCardProfile(database);
+  const file = (name: string, body: string) => ({ name, mimeType: "text/csv", buffer: Buffer.from(`Date,Description,Debit,Credit\n${body}`) });
+  await page.goto("/import");
+  await page.getByRole("button", { name: /Credit Card Statement/ }).click();
+  await page.locator("#csv-input").setInputFiles([
+    file("synthetic-sep.csv", "2026-09-02,Synthetic Grocer,120.00,\n"),
+    file("synthetic-oct.csv", "2026-10-05,Synthetic Fuel,80.00,\n2026-10-10,PAYMENT THANK YOU,,150.00\n"),
+  ]);
+  await page.getByPlaceholder("e.g. Chase Sapphire").fill("Synthetic Card");
+  for (let i = 0; i < 5; i++) await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Continue to Preview" }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("button", { name: "Auto-Import All (2 Files)" }).click();
+
+  // File 2 is handed back to the wizard instead of being imported silently without its payment.
+  await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeVisible();
+  for (let i = 0; i < 4; i++) await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText('1 row has an amount only in the "Credit" column');
+  expect(cardRows(database).map((r) => r.description)).toEqual(["Synthetic Grocer"]);
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Continue to Preview" }).click();
+  await page.getByRole("button", { name: "Read both Debit and Credit columns" }).click();
+  await page.getByRole("button", { name: /^Import \d+ Transactions$/ }).click();
+  await expect(page.getByText("Import complete")).toBeVisible();
+  expect(cardRows(database).map(({ description, amount_cents }) => ({ description, amount_cents }))).toEqual([
+    { description: "Synthetic Grocer", amount_cents: -12000 },
+    { description: "Synthetic Fuel", amount_cents: -8000 },
+    { description: "PAYMENT THANK YOU", amount_cents: 15000 },
+  ]);
+  expect(database.prepare("SELECT COUNT(*) AS n FROM accounts WHERE account_type='credit'").get()).toEqual({ n: 1 });
+  expect(database.prepare("SELECT COUNT(*) AS n FROM import_sessions").get()).toEqual({ n: 2 });
 });
 
 test("workspace follows restored and maximized widths", async ({ page, database }) => {

@@ -2,6 +2,50 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.4 — Both Columns 🧭
+
+A maintenance release. Card and bank statements that split money out and money in
+across separate Debit and Credit columns now import both sides - whether the unused side is
+left blank or filled with "0.00" - so card payments and refunds stop disappearing from the import.
+
+### Fixed
+- **Import: separate Debit and Credit columns are both read.** When no saved column profile or
+  bank preset applied, the import wizard mapped a single amount column - the first header
+  containing "amount", "debit" or "credit". Rows with a value only in the other column - on a
+  card statement, usually payments and refunds - parsed as $0 and were left out as unreadable
+  rows, and Debit values were read as positive. The wizard now detects distinct Debit and
+  Credit headers and maps both, so debits import as charges (negative) and credits as payments
+  or refunds (positive). (#PR_NUMBER_PENDING)
+- **Import: warning before a populated partner column is dropped.** A column profile saved by
+  an earlier import (or a manual "One amount column" choice) can still map only one of the two
+  columns. When the file has rows with an amount only in the unmapped Debit/Credit column, the
+  Amount and Preview steps now say how many rows would be left out and offer a one-click switch
+  to read both columns. The import itself is not blocked. (#PR_NUMBER_PENDING)
+- **Import: zero-filled Debit/Credit rows keep their amount.** A "0.00" in the unused column no
+  longer hides the value in the other one, so a payment listed as Debit "0.00" / Credit "150.00"
+  imports as +$150.00 instead of being left out. This includes the existing dev-branch fix from
+  #92 (credits beside zero debits), which the both-columns default above depends on.
+- **Import: Auto-Import All stops before dropping a later file's payments.** When the mapping
+  approved for the first file reads only one of a later file's Debit/Credit columns and that file
+  has amounts only in the other one, automatic mode pauses and opens that file in the normal
+  wizard with the warning, before anything from it is imported. Files already imported stay
+  imported, and the rest of the batch continues from "Next File". (#PR_NUMBER_PENDING)
+
+### Notes
+- Detection is header-based: it needs plain amount headers such as "Debit"/"Credit",
+  "Debit Amount"/"Credit Amount" or "Debits ($)"/"Credits ($)". Headers like "Credit Card No." or
+  "Credit Limit" are not read as amounts. Paired columns named any other way (for example
+  "Purchases" and "Payments") are not detected and still need the "Two columns: Debit and Credit"
+  choice.
+- Purchase-only statements are unchanged: a single Amount column keeps its existing mapping, and
+  an empty Credit column raises no warning. Compass does not invent payments that aren't in the
+  file.
+- Transactions imported by earlier versions are not retroactively repaired. Re-importing the
+  same file adds the rows that were previously left out, but rows already imported are still
+  recognized as duplicates and keep their original amounts and signs. If payments were entered
+  by hand as a workaround, re-importing can create a second copy that may need to be removed.
+- No schema migrations, no new dependencies.
+
 ## Compass 1.3.3 — Rafting Up 🧭
 
 A one-fix maintenance release. Merging duplicate accounts now brings everything attached to

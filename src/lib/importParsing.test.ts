@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { parseDate, parseAmount, hashRow, dedupeRowHash } from "./importParsing";
+import {
+  parseDate, parseAmount, parseSplitAmount, hashRow, dedupeRowHash, detectSplitAmountColumns, countAmountsOnlyIn,
+  countOmittedSplitRows,
+} from "./importParsing";
 
 describe("parseDate", () => {
   it("parses MM/DD/YYYY into ISO", () => {
@@ -131,5 +134,98 @@ describe("dedupeRowHash", () => {
     const a = await dedupeRowHash(["2024-01-01", "Coffee", "5.00"], seen);
     const b = await dedupeRowHash(["2024-01-01", "Tea", "4.00"], seen);
     expect(a).not.toBe(b);
+  });
+});
+
+describe("detectSplitAmountColumns", () => {
+  it("finds separate Debit and Credit columns", () => {
+    expect(detectSplitAmountColumns(["Date", "Description", "Debit", "Credit"])).toEqual({ debitCol: 2, creditCol: 3 });
+    expect(detectSplitAmountColumns(["Posted", "Payee", "Credit Amount", "Debit Amount"])).toEqual({ debitCol: 3, creditCol: 2 });
+  });
+
+  it("leaves single-amount and combined Debit/Credit headers alone", () => {
+    expect(detectSplitAmountColumns(["Date", "Description", "Amount"])).toBeNull();
+    expect(detectSplitAmountColumns(["Date", "Description", "Debit/Credit", "Amount"])).toBeNull();
+    expect(detectSplitAmountColumns(["Date", "Description", "Debit"])).toBeNull();
+  });
+
+  it("only reads monetary Debit/Credit headers, not identifiers like card numbers", () => {
+    expect(detectSplitAmountColumns(["Date", "Credit Card No.", "Description", "Debit"])).toBeNull();
+    expect(detectSplitAmountColumns(["Date", "Debit Card Number", "Credit Limit", "Amount"])).toBeNull();
+    expect(detectSplitAmountColumns(["Date", "Credit Card No.", "Debit", "Credit"])).toEqual({ debitCol: 2, creditCol: 3 });
+    expect(detectSplitAmountColumns(["Date", "Amount Debit", "Amount Credit"])).toEqual({ debitCol: 1, creditCol: 2 });
+    expect(detectSplitAmountColumns(["Date", "Debits ($)", "Credits ($)"])).toEqual({ debitCol: 1, creditCol: 2 });
+  });
+});
+
+describe("countAmountsOnlyIn", () => {
+  const rows = [
+    ["2026-10-02", "Synthetic Grocer", "120.00", ""],
+    ["2026-10-10", "PAYMENT THANK YOU", "", "150.00"],
+    ["2026-10-11", "Synthetic refund", "0.00", "5.00"],
+  ];
+
+  it("counts rows only the unmapped column would supply", () => {
+    expect(countAmountsOnlyIn(rows, 2, 3)).toBe(2);
+    expect(countAmountsOnlyIn(rows, 3, 2)).toBe(1);
+  });
+
+  it("is zero for a purchase-only statement with an empty Credit column", () => {
+    expect(countAmountsOnlyIn(rows.slice(0, 1), 2, 3)).toBe(0);
+  });
+});
+
+// Copied from dev PR #92 (fedbf94): credits beside zero-filled debits.
+describe("parseSplitAmount", () => {
+  it("uses a nonzero credit when the debit is zero", () => {
+    expect(parseSplitAmount("0.00", "123.45")).toBe(123.45);
+  });
+
+  it("uses a nonzero credit when the debit is blank", () => {
+    expect(parseSplitAmount("", "123.45")).toBe(123.45);
+  });
+
+  it("returns a nonzero debit as negative when the credit is zero or blank", () => {
+    expect(parseSplitAmount("123.45", "0.00")).toBe(-123.45);
+    expect(parseSplitAmount("123.45", "")).toBe(-123.45);
+  });
+
+  it("preserves debit precedence when both amounts are nonzero", () => {
+    expect(parseSplitAmount("123.45", "67.89")).toBe(-123.45);
+  });
+
+  it("returns zero when neither amount parses nonzero", () => {
+    expect(parseSplitAmount("0.00", "0.00")).toBe(0);
+    expect(parseSplitAmount("", "")).toBe(0);
+    expect(parseSplitAmount("n/a", "-")).toBe(0);
+  });
+
+  it("uses a nonzero credit when the debit is unparseable", () => {
+    expect(parseSplitAmount("n/a", "123.45")).toBe(123.45);
+  });
+});
+
+describe("countOmittedSplitRows", () => {
+  const single = { amountCol: 2, typeCol: -1, debitCol: -1, creditCol: -1 };
+  const card = [
+    ["2026-10-02", "Synthetic Grocer", "120.00", "0.00"],
+    ["2026-10-10", "PAYMENT THANK YOU", "", "150.00"],
+    ["2026-10-12", "Synthetic refund", "0.00", "5.00"],
+  ];
+
+  it("counts blank- and zero-filled rows the unmapped partner column would supply", () => {
+    expect(countOmittedSplitRows(["Date", "Description", "Debit", "Credit"], card, single)).toEqual({ partnerCol: 3, count: 2 });
+  });
+
+  it("is zero once both columns are mapped, or when a type column signs the amount", () => {
+    const headers = ["Date", "Description", "Debit", "Credit"];
+    expect(countOmittedSplitRows(headers, card, { ...single, debitCol: 2, creditCol: 3 }).count).toBe(0);
+    expect(countOmittedSplitRows(headers, card, { ...single, typeCol: 3 }).count).toBe(0);
+  });
+
+  it("is zero for single signed-amount and purchase-only statements", () => {
+    const signed = [["2026-10-02", "Synthetic Grocer", "-120.00"], ["2026-10-10", "PAYMENT THANK YOU", "150.00"]];
+    expect(countOmittedSplitRows(["Date", "Description", "Amount"], signed, single)).toEqual({ partnerCol: -1, count: 0 });
+    expect(countOmittedSplitRows(["Date", "Description", "Debit", "Credit"], [card[0]], single).count).toBe(0);
   });
 });
