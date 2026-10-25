@@ -6,8 +6,8 @@
 
   <!-- ── Primary SEO ──────────────────────────────────────────────────────── -->
   <!-- Domain: privatecompass.app                                              -->
-  <title>Compass | Private Finance Tracker for Windows &amp; macOS</title>
-  <meta name="description" content="Track your spending without giving anyone your bank login. Import bank statements, credit card statements, and investment portfolios from CSV. Free, open-source, AES-256 encrypted desktop app for Windows and macOS (beta). No account required.">
+  <title>Compass | Spending Tracker for CSV &amp; Excel, No Bank Login</title>
+  <meta name="description" content="Free Windows and macOS (beta) app that sorts CSV and Excel bank statements into categories with rules you can save. No bank login or cloud account.">
   <meta name="author" content="Compass">
   <!-- max-image-preview:large is what lets Google and AI answer engines show the
        screenshot rather than a thumbnail; the snippet caps are lifted so a full
@@ -18,8 +18,8 @@
   <!-- ── Open Graph (Facebook, LinkedIn, Discord) ─────────────────────────── -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://privatecompass.app/">
-  <meta property="og:title" content="Compass | Private Finance Tracker for Windows &amp; macOS">
-  <meta property="og:description" content="Export a CSV from your bank. Drop it in. See where your money went, privately and locally, with no account required.">
+  <meta property="og:title" content="Compass | Spending Tracker for CSV &amp; Excel, No Bank Login">
+  <meta property="og:description" content="Turn the CSV and Excel statements you download from your bank into categorized spending, stored in an encrypted database on your computer. No bank login.">
   <meta property="og:image" content="https://privatecompass.app/img/og-cover.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
@@ -29,8 +29,8 @@
 
   <!-- ── Twitter / X card ─────────────────────────────────────────────────── -->
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Compass | Private Finance Tracker for Windows &amp; macOS">
-  <meta name="twitter:description" content="Track your spending privately. CSV import from any bank. No account, no cloud, no subscription. Free and open source.">
+  <meta name="twitter:title" content="Compass | Spending Tracker for CSV &amp; Excel, No Bank Login">
+  <meta name="twitter:description" content="Free desktop spending tracker for CSV and Excel bank statements. No bank login and no cloud account. Windows, plus a macOS beta.">
   <meta name="twitter:image" content="https://privatecompass.app/img/og-cover.png">
   <meta name="twitter:image:alt" content="Compass, a private finance tracker for Windows and macOS, showing net worth drawn above and below a zero waterline.">
 
@@ -59,7 +59,7 @@
         "applicationCategory": "FinanceApplication",
         "applicationSubCategory": "Personal finance and budgeting",
         "operatingSystem": "Windows 10, Windows 11, macOS 10.15+",
-        "softwareVersion": "1.3.4",
+        "softwareVersion": "1.3.5",
         "url": "https://privatecompass.app/",
         "downloadUrl": "https://github.com/tylahfam97/Compass/releases/latest",
         "installUrl": "https://privatecompass.app/#download",
@@ -68,10 +68,10 @@
         "license": "https://opensource.org/licenses/MIT",
         "isAccessibleForFree": true,
         "screenshot": "https://privatecompass.app/img/overview.png",
-        "description": "A free, open-source personal finance app for Windows and macOS that reads bank, credit card and brokerage statements you export yourself. No bank login, no cloud account, and an AES-256 encrypted database stored on your own machine.",
+        "description": "A free, open-source personal finance app for Windows, with a macOS beta. It imports bank and credit card statements you download as CSV or Excel files, plus supported brokerage exports, and sorts transactions with built-in and saved category rules. No bank login, no cloud account, and an AES-256 encrypted database stored on your own computer.",
         "featureList": [
-          "Guided CSV and spreadsheet import with column auto-detection and bank presets",
-          "Automatic categorisation with editable rules and a live match preview",
+          "Guided CSV and Excel (.xlsx) statement import with column auto-detection, bank presets, saved layouts, batch import and duplicate detection",
+          "Categorisation with built-in and saved rules and a live match preview",
           "Net worth tracked as depth, with a projected month it clears zero",
           "Cash-flow forecasting, safe-to-spend and projected lowest balance",
           "Debt payoff comparison across Avalanche, Snowball and Cash-flow First",
@@ -106,6 +106,60 @@
         "url": "https://privatecompass.app/",
         "publisher": { "@id": "https://privatecompass.app/#org" },
         "inLanguage": "en-US"
+      },
+      {
+        "@type": "FAQPage",
+        "@id": "https://privatecompass.app/#faq",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Do I have to connect Compass to my bank?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. Compass has no live bank connections and never asks for a bank login. You download statements from your bank or card issuer as CSV or Excel (.xlsx) files and import them, then import a newer statement whenever you want to catch up."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Where is my data stored?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "On your computer, in the app data folder: %APPDATA%\\com.compass.app\\ on Windows or ~/Library/Application Support/com.compass.app/ on macOS. That folder holds the encrypted database, compass.db, and a key file, compass.key. There's no cloud sync."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Is my data encrypted, and what does that cover?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes. Compass encrypts its database at rest with SQLCipher (AES-256). The key is kept in Windows Credential Manager or the macOS Keychain, with compass.key in the app data folder as a fallback. That key file can decrypt the database, so protect both files and every backup of them. Encryption at rest isn't a substitute for securing your device."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How do I back up my data, and can I share the backup?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Use Settings > Backup & Restore > Export Backup to write a .compassbackup file. Don't share it: it contains the database and the key that decrypts it, so store it as carefully as the statements themselves. For a plain copy of your transactions, export them as CSV from Transactions, one profile at a time."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Does Compass connect to the internet?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes, to check GitHub for new releases. Your transactions aren't uploaded, and there's no telemetry or cloud sync. Once it's installed, Compass works offline."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Can the developer see my financial data?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Not through Compass. There's no Compass account, cloud sync or bank connection, and the app doesn't send your transactions to the developer. Your data is only as private as the computer it's on, so protect the device, the key file and your backups."
+            }
+          }
+        ]
       }
     ]
   }
@@ -160,7 +214,7 @@
     </a>
     <a href="https://privatecompass.app/downloads/Compass.dmg"
        class="btn btn-primary">
-      Download for macOS
+      Download for macOS (beta)
     </a>
   </div>
 </header>
@@ -197,17 +251,16 @@
       <span class="chip" role="listitem">Free &amp; Open Source</span>
       <span class="chip" role="listitem">No Account Required</span>
       <span class="chip chip-blue" role="listitem">Windows and macOS (beta)</span>
-      <span class="chip chip-gold" role="listitem">v1.3.4</span>
+      <span class="chip chip-gold" role="listitem">v1.3.5</span>
     </div>
 
     <h1 class="hero-title" id="hero-title">
-      Your money.<br>
-      <span class="hero-accent">Your machine.</span>
+      See where your money goes,<br>
+      <span class="hero-accent">without a bank login.</span>
     </h1>
 
     <p class="hero-sub">
-      Export a CSV from your bank, credit card, or brokerage. Drop it in. See where your money went;
-      privately, locally, without giving anyone your credentials or paying a monthly subscription.
+      Compass is a free desktop spending tracker for Windows, with a macOS beta. Bring in the CSV or Excel (.xlsx) statements you download from your bank or card issuer. Built-in category rules sort common merchants, and rules you save apply to every import after that. It's all stored in an encrypted database on your own computer.
     </p>
 
     <div class="hero-actions">
@@ -225,7 +278,7 @@
           <path d="M2.5 13.5h11M8 2.5v8m-3-2.5 3 3 3-3"
                 stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-        Download for macOS
+        Download for macOS (beta)
       </a>
       <a href="#how" class="btn btn-ghost btn-lg">
         See how it works
@@ -256,7 +309,7 @@
           <path d="M14 3.5H2M14 8H2M14 12.5H2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
           <path d="M1 1l14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
         </svg>
-        <span>Zero telemetry</span>
+        <span>No telemetry</span>
       </div>
       <div class="trust-item" role="listitem">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -264,7 +317,7 @@
                 stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
           <path d="M5.6 8.1 7.2 9.7l3.2-3.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-        <span>Signed installer</span>
+        <span>Signed Windows installer</span>
       </div>
       <div class="trust-item" role="listitem">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -272,7 +325,7 @@
           <path d="M5.5 8l1.5 1.5 3.5-3.5"
                 stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-        <span>Free forever</span>
+        <span>No paid tier</span>
       </div>
       <div class="trust-item" role="listitem">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
@@ -305,8 +358,8 @@
   <div class="container">
     <div class="section-header">
       <p class="section-eyebrow">Why it exists</p>
-      <h2 id="why-title">Most finance apps work against you.</h2>
-      <p class="section-sub">They ask for your bank login, upload your transactions to their servers, and charge you monthly for the privilege. If you cancel, your data disappears for you, not them. Compass was built as the alternative.</p>
+      <h2 id="why-title">Your statements already hold the answers.</h2>
+      <p class="section-sub">Compass was built for people who'd rather not give a finance app their bank password. It works from the statement files you download yourself, so there's nothing to connect and no account to create. What it builds from them is stored in an encrypted database on your computer, and you can back it up or export it whenever you like.</p>
     </div>
 
     <div class="why-grid">
@@ -317,8 +370,8 @@
                   stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
           </svg>
         </div>
-        <h3>Privacy by default</h3>
-        <p>No bank login. No credentials. No cloud upload. Your transaction data never leaves your machine. There is no server to receive it, no account to breach, no subscription to cancel.</p>
+        <h3>No bank login</h3>
+        <p>Compass never asks for one, and it has no feature that connects to a bank. You get the statement from your bank's own website and import the file yourself.</p>
       </div>
       <div class="why-card">
         <div class="why-icon">
@@ -327,8 +380,8 @@
             <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5"/>
           </svg>
         </div>
-        <h3>Instant clarity</h3>
-        <p>Drop in a CSV. Categories apply automatically. See your top spending, monthly trends, budget progress, and ghost subscriptions in seconds, with no setup required.</p>
+        <h3>Rules you can see working</h3>
+        <p>Built-in rules sort common merchants as you import. When one lands in the wrong category, fix it and save the fix as a rule. Before you save, a live preview shows which of your recent transactions the rule matches, and saving can sort the ones still uncategorized.</p>
       </div>
       <div class="why-card">
         <div class="why-icon">
@@ -337,8 +390,8 @@
             <path d="M12 8v4l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </div>
-        <h3>Full control</h3>
-        <p>Your database. Your encryption key. Export everything as CSV at any time. No lock-in, no account deletion risk. The data is a file on your machine, yours to keep.</p>
+        <h3>Yours to keep</h3>
+        <p>Your data is a database file on your own disk, encrypted with SQLCipher, and you can take a full backup or export your transactions as CSV whenever you want. Compass is MIT-licensed open source, so you can read exactly what it does with your money.</p>
       </div>
     </div>
   </div>
@@ -349,36 +402,38 @@
   <div class="container">
     <div class="section-header">
       <p class="section-eyebrow">How it works</p>
-      <h2 id="how-title">Three steps to get started.</h2>
+      <h2 id="how-title">From statement file to sorted spending, in three steps.</h2>
     </div>
 
     <div class="steps">
       <div class="step">
         <div class="step-num" aria-hidden="true">01</div>
         <div class="step-content">
-          <h3>Export from your bank or brokerage</h3>
-          <p>Log into your bank, credit card issuer, or brokerage and export a CSV. Every institution supports this with no special access, no new account, and no permissions to grant.</p>
-          <div class="step-detail">Bank statements: Chase, Capital One, Wells Fargo, Bank of America, Navy Federal, Discover, Amex, Venmo, Cash App, PayPal, and more.<br>Investment portfolios: Fidelity, Wells Fargo Advisors, Thrivent, and more.</div>
+          <h3>Download a statement file</h3>
+          <p>Sign in to your bank or card issuer's website as usual and download your transactions as a CSV file, or as an Excel workbook if that's what they offer. Look for an export or download option near your account activity. Compass never sees that login.</p>
+          <div class="step-detail">Bank and credit card statements import as CSV or Excel (.xlsx). Compass also reads investment exports from Wells Fargo Advisors, Fidelity and Thrivent, plus Principal 401(k) and E*TRADE / Morgan Stanley PDF statements. Support varies by institution and statement type.</div>
         </div>
       </div>
 
       <div class="step">
         <div class="step-num" aria-hidden="true">02</div>
         <div class="step-content">
-          <h3>Drop it into Compass</h3>
-          <p>The guided 6-step wizard detects your bank's column layout automatically. Bank presets pre-fill the mapping. Returning users skip straight to preview with one click.</p>
+          <h3>Import it and check the mapping</h3>
+          <p>Open Import, pick the statement type and choose the file. Compass suggests which columns hold the date, description and amount. You confirm them, check which way the money moved and look at the preview before anything is imported. Save the layout, and the next file from that bank goes quicker.</p>
         </div>
       </div>
 
       <div class="step">
         <div class="step-num" aria-hidden="true">03</div>
         <div class="step-content">
-          <h3>See where your money went</h3>
-          <p>100+ built-in categorization rules apply instantly. Navigate your Dashboard, Trends, Reports, Budgets, and Goals. Everything populates automatically with no manual entry.</p>
-          <div class="step-detail">Try Demo Mode first. It loads about 50 realistic sample transactions instantly with no import needed.</div>
+          <h3>See where it went</h3>
+          <p>Built-in rules sort common merchants into categories. Fix any that land in the wrong place and save the fix as a rule for next time. Then open the Dashboard, Trends and Budgets to see where the month went, or Plan to see what's coming.</p>
+          <div class="step-detail">Demo Mode loads sample data, so you can look around before you import a thing.</div>
         </div>
       </div>
     </div>
+
+    <p class="how-guide-link"><a href="/import-guide.html">Step by step: how to import a bank CSV or Excel statement</a></p>
   </div>
 </section>
 
@@ -405,7 +460,7 @@
       </figure>
 
       <figure class="showcase-figure">
-        <figcaption>The six-step import wizard</figcaption>
+        <figcaption>The guided import wizard</figcaption>
         <video class="showcase-img" muted loop playsinline preload="none"
                poster="/img/import-wizard-poster.webp" data-src="/img/import-wizard.mp4"
                aria-label="The guided import wizard walking through column detection, date parsing, amount mapping, and the import preview">
@@ -440,8 +495,8 @@
                   stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </div>
-        <h3>6-Step Import Wizard</h3>
-        <p>Guided import with column auto-detection. Bank presets for Chase, Capital One, Wells Fargo, Discover, Amex, Venmo, and more. Investment portfolio presets for Fidelity, Wells Fargo Advisors, and Thrivent. Batch import multiple files. Duplicate detection via content hash.</p>
+        <h3>CSV and Excel Import</h3>
+        <p>Bring in bank and credit card statements as CSV or Excel (.xlsx) files. Compass suggests the column mapping. You get a preview before anything is imported. Saved layouts make the next file from that bank quicker, and duplicate detection checks each import against what's already there. Batch import takes several files at once.</p>
       </div>
 
       <div class="feature-card">
@@ -452,8 +507,8 @@
             <circle cx="10" cy="10.5" r="2.5" stroke="currentColor" stroke-width="1.5"/>
           </svg>
         </div>
-        <h3>Auto-Categorization</h3>
-        <p>100+ built-in rules cover Amazon, Walmart, DoorDash, Starbucks, Netflix, and more. Manual corrections optionally save as rules so future imports self-categorize. Manage all rules from the sidebar.</p>
+        <h3>Category Rules</h3>
+        <p>Built-in rules categorize common merchants on import. Correct a category and you can save the correction as a rule, so future imports apply it. When you write your own, a live preview shows which recent transactions match before you save, and saving can sort the ones still uncategorized.</p>
       </div>
 
       <div class="feature-card">
@@ -502,7 +557,7 @@
           </svg>
         </div>
         <h3>Insights &amp; Privacy</h3>
-        <p>Automatic spending analysis surfaces budget warnings, top merchants, detected subscriptions, paycheck timing, and overdraft alerts, all processed locally. SQLCipher AES-256 encrypted database. Zero telemetry.</p>
+        <p>Automatic spending analysis surfaces budget warnings, top merchants, detected subscriptions, paycheck timing, and overdraft alerts, all processed locally. SQLCipher AES-256 encrypted database. No telemetry.</p>
       </div>
 
     </div>
@@ -514,90 +569,51 @@
   <div class="container">
     <div class="section-header">
       <p class="section-eyebrow">Compare</p>
-      <h2 id="compare-title">Simpler. More private. No subscription.</h2>
-      <p class="section-sub">Compass owns a specific lane: more private than Monarch, simpler than Firefly, more modern than HomeBank, less budgeting-dogmatic than Actual Budget.</p>
+      <h2 id="compare-title">Other apps import statement files too. Here's where each one fits.</h2>
+      <p class="section-sub">Compass isn't the only way to track spending without connecting a bank. This table compares four options that can work from files, using each one's own documentation, checked October 25, 2026.</p>
     </div>
 
-    <div class="table-wrap" role="region" aria-label="Feature comparison table" tabindex="0">
-      <table class="compare-table">
+    <div class="table-wrap" role="region" aria-label="Comparison of four apps that can import statement files" tabindex="0">
+      <table class="compare-table compare-table--fit">
         <thead>
           <tr>
-            <th scope="col">Feature</th>
-            <th scope="col" class="col-compass">Compass</th>
-            <th scope="col">Monarch / Simplifi</th>
-            <th scope="col">Actual Budget</th>
-            <th scope="col">Firefly III</th>
-            <th scope="col">HomeBank</th>
+            <th scope="col">Option</th>
+            <th scope="col">How transactions get in</th>
+            <th scope="col">Worth knowing</th>
+            <th scope="col">Choose it when</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td>Local-only data</td>
-            <td class="col-compass"><span class="check" aria-label="Yes">✓</span></td>
-            <td><span class="cross" aria-label="No">✗</span> Cloud</td>
-            <td><span class="check" aria-label="Yes">✓</span></td>
-            <td><span class="check" aria-label="Yes">✓</span> Self-hosted</td>
-            <td><span class="check" aria-label="Yes">✓</span></td>
+            <th scope="row" class="col-compass">Compass</th>
+            <td class="col-compass">CSV and Excel (.xlsx) statement files you download. No bank connection.</td>
+            <td class="col-compass">Desktop app for Windows, with a macOS beta. Data is stored in a SQLCipher (AES-256) encrypted database on your computer. No cloud sync, mobile app or shared access.</td>
+            <td class="col-compass">You want to categorize statement files on one computer, with no account or server to set up.</td>
           </tr>
           <tr>
-            <td>No account required</td>
-            <td class="col-compass"><span class="check" aria-label="Yes">✓</span></td>
-            <td><span class="cross" aria-label="No">✗</span></td>
-            <td><span class="cross" aria-label="No">✗</span></td>
-            <td><span class="cross" aria-label="No">✗</span></td>
-            <td><span class="check" aria-label="Yes">✓</span></td>
+            <th scope="row">Actual Budget</th>
+            <td>CSV, QIF, OFX, QFX or CAMT files, or optional linked bank sync through SimpleFIN, GoCardless or Pluggy.ai.</td>
+            <td>Local-first, with multi-device sync and a demo to try. Optional end-to-end encryption covers synced budget data. Actual's docs say data on your local device is still unencrypted and recommend full disk encryption for it.</td>
+            <td>You want envelope budgeting, OFX or QIF import, or one budget across several devices.</td>
           </tr>
           <tr>
-            <td>Free, no subscription</td>
-            <td class="col-compass"><span class="check" aria-label="Yes">✓</span></td>
-            <td><span class="cross" aria-label="No">✗</span> $10–20/mo</td>
-            <td><span class="check" aria-label="Yes">✓</span></td>
-            <td><span class="check" aria-label="Yes">✓</span></td>
-            <td><span class="check" aria-label="Yes">✓</span></td>
+            <th scope="row">Quicken Simplifi</th>
+            <td>Connected accounts, or manual accounts with CSV import of bank and credit card transactions.</td>
+            <td>Transaction import works in the Simplifi web app, not the mobile app. These notes cover Simplifi only, not Quicken Classic.</td>
+            <td>You want Quicken's web app and are happy to import CSVs instead of connecting an account.</td>
           </tr>
           <tr>
-            <td>No bank login needed</td>
-            <td class="col-compass"><span class="check" aria-label="Yes">✓</span></td>
-            <td><span class="cross" aria-label="No">✗</span></td>
-            <td><span class="check" aria-label="Yes">✓</span></td>
-            <td><span class="cross" aria-label="No">✗</span></td>
-            <td><span class="check" aria-label="Yes">✓</span></td>
-          </tr>
-          <tr>
-            <td>Encrypted database</td>
-            <td class="col-compass"><span class="check" aria-label="Yes">✓</span> AES-256</td>
-            <td><span class="check" aria-label="Yes">✓</span></td>
-            <td><span class="check" aria-label="Yes">✓</span></td>
-            <td><span class="check" aria-label="Yes">✓</span></td>
-            <td><span class="cross" aria-label="No">✗</span></td>
-          </tr>
-          <tr>
-            <td>Modern Windows desktop UI</td>
-            <td class="col-compass"><span class="check" aria-label="Yes">✓</span></td>
-            <td><span class="cross" aria-label="No">✗</span> Web only</td>
-            <td><span class="check" aria-label="Yes">✓</span></td>
-            <td><span class="cross" aria-label="No">✗</span> Web only</td>
-            <td><span class="warn" aria-label="Partial">~</span></td>
-          </tr>
-          <tr>
-            <td>Ghost subscription detection</td>
-            <td class="col-compass"><span class="check" aria-label="Yes">✓</span></td>
-            <td><span class="warn" aria-label="Partial">~</span></td>
-            <td><span class="cross" aria-label="No">✗</span></td>
-            <td><span class="cross" aria-label="No">✗</span></td>
-            <td><span class="cross" aria-label="No">✗</span></td>
-          </tr>
-          <tr>
-            <td>Try before importing</td>
-            <td class="col-compass"><span class="check" aria-label="Yes">✓</span> Demo Mode</td>
-            <td><span class="cross" aria-label="No">✗</span></td>
-            <td><span class="check" aria-label="Yes">✓</span></td>
-            <td><span class="cross" aria-label="No">✗</span></td>
-            <td><span class="cross" aria-label="No">✗</span></td>
+            <th scope="row">Firefly III</th>
+            <td>Its Data Importer reads CSV, CAMT.052 and CAMT.053 files. It can also use third-party data providers; it doesn't connect to your bank directly.</td>
+            <td>Firefly III is self-hosted: you install and run it on a server or computer you control.</td>
+            <td>You're comfortable running a self-hosted app and want your finances on your own server.</td>
           </tr>
         </tbody>
       </table>
     </div>
+
+    <p class="compare-sources">Sources, checked October 25, 2026: Actual Budget <a href="https://actualbudget.org/docs/transactions/importing" target="_blank" rel="noopener noreferrer">importing transactions</a>, <a href="https://actualbudget.org/" target="_blank" rel="noopener noreferrer">home page</a> and <a href="https://actualbudget.org/docs/getting-started/sync/#end-to-end-encryption" target="_blank" rel="noopener noreferrer">syncing and end-to-end encryption</a>; Quicken Simplifi <a href="https://support.simplifi.quicken.com/en/articles/4413430-how-to-manually-import-transactions-in-quicken-simplifi" target="_blank" rel="noopener noreferrer">manual CSV import</a> and <a href="https://support.simplifi.quicken.com/en/articles/5321064-switch-a-connected-account-to-manual-mode" target="_blank" rel="noopener noreferrer">manual accounts</a>; Firefly III <a href="https://github.com/firefly-iii/data-importer/blob/main/readme.md" target="_blank" rel="noopener noreferrer">Data Importer README</a>. Compass details come from its <a href="https://github.com/tylahfam97/Compass#readme" target="_blank" rel="noopener noreferrer">README</a> and <a href="https://github.com/tylahfam97/Compass/blob/main/RELEASE_NOTES.md" target="_blank" rel="noopener noreferrer">release notes</a>. Products change, so check current documentation before you choose.</p>
+    <p class="compare-guide-link">Already have a statement file? <a href="/import-guide.html">Follow the import guide.</a></p>
   </div>
 </section>
 
@@ -607,6 +623,7 @@
     <div class="section-header">
       <p class="section-eyebrow">Security &amp; Privacy</p>
       <h2 id="security-title">Questions you should ask before trusting any finance app.</h2>
+      <p class="section-sub">Compass keeps your financial data in an encrypted database on your computer. Encryption protects that file at rest. It can't protect a computer someone else controls, or a copy of the database that travels with its key, so the answers below say exactly where things live.</p>
     </div>
 
     <div class="security-grid">
@@ -616,11 +633,20 @@
             <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.5"/>
             <path d="M8 5v.5M8 7.5v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
           </svg>
-          Where is my data stored?
+          <span class="qa-q-text">Do I have to connect Compass to my bank?</span>
         </div>
-        <div class="qa-a">
-          In a local SQLite database in your own user profile: <code>%APPDATA%\com.compass.app\</code> on Windows, or <code>~/Library/Application Support/com.compass.app/</code> on macOS. Only your operating system account can reach it. No other location, no remote copy.
+        <div class="qa-a">No. Compass has no live bank connections and never asks for a bank login. You download statements from your bank or card issuer as CSV or Excel (.xlsx) files and import them, then import a newer statement whenever you want to catch up.</div>
+      </div>
+
+      <div class="qa-card">
+        <div class="qa-q">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M8 5v.5M8 7.5v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          <span class="qa-q-text">Where is my data stored?</span>
         </div>
+        <div class="qa-a">On your computer, in the app data folder: <code>%APPDATA%\com.compass.app\</code> on Windows or <code>~/Library/Application Support/com.compass.app/</code> on macOS. That folder holds the encrypted database, compass.db, and a key file, compass.key. There's no cloud sync.</div>
       </div>
 
       <div class="qa-card qa-card--highlight">
@@ -629,25 +655,9 @@
             <rect x="3" y="7" width="10" height="8" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
             <path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
           </svg>
-          Is the database encrypted?
+          <span class="qa-q-text">Is my data encrypted, and what does that cover?</span>
         </div>
-        <div class="qa-a">
-          Yes. <strong>SQLCipher AES-256</strong> encrypts the database at rest. The key is a 32-byte random value stored in your OS's native secure credential store - <strong>Windows Credential Manager</strong> (DPAPI-backed) on Windows, or <strong>Keychain</strong> on macOS - bound to your OS user account. It is never visible in the app UI.
-        </div>
-      </div>
-
-      <div class="qa-card">
-        <div class="qa-q">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M13 3H3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1Z"
-                  stroke="currentColor" stroke-width="1.5"/>
-            <path d="m2 5 6 4 6-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-          What data leaves my device?
-        </div>
-        <div class="qa-a">
-          <strong>Nothing financial.</strong> The only outbound request is an optional update check against the GitHub Releases API (version numbers only, no personal data). The app works fully offline after installation.
-        </div>
+        <div class="qa-a">Yes. Compass encrypts its database at rest with SQLCipher (AES-256). The key is kept in Windows Credential Manager or the macOS Keychain, with compass.key in the app data folder as a fallback. That key file can decrypt the database, so protect both files and every backup of them. Encryption at rest isn't a substitute for securing your device.</div>
       </div>
 
       <div class="qa-card">
@@ -657,11 +667,21 @@
                   stroke="currentColor" stroke-width="1.5"/>
             <rect x="2.5" y="5.5" width="11" height="8" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
           </svg>
-          Does Compass collect telemetry?
+          <span class="qa-q-text">How do I back up my data, and can I share the backup?</span>
         </div>
-        <div class="qa-a">
-          No. There is no telemetry SDK, analytics library, or error reporting service in the codebase. Zero background network calls beyond the optional update check.
+        <div class="qa-a">Use Settings &gt; Backup &amp; Restore &gt; Export Backup to write a .compassbackup file. Don't share it: it contains the database and the key that decrypts it, so store it as carefully as the statements themselves. For a plain copy of your transactions, export them as CSV from Transactions, one profile at a time.</div>
+      </div>
+
+      <div class="qa-card">
+        <div class="qa-q">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M13 3H3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1Z"
+                  stroke="currentColor" stroke-width="1.5"/>
+            <path d="m2 5 6 4 6-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          <span class="qa-q-text">Does Compass connect to the internet?</span>
         </div>
+        <div class="qa-a">Yes, to check GitHub for new releases. Your transactions aren't uploaded, and there's no telemetry or cloud sync. Once it's installed, Compass works offline.</div>
       </div>
 
       <div class="qa-card qa-card--answer">
@@ -669,12 +689,9 @@
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
             <path d="M8 1C4.13 1 1 4.13 1 8c0 3.09 1.99 5.71 4.76 6.64.35.06.48-.15.48-.33v-1.17c-1.94.42-2.35-.94-2.35-.94-.32-.81-.77-1.02-.77-1.02-.63-.43.05-.42.05-.42.7.05 1.07.72 1.07.72.62 1.06 1.63.75 2.03.58.06-.45.24-.75.44-.92-1.55-.17-3.18-.77-3.18-3.44 0-.76.27-1.38.72-1.87-.07-.18-.31-.88.07-1.84 0 0 .58-.19 1.91.71A6.6 6.6 0 0 1 8 4.8c.59 0 1.18.08 1.73.23 1.33-.9 1.91-.71 1.91-.71.38.96.14 1.66.07 1.84.45.49.72 1.11.72 1.87 0 2.68-1.63 3.27-3.19 3.44.25.22.48.64.48 1.29v1.92c0 .18.13.39.48.33A7.003 7.003 0 0 0 15 8c0-3.87-3.13-7-7-7Z"/>
           </svg>
-          Can the developer see my data?
+          <span class="qa-q-text">Can the developer see my financial data?</span>
         </div>
-        <div class="qa-a">
-          <span class="answer-no">No.</span>
-          There is no server. No sync. No account. No mechanism by which anyone other than you can access data stored on your own machine. The developer has zero visibility into your financial data, ever.
-        </div>
+        <div class="qa-a"><span class="answer-no">Not through Compass.</span> There's no Compass account, cloud sync or bank connection, and the app doesn't send your transactions to the developer. Your data is only as private as the computer it's on, so protect the device, the key file and your backups.</div>
       </div>
     </div>
   </div>
@@ -685,7 +702,7 @@
   <div class="container">
     <div class="download-cards">
       <div class="download-card">
-        <div class="version-badge">v1.3.4</div>
+        <div class="version-badge">v1.3.5</div>
         <div class="download-header">
           <svg width="56" height="56" class="download-logo" aria-hidden="true" focusable="false"><use href="#compass-mark"/></svg>
           <div>
@@ -742,7 +759,7 @@
               <path d="M4.5 7l1.5 1.5 3.5-3.5"
                     stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
-            No prerequisites required
+            WebView2 is installed if missing
           </div>
           <div class="req-item">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
@@ -763,7 +780,7 @@
       </div>
 
       <div class="download-card">
-        <div class="version-badge">v1.3.4</div>
+        <div class="version-badge">v1.3.5</div>
         <div class="download-header">
           <svg width="56" height="56" class="download-logo" aria-hidden="true" focusable="false"><use href="#compass-mark"/></svg>
           <div>
@@ -859,9 +876,8 @@
       <p class="section-eyebrow">Support</p>
       <h2 id="support-title">Donations change nothing about the software.</h2>
       <p class="section-sub">
-        Most of this category runs on a subscription, or pays for itself by selling what it
-        learns about you. Compass is one person's work, and it is free because there is no
-        server to fund, not because a paid tier is waiting.
+        Plenty of apps in this category run on a subscription. Compass is one person's work, and it
+        is free because there is no cloud service behind it to fund, not because a paid tier is waiting.
       </p>
     </div>
 
@@ -958,6 +974,7 @@
       <a href="https://github.com/tylahfam97/Compass" target="_blank" rel="noopener noreferrer">GitHub</a>
       <a href="https://github.com/tylahfam97/Compass/releases" target="_blank" rel="noopener noreferrer">Releases</a>
       <a href="https://github.com/tylahfam97/Compass/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+      <a href="/import-guide.html">Import guide</a>
     </nav>
   </div>
 </footer>

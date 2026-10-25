@@ -1,6 +1,6 @@
 [package]
 name = "compass"
-version = "1.3.4"
+version = "1.3.5"
 description = "Compass – Personal Finance Companion"
 authors = ["Tyler Fameli"]
 edition = "2021"
@@ -22,7 +22,7 @@ tauri-plugin-process = "2"
 rusqlite = { version = "0.31", features = ["bundled-sqlcipher-vendored-openssl"] }
 # keyring v3+ requires an explicit backend feature per platform - without one it silently
 # falls back to an in-memory "mock" store that's discarded on process exit (see
-# https://docs.rs/keyring, "Upgrading from v2"). Without this, load_or_create_key() in lib.rs
+# https://docs.rs/keyring, "Upgrading from v2"). Without this, open_db_in() in lib.rs
 # would report "Keyring entry missing" and restore from the compass.key file backup on every
 # single launch, since nothing was ever actually persisted to Windows Credential Manager /
 # macOS Keychain in the first place.

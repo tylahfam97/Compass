@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>How to Import Bank CSV and Excel Statements | Compass</title>
+  <meta name="description" content="Import bank and card statements into Compass from CSV or Excel: map columns, check amount signs and duplicates, then save layouts and category rules.">
+  <meta name="author" content="Compass">
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+  <link rel="canonical" href="https://privatecompass.app/import-guide.html">
+
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://privatecompass.app/import-guide.html">
+  <meta property="og:title" content="How to Import Bank CSV and Excel Statements | Compass">
+  <meta property="og:description" content="Import bank and card statements into Compass from CSV or Excel: map columns, check amount signs and duplicates, then save layouts and category rules.">
+  <meta property="og:image" content="https://privatecompass.app/img/og-cover.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Compass, a private finance tracker for Windows and macOS, showing net worth drawn above and below a zero waterline.">
+  <meta property="og:site_name" content="Compass">
+  <meta property="og:locale" content="en_US">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="How to Import Bank CSV and Excel Statements | Compass">
+  <meta name="twitter:description" content="Import bank and card statements into Compass from CSV or Excel: map columns, check amount signs and duplicates, then save layouts and category rules.">
+  <meta name="twitter:image" content="https://privatecompass.app/img/og-cover.png">
+  <meta name="twitter:image:alt" content="Compass, a private finance tracker for Windows and macOS, showing net worth drawn above and below a zero waterline.">
+
+  <meta name="theme-color" content="#0A1124">
+  <link rel="icon" type="image/png" href="/img/favicon.png">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; img-src 'self' https://github.com https://*.githubusercontent.com; media-src 'self'; connect-src 'self' https://api.github.com; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+
+  <link rel="stylesheet" href="/css/style.css">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "TechArticle",
+        "@id": "https://privatecompass.app/import-guide.html#article",
+        "headline": "How to import a bank CSV or Excel statement into Compass",
+        "description": "Import bank and card statements into Compass from CSV or Excel: map columns, check amount signs and duplicates, then save layouts and category rules.",
+        "url": "https://privatecompass.app/import-guide.html",
+        "mainEntityOfPage": "https://privatecompass.app/import-guide.html",
+        "datePublished": "2026-10-25",
+        "dateModified": "2026-10-25",
+        "inLanguage": "en-US",
+        "image": "https://privatecompass.app/img/import-wizard-poster.webp",
+        "about": {
+          "@id": "https://privatecompass.app/#app"
+        },
+        "author": {
+          "@id": "https://privatecompass.app/#org"
+        },
+        "publisher": {
+          "@id": "https://privatecompass.app/#org"
+        },
+        "isPartOf": {
+          "@id": "https://privatecompass.app/#website"
+        }
+      },
+      {
+        "@type": "FAQPage",
+        "@id": "https://privatecompass.app/import-guide.html#faq",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Can I import an Excel statement, or does it have to be CSV?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "You can import either. Compass reads bank and credit card statements as CSV files or Excel .xlsx workbooks. When a workbook won't import, download the same transactions as CSV, or save a CSV copy from your spreadsheet app, and keep the original as it was."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Why are some rows missing after an import?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Compass leaves out rows that have no usable date and amount, such as headers, totals and memo lines, and counts them on the import summary separately from duplicates. Paired money-out and money-in columns with names other than Debit and Credit, like Purchases and Payments, need the two-column amount option chosen by hand. Compare the imported transactions with your statement before you rely on them."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Is a saved layout the same as a category rule?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. A saved layout remembers which columns in one bank's file hold the date, description and amount, so the next file from that bank needs fewer clicks. Category rules work on transaction descriptions instead: each one assigns a category, whichever file the transaction came from."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Should I send my statement when I report an import problem?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. Never attach real statements, account numbers, databases, keys or backups to an issue. Include the institution, the file type and the step that failed, plus the header row and a few rows of invented data."
+            }
+          }
+        ]
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+<svg class="svg-defs" aria-hidden="true" focusable="false"><symbol id="compass-mark" viewBox="0 0 512 512"><defs><radialGradient id="cm-bg" cx="50%" cy="40%" r="70%"><stop offset="0%" stop-color="#1C2E54"/><stop offset="100%" stop-color="#070D1E"/></radialGradient><linearGradient id="cm-bezel" x1="15%" y1="5%" x2="85%" y2="95%"><stop offset="0%" stop-color="#F0D068"/><stop offset="40%" stop-color="#C08A1C"/><stop offset="100%" stop-color="#7C5208"/></linearGradient><linearGradient id="cm-north" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#C08A1C"/><stop offset="55%" stop-color="#FFD050"/><stop offset="100%" stop-color="#D09820"/></linearGradient><radialGradient id="cm-hub" cx="33%" cy="28%" r="70%"><stop offset="0%" stop-color="#F0D068"/><stop offset="55%" stop-color="#C08A1C"/><stop offset="100%" stop-color="#7C5208"/></radialGradient></defs><circle cx="256" cy="256" r="256" fill="url(#cm-bg)"/><circle cx="256" cy="256" r="244" fill="none" stroke="#C08A1C" stroke-width="1.5" opacity="0.35"/><circle cx="256" cy="256" r="234" fill="none" stroke="url(#cm-bezel)" stroke-width="6"/><g stroke="#F0D068" stroke-width="5.5" stroke-linecap="round"><line x1="256" y1="28" x2="256" y2="43"/><line x1="256" y1="469" x2="256" y2="484"/><line x1="469" y1="256" x2="484" y2="256"/><line x1="28" y1="256" x2="43" y2="256"/></g><path d="M256,74 L256,256 L238,248 Z" fill="#9C6E0E"/><path d="M256,74 L274,248 L256,256 Z" fill="url(#cm-north)"/><path d="M256,438 L238,264 L256,256 Z" fill="#1C2E54"/><path d="M256,438 L256,256 L274,264 Z" fill="#0A1428"/><path d="M416,256 L268,240 L256,256 L268,272 Z" fill="#B07C10" opacity="0.88"/><path d="M96,256 L244,240 L256,256 L244,272 Z" fill="#B07C10" opacity="0.88"/><circle cx="256" cy="256" r="27" fill="#050C1A"/><circle cx="256" cy="256" r="22" fill="url(#cm-hub)"/><circle cx="256" cy="256" r="13" fill="#050C1A"/><circle cx="256" cy="256" r="7" fill="#F0D068" opacity="0.95"/></symbol></svg>
+
+<!-- Static page: no scripts. The header is the homepage's, pinned in its scrolled state. -->
+<header class="nav nav--scrolled" id="nav">
+  <div class="nav-inner container">
+    <a href="/" class="nav-logo" aria-label="Compass home">
+      <svg width="28" height="28" aria-hidden="true" focusable="false"><use href="#compass-mark"/></svg>
+      <span class="nav-brand">Compass</span>
+    </a>
+
+    <nav aria-label="Main navigation">
+      <ul class="nav-links" role="list">
+        <li><a href="/#features">Features</a></li>
+        <li><a href="/#compare">Compare</a></li>
+        <li><a href="/#security">Security</a></li>
+        <li><a href="/#download">Download</a></li>
+      </ul>
+    </nav>
+
+    <div class="nav-actions">
+      <a href="/#download" class="btn btn-primary btn-sm">Download</a>
+    </div>
+  </div>
+</header>
+
+<main class="container guide">
+  <article>
+    <h1>How to import a bank CSV or Excel statement into Compass</h1>
+    <p class="guide-updated">Updated <time datetime="2026-10-25">October 25, 2026</time> · Written for Compass 1.3.5 on Windows and the macOS beta</p>
+    <p class="guide-lead">Download your transactions from your bank or card issuer as a CSV file or an Excel (.xlsx) workbook. In Compass, open Import, choose the statement type and pick the file. Check the suggested date, description and amount columns and confirm which way the money moved. Look over the preview before you import and the summary after. Then save the layout for that bank, and save category rules for the merchants you see every month.</p>
+
+    <h2>What you can import</h2>
+    <p>Compass imports transactions from bank and credit card statements saved as CSV files or Excel (.xlsx) workbooks. It also reads investment exports from Wells Fargo Advisors, Fidelity and Thrivent, and PDF statements from Principal 401(k) and E*TRADE / Morgan Stanley. Support varies by institution and statement type.</p>
+    <p>It doesn't import OFX or QIF files, or arbitrary PDF bank statements. Compass works with statement tables, one row per transaction with a date, a description and an amount. It isn't a spreadsheet editor or a formula tool.</p>
+
+    <h2>Before you start: get the file and keep the original</h2>
+    <p>Download the statement from your bank or card issuer's website. Look for an export or download option near your account activity, and pick CSV or Excel if you're offered a choice.</p>
+    <p>Keep that downloaded file untouched. Do any tidying on a duplicate, so the original stays exactly as your bank produced it.</p>
+    <p>A workbook that won't import has two fallbacks. Download the same transactions as CSV, if your bank offers that, or open the workbook in your spreadsheet app and save the statement sheet as a CSV copy. Import the copy and keep the original.</p>
+    <p>Compass reads your files on your computer. There's no need to upload a statement to an online converter, or to send it to anyone for help.</p>
+
+    <h2>Step 1: Choose the statement type and the file</h2>
+    <p>Open Import in Compass. The first screen asks what you're importing: a bank statement (checking or savings), a credit card statement, or an investment or brokerage export. Pick the one that matches, then choose your file. Batch import can take several files in one go.</p>
+    <figure class="guide-figure">
+      <img src="/img/import-wizard-poster.webp" width="1200" height="654" alt="The Compass import screen asking What are you importing?, with three choices: Bank Statement for a checking or savings CSV/XLSX export, Credit Card Statement for a credit card CSV/XLSX export, and Investment/Brokerage for a portfolio positions export." loading="lazy" decoding="async">
+      <figcaption>Step 1 in Compass: choose the statement type. Bank and credit card statements are labeled CSV/XLSX. Shown with the demo profile.</figcaption>
+    </figure>
+
+    <h2>Step 2: Check the column mapping</h2>
+    <p>Compass suggests which column in your file holds each piece it needs: the date, the description and the amount. A bank preset, or a layout you saved last time, can fill this in for you. Check each choice against your file's header row, because a wrong match here flows into every transaction.</p>
+    <p>Date and amount styles it reads include two-digit years like 3/5/24, compact dates like 20260905, trailing minus signs, CR and DR suffixes, and European decimal commas like 1.234,56.</p>
+    <figure class="guide-figure guide-figure--illustration">
+      <img src="/img/import-mapping-illustration.svg" width="1200" height="560" alt="Illustration with no real data: four example column headers, Transaction Date, Description, Debit and Credit, each joined by an arrow to the field Compass records: Date, Description, Amount (money out) and Amount (money in)." loading="lazy" decoding="async">
+      <figcaption>Illustration, not a screenshot. Header names vary by bank, and the labels inside Compass may differ.</figcaption>
+    </figure>
+    <p class="guide-text-equivalent">In this example, the file's Transaction Date column becomes the date, Description becomes the description, Debit becomes money out and Credit becomes money in.</p>
+
+    <h2>Step 3: Check the amount layout and the signs</h2>
+    <p>Compass asks how your file records amounts. There are three layouts.</p>
+    <div class="table-wrap" role="region" aria-label="Amount layouts and what to choose" tabindex="0">
+      <table class="compare-table guide-table">
+        <thead>
+          <tr>
+            <th scope="col">Your file has</th>
+            <th scope="col">Choose</th>
+            <th scope="col">Check that</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>One amount column, with the sign telling spending from money in</td>
+            <td>One amount column</td>
+            <td>Spending reads as money out. Flip the signs if it doesn't.</td>
+          </tr>
+          <tr>
+            <td>One amount column plus a column that says Debit or Credit</td>
+            <td>A column says "Debit" or "Credit"</td>
+            <td>Compass is reading direction from the label column.</td>
+          </tr>
+          <tr>
+            <td>Separate Debit and Credit columns</td>
+            <td>Two columns: Debit and Credit</td>
+            <td>Both columns are mapped.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p>On the Amount step, every previewed amount is labeled with what Compass will record: money out or money in on a bank file, purchase / charge or payment / refund on a card statement. Files don't agree on signs, so purchases sometimes show up as money in. Flip the signs and the labels change with them.</p>
+    <p>When the headers say Debit and Credit (or Debit Amount and Credit Amount, or Debits ($) and Credits ($)), Compass detects both columns and maps them. Debits import as charges and credits as payments or refunds, and a 0.00 in the unused column doesn't hide the amount in the other one. Paired columns with other names, like Purchases and Payments, aren't detected, so choose Two columns: Debit and Credit yourself.</p>
+    <p>A layout saved earlier may read only one of a Debit and Credit pair. When the other column holds amounts, the Amount and Preview steps tell you how many rows would be left out and offer a one-click switch to read both.</p>
+
+    <h2>Step 4: Review the preview and the import summary</h2>
+    <p>Before you import, scan the preview. Dates should land in the right month, descriptions should be readable, and amounts should point the right way.</p>
+    <p>After the import, the summary keeps three counts apart. Rows left out because they had no usable date and amount, such as headers, totals and memo lines, are counted and named. Duplicates are transactions Compass recognized as already imported. Errors are listed separately from both. A skipped total line or repeated header is normal; a real transaction going missing isn't, so go back and check the mapping.</p>
+    <p>In a batch run with Auto-Import All, Compass pauses on any file whose Debit or Credit amounts the approved mapping would leave out, and opens that file in the normal wizard with the warning. Files already imported stay imported.</p>
+    <p>Then compare a few transactions, or the month's total, with the statement itself. Every figure in Compass depends on the file and the mapping, so verify anything important against your bank.</p>
+
+    <h2>Step 5: Save the layout, then set up category rules</h2>
+    <p>Two different things get saved, and it helps to keep them apart.</p>
+    <p>A saved layout remembers how one bank's file is arranged: which column is the date, which is the description and how the amounts work. The next file from that bank needs fewer clicks.</p>
+    <p>A category rule matches transaction descriptions and assigns a category, whichever file the transactions came from. Built-in rules handle common merchants. For the rest, correct a category and save it as a rule, or write one in the Rules Manager. Before you save, a live preview shows how many of your last 1,000 transactions the rule matches, with the matching text marked. Saving can also categorize transactions that are still uncategorized, and Compass tells you how many it changed.</p>
+    <p>Transfers and anything in the Excluded category never count as income or spending, and credit card payments are treated as transfers so they aren't counted twice.</p>
+
+    <h2>Keep your data safe after importing</h2>
+    <p>Compass encrypts its own database, not the statement files you downloaded. Store those like any other financial paperwork.</p>
+    <p>For a full backup, use Settings &gt; Backup &amp; Restore &gt; Export Backup. The .compassbackup file it writes contains the database and the key that decrypts it, so keep it private and never share it. For a readable copy, export transactions as CSV from Transactions: choose All time, clear the filters and export, then repeat for each profile.</p>
+    <p>To remove one profile's data, use Settings &gt; Erase this profile's data. Deleting the app data folder yourself removes everything.</p>
+    <p>For help with an import, <a href="https://github.com/tylahfam97/Compass/issues" target="_blank" rel="noopener noreferrer">open an issue on GitHub</a> with the institution, the file type and the step that failed, plus the header row and a few rows of invented data. Never attach real statements, account numbers, databases, keys or backups.</p>
+
+    <h2>Common questions</h2>
+    <h3>Can I import an Excel statement, or does it have to be CSV?</h3>
+    <p>You can import either. Compass reads bank and credit card statements as CSV files or Excel .xlsx workbooks. When a workbook won't import, download the same transactions as CSV, or save a CSV copy from your spreadsheet app, and keep the original as it was.</p>
+
+    <h3>Why are some rows missing after an import?</h3>
+    <p>Compass leaves out rows that have no usable date and amount, such as headers, totals and memo lines, and counts them on the import summary separately from duplicates. Paired money-out and money-in columns with names other than Debit and Credit, like Purchases and Payments, need the two-column amount option chosen by hand. Compare the imported transactions with your statement before you rely on them.</p>
+
+    <h3>Is a saved layout the same as a category rule?</h3>
+    <p>No. A saved layout remembers which columns in one bank's file hold the date, description and amount, so the next file from that bank needs fewer clicks. Category rules work on transaction descriptions instead: each one assigns a category, whichever file the transaction came from.</p>
+
+    <h3>Should I send my statement when I report an import problem?</h3>
+    <p>No. Never attach real statements, account numbers, databases, keys or backups to an issue. Include the institution, the file type and the step that failed, plus the header row and a few rows of invented data.</p>
+
+    <section class="guide-next" aria-labelledby="guide-next-title">
+      <h2 id="guide-next-title">Ready to try it?</h2>
+      <p>Compass is free and open source, for Windows 10 and 11 with a macOS beta. <a href="/#download">Download Compass</a>, or start in Demo Mode with sample data before you import your own statements.</p>
+      <p><a href="/#compare">See how Compass compares with Actual Budget, Quicken Simplifi and Firefly III</a>, or <a href="/#security">read the security and privacy answers</a> on encryption, backups and what Compass sends over the network.</p>
+    </section>
+  </article>
+</main>
+
+<footer class="footer" role="contentinfo">
+  <div class="container footer-inner">
+    <a href="/" class="footer-logo" aria-label="Compass home">
+      <svg width="20" height="20" aria-hidden="true" focusable="false"><use href="#compass-mark"/></svg>
+      <span>Compass</span>
+    </a>
+    <p class="footer-copy">
+      Free and open source. MIT License. Built with Tauri, React, Rust and SQLite.
+    </p>
+    <nav class="footer-links" aria-label="Footer navigation">
+      <a href="https://github.com/tylahfam97/Compass" target="_blank" rel="noopener noreferrer">GitHub</a>
+      <a href="https://github.com/tylahfam97/Compass/releases" target="_blank" rel="noopener noreferrer">Releases</a>
+      <a href="https://github.com/tylahfam97/Compass/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+      <a href="/import-guide.html" aria-current="page">Import guide</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>
