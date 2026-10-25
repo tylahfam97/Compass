@@ -28,8 +28,10 @@ your database.
   old key is left in place. Leftover key temp files are never overwritten or deleted. (#104)
 - **Unencrypted databases from earlier versions are converted safely.** A plaintext `compass.db`
   (including one created by the bug above) is now encrypted on launch instead of blocking startup.
-  The encrypted copy is checked with the key before the original is moved, and any failure puts the
-  original back unchanged. A leftover `compass.db.bak` or `compass.enc.db` is no longer deleted or
+  The encrypted copy is checked with the key before the original is moved. If conversion fails,
+  Compass attempts to restore the original; if that rollback also fails, startup stops and the
+  error identifies the preserved original for manual recovery.
+  A leftover `compass.db.bak` or `compass.enc.db` is no longer deleted or
   reused: it stops the conversion with a message saying what to move. (#104)
 - **Never an empty start next to your data.** If `compass.db` is missing while an interrupted upgrade
   or restore left `compass.db.bak`, `compass.enc.db`, `compass.db.pending` or
