@@ -15,12 +15,12 @@ left blank or filled with "0.00" - so card payments and refunds stop disappearin
   card statement, usually payments and refunds - parsed as $0 and were left out as unreadable
   rows, and Debit values were read as positive. The wizard now detects distinct Debit and
   Credit headers and maps both, so debits import as charges (negative) and credits as payments
-  or refunds (positive). (#PR_NUMBER_PENDING)
+  or refunds (positive). (#102)
 - **Import: warning before a populated partner column is dropped.** A column profile saved by
   an earlier import (or a manual "One amount column" choice) can still map only one of the two
   columns. When the file has rows with an amount only in the unmapped Debit/Credit column, the
   Amount and Preview steps now say how many rows would be left out and offer a one-click switch
-  to read both columns. The import itself is not blocked. (#PR_NUMBER_PENDING)
+  to read both columns. The import itself is not blocked. (#102)
 - **Import: zero-filled Debit/Credit rows keep their amount.** A "0.00" in the unused column no
   longer hides the value in the other one, so a payment listed as Debit "0.00" / Credit "150.00"
   imports as +$150.00 instead of being left out. This includes the existing dev-branch fix from
@@ -29,7 +29,7 @@ left blank or filled with "0.00" - so card payments and refunds stop disappearin
   approved for the first file reads only one of a later file's Debit/Credit columns and that file
   has amounts only in the other one, automatic mode pauses and opens that file in the normal
   wizard with the warning, before anything from it is imported. Files already imported stay
-  imported, and the rest of the batch continues from "Next File". (#PR_NUMBER_PENDING)
+  imported, and the rest of the batch continues from "Next File". (#102)
 
 ### Notes
 - Detection is header-based: it needs plain amount headers such as "Debit"/"Credit",
