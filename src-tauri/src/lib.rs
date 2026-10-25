@@ -399,76 +399,6 @@ static KEY_RESTORED_FROM_BACKUP: std::sync::atomic::AtomicBool = std::sync::atom
 fn key_recovered_from_backup() -> bool {
     KEY_RESTORED_FROM_BACKUP.load(std::sync::atomic::Ordering::Relaxed)
 }
-/// Load the encryption key, using a two-tier strategy:
-///  1. OS native credential store (via `keyring`) - primary, backward-compatible.
-///     Windows Credential Manager on Windows, Keychain on macOS - `keyring`
-///     selects the right backend automatically per-platform.
-///  2. `compass.key` file in the app data dir — backup / fallback
-///
-/// On every successful keyring read the key is also written to the file so
-/// that future keyring losses (Credential Manager reset, update side-effect,
-/// roaming profile sync, etc.) do NOT cause the DB to be abandoned.
-///
-/// `db_exists` gates the ONE dangerous branch here: generating a brand-new key. If a database
-/// already exists on disk, a new (necessarily wrong) key would silently orphan it - the
-/// existing DB would look "encrypted with an unknown key" and get renamed away, replaced by an
-/// empty one, with no error shown to the user. So a new key is only ever generated on a
-/// genuinely fresh install (no DB file yet). If a DB exists and no valid key can be found
-/// anywhere after retrying the file read (to rule out a transient lock, e.g. antivirus scanning
-/// mid-read), this returns an error instead of guessing - callers must NOT treat that error as
-/// "proceed unencrypted" for an existing database.
-fn load_or_create_key(data_dir: &std::path::Path, db_exists: bool) -> Result<String, String> {
-    let key_file = data_dir.join("compass.key");
-
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
-        .map_err(|e| format!("keyring init: {e}"))?;
-
-    match entry.get_password() {
-        Ok(key) => {
-            // Keyring succeeded — refresh the file backup silently.
-            write_key_file_atomic(&key_file, &key);
-            Ok(key)
-        }
-        Err(keyring::Error::NoEntry) => {
-            // Keyring has no entry. Check the file backup before creating a new key,
-            // because a new key would make the existing DB permanently unreadable.
-            if let Some(key) = read_key_file_with_retry(&key_file) {
-                eprintln!("[compass] Keyring entry missing — key restored from backup file.");
-                KEY_RESTORED_FROM_BACKUP.store(true, std::sync::atomic::Ordering::Relaxed);
-                if let Err(e) = entry.set_password(&key) {
-                    eprintln!("[compass] Failed to re-populate keyring after restoring from backup: {e}");
-                }
-                return Ok(key);
-            }
-            if db_exists {
-                return Err(format!(
-                    "an existing database was found at {} but no valid encryption key could be \
-                     located in the OS keyring or in the compass.key backup file after retrying - \
-                     refusing to generate a new key, which would make that database permanently \
-                     unreadable. The database has NOT been modified.",
-                    data_dir.display()
-                ));
-            }
-            // Genuinely first launch (no DB file yet): generate and persist a new key.
-            let hex_key = generate_key();
-            if let Err(e) = entry.set_password(&hex_key) {
-                eprintln!("[compass] Failed to save new key to keyring (will rely on the file backup instead): {e}");
-            }
-            write_key_file_atomic(&key_file, &hex_key);
-            Ok(hex_key)
-        }
-        Err(e) => {
-            // Keyring returned an unexpected error. Fall back to file rather than
-            // treating it as "no entry" and generating a new (wrong) key.
-            eprintln!("[compass] Keyring read error ({e}) — falling back to key file.");
-            if let Some(key) = read_key_file_with_retry(&key_file) {
-                KEY_RESTORED_FROM_BACKUP.store(true, std::sync::atomic::Ordering::Relaxed);
-                return Ok(key);
-            }
-            Err(format!("keyring read: {e}"))
-        }
-    }
-}
 
 fn generate_key() -> String {
     let mut bytes = [0u8; 32];
@@ -476,27 +406,140 @@ fn generate_key() -> String {
     hex::encode(bytes)
 }
 
-/// Writes the key file via a temp-file-then-rename so a reader can never observe a partially
-/// written (torn) file - a plain `fs::write` truncates-then-writes in place, so a read that
-/// races with it (another process, an antivirus scan, a crash mid-write) could see a truncated
-/// file that fails `read_key_file`'s sanity check, which previously looked identical to "the key
-/// file doesn't exist" and could trigger generating a brand-new (wrong) key. `rename` on the
-/// same directory is atomic on both Windows and Unix.
-fn write_key_file_atomic(path: &std::path::Path, value: &str) {
-    let tmp_path = path.with_extension("key.tmp");
-    if let Err(e) = std::fs::write(&tmp_path, value) {
-        eprintln!("[compass] Failed to write key file backup: {e}");
+fn is_valid_key(key: &str) -> bool {
+    key.len() == 64 && key.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// Creates `path` only if nothing exists there yet (never truncates), owner-only (0600) on Unix.
+/// On Windows the file inherits the per-user ACL of the app data directory.
+fn create_owner_only(path: &std::path::Path) -> std::io::Result<std::fs::File> {
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+    }
+    opts.open(path)
+}
+
+/// Makes new/renamed entries in `dir` durable (Unix). Failures are returned, not hidden.
+fn sync_dir(dir: &std::path::Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        std::fs::File::open(dir)
+            .and_then(|d| d.sync_all())
+            .map_err(|e| format!("could not flush {}: {e}", dir.display()))?;
+    }
+    let _ = dir;
+    Ok(())
+}
+
+/// Writes `bytes` durably to a brand-new file `<prefix><n>` in `dir`, using the first n whose
+/// name is free. Existing files are never opened, truncated or removed; only a file this call
+/// created is cleaned up on failure.
+fn write_new_file(dir: &std::path::Path, prefix: &str, bytes: &[u8]) -> Result<std::path::PathBuf, String> {
+    use std::io::Write;
+    for n in 0..10_000 {
+        let path = dir.join(format!("{prefix}{n}"));
+        let mut file = match create_owner_only(&path) {
+            Ok(f) => f,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(format!("could not create {}: {e}", path.display())),
+        };
+        let written = file.write_all(bytes).and_then(|_| file.sync_all());
+        drop(file);
+        return match written
+            .map_err(|e| format!("could not write {}: {e}", path.display()))
+            .and_then(|()| sync_dir(dir))
+        {
+            Ok(()) => Ok(path),
+            Err(e) => {
+                let _ = std::fs::remove_file(&path); // created by this call
+                Err(e)
+            }
+        };
+    }
+    Err(format!("no free file name for {prefix}* in {}", dir.display()))
+}
+
+/// Saves a key file durably: new owner-only temp file (fsynced), atomic rename onto `path`,
+/// directory fsync, read-back. Returns Err instead of logging so no caller can mistake "not
+/// saved" for "saved". Callers that may replace existing key material use `replace_key_file`.
+fn write_key_file_atomic(path: &std::path::Path, value: &str) -> Result<(), String> {
+    let dir = path.parent().ok_or("key file has no parent directory")?;
+    let name = path.file_name().and_then(|n| n.to_str()).ok_or("key file name is not valid text")?;
+    let tmp_path = write_new_file(dir, &format!("{name}.tmp{}-", std::process::id()), value.as_bytes())?;
+    let result = std::fs::rename(&tmp_path, path)
+        .map_err(|e| format!("could not save {}: {e}", path.display()))
+        .and_then(|()| sync_dir(dir))
+        .and_then(|()| match read_key_file(path) {
+            Some(k) if k == value => Ok(()),
+            _ => Err(format!("{} did not read back correctly after saving", path.display())),
+        });
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp_path); // this call's own temp file; gone once renamed
+    }
+    result
+}
+
+/// Puts `key` in `key_path`. Whatever is already there and differs - another key, garbage, a file
+/// that cannot be parsed - is first kept as a new `compass.key.unmatched-<n>`. If it cannot be read
+/// or kept, the existing file is left alone and this fails.
+fn replace_key_file(key_path: &std::path::Path, key: &str) -> Result<(), String> {
+    if key_path.symlink_metadata().is_ok() {
+        let old = std::fs::read(key_path).map_err(|e| {
+            format!("{} exists but could not be read to keep a copy ({e}); it was left unchanged", key_path.display())
+        })?;
+        if String::from_utf8_lossy(&old).trim() == key {
+            return Ok(());
+        }
+        let dir = key_path.parent().ok_or("key file has no parent directory")?;
+        let kept = write_new_file(dir, "compass.key.unmatched-", &old)?;
+        eprintln!("[compass] Kept the previous key file as {}.", kept.display());
+    }
+    write_key_file_atomic(key_path, key)
+}
+
+/// Reads the OS credential store. `readable` is true when the store answered (a value or NoEntry),
+/// i.e. its current content is known and can be kept before it is replaced.
+fn read_keyring(entry: &Result<keyring::Entry, String>) -> (Option<String>, bool) {
+    match entry {
+        Ok(e) => match e.get_password() {
+            Ok(k) => (Some(k), true),
+            Err(keyring::Error::NoEntry) => (None, true),
+            Err(err) => {
+                eprintln!("[compass] Keyring read error ({err}) - using the key file.");
+                (None, false)
+            }
+        },
+        Err(err) => {
+            eprintln!("[compass] Keyring unavailable ({err}) - using the key file.");
+            (None, false)
+        }
+    }
+}
+
+/// Best-effort: puts `key` in the credential store after keeping any different value it held as a
+/// new `compass.key.unmatched-<n>` in `data_dir`. An unreadable store, or a value that could not be
+/// kept, is left alone. Only called once compass.key durably holds `key`.
+fn sync_keyring(entry: &Result<keyring::Entry, String>, old: Option<&str>, readable: bool, key: &str, data_dir: &std::path::Path) {
+    let Ok(e) = entry else { return };
+    if !readable || old.map(str::trim) == Some(key) {
         return;
     }
-    if let Err(e) = std::fs::rename(&tmp_path, path) {
-        eprintln!("[compass] Failed to finalize key file backup: {e}");
+    let kept = match old {
+        Some(old) => write_new_file(data_dir, "compass.key.unmatched-", old.as_bytes())
+            .map(|p| eprintln!("[compass] Kept the previous keyring key as {}.", p.display())),
+        None => Ok(()),
+    };
+    if let Err(err) = kept.and_then(|()| e.set_password(key).map_err(|err| err.to_string())) {
+        eprintln!("[compass] Keyring not updated (compass.key holds the key): {err}");
     }
 }
 
 /// Retries a few times with a short delay before giving up - defends against a purely
-/// transient read failure (e.g. antivirus briefly holding the file, a race with another
-/// process mid-write) being mistaken for "the backup file is genuinely missing/invalid", which
-/// is the one mistake that can lead to silently generating a new key over an existing database.
+/// transient read failure (e.g. antivirus briefly holding the file) being mistaken for
+/// "the backup file is genuinely missing/invalid".
 fn read_key_file_with_retry(path: &std::path::Path) -> Option<String> {
     for attempt in 0..5 {
         if let Some(key) = read_key_file(path) {
@@ -513,11 +556,23 @@ fn read_key_file(path: &std::path::Path) -> Option<String> {
     let raw = std::fs::read_to_string(path).ok()?;
     let key = raw.trim().to_string();
     // Sanity-check: must be exactly 64 hex characters (32 bytes).
-    if key.len() == 64 && key.chars().all(|c| c.is_ascii_hexdigit()) {
-        Some(key)
-    } else {
-        None
-    }
+    is_valid_key(&key).then_some(key)
+}
+
+/// Creates a brand-new key and returns it only once `compass.key` durably holds it. The keyring
+/// copy is added later, best-effort. If the file cannot be saved, nothing may be encrypted with
+/// the key and nothing may be created unencrypted either, so this fails with an actionable error.
+fn create_persisted_key(key_path: &std::path::Path) -> Result<String, String> {
+    let key = generate_key();
+    replace_key_file(key_path, &key).map_err(|e| {
+        format!(
+            "Compass could not save a new database encryption key ({e}). No database was created or \
+             changed. Make sure {} is writable (free disk space, folder permissions, antivirus), \
+             then relaunch Compass.",
+            key_path.parent().map(|p| p.display().to_string()).unwrap_or_default()
+        )
+    })?;
+    Ok(key)
 }
 
 // ─── Database open / migration ────────────────────────────────────────────────
@@ -534,43 +589,214 @@ fn is_plaintext_sqlite(path: &std::path::Path) -> bool {
         .is_ok()
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum DbFile {
+    Missing,
+    Plaintext,
+    /// Present but unreadable without a key: encrypted (or damaged). Never replaced or rekeyed.
+    Encrypted,
+}
+
+fn classify_db(db_path: &std::path::Path) -> DbFile {
+    if !db_path.exists() {
+        DbFile::Missing
+    } else if is_plaintext_sqlite(db_path) {
+        DbFile::Plaintext
+    } else {
+        DbFile::Encrypted
+    }
+}
+
+/// Converts a legacy plaintext database in place. The original is only moved aside after the
+/// encrypted copy has been verified with the key, every failure after that restores it, and the
+/// plaintext copy is deleted only once the encrypted database has reopened successfully.
+/// Leftovers from an earlier attempt are never reused or deleted: they stop the conversion.
 fn migrate_to_encrypted(db_path: &std::path::Path, hex_key: &str) -> Result<Connection, String> {
     let enc_path = db_path.with_extension("enc.db");
-    // SQLite accepts forward slashes on Windows; escape single quotes in path
-    let enc_path_str = enc_path
-        .to_str()
-        .ok_or("migrate: non-UTF-8 path")?;
-    // Use sqlcipher_export() — the backup API cannot write to an encrypted destination
-    let src = Connection::open(db_path)
-        .map_err(|e| format!("migrate open src: {e}"))?;
-    let export_result = src.execute_batch(&format!(
-        "ATTACH DATABASE '{enc}' AS encrypted KEY \"x'{key}'\";\
-         SELECT sqlcipher_export('encrypted');\
-         DETACH DATABASE encrypted;",
-        enc = enc_path_str.replace('\\', "/").replace('\'', "''"),
-        key = hex_key,
-    ));
-    drop(src);
-    // Clean up the partial enc file on any failure before propagating the error
+    let bak_path = db_path.with_extension("db.bak");
+    for leftover in [&bak_path, &enc_path] {
+        if leftover.symlink_metadata().is_ok() {
+            return Err(format!(
+                "{} already exists from an earlier upgrade attempt. Nothing was changed. Move that \
+                 file somewhere safe, then relaunch Compass.",
+                leftover.display()
+            ));
+        }
+    }
+    let enc_path_str = enc_path.to_str().ok_or("migrate: non-UTF-8 path")?;
+    let export_result = Connection::open(db_path)
+        .map_err(|e| format!("migrate open src: {e}"))
+        .and_then(|src| {
+            src.execute_batch(&format!(
+                "ATTACH DATABASE '{enc}' AS encrypted KEY \"x'{key}'\";\
+                 SELECT sqlcipher_export('encrypted');\
+                 DETACH DATABASE encrypted;",
+                enc = enc_path_str.replace('\\', "/").replace('\'', "''"),
+                key = hex_key,
+            ))
+            .map_err(|e| format!("migrate export: {e}"))
+        })
+        .and_then(|()| {
+            let copy = Connection::open(&enc_path).map_err(|e| format!("migrate verify: {e}"))?;
+            apply_key(&copy, hex_key).map_err(|e| format!("migrate verify: {e}"))
+        });
     if let Err(e) = export_result {
-        let _ = std::fs::remove_file(&enc_path);
-        return Err(format!("migrate export: {e}"));
+        let _ = std::fs::remove_file(&enc_path); // did not exist before this call
+        return Err(format!("{e}. Your original database was not changed."));
     }
 
-    let bak_path = db_path.with_extension("db.bak");
-    std::fs::rename(db_path, &bak_path)
-        .map_err(|e| format!("migrate rename bak: {e}"))?;
-    std::fs::rename(&enc_path, db_path)
-        .map_err(|e| format!("migrate rename enc: {e}"))?;
+    if let Err(e) = std::fs::rename(db_path, &bak_path) {
+        let _ = std::fs::remove_file(&enc_path);
+        return Err(format!("migrate rename original: {e}. Your original database was not changed."));
+    }
+    let restore_original = |why: String| -> String {
+        match std::fs::rename(&bak_path, db_path) {
+            Ok(()) => format!("{why}. Your original database was restored unchanged."),
+            Err(e) => format!(
+                "{why}. Restoring the original also failed ({e}): it is safe at {} - rename it to \
+                 compass.db before relaunching.",
+                bak_path.display()
+            ),
+        }
+    };
+    if let Err(e) = std::fs::rename(&enc_path, db_path) {
+        return Err(restore_original(format!("migrate rename encrypted copy: {e}")));
+    }
+    let reopened = Connection::open(db_path).and_then(|conn| apply_key(&conn, hex_key).map(|()| conn));
+    match reopened {
+        Ok(conn) => {
+            if let Err(e) = std::fs::remove_file(&bak_path) {
+                eprintln!(
+                    "[compass] Could not delete the unencrypted copy {} ({e}); delete it yourself.",
+                    bak_path.display()
+                );
+            }
+            eprintln!("[compass] Migration to encrypted DB complete.");
+            Ok(conn)
+        }
+        Err(e) => {
+            let _ = std::fs::rename(db_path, &enc_path);
+            Err(restore_original(format!("migrate reopen: {e}")))
+        }
+    }
+}
 
-    let conn = Connection::open(db_path)
-        .map_err(|e| format!("migrate reopen: {e}"))?;
-    apply_key(&conn, hex_key)
-        .map_err(|e| format!("migrate reopen key: {e}"))?;
+/// Files that may hold the user's data when compass.db itself is missing.
+fn recovery_leftover(data_dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    std::fs::read_dir(data_dir).ok()?.flatten().map(|e| e.path()).find(|p| {
+        p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+            n == "compass.db.bak"
+                || n == "compass.enc.db"
+                || n == "compass.db.pending"
+                || n.starts_with("compass.db.beforerestore")
+        })
+    })
+}
 
-    let _ = std::fs::remove_file(&bak_path);
-    eprintln!("[compass] Migration to encrypted DB complete.");
-    Ok(conn)
+/// Opens (creating if needed) the encrypted database in `data_dir`.
+///
+/// Key sources are the OS credential store (Windows Credential Manager / macOS Keychain via
+/// `keyring`) and the `compass.key` file next to the database. Rules:
+///  - An existing encrypted database is opened only with a key that actually decrypts it. It is
+///    never re-keyed, replaced, renamed or treated as empty; with no working key this fails and
+///    leaves every file as it was.
+///  - No database is created or converted until `compass.key` durably holds its key. A new key is
+///    generated only when there is no encrypted database to orphan.
+///  - There is no unencrypted fallback: if no key can be obtained and saved, nothing is created.
+///  - A missing compass.db next to upgrade/restore leftovers stops startup instead of starting empty.
+///  - Key material that differs from the working key (keyring entry or key file) is kept as a new
+///    `compass.key.unmatched-<n>` before being replaced; if it cannot be kept, it is not replaced.
+fn open_db_in(data_dir: &std::path::Path) -> Result<Connection, String> {
+    std::fs::create_dir_all(data_dir).map_err(|e| format!("create data dir: {e}"))?;
+    let db_path = data_dir.join("compass.db");
+    let key_path = data_dir.join("compass.key");
+    let state = classify_db(&db_path);
+    if state == DbFile::Missing {
+        if let Some(leftover) = recovery_leftover(data_dir) {
+            return Err(format!(
+                "{} is missing but {} exists - an earlier upgrade or restore did not finish. Nothing \
+                 was changed. Move that file back to compass.db (or out of this folder to start \
+                 empty), then relaunch Compass.",
+                db_path.display(),
+                leftover.display()
+            ));
+        }
+    }
+
+    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(|e| format!("keyring init: {e}"));
+    let (keyring_raw, keyring_readable) = read_keyring(&entry);
+    let from_keyring = keyring_raw.as_deref().map(str::trim).filter(|k| is_valid_key(k)).map(str::to_string);
+    let from_file = read_key_file_with_retry(&key_path);
+    let mut candidates: Vec<String> = from_keyring.iter().chain(from_file.iter()).cloned().collect();
+    candidates.dedup();
+
+    let key = match state {
+        DbFile::Encrypted => {
+            if candidates.is_empty() {
+                return Err(format!(
+                    "an existing database was found at {} but no encryption key was found in the \
+                     OS credential store or in {}. The database has NOT been modified. Restore \
+                     compass.key (or a .compassbackup) to unlock it.",
+                    db_path.display(),
+                    key_path.display()
+                ));
+            }
+            let mut opened = None;
+            for k in &candidates {
+                let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+                match apply_key(&conn, k) {
+                    Ok(()) => {
+                        opened = Some(k.clone());
+                        break;
+                    }
+                    Err(RusqliteError::SqliteFailure(ref err, _)) if err.code == ErrorCode::NotADatabase => {}
+                    Err(e) => return Err(format!("db key error: {e}")),
+                }
+            }
+            let key = opened.ok_or_else(|| {
+                format!(
+                    "the database at {} could not be opened with the key from the OS credential \
+                     store or compass.key (different key, or a damaged file). The file has NOT been \
+                     modified, renamed, or deleted.",
+                    db_path.display()
+                )
+            })?;
+            if from_file.as_deref() != Some(key.as_str()) {
+                if let Err(err) = replace_key_file(&key_path, &key) {
+                    eprintln!("[compass] Key file not refreshed: {err}");
+                }
+            }
+            key
+        }
+        DbFile::Missing | DbFile::Plaintext => {
+            let key = match candidates.first() {
+                Some(k) => k.clone(),
+                None => create_persisted_key(&key_path)?,
+            };
+            replace_key_file(&key_path, &key).map_err(|e| {
+                format!(
+                    "Compass could not save the database encryption key to {} ({e}). No database \
+                     was created or changed.",
+                    key_path.display()
+                )
+            })?;
+            key
+        }
+    };
+
+    if from_keyring.as_deref() != Some(key.as_str()) && from_file.as_deref() == Some(key.as_str()) {
+        KEY_RESTORED_FROM_BACKUP.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    sync_keyring(&entry, keyring_raw.as_deref(), keyring_readable, &key, data_dir);
+
+    match state {
+        DbFile::Plaintext => migrate_to_encrypted(&db_path, &key),
+        DbFile::Missing | DbFile::Encrypted => {
+            let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+            apply_key(&conn, &key).map_err(|e| format!("db key error: {e}"))?;
+            Ok(conn)
+        }
+    }
 }
 
 fn open_db(app: &AppHandle) -> Result<Connection, String> {
@@ -578,65 +804,7 @@ fn open_db(app: &AppHandle) -> Result<Connection, String> {
         .path()
         .app_data_dir()
         .map_err(|e| format!("app data dir: {e}"))?;
-    std::fs::create_dir_all(&data_dir)
-        .map_err(|e| format!("create data dir: {e}"))?;
-    let db_path = data_dir.join("compass.db");
-    let db_exists = db_path.exists();
-
-    let hex_key = match load_or_create_key(&data_dir, db_exists) {
-        Ok(k) => k,
-        Err(e) => {
-            if db_exists {
-                // An existing, presumably-encrypted database is on disk and we couldn't find a
-                // key for it - do NOT open it unencrypted (that connection would just fail on
-                // first real query anyway) and absolutely do not touch/replace the file. Fail
-                // loudly instead, so this surfaces as a clear startup error rather than a
-                // silently "empty" app.
-                return Err(format!(
-                    "could not load the database encryption key ({e}). Your existing database \
-                     at {} was NOT modified or deleted."
-                    , db_path.display()
-                ));
-            }
-            eprintln!("[compass] WARNING: keyring unavailable ({e}), DB will be unencrypted");
-            return Connection::open(&db_path).map_err(|e| e.to_string());
-        }
-    };
-
-    if !db_path.exists() {
-        let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
-        apply_key(&conn, &hex_key).map_err(|e| e.to_string())?;
-        return Ok(conn);
-    }
-
-    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
-    match apply_key(&conn, &hex_key) {
-        Ok(()) => Ok(conn),
-        Err(RusqliteError::SqliteFailure(ref err, _))
-            if err.code == ErrorCode::NotADatabase =>
-        {
-            drop(conn);
-            if is_plaintext_sqlite(&db_path) {
-                eprintln!("[compass] Plaintext DB detected — migrating to encrypted...");
-                migrate_to_encrypted(&db_path, &hex_key)
-            } else {
-                // Already encrypted with an unknown key (e.g. keyring was reset). Deliberately
-                // do NOT rename/replace the file here - leave it exactly where it is so that if
-                // the user (or a future in-app recovery flow) manages to locate the correct key,
-                // simply relaunching works immediately with no manual file surgery required.
-                // Fail loudly instead of silently swapping in an empty database - a user whose
-                // real data suddenly "disappeared" with no error is a much worse outcome than an
-                // explicit startup error saying what happened and that nothing was touched.
-                Err(format!(
-                    "the database at {} is encrypted with a different key than the one just \
-                     loaded from the keyring/backup file. The file has NOT been modified, \
-                     renamed, or deleted.",
-                    db_path.display()
-                ))
-            }
-        }
-        Err(e) => Err(format!("db key error: {e}")),
-    }
+    open_db_in(&data_dir)
 }
 
 // ─── Backup / restore ──────────────────────────────────────────────────────────
@@ -666,12 +834,17 @@ const BACKUP_MAGIC: &[u8] = b"COMPASSBAK1";
 #[tauri::command]
 fn export_backup_bytes(app: AppHandle, state: State<'_, DbState>) -> Result<String, String> {
     let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    backup_bytes(&data_dir, &conn).map(hex::encode)
+}
 
+/// The backup container for the live database: a VACUUM INTO snapshot plus compass.key, refused
+/// unless that key opens the snapshot (so a backup is never plaintext or unrestorable).
+fn backup_bytes(data_dir: &std::path::Path, conn: &Connection) -> Result<Vec<u8>, String> {
     // Unique temp path (pid-scoped) for the VACUUM INTO snapshot - target must not already exist.
     let snapshot_path = data_dir.join(format!("compass.backup-snapshot.{}.tmp", std::process::id()));
     let _ = std::fs::remove_file(&snapshot_path); // clean up any leftover from a previous crash
     {
-        let conn = state.0.lock().map_err(|e| e.to_string())?;
         let snapshot_str = snapshot_path.to_str().ok_or("export: non-UTF-8 app data path")?;
         conn.execute(
             &format!("VACUUM INTO '{}'", snapshot_str.replace('\'', "''")),
@@ -679,17 +852,28 @@ fn export_backup_bytes(app: AppHandle, state: State<'_, DbState>) -> Result<Stri
         )
         .map_err(|e| format!("could not snapshot database: {e}"))?;
     }
-    let db_bytes_result = std::fs::read(&snapshot_path)
-        .map_err(|e| format!("could not read database snapshot: {e}"));
-    let _ = std::fs::remove_file(&snapshot_path);
-    let db_bytes = db_bytes_result?;
-
     let key_bytes = std::fs::read(data_dir.join("compass.key")).map_err(|e| {
         format!(
             "could not read encryption key file: {e}. Try relaunching Compass once first so the \
              key backup file is (re)written."
         )
-    })?;
+    });
+    // A backup is only useful if its key opens its database - check the pair before handing it out.
+    let pair_ok = key_bytes.as_ref().map_err(|e| e.clone()).and_then(|k| {
+        let key = std::str::from_utf8(k).map_err(|_| "key file is not valid text".to_string())?.trim();
+        let conn = Connection::open(&snapshot_path).map_err(|e| e.to_string())?;
+        apply_key(&conn, key).map_err(|_| {
+            "the key file does not open the database snapshot, so the backup would not restore. \
+             Relaunch Compass and try again."
+                .to_string()
+        })
+    });
+    let db_bytes_result = pair_ok.and_then(|()| {
+        std::fs::read(&snapshot_path).map_err(|e| format!("could not read database snapshot: {e}"))
+    });
+    let _ = std::fs::remove_file(&snapshot_path);
+    let db_bytes = db_bytes_result?;
+    let key_bytes = key_bytes?;
 
     let mut out = Vec::with_capacity(BACKUP_MAGIC.len() + 16 + key_bytes.len() + db_bytes.len());
     out.extend_from_slice(BACKUP_MAGIC);
@@ -697,7 +881,7 @@ fn export_backup_bytes(app: AppHandle, state: State<'_, DbState>) -> Result<Stri
     out.extend_from_slice(&key_bytes);
     out.extend_from_slice(&(db_bytes.len() as u64).to_le_bytes());
     out.extend_from_slice(&db_bytes);
-    Ok(hex::encode(out))
+    Ok(out)
 }
 
 fn parse_backup(bytes: &[u8]) -> Result<(&[u8], &[u8]), String> {
@@ -728,7 +912,12 @@ fn parse_backup(bytes: &[u8]) -> Result<(&[u8], &[u8]), String> {
 #[tauri::command]
 fn stage_backup_restore(app: AppHandle, hex: String) -> Result<(), String> {
     let bytes = hex::decode(hex.trim()).map_err(|_| "invalid backup data".to_string())?;
-    let (key_bytes, db_bytes) = parse_backup(&bytes)?;
+    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    stage_restore_in(&data_dir, &bytes)
+}
+
+fn stage_restore_in(data_dir: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    let (key_bytes, db_bytes) = parse_backup(bytes)?;
     let key_str = std::str::from_utf8(key_bytes)
         .map_err(|_| "backup's encryption key is not valid text".to_string())?
         .trim();
@@ -736,8 +925,7 @@ fn stage_backup_restore(app: AppHandle, hex: String) -> Result<(), String> {
         return Err("backup's encryption key is not in the expected format".to_string());
     }
 
-    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(data_dir).map_err(|e| e.to_string())?;
 
     // Validate the backup actually opens with its own key BEFORE staging anything, using a
     // throwaway probe file (never the pending path itself) so a bad backup can't leave a
@@ -755,7 +943,8 @@ fn stage_backup_restore(app: AppHandle, hex: String) -> Result<(), String> {
     let _ = std::fs::remove_file(&probe_path);
     probe_result?;
 
-    write_key_file_atomic(&data_dir.join("compass.key.pending"), key_str);
+    write_key_file_atomic(&data_dir.join("compass.key.pending"), key_str)
+        .map_err(|e| format!("stage key: {e}"))?;
     std::fs::write(data_dir.join("compass.db.pending"), db_bytes)
         .map_err(|e| format!("stage db: {e}"))?;
 
@@ -764,65 +953,85 @@ fn stage_backup_restore(app: AppHandle, hex: String) -> Result<(), String> {
 
 /// Called once at startup, BEFORE `open_db()` opens the live connection - swaps a staged
 /// restore into place if `stage_backup_restore` left one behind on a previous run. The
-/// previous live files are kept as `.beforerestore` backups rather than deleted outright, in
-/// case the restored backup turns out to be the wrong one.
+/// previous live files are kept as `.beforerestore` (or `.beforerestore-<n>` when earlier ones
+/// exist - those are never overwritten).
 ///
 /// The db and key are treated as a single pair: if any step after the first rename fails, every
-/// step already taken is unwound so the live db/key are never left mismatched, and the newly
-/// placed pair is probe-opened together before being trusted - a failed probe rolls back too.
-fn apply_pending_restore_if_any(data_dir: &std::path::Path) {
+/// step already taken is unwound, and the newly placed pair is probe-opened together before being
+/// trusted - a failed probe rolls back too. Returns Err only when that unwinding itself failed, so
+/// startup stops instead of opening something that is not the user's database.
+fn apply_pending_restore_if_any(data_dir: &std::path::Path) -> Result<(), String> {
     let pending_db = data_dir.join("compass.db.pending");
     let pending_key = data_dir.join("compass.key.pending");
     if !pending_db.exists() || !pending_key.exists() {
-        return;
+        return Ok(());
     }
     eprintln!("[compass] Applying staged backup restore...");
     let db_path = data_dir.join("compass.db");
     let key_path = data_dir.join("compass.key");
-    let db_before = db_path.with_extension("db.beforerestore");
-    let key_before = key_path.with_extension("key.beforerestore");
+    let suffix = (0..10_000)
+        .map(|n| if n == 0 { String::new() } else { format!("-{n}") })
+        .find(|s| {
+            !db_path.with_extension(format!("db.beforerestore{s}")).exists()
+                && !key_path.with_extension(format!("key.beforerestore{s}")).exists()
+        })
+        .ok_or("too many .beforerestore files - move some out of the app data folder, then relaunch Compass")?;
+    let db_before = db_path.with_extension(format!("db.beforerestore{suffix}"));
+    let key_before = key_path.with_extension(format!("key.beforerestore{suffix}"));
     let had_previous_db = db_path.exists();
     let had_previous_key = key_path.exists();
 
-    // Roll back everything done so far and bail - shared by every failure branch below.
-    let rollback = |db_renamed: bool, key_renamed: bool| {
-        if db_renamed {
-            let _ = std::fs::rename(&db_path, &pending_db);
+    // Undo exactly the steps taken so far; Err names whatever could not be put back.
+    let rollback = |db_aside: bool, key_aside: bool, db_placed: bool, key_placed: bool| -> Result<(), String> {
+        let mut failed = Vec::new();
+        let mut undo = |from: &std::path::Path, to: &std::path::Path| {
+            if let Err(e) = std::fs::rename(from, to) {
+                failed.push(format!("{} -> {}: {e}", from.display(), to.display()));
+            }
+        };
+        if db_placed {
+            undo(db_path.as_path(), pending_db.as_path());
         }
-        if key_renamed {
-            let _ = std::fs::rename(&key_path, &pending_key);
+        if key_placed {
+            undo(key_path.as_path(), pending_key.as_path());
         }
-        if had_previous_db {
-            let _ = std::fs::rename(&db_before, &db_path);
+        if db_aside {
+            undo(db_before.as_path(), db_path.as_path());
         }
-        if had_previous_key {
-            let _ = std::fs::rename(&key_before, &key_path);
+        if key_aside {
+            undo(key_before.as_path(), key_path.as_path());
         }
-        eprintln!("[compass] Restore rolled back - the previous database/key are still in place.");
+        if failed.is_empty() {
+            eprintln!("[compass] Restore rolled back - the previous database/key are still in place.");
+            Ok(())
+        } else {
+            Err(format!(
+                "a backup restore failed and could not be fully undone ({}). Nothing was deleted; \
+                 move those files back by hand, then relaunch Compass.",
+                failed.join("; ")
+            ))
+        }
     };
 
     if had_previous_db {
         if let Err(e) = std::fs::rename(&db_path, &db_before) {
             eprintln!("[compass] Failed to preserve previous database before restore: {e}");
-            return;
+            return Ok(()); // nothing changed
         }
     }
     if had_previous_key {
         if let Err(e) = std::fs::rename(&key_path, &key_before) {
             eprintln!("[compass] Failed to preserve previous key before restore: {e}");
-            rollback(false, false);
-            return;
+            return rollback(had_previous_db, false, false, false);
         }
     }
     if let Err(e) = std::fs::rename(&pending_db, &db_path) {
         eprintln!("[compass] Failed to finalize restored database: {e}");
-        rollback(false, false);
-        return;
+        return rollback(had_previous_db, had_previous_key, false, false);
     }
     if let Err(e) = std::fs::rename(&pending_key, &key_path) {
         eprintln!("[compass] Failed to finalize restored key: {e}");
-        rollback(true, false);
-        return;
+        return rollback(had_previous_db, had_previous_key, true, false);
     }
 
     // Verify the newly-placed pair actually opens together before trusting it.
@@ -833,17 +1042,17 @@ fn apply_pending_restore_if_any(data_dir: &std::path::Path) {
     })();
     if let Err(e) = probe {
         eprintln!("[compass] Restored database failed to open with its key ({e})");
-        rollback(true, true);
-        return;
+        return rollback(had_previous_db, had_previous_key, true, true);
     }
-
-    // Refresh the keyring too, so future launches don't depend solely on the file backup.
-    if let Ok(key) = std::fs::read_to_string(&key_path) {
-        if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER) {
-            let _ = entry.set_password(key.trim());
-        }
+    // Refresh the keyring too (keeping its old value), so future launches don't depend solely on
+    // the file.
+    if let Some(key) = read_key_file(&key_path) {
+        let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(|e| e.to_string());
+        let (old, readable) = read_keyring(&entry);
+        sync_keyring(&entry, old.as_deref(), readable, &key, data_dir);
     }
     eprintln!("[compass] Restore applied successfully.");
+    Ok(())
 }
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
@@ -859,7 +1068,8 @@ pub fn run() {
                 .app_data_dir()
                 .expect("failed to resolve app data dir");
             let _ = std::fs::create_dir_all(&data_dir);
-            apply_pending_restore_if_any(&data_dir);
+            apply_pending_restore_if_any(&data_dir)
+                .expect("Failed to apply a staged backup restore");
             let conn = open_db(app.handle())
                 .expect("Failed to open compass database");
             app.manage(DbState(Mutex::new(conn)));
@@ -878,3 +1088,369 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
+
+/// Regression tests for the key/open path, against real SQLCipher files in a temp dir. The OS
+/// keyring is replaced by an in-process store (keyring's documented custom-builder hook), so these
+/// never touch a developer's real Credential Manager / Keychain entry.
+///
+/// CI also runs this module against the released v1.3.4 code (see .github/red-baseline/), so it may
+/// only call functions that exist there after the pure-move seam: open_db_in, backup_bytes,
+/// stage_restore_in, apply_pending_restore_if_any (result ignored), parse_backup, apply_key,
+/// is_plaintext_sqlite, read_key_file.
+#[cfg(test)]
+mod key_safety_tests {
+    use super::*;
+    use keyring::credential::{Credential, CredentialApi, CredentialBuilderApi};
+    use std::path::{Path, PathBuf};
+    use std::sync::{atomic::AtomicUsize, Mutex, MutexGuard};
+
+    #[derive(Clone, Copy)]
+    enum Store {
+        Durable,       // works and remembers across Entry instances
+        Unavailable,   // Entry::new itself fails
+        Broken,        // Entry exists, every read/write errors
+        ForgetsWrites, // writes "succeed" but nothing is kept
+    }
+    static MODE: Mutex<Store> = Mutex::new(Store::Durable);
+    static SAVED: Mutex<Option<String>> = Mutex::new(None);
+    static SERIAL: Mutex<()> = Mutex::new(());
+    static NEXT_DIR: AtomicUsize = AtomicUsize::new(0);
+
+    // Poison-tolerant: one failing test must not turn every later test red.
+    fn lock<T>(m: &'static Mutex<T>) -> MutexGuard<'static, T> {
+        m.lock().unwrap_or_else(|e| e.into_inner())
+    }
+    fn mode() -> Store {
+        *lock(&MODE)
+    }
+    fn saved() -> Option<String> {
+        lock(&SAVED).clone()
+    }
+    fn down() -> keyring::Error {
+        keyring::Error::PlatformFailure("test credential store is down".into())
+    }
+
+    struct TestCred;
+    impl CredentialApi for TestCred {
+        fn set_secret(&self, secret: &[u8]) -> keyring::Result<()> {
+            match mode() {
+                Store::Durable => {
+                    *lock(&SAVED) = Some(String::from_utf8(secret.to_vec()).unwrap());
+                    Ok(())
+                }
+                Store::ForgetsWrites => Ok(()),
+                _ => Err(down()),
+            }
+        }
+        fn get_secret(&self) -> keyring::Result<Vec<u8>> {
+            match mode() {
+                Store::Durable | Store::ForgetsWrites => saved().map(String::into_bytes).ok_or(keyring::Error::NoEntry),
+                _ => Err(down()),
+            }
+        }
+        fn delete_credential(&self) -> keyring::Result<()> {
+            *lock(&SAVED) = None;
+            Ok(())
+        }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+    }
+    struct TestBuilder;
+    impl CredentialBuilderApi for TestBuilder {
+        fn build(&self, _: Option<&str>, _: &str, _: &str) -> keyring::Result<Box<Credential>> {
+            match mode() {
+                Store::Unavailable => Err(keyring::Error::NoStorageAccess("no credential store".into())),
+                _ => Ok(Box::new(TestCred)),
+            }
+        }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+    }
+
+    const KEY_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const KEY_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    /// Serializes tests (the keyring builder is process-global) and returns a fresh empty dir.
+    fn setup(store: Store, keyring_value: Option<&str>) -> (MutexGuard<'static, ()>, PathBuf) {
+        let guard = lock(&SERIAL);
+        keyring::set_default_credential_builder(Box::new(TestBuilder));
+        *lock(&MODE) = store;
+        *lock(&SAVED) = keyring_value.map(str::to_string);
+        KEY_RESTORED_FROM_BACKUP.store(false, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "compass-key-test-{}-{}",
+            std::process::id(),
+            NEXT_DIR.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        (guard, dir)
+    }
+    /// Makes compass.key unwritable and unreadable by putting a directory at its path.
+    fn block_key_file(dir: &Path) {
+        std::fs::create_dir_all(dir.join("compass.key")).unwrap();
+    }
+    fn make_db(path: &Path, key: Option<&str>) {
+        let conn = Connection::open(path).unwrap();
+        if let Some(k) = key {
+            apply_key(&conn, k).unwrap();
+        }
+        conn.execute_batch("CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('kept');").unwrap();
+    }
+    fn rows(conn: &Connection) -> String {
+        conn.query_row("SELECT group_concat(v) FROM t", [], |r| r.get(0)).unwrap()
+    }
+    fn bytes(path: &Path) -> Option<Vec<u8>> {
+        std::fs::read(path).ok()
+    }
+    #[cfg(unix)]
+    fn owner_only(path: &Path) -> bool {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o077 == 0
+    }
+
+    #[test]
+    fn fresh_install_without_any_key_storage_fails_and_creates_no_plaintext_db() {
+        let (_g, dir) = setup(Store::Unavailable, None);
+        block_key_file(&dir);
+        assert!(open_db_in(&dir).is_err(), "must not open without a stored key");
+        let db = dir.join("compass.db");
+        assert!(!db.exists() || !is_plaintext_sqlite(&db), "no usable plaintext database may exist");
+    }
+
+    #[test]
+    fn broken_keyring_falls_back_to_a_durable_key_file_and_reopens() {
+        let (_g, dir) = setup(Store::Broken, None);
+        {
+            let conn = open_db_in(&dir).expect("key-file fallback should work when the file can be saved");
+            conn.execute_batch("CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('kept');").unwrap();
+        }
+        let db = dir.join("compass.db");
+        assert!(!is_plaintext_sqlite(&db), "database must be encrypted");
+        let key = read_key_file(&dir.join("compass.key")).expect("key file saved");
+        #[cfg(unix)]
+        {
+            assert!(owner_only(&dir.join("compass.key")), "key file must be owner-only");
+        }
+        let reopened = open_db_in(&dir).expect("restart must reopen with the saved key");
+        assert_eq!(rows(&reopened), "kept");
+        let direct = Connection::open(&db).unwrap();
+        apply_key(&direct, &key).expect("the saved key is the database key");
+    }
+
+    #[test]
+    fn new_key_that_cannot_be_persisted_is_never_used() {
+        let (_g, dir) = setup(Store::ForgetsWrites, None);
+        block_key_file(&dir);
+        assert!(open_db_in(&dir).is_err(), "an unsaved key must not encrypt anything");
+        assert!(!dir.join("compass.db").exists(), "no database may be created with a lost key");
+    }
+
+    /// A key only in the keyring would leave Export Backup and restore without compass.key.
+    #[test]
+    fn new_key_requires_a_saved_key_file_even_if_the_keyring_works() {
+        let (_g, dir) = setup(Store::Durable, None);
+        block_key_file(&dir);
+        assert!(open_db_in(&dir).is_err());
+        assert!(!dir.join("compass.db").exists(), "no database without compass.key");
+        assert!(saved().is_none(), "the unusable key is not left in the keyring either");
+    }
+
+    #[test]
+    fn existing_encrypted_db_without_a_key_is_left_untouched() {
+        let (_g, dir) = setup(Store::Durable, None);
+        let db = dir.join("compass.db");
+        make_db(&db, Some(KEY_A));
+        let before = bytes(&db);
+        assert!(open_db_in(&dir).is_err());
+        assert_eq!(bytes(&db), before, "database bytes unchanged");
+        assert!(!dir.join("compass.key").exists(), "no replacement key generated");
+        assert!(saved().is_none(), "no replacement key stored");
+    }
+
+    #[test]
+    fn existing_encrypted_db_with_wrong_key_is_left_untouched() {
+        let (_g, dir) = setup(Store::Durable, None);
+        let db = dir.join("compass.db");
+        make_db(&db, Some(KEY_A));
+        std::fs::write(dir.join("compass.key"), KEY_B).unwrap();
+        let before = bytes(&db);
+        assert!(open_db_in(&dir).is_err());
+        assert_eq!(bytes(&db), before);
+        assert_eq!(read_key_file(&dir.join("compass.key")).as_deref(), Some(KEY_B), "key file kept");
+    }
+
+    /// e.g. a restore whose keyring refresh failed: keyring holds the old key, the file the new one.
+    #[test]
+    fn stale_keyring_key_never_overwrites_the_key_that_opens_the_db() {
+        let (_g, dir) = setup(Store::Durable, Some(KEY_A));
+        make_db(&dir.join("compass.db"), Some(KEY_B));
+        std::fs::write(dir.join("compass.key"), KEY_B).unwrap();
+        let conn = open_db_in(&dir).expect("the key file's key opens the database");
+        assert_eq!(rows(&conn), "kept");
+        assert_eq!(read_key_file(&dir.join("compass.key")).as_deref(), Some(KEY_B));
+        assert_eq!(saved().as_deref(), Some(KEY_B), "keyring re-synced to the working key");
+        let kept = dir.join("compass.key.unmatched-0");
+        assert_eq!(read_key_file(&kept).as_deref(), Some(KEY_A), "the replaced keyring key is kept");
+        #[cfg(unix)]
+        {
+            assert!(owner_only(&kept));
+        }
+    }
+
+    #[test]
+    fn invalid_existing_key_file_is_kept_aside_without_overwriting_earlier_copies() {
+        let (_g, dir) = setup(Store::Durable, None);
+        std::fs::write(dir.join("compass.key"), "not-a-key").unwrap();
+        std::fs::write(dir.join("compass.key.unmatched-0"), "older copy").unwrap();
+        let conn = open_db_in(&dir).expect("fresh install with an unusable key file");
+        conn.execute_batch("CREATE TABLE t (v TEXT);").unwrap();
+        assert_eq!(bytes(&dir.join("compass.key.unmatched-0")).as_deref(), Some(&b"older copy"[..]));
+        let kept = dir.join("compass.key.unmatched-1");
+        assert_eq!(bytes(&kept).as_deref(), Some(&b"not-a-key"[..]), "old key file content kept");
+        #[cfg(unix)]
+        {
+            assert!(owner_only(&kept));
+        }
+        assert!(read_key_file(&dir.join("compass.key")).is_some());
+    }
+
+    #[test]
+    fn leftover_temp_files_are_never_overwritten_or_deleted() {
+        let (_g, dir) = setup(Store::Durable, None);
+        let old_tmp = dir.join("compass.key.tmp");
+        let own_tmp = dir.join(format!("compass.key.tmp{}-0", std::process::id()));
+        std::fs::write(&old_tmp, KEY_A).unwrap();
+        std::fs::write(&own_tmp, KEY_B).unwrap();
+        open_db_in(&dir).expect("fresh install");
+        assert_eq!(read_key_file(&old_tmp).as_deref(), Some(KEY_A));
+        assert_eq!(read_key_file(&own_tmp).as_deref(), Some(KEY_B));
+    }
+
+    #[test]
+    fn legacy_plaintext_db_is_encrypted_without_data_loss() {
+        let (_g, dir) = setup(Store::Durable, None);
+        let db = dir.join("compass.db");
+        make_db(&db, None);
+        {
+            let conn = open_db_in(&dir).expect("plaintext database is upgraded");
+            assert_eq!(rows(&conn), "kept");
+        }
+        assert!(!is_plaintext_sqlite(&db), "upgraded database is encrypted");
+        assert!(!dir.join("compass.db.bak").exists() && !dir.join("compass.enc.db").exists());
+        assert_eq!(rows(&open_db_in(&dir).expect("restart reopens")), "kept");
+    }
+
+    #[test]
+    fn plaintext_db_is_untouched_when_no_key_can_be_saved() {
+        let (_g, dir) = setup(Store::Unavailable, None);
+        block_key_file(&dir);
+        let db = dir.join("compass.db");
+        make_db(&db, None);
+        let before = bytes(&db);
+        assert!(open_db_in(&dir).is_err());
+        assert_eq!(bytes(&db), before, "original kept byte-for-byte");
+    }
+
+    /// The export fails part-way (page 2 is cut off); only the copy this run created is removed.
+    #[test]
+    fn failed_plaintext_conversion_keeps_the_original() {
+        let (_g, dir) = setup(Store::Durable, Some(KEY_A));
+        let db = dir.join("compass.db");
+        {
+            let conn = Connection::open(&db).unwrap();
+            conn.execute_batch(
+                "PRAGMA page_size = 4096; CREATE TABLE t (v TEXT);
+                 INSERT INTO t VALUES (hex(randomblob(3000))), (hex(randomblob(3000)));",
+            )
+            .unwrap();
+        }
+        std::fs::OpenOptions::new().write(true).open(&db).unwrap().set_len(4096).unwrap();
+        let before = bytes(&db);
+        assert!(open_db_in(&dir).is_err());
+        assert_eq!(bytes(&db), before);
+        assert!(!dir.join("compass.enc.db").exists() && !dir.join("compass.db.bak").exists());
+    }
+
+    /// compass.enc.db that this run did not create is unknown recovery material.
+    #[test]
+    fn leftover_encrypted_copy_is_never_deleted_or_reused() {
+        let (_g, dir) = setup(Store::Durable, Some(KEY_A));
+        let db = dir.join("compass.db");
+        make_db(&db, None);
+        let enc = dir.join("compass.enc.db");
+        std::fs::write(&enc, "unknown").unwrap();
+        let before = bytes(&db);
+        assert!(open_db_in(&dir).is_err());
+        assert_eq!(bytes(&enc).as_deref(), Some(&b"unknown"[..]));
+        assert_eq!(bytes(&db), before);
+    }
+
+    #[test]
+    fn missing_db_next_to_upgrade_or_restore_leftovers_never_starts_empty() {
+        let (_g, dir) = setup(Store::Durable, Some(KEY_A));
+        for name in ["compass.db.bak", "compass.enc.db", "compass.db.beforerestore", "compass.db.pending"] {
+            let sub = dir.join(name.replace('.', "_"));
+            std::fs::create_dir_all(&sub).unwrap();
+            let leftover = sub.join(name);
+            make_db(&leftover, None);
+            let before = bytes(&leftover);
+            assert!(open_db_in(&sub).is_err(), "must not start empty next to {name}");
+            assert!(!sub.join("compass.db").exists(), "{name}");
+            assert_eq!(bytes(&leftover), before, "{name}");
+        }
+    }
+
+    /// export_backup_bytes relies on VACUUM INTO keeping the source key.
+    #[test]
+    fn vacuum_into_snapshot_opens_with_the_same_key() {
+        let (_g, dir) = setup(Store::Durable, None);
+        let db = dir.join("compass.db");
+        make_db(&db, Some(KEY_A));
+        let snap = dir.join("snapshot.tmp");
+        let conn = Connection::open(&db).unwrap();
+        apply_key(&conn, KEY_A).unwrap();
+        conn.execute(&format!("VACUUM INTO '{}'", snap.to_str().unwrap().replace('\'', "''")), []).unwrap();
+        assert!(!is_plaintext_sqlite(&snap), "snapshot must not be plaintext");
+        let copy = Connection::open(&snap).unwrap();
+        apply_key(&copy, KEY_A).expect("snapshot decrypts with the database key");
+        assert_eq!(rows(&copy), "kept");
+    }
+
+    /// Export -> stage -> next-launch apply -> open, through the real backup/restore functions.
+    #[test]
+    fn backup_round_trip_restores_and_keeps_every_earlier_copy() {
+        let (_g, dir) = setup(Store::Durable, None);
+        let conn = open_db_in(&dir).expect("fresh install");
+        conn.execute_batch("CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('kept');").unwrap();
+        let backup = backup_bytes(&dir, &conn).expect("export");
+        let (_, snapshot) = parse_backup(&backup).unwrap();
+        assert!(!snapshot.starts_with(b"SQLite format 3"), "backup database is encrypted");
+        conn.execute_batch("INSERT INTO t VALUES ('after backup');").unwrap();
+        let earlier = dir.join("compass.db.beforerestore");
+        std::fs::write(&earlier, "an earlier restore's copy").unwrap();
+        stage_restore_in(&dir, &backup).expect("stage");
+        drop(conn);
+        let _ = apply_pending_restore_if_any(&dir);
+        assert_eq!(rows(&open_db_in(&dir).expect("open after restore")), "kept");
+        assert_eq!(bytes(&earlier).as_deref(), Some(&b"an earlier restore's copy"[..]));
+        let previous = Connection::open(dir.join("compass.db.beforerestore-1")).unwrap();
+        apply_key(&previous, &read_key_file(&dir.join("compass.key")).unwrap()).unwrap();
+        assert_eq!(rows(&previous), "kept,after backup", "pre-restore database kept");
+    }
+
+    #[test]
+    fn restore_that_does_not_open_rolls_back_to_the_live_db() {
+        let (_g, dir) = setup(Store::Durable, None);
+        open_db_in(&dir).unwrap().execute_batch("CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('kept');").unwrap();
+        make_db(&dir.join("compass.db.pending"), Some(KEY_B));
+        std::fs::write(dir.join("compass.key.pending"), KEY_A).unwrap();
+        let before = bytes(&dir.join("compass.db"));
+        let _ = apply_pending_restore_if_any(&dir);
+        assert_eq!(bytes(&dir.join("compass.db")), before);
+        assert!(dir.join("compass.db.pending").exists() && dir.join("compass.key.pending").exists());
+        assert_eq!(rows(&open_db_in(&dir).expect("live database still opens")), "kept");
+    }
+}
