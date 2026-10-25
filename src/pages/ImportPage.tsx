@@ -11,7 +11,10 @@ import {
 } from "@/lib/db";
 import type { AccountChoice } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { parseDate, parseAmount, dedupeRowHash, hashRow, findDuplicateCandidates } from "@/lib/importParsing";
+import {
+  parseDate, parseAmount, parseSplitAmount, dedupeRowHash, hashRow, findDuplicateCandidates, detectSplitAmountColumns,
+  countOmittedSplitRows,
+} from "@/lib/importParsing";
 import type { DuplicateCandidate } from "@/lib/importParsing";
 import {
   parseInvestmentWorkbook, buildInvestmentRow, columnFillCount, sectionHasNoValueData,
@@ -359,6 +362,9 @@ function autoDetect(headers: string[]): ColMap {
   // as used by banks that have separate "Transaction Type" (Debit/Credit) columns.
   const typeCol = h.findIndex((s) => s.includes("type") && !s.includes("amount"));
   const balanceCol = h.findIndex((s) => s.includes("balance"));
+  // Separate Debit/Credit columns: read both. Mapping only the first as a single amount column
+  // dropped every credit-only row (card payments/refunds) as "unreadable" and kept debits positive.
+  const split = detectSplitAmountColumns(headers);
   return {
     dateCol: find("date"),
     descCol: find("description", "payee", "name", "merchant", "memo"),
@@ -366,23 +372,21 @@ function autoDetect(headers: string[]): ColMap {
     typeCol,
     balanceCol,
     invertAmounts: false,
-    debitCol: -1,
-    creditCol: -1,
+    debitCol: split?.debitCol ?? -1,
+    creditCol: split?.creditCol ?? -1,
   };
 }
 
 /** Computes the signed dollar amount for one row, given the active column mapping. When
- *  `debitCol`/`creditCol` are both set (banks with two amount columns, e.g. Capital One), a
- *  non-blank debit cell means an expense (negative) and a non-blank credit cell means a credit
- *  (positive) - whichever cell actually has a value wins, since a row typically populates only
- *  one of the two. Falls back to the existing single-amount-column logic otherwise. */
+ *  `debitCol` or `creditCol` is set (banks with two amount columns, e.g. Capital One), a
+ *  nonzero parsed debit wins as an expense (negative); otherwise a nonzero parsed credit is
+ *  positive. Returns 0 if neither parses nonzero. Falls back to the existing single-amount-column
+ *  logic otherwise. */
 function computeRowAmount(row: string[], colMap: ColMap): number {
   if (colMap.debitCol >= 0 || colMap.creditCol >= 0) {
     const debitRaw = colMap.debitCol >= 0 ? (row[colMap.debitCol] ?? "").trim() : "";
     const creditRaw = colMap.creditCol >= 0 ? (row[colMap.creditCol] ?? "").trim() : "";
-    if (debitRaw) return -Math.abs(parseAmount(debitRaw));
-    if (creditRaw) return Math.abs(parseAmount(creditRaw));
-    return 0;
+    return parseSplitAmount(debitRaw, creditRaw);
   }
   const rawAmount = parseAmount(row[colMap.amountCol] ?? "0");
   let amount = rawAmount;
@@ -1357,6 +1361,16 @@ export default function ImportPage() {
     const skip = findRealHeaderRow(data);
     const derived = deriveHeaders(data, skip);
     if (!derived) { setStep("done"); setSummary({ imported: 0, skipped: 0 }); return; }
+    // The first file's mapping reads only one half of this file's Debit/Credit pair and would
+    // drop rows that only the other half holds (e.g. card payments). Stop auto mode before
+    // anything from this file is written and hand it to the normal wizard, where the
+    // omitted-column warning shows; the rest of the queue stays for "Next File".
+    if (countOmittedSplitRows(derived.headers, derived.rows, savedColMap).count > 0) {
+      setBatchAutoMode(false);
+      batchSavedColMapRef.current = null;
+      processFile(file);
+      return;
+    }
     setRawData(data); setSkipRows(skip); setParsed(derived);
     try {
       const db = await getDb();
@@ -1444,7 +1458,7 @@ export default function ImportPage() {
       setSummary({ imported: 0, skipped: 0 });
       setStep("done");
     }
-  }, [profileId, loadHistory, importKind, accountChoice]);
+  }, [profileId, loadHistory, importKind, accountChoice, processFile]);
 
   // When an import finishes in batch-auto mode, silently process the next queued file.
   useEffect(() => {
@@ -1492,6 +1506,26 @@ export default function ImportPage() {
     batchSavedColMapRef.current = null;
     lastResolvedAccountRef.current = null;
   };
+
+  // A saved single-column mapping (e.g. from before split detection) or a manual "One amount
+  // column" choice can still drop a populated Debit/Credit partner column - warn with evidence.
+  const splitCols = parsed ? detectSplitAmountColumns(parsed.headers) : null;
+  const { partnerCol: splitPartner, count: omittedSplitRows } = parsed
+    ? countOmittedSplitRows(parsed.headers, parsed.rows, colMap) : { partnerCol: -1, count: 0 };
+  const omittedSplitWarning = splitCols && omittedSplitRows > 0 && (
+    <div role="alert" className="p-3 border border-[hsl(var(--warning)/0.4)] rounded-lg bg-[hsl(var(--warning)/0.06)] space-y-2 text-xs">
+      <p className="text-[hsl(var(--warning))] flex items-start gap-1.5">
+        <WarningIcon size={13} className="shrink-0 mt-0.5" />
+        {omittedSplitRows} {omittedSplitRows === 1 ? "row has" : "rows have"} an amount only in the
+        "{parsed!.headers[splitPartner]}" column, which isn't being read - {omittedSplitRows === 1 ? "it" : "they"} would
+        be left out{importKind === "credit" ? " (on a card statement these are usually payments or refunds)" : ""}.
+      </p>
+      <button onClick={() => setColMap((m) => ({ ...m, typeCol: -1, debitCol: splitCols.debitCol, creditCol: splitCols.creditCol }))}
+        className="px-4 py-1.5 border border-[hsl(var(--warning)/0.5)] rounded-lg font-medium hover:bg-[hsl(var(--warning)/0.12)] transition-colors">
+        Read both Debit and Credit columns
+      </button>
+    </div>
+  );
 
   return (
     <div className="workspace-page import-workspace">
@@ -2035,6 +2069,8 @@ export default function ImportPage() {
               </div>
             </div>
 
+            {omittedSplitWarning}
+
             {/* Debit/Credit type column toggle */}
             <div className="pt-3 border-t space-y-3">
               <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">
@@ -2558,6 +2594,8 @@ export default function ImportPage() {
       {step === "wizard:preview" && parsed && (
         <div key="wizard:preview" className={`space-y-5 ${wizardDir === "back" ? "wizard-enter-back" : "wizard-enter-forward"}`}>
           {error && <p className="text-[hsl(var(--error))] text-sm p-3 border border-[hsl(var(--error)/0.4)] rounded-lg">{error}</p>}
+
+          {omittedSplitWarning}
 
           {isPdfImport && (
             <p className="text-xs text-[hsl(var(--warning))] flex items-start gap-1.5 p-3 border border-[hsl(var(--warning)/0.35)] rounded-lg bg-[hsl(var(--warning)/0.06)]">
