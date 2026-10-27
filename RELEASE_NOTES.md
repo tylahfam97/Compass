@@ -30,8 +30,10 @@ A maintenance release for the private download-statistics page. The app itself i
   that reached the server (200/206), not people or completed installs. Origin 304 revalidations are
   listed separately and not counted.
 - Downloads that Cloudflare serves from its cache never reach the server log. The edge-proxy change
-  that marks `/downloads/` as `no-store` (separate ReverseProxy PR) is what makes every installer
-  request visible; until it is deployed, the website figures are a lower bound.
+  that marks `/downloads/` as `no-store` (separate ReverseProxy PR) tells Cloudflare not to cache
+  installers, so requests reach the server unless a Cloudflare cache rule overrides it or a copy
+  cached before the change is still held; browser revalidations show up as 304s and are not counted.
+  Until it is deployed, the website figures are a lower bound.
 
 ### Tests
 - New `scripts/test_download_stats.py` (Python standard library only) checks rotation, range
