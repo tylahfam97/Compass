@@ -2,6 +2,44 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.6 — Honest Counts 🧭
+
+A maintenance release for the private download-statistics page. The app itself is unchanged.
+
+### Fixed
+- **Website downloads are counted again.** The nightly stats job read the server's general
+  `access.log`, while Compass's site logs to its own `compass.access.log`, so no website download
+  was recorded after the logs were split. It now reads `compass.access.log*`, including rotated
+  `.gz` files, and only that site's log. (#105)
+- **Recorded history never shrinks.** A day seen again replaces the stored day only if its count is
+  not smaller, so a day partly rotated out of the logs, or an empty read, cannot lower it.
+  Re-running on the same logs gives the same result. A corrupt state file stops the job instead of
+  being overwritten, and the state is saved atomically with a copy kept before each run. (#105)
+- **GitHub figures are never silently wrong.** All pages of releases are read, not just the first
+  100. If the GitHub API fails, the page keeps the last good figures and says they are stale,
+  instead of showing zero. (#105)
+- **Stable-link downloads go to the right version.** Requests for `Compass.exe/.msi/.dmg` are matched
+  to the hosted version by the hosted file's timestamp instead of only its date, so a day with two
+  releases is split. The 7- and 30-day windows now cover exactly 7 and 30 days. (#105)
+
+### Changed
+- In-app update packages (`.nsis.zip`) are shown in their own column and never added to installer
+  totals. Signatures and `latest.json` are not counted anywhere.
+- The page states what each number is: GitHub counts include automated fetches (the hosting job
+  fetches each installer once per release) and are shown unadjusted; website counts are requests
+  that reached the server (200/206), not people or completed installs. Origin 304 revalidations are
+  listed separately and not counted.
+- Downloads that Cloudflare serves from its cache never reach the server log. The edge-proxy change
+  that marks `/downloads/` as `no-store` (separate ReverseProxy PR) tells Cloudflare not to cache
+  installers, so requests reach the server unless a Cloudflare cache rule overrides it or a copy
+  cached before the change is still held; browser revalidations show up as 304s and are not counted.
+  Until it is deployed, the website figures are a lower bound.
+
+### Tests
+- New `scripts/test_download_stats.py` (Python standard library only) checks rotation, range
+  dedupe, 304/HEAD exclusion, reprocessing, partial days, API failure and pagination against
+  synthetic logs and a fake API. (#105)
+
 ## Compass 1.3.5 — Plain Answers 🧭
 
 A data-protection fix plus website and documentation updates. Compass no longer creates an
