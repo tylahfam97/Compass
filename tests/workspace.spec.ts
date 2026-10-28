@@ -729,12 +729,21 @@ test("Investments leads with a labeled portfolio summary scoped to the chosen ac
   const heroBox = (await hero.boundingBox())!;
   const tabBox = (await page.getByRole("button", { name: /^Holdings/ }).boundingBox())!;
   expect(heroBox.y + heroBox.height).toBeLessThanOrEqual(tabBox.y);
+  // The value leads, centered across the summary, with the supporting figures below it.
+  const value = hero.locator(".stat-row-item[data-hero]");
+  const valueBox = (await value.locator("strong").boundingBox())!;
+  expect(Math.abs(valueBox.x + valueBox.width / 2 - (heroBox.x + heroBox.width / 2))).toBeLessThanOrEqual(2);
+  await expect(value).toHaveCSS("text-align", "center");
+  const firstSupport = (await hero.locator(".stat-row-item:not([data-hero])").first().boundingBox())!;
+  expect(firstSupport.y).toBeGreaterThanOrEqual((await value.boundingBox())!.y + (await value.boundingBox())!.height);
   // Each account keeps its own statement period - never one merged "latest" period.
   await expect(page.getByRole("region", { name: "Latest statement, Sample Brokerage" })).toContainText("Sep 1, 2026 – Sep 30, 2026");
   await expect(page.getByRole("region", { name: "Latest statement, Sample Retirement" })).toContainText("Apr 1, 2026 – Jun 30, 2026");
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
-  await page.getByRole("combobox", { name: /^Account/ }).selectOption({ label: "Sample Retirement" });
+  // Keyboard, not a programmatic select: End moves to the last account (sorted by name).
+  await page.getByRole("combobox", { name: /^Account/ }).focus();
+  await page.keyboard.press("End");
   const scoped = page.getByRole("group", { name: "Portfolio summary, Sample Retirement" });
   await expect(scoped).toContainText("Account value");
   await expect(scoped).toContainText("$5,000.00");

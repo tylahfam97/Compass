@@ -454,7 +454,9 @@ export default function InvestmentsPage() {
         <section className="border rounded-2xl px-5 pt-4 pb-1 bg-[hsl(var(--surface-raised))]">
           <StatRow
             ariaLabel={`Portfolio summary, ${scopeLabel}`}
-            columns="auto"
+            className="portfolio-hero"
+            columns={3}
+            heroSize="xl"
             items={[
               {
                 label: selectedAccount ? "Account value" : "Portfolio value",
