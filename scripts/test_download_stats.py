@@ -152,7 +152,109 @@ def main():
         (S.WEB_ROOT / S.STATS_DIR / "stats.json").unlink()
         _, out5 = run(d)
         assert out5["github"] == [] and out5["github_error"] == "boom" and out5["github_fetched"] is None
+    verified_checks()
     print("download stats checks: OK")
+
+
+def bline(t, method, path, status, nbytes, ua=UA):
+    return f'9.9.9.9 - - [{t}] "{method} {path} HTTP/2.0" {status} {nbytes} "-" "{ua}"\n'
+
+
+def verified_checks():
+    """Byte-verified site transfers: separate from raw, never seeded from legacy raw counts."""
+    EXE8, MSI8, DMG8, EXE7 = 6714328, 9310208, 18320908, 6000000
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        logs, dl = d / "logs", d / "downloads"
+        logs.mkdir(); dl.mkdir()
+        S.LOG_GLOB = str(logs / "compass.access.log*")
+        S.DOWNLOADS_DIR, S.WEB_ROOT, S.STATE_FILE = dl, d / "web", d / "state.json"
+        # Hosted files (sparse, real sizes). The MSI size is known only from the hosted file.
+        for name, size, ts in (("Compass_1.3.7_x64-setup.exe", EXE7, "2026-10-20T00:00:00"),
+                               ("Compass_1.3.8_x64-setup.exe", EXE8, "2026-10-28T14:10:25"),
+                               ("Compass_1.3.8_x64_en-US.msi", MSI8, "2026-10-28T14:10:25"),
+                               ("Compass_1.3.8_aarch64.dmg", DMG8, "2026-10-28T14:10:25")):
+            with open(dl / name, "wb") as fh:
+                fh.truncate(size)
+            t = datetime.fromisoformat(ts).replace(tzinfo=timezone.utc).timestamp()
+            os.utime(dl / name, (t, t))
+        rel = lambda tag, assets: {"tag_name": tag, "draft": False, "prerelease": False,
+                                   "published_at": "2026-10-28T14:03:00Z",
+                                   "assets": [{"name": n, "download_count": 1, "size": s} for n, s in assets]}
+        S.urllib.request.urlopen = fake_api([[
+            rel("v1.3.8", [("Compass_1.3.8_x64-setup.exe", EXE8), ("Compass_1.3.8_x64_en-US.msi", None),
+                           ("Compass_1.3.8_aarch64.dmg", DMG8)]),
+            rel("v1.3.7", [("Compass_1.3.7_x64-setup.exe", EXE7)])]])
+        # Legacy state: the published six raw 1.3.8 requests from 10-28 (logs since rotated away).
+        legacy = {"website": {"2026-10-28": {"exe": {"1.3.8": 2}, "msi": {"1.3.8": 2}, "dmg": {"1.3.8": 2}}},
+                  "website_304": {"2026-10-27": 8}, "updated": "x"}
+        S.STATE_FILE.write_text(json.dumps(legacy))
+
+        T = "29/Oct/2026:10:00:0{} +0000"
+        body = "".join([
+            bline(T.format(0), "GET", "/downloads/Compass.exe", 200, EXE8),            # complete (stable)
+            bline(T.format(1), "GET", "/downloads/Compass.exe", 200, EXE8),            # repeat: still an event
+            bline(T.format(2), "GET", "/downloads/Compass_1.3.8_x64-setup.exe", 200, EXE8),  # complete (versioned)
+            bline(T.format(3), "GET", "/downloads/Compass.exe", 200, EXE8, ua="curl/8.5.0"),  # curl stays eligible
+            bline(T.format(4), "GET", "/downloads/Compass.msi", 200, MSI8),            # size from hosted file
+            bline(T.format(5), "GET", "/downloads/Compass.msi", 200, 1024),            # short 200
+            bline(T.format(6), "GET", "/downloads/Compass.exe", 200, 0),               # zero bytes
+            bline(T.format(7), "GET", "/downloads/Compass.exe", 200, "-"),             # missing bytes
+            bline(T.format(8), "GET", "/downloads/Compass.dmg", 206, DMG8),            # range: partial even if full-size
+            bline(T.format(9), "HEAD", "/downloads/Compass.exe", 200, 0),              # not counted anywhere
+            bline("29/Oct/2026:11:00:00 +0000", "GET", "/downloads/Compass.exe", 304, 0),  # 304 column only
+            bline("29/Oct/2026:11:00:01 +0000", "GET", "/downloads/Compass.exe", 200, EXE8,
+                  ua="Compass-release-verification/1.0"),                              # our check
+            bline("29/Oct/2026:11:00:02 +0000", "GET", "/downloads/Compass.exe?verify=r1", 200, EXE8),
+            bline("29/Oct/2026:11:00:03 +0000", "GET", "/downloads/Compass.exe", 200, EXE8,
+                  ua="Mozilla/5.0 (compatible; Googlebot/2.1)"),                       # declared crawler
+            bline("29/Oct/2026:11:00:04 +0000", "GET", "/downloads/Compass_1.3.7_x64-setup.exe", 200, EXE8),  # other version's size
+            bline("29/Oct/2026:11:00:05 +0000", "GET", "/downloads/Compass_1.3.7_x64-setup.exe", 200, EXE7),
+            bline("29/Oct/2026:11:00:06 +0000", "GET", "/downloads/Compass_9.9.9_x64-setup.exe", 200, 5),  # size unknown
+        ])
+        # Mid-rotation: the same file as .1 and .1.gz must be read once.
+        (logs / "compass.access.log.1").write_text(body)
+        with gzip.open(logs / "compass.access.log.1.gz", "wt") as fh:
+            fh.write(body)
+        (logs / "compass.access.log").write_text("")
+        state, out = run(d)
+        sv = out["site_verified"]
+        want8 = {"complete": 5, "incomplete": 2, "partial": 1, "unverifiable": 1, "automation": 3}
+        want7 = {"complete": 1, "incomplete": 1, "partial": 0, "unverifiable": 0, "automation": 0}
+        assert sv["per_version"]["1.3.8"] == want8, sv["per_version"]
+        assert sv["per_version"]["1.3.7"] == want7, sv["per_version"]
+        assert sv["per_version"]["9.9.9"]["unverifiable"] == 1
+        # The six legacy raw requests stay raw; 1.3.8 history before the first verified line is unknown.
+        assert state["website"]["2026-10-28"] == legacy["website"]["2026-10-28"]
+        assert "2026-10-28" not in state["site_verified"]
+        assert sv["since"] == "2026-10-29T10:00:00+00:00" and sv["coverage"]["1.3.8"] == "partial"
+        # Logs start mid-day on 10-29, so even 1.3.7 (first seen 10-29) is conservatively partial.
+        assert sv["coverage"]["1.3.7"] == "partial" and sv["rule"] == S.VERIFIED_RULE
+        assert state["website_304"] == {"2026-10-27": 8, "2026-10-29": 1}
+        page = (S.WEB_ROOT / S.STATS_DIR / "index.html").read_text()
+        assert "5 (earlier unknown)" in page and "Installers total" not in page
+        # Raw request semantics unchanged (gz duplicate not double counted).
+        assert state["website"]["2026-10-29"]["exe"]["1.3.8"] == 9, state["website"]["2026-10-29"]
+
+        # Rerun: idempotent. Rotation leaves a partial day: verified history is not lowered.
+        assert run(d)[0]["site_verified"] == state["site_verified"]
+        (logs / "compass.access.log.1").unlink(); (logs / "compass.access.log.1.gz").unlink()
+        (logs / "compass.access.log").write_text(bline(T.format(0), "GET", "/downloads/Compass.exe", 200, EXE8))
+        state2, out2 = run(d)
+        assert state2["site_verified"] == state["site_verified"]
+        assert out2["site_verified"]["since"] == sv["since"]
+
+        # Logs with no 1.3.8 line and only legacy raw: verified is "unknown", never the raw six.
+        S.STATE_FILE.write_text(json.dumps(legacy))
+        (logs / "compass.access.log").write_text(bline(T.format(0), "GET", "/", 200, 10))
+        _, out3 = run(d)
+        assert "1.3.8" not in out3["site_verified"]["per_version"]
+        # A version first requested after the first verified day is fully covered.
+        assert S.rollup_verified({}, {"2026-10-30": {"exe": {"1.3.9": 1}}}, sv["since"])[2] == {"1.3.9": "full"}
+        assert out3["site_verified"]["coverage"]["1.3.8"] == "partial"
+        assert "| 1.3.8 | 3 | 0 | 6 | unknown |" in S.build_summary(
+            {"log_coverage": None, "github_fetched": None, "github_error": None},
+            out3["github"], out3["website_per_version"], {"7d": 0, "30d": 0}, out3["site_verified"])
 
 
 if __name__ == "__main__":
