@@ -322,10 +322,10 @@ function InsightGroup({ label, severity, items, onApply, open, onToggle }: Insig
 // ── Health Score Hero Card ────────────────────────────────────────────────────
 function ScoreHeroCard({ score, scopeLabel, onOpen }: { score: HealthScore; scopeLabel?: string; onOpen: () => void }) {
   const comps = [
-    { label: "Savings rate",     s: score.components.savingsRate.score,     max: 40 },
-    { label: "Budget health",    s: score.components.budgetHealth.score,    max: 30 },
-    { label: "Balance runway",   s: score.components.balanceRunway.score,   max: 20 },
-    { label: "Income stability", s: score.components.incomeStability.score, max: 10 },
+    { label: "Savings rate",     c: score.components.savingsRate },
+    { label: "Budget health",    c: score.components.budgetHealth },
+    { label: "Balance runway",   c: score.components.balanceRunway },
+    { label: "Income stability", c: score.components.incomeStability },
   ];
   return (
     <button
@@ -339,7 +339,7 @@ function ScoreHeroCard({ score, scopeLabel, onOpen }: { score: HealthScore; scop
             <p className="text-xs font-medium mb-2" style={{ color: score.color }}>{scopeLabel ?? "Financial health score"}</p>
             <div className="flex items-baseline gap-3">
               <span className="text-[40px] font-medium tabular-nums leading-none" style={{ color: score.color }}>
-                <CountUp value={score.total} format={(v) => Math.round(v).toString()} />
+                {score.hasData ? <CountUp value={score.total} format={(v) => Math.round(v).toString()} /> : "—"}
               </span>
               <div className="flex flex-col">
                 {score.grade !== "—" && <span className="text-xl font-semibold" style={{ color: score.color }}>{score.grade}</span>}
@@ -356,15 +356,17 @@ function ScoreHeroCard({ score, scopeLabel, onOpen }: { score: HealthScore; scop
           </span>
         </div>
         <div className="score-meters">
-          {comps.map(({ label, s, max }) => (
+          {comps.map(({ label, c }) => (
             <div key={label}>
               <div className="flex justify-between text-[11px] mb-1">
                 <span className="text-[hsl(var(--muted-foreground))]">{label}</span>
-                <span className="font-medium tabular-nums" style={{ color: score.color }}>{s}/{max}</span>
+                {c.measured
+                  ? <span className="font-medium tabular-nums" style={{ color: score.color }}>{c.score}/{c.max}</span>
+                  : <span className="text-[hsl(var(--muted-foreground))]" title={`No data yet: counted at the neutral ${c.score}/${c.max}`}>No data yet</span>}
               </div>
               <div className="h-1.5 rounded-full bg-[hsl(var(--muted))] overflow-hidden">
                 <div className="h-full rounded-full"
-                     style={{ width: `${(s / max) * 100}%`, backgroundColor: score.color }} />
+                     style={{ width: `${(c.score / c.max) * 100}%`, backgroundColor: c.measured ? score.color : "hsl(var(--muted-foreground) / 0.35)" }} />
               </div>
             </div>
           ))}
@@ -680,10 +682,10 @@ function ScoreIntroModal({
     { g: "",  r: "Under 40",  l: "Getting started", c: scoreGrade(0).color },
   ];
   const comps = [
-    { label: "Savings rate",     detail: "3-month average net against income",   s: score.components.savingsRate.score,     max: 40 },
-    { label: "Budget health",    detail: "Share of budgets on track this month",   s: score.components.budgetHealth.score,    max: 30 },
-    { label: "Balance runway",   detail: "Months of expenses in your accounts",    s: score.components.balanceRunway.score,   max: 20 },
-    { label: "Income stability", detail: "Variance across 6 months of income",     s: score.components.incomeStability.score, max: 10 },
+    { label: "Savings rate",     detail: "Last 3 complete months: income that wasn't spent",      c: score.components.savingsRate },
+    { label: "Budget health",    detail: "Share of budgets on track this month",                  c: score.components.budgetHealth },
+    { label: "Balance runway",   detail: "Months of average spending covered by checking cash",   c: score.components.balanceRunway },
+    { label: "Income stability", detail: "Largest swing from average across 6 months of income",  c: score.components.incomeStability },
   ];
   const tabCls = (active: boolean) => `flex-1 py-3 text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 border-b-2 ${active ? "text-[hsl(var(--gold-ink))] bg-[hsl(var(--primary)/0.08)] border-[hsl(var(--primary))]" : "text-[hsl(var(--muted-foreground))] border-transparent"}`;
 
@@ -713,7 +715,7 @@ function ScoreIntroModal({
             Financial health score
           </p>
           <div className="flex items-baseline justify-center gap-3 mb-1">
-            <span className="text-[44px] leading-none font-medium tabular-nums" style={{ color: score.color }}>{score.total}</span>
+            <span className="text-[44px] leading-none font-medium tabular-nums" style={{ color: score.color }}>{score.hasData ? score.total : "—"}</span>
             <div className="text-left">
               {score.grade !== "—" && <div className="text-2xl font-semibold" style={{ color: score.color }}>{score.grade}</div>}
               <div className="text-sm text-[hsl(var(--muted-foreground))]">{score.label}</div>
@@ -731,19 +733,25 @@ function ScoreIntroModal({
             <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">
               Breakdown
             </p>
-            {comps.map(({ label, detail, s, max }) => (
+            {comps.map(({ label, detail, c }) => (
               <div key={label}>
                 <div className="flex justify-between text-sm mb-0.5">
                   <span className="font-medium">{label}</span>
-                  <span className="text-[hsl(var(--muted-foreground))] tabular-nums">{s} / {max} pts</span>
+                  <span className="text-[hsl(var(--muted-foreground))] tabular-nums">
+                    {c.measured ? `${c.score} / ${c.max} pts` : `No data yet, neutral ${c.score} / ${c.max}`}
+                  </span>
                 </div>
                 <p className="text-xs text-[hsl(var(--muted-foreground))] mb-1">{detail}</p>
                 <div className="h-2 rounded-full bg-[hsl(var(--muted))] overflow-hidden">
                   <div className="h-full rounded-full"
-                       style={{ width: `${(s / max) * 100}%`, backgroundColor: score.color, transition: "width 0.35s ease" }} />
+                       style={{ width: `${(c.score / c.max) * 100}%`, backgroundColor: c.measured ? score.color : "hsl(var(--muted-foreground) / 0.35)", transition: "width 0.35s ease" }} />
                 </div>
               </div>
             ))}
+            <p className="text-xs text-[hsl(var(--muted-foreground))]">
+              Investments and debt are not part of this score: cash runway counts checking only, and
+              card debt and investment returns are scored on their own cards.
+            </p>
           </div>
           <div className="space-y-1.5">
             <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">

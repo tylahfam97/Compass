@@ -107,6 +107,58 @@ export function aggregateSavingsRate(months: { income: number; expenses: number 
   return (income - months.reduce((s, m) => s + m.expenses, 0)) / income;
 }
 
+// ─── Health Score rubric ──────────────────────────────────────────────────────
+// One pure function per component so every threshold is unit-tested. A component whose inputs
+// are missing scores its neutral midpoint and is reported `measured: false`, so the UI can say
+// "no data yet" instead of passing the midpoint off as a measurement.
+
+/** Savings rate (40 pts). `null` = no income or spending recorded in the window at all. */
+export function savingsRatePoints(rate: number | null): number {
+  if (rate === null) return 20;
+  return rate >= 0.20 ? 40 : rate >= 0.15 ? 30 : rate >= 0.10 ? 20 : rate >= 0.05 ? 10 : 0;
+}
+
+/** Balance runway (20 pts): months of average spending covered by checking cash. `null` balance =
+ *  no checking balance on record. Zero or overdrawn cash is a measured "no cushion" (the lowest
+ *  band), never the neutral no-data score - otherwise being overdrawn outscores a thin cushion. */
+export function runwayPoints(balanceCents: number | null, avgMonthlyExpenseCents: number): { points: number; measured: boolean } {
+  if (balanceCents === null) return { points: 10, measured: false };
+  if (balanceCents <= 0) return { points: 2, measured: true };
+  if (avgMonthlyExpenseCents <= 0) return { points: 10, measured: false };
+  const months = balanceCents / avgMonthlyExpenseCents;
+  return { points: months >= 6 ? 20 : months >= 3 ? 15 : months >= 1 ? 8 : 2, measured: true };
+}
+
+/** Total owed across credit cards (positive cents). Card balances are stored negative; a card in
+ *  credit (an overpayment or refund) owes nothing, and must not offset what another card owes. */
+export function creditOwedCents(balances: (number | null)[]): number {
+  return balances.reduce<number>((sum, b) => sum + (b !== null && b < 0 ? -b : 0), 0);
+}
+
+/**
+ * Spare cash applied to revolving card debt, the card charging the most interest per dollar
+ * first. Uses the interest each card actually charged last month rather than a quoted APR, so
+ * the estimate is grounded in the statements: paying p of a card that owes o and charged i stops
+ * about (p / o) * i * 12 a year at that rate.
+ */
+export function idleCashPaydown(
+  spareCents: number,
+  cards: { owedCents: number; monthlyInterestCents: number }[]
+): { payCents: number; annualInterestCents: number } {
+  let left = Math.max(0, spareCents), pay = 0, yearly = 0;
+  const byRate = cards
+    .filter((c) => c.owedCents > 0 && c.monthlyInterestCents > 0)
+    .sort((a, b) => b.monthlyInterestCents / b.owedCents - a.monthlyInterestCents / a.owedCents);
+  for (const c of byRate) {
+    if (left <= 0) break;
+    const p = Math.min(left, c.owedCents);
+    pay += p;
+    left -= p;
+    yearly += (p / c.owedCents) * c.monthlyInterestCents * 12;
+  }
+  return { payCents: pay, annualInterestCents: Math.round(yearly) };
+}
+
 // The savings rate is "income that didn't go back out": every dollar earned, minus every dollar
 // spent, whatever it was spent on. Definitions live in reportingSql.ts because the pages report
 // the same numbers and any drift between them is visible to the user as a mismatch.
@@ -703,6 +755,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     }
     return { purchases, payments, stray };
   };
+  const revolvingCards: { owedCents: number; monthlyInterestCents: number }[] = [];
   for (const acct of creditAccounts) {
     const [creditBalanceRow] = await db.select<{ balance_cents: number; date: string }[]>(
       `SELECT balance_cents, date FROM transactions
@@ -752,6 +805,10 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         dismissKey: `interest_paid_${acct.id}_${interestMonth}`,
         accountId: acct.id,
       });
+      // Evidence the card is revolving (not paid in full), for cash_vs_card_interest below.
+      if ((creditBalanceRow?.balance_cents ?? 0) < 0) {
+        revolvingCards.push({ owedCents: -creditBalanceRow!.balance_cents, monthlyInterestCents: interestCents });
+      }
     }
 
     if (creditBalanceRow?.balance_cents == null) {
@@ -950,6 +1007,33 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
           dismissKey: `loan_debt_improving_${acct.id}_${thisMonth}`,
           accountId: acct.id,
           richData: loanRichData,
+        });
+      }
+    }
+  }
+
+  // ── INSIGHT: cash_vs_card_interest ────────────────────────────────────────
+  // Checking cash beyond one month of average spending, set against cards that actually charged
+  // interest last month - a card paid in full charges none, so it never triggers this. One month
+  // of spending stays as a buffer; emergency_fund_runway already judges whether that is enough.
+  {
+    const expenseMonths = completeMonths.slice(0, 3).filter((m) => m.expenses > 0);
+    if (balanceKnown && expenseMonths.length >= 2 && revolvingCards.length > 0) {
+      const buffer = Math.round(avgOf(expenseMonths));
+      const spare = balanceRow.balance_cents - buffer;
+      const { payCents, annualInterestCents } = idleCashPaydown(spare, revolvingCards);
+      if (payCents >= 10000 && annualInterestCents >= 2500) {
+        const owed = revolvingCards.reduce((s, c) => s + c.owedCents, 0);
+        insights.push({
+          id: `cash_vs_card_interest_${thisMonth}`,
+          type: "cash_vs_card_interest",
+          title: `Spare cash could stop about ${formatCents(annualInterestCents)} a year of card interest`,
+          description: `Checking holds ${formatCents(balanceRow.balance_cents)} as of ${formatDate(balanceRow.date!)}, ${formatCents(spare)} more than one month of spending (${formatCents(buffer)} a month over ${plural(expenseMonths.length, "complete month", "complete months")}). Cards that charged interest last month owe ${formatCents(owed)}. Paying ${formatCents(payCents)} of that, costliest card first, would stop about ${formatCents(annualInterestCents)} a year at last month's interest charges. An estimate: rate changes, promotional rates and payments already scheduled are not modeled.`,
+          severity: "info",
+          impactCents: annualInterestCents,
+          period: "a year",
+          action: { type: "open_payoff", payload: {} },
+          dismissKey: `cash_vs_card_interest_${thisMonth}`,
         });
       }
     }
@@ -1875,7 +1959,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
       id: `investment_performance_${thisMonth}`,
       type: "investment_performance",
       title: `Portfolio ${returnPct >= 0 ? "up" : "down"} ${Math.abs(returnPct).toFixed(1)}% (${kind})`,
-      description: `Your holdings are ${returnPct >= 0 ? "up" : "down"} ${Math.abs(returnPct).toFixed(1)}% ${kind} against cost basis, compared with the long-run market average of about ${AVG_US_MARKET_RETURN_PCT}% a year.`,
+      description: `Your holdings are ${returnPct >= 0 ? "up" : "down"} ${Math.abs(returnPct).toFixed(1)}% ${kind}, measured against cost basis where statements show it and as price change since first imported where they don't, compared with the long-run market average of about ${AVG_US_MARKET_RETURN_PCT}% a year.`,
       severity: returnPct >= AVG_US_MARKET_RETURN_PCT ? "success" : returnPct < 0 ? "warning" : "info",
       dismissKey: `investment_performance_${thisMonth}`,
     });
@@ -1930,9 +2014,11 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   const [realizedRow] = await db.select<{ total: number | null }[]>(
     `SELECT SUM(realized_gain_ytd_cents) as total FROM investment_summaries s
      WHERE s.profile_id=? AND s.realized_gain_ytd_cents IS NOT NULL
+       AND s.period_end >= ?
        AND s.period_end = (SELECT MAX(period_end) FROM investment_summaries s2
                            WHERE s2.account_id = s.account_id)`,
-    [profileId]
+    // Only this year's statements: last December's year-to-date figure isn't this year's.
+    [profileId, `${thisMonth.slice(0, 4)}-01-01`]
   );
   if (realizedRow?.total) {
     const realized = realizedRow.total;
@@ -2163,8 +2249,11 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
      GROUP BY month ORDER BY month DESC LIMIT 3`,
     [...profileIds, threeAgo, msStart]
   );
-  const avgRate = aggregateSavingsRate(srRows) ?? 0;
-  const savingsScore = avgRate >= 0.20 ? 40 : avgRate >= 0.15 ? 30 : avgRate >= 0.10 ? 20 : avgRate >= 0.05 ? 10 : 0;
+  const srIncome = srRows.reduce((s, r) => s + r.income, 0);
+  const srExpenses = srRows.reduce((s, r) => s + r.expenses, 0);
+  // Spending with no income is a measured 0% rate; no income or spending at all is no data.
+  const savingsMeasured = srIncome > 0 || srExpenses > 0;
+  const savingsScore = savingsRatePoints(savingsMeasured ? (aggregateSavingsRate(srRows) ?? 0) : null);
 
   // ── 2. Budget Health (30 pts) — this month ──────────────────────────────
   const budgets = await db.select<BudgetDefinition[]>(
@@ -2172,6 +2261,7 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
     [...profileIds]
   );
   let budgetScore = 15;
+  let budgetMeasured = false;
   if (budgets.length > 0) {
     const weekStart = new Date(now);
     weekStart.setDate(now.getDate() - (now.getDay() + 6) % 7);
@@ -2183,34 +2273,32 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
       budget.period === "weekly" ? toISODate(weekEnd) : msEnd, true)));
     const known = evaluations.filter((period) => period.covered);
     if (known.length > 0) {
+      budgetMeasured = true;
       const pct = known.filter((period) => period.onTrack).length / known.length;
       budgetScore = pct >= 1.0 ? 30 : pct >= 0.8 ? 24 : pct >= 0.6 ? 18 : pct >= 0.4 ? 12 : 6;
     }
   }
 
-  // ── 3. Balance Runway (20 pts) — liquid cash only, not credit card debt ──
-  const [balRow] = await db.select<{ balance_cents: number | null }[]>(
-    `SELECT COALESCE(SUM(${latestBalancePerAccountSql()}), 0) as balance_cents
+  // ── 3. Balance Runway (20 pts) — liquid cash only (checking), not investments or credit ──
+  // `known` counts checking accounts that have a recorded balance at all, so "no balance on
+  // record" (no data) is told apart from a balance that sums to zero or below (no cushion).
+  const [balRow] = await db.select<{ balance_cents: number | null; known: number }[]>(
+    `SELECT COALESCE(SUM(${latestBalancePerAccountSql()}), 0) as balance_cents,
+            COUNT(${latestBalancePerAccountSql()}) as known
      FROM accounts a
      WHERE a.profile_id IN (${ph}) AND a.account_type='checking' AND a.excluded_from_insights=0`,
     [...profileIds]
   );
-  let balanceScore = 10;
-  if ((balRow?.balance_cents ?? 0) > 0) {
-    const [expRow] = await db.select<{ avg_exp: number }[]>(
-      `SELECT AVG(me) as avg_exp FROM (
-         SELECT ${EXPENSE_SUM_SQL} as me
-         FROM transactions t JOIN accounts a ON a.id=t.account_id
-         WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<? AND a.excluded_from_insights=0
-         GROUP BY strftime('%Y-%m', t.date))`,
-      [...profileIds, threeAgo, msStart]
-    );
-    const avgExp = expRow?.avg_exp ?? 0;
-    if (avgExp > 0) {
-      const rw = balRow!.balance_cents! / avgExp;
-      balanceScore = rw >= 6 ? 20 : rw >= 3 ? 15 : rw >= 1 ? 8 : 2;
-    }
-  }
+  const [expRow] = await db.select<{ avg_exp: number | null }[]>(
+    `SELECT AVG(me) as avg_exp FROM (
+       SELECT ${EXPENSE_SUM_SQL} as me
+       FROM transactions t JOIN accounts a ON a.id=t.account_id
+       WHERE t.profile_id IN (${ph}) AND t.date>=? AND t.date<? AND a.excluded_from_insights=0
+       GROUP BY strftime('%Y-%m', t.date))`,
+    [...profileIds, threeAgo, msStart]
+  );
+  const runway = runwayPoints((balRow?.known ?? 0) > 0 ? (balRow?.balance_cents ?? 0) : null, expRow?.avg_exp ?? 0);
+  const balanceScore = runway.points;
 
   // ── 4. Income Stability (10 pts) — 6-month variance ───────────────────
   const incRows = await db.select<{ income: number }[]>(
@@ -2229,15 +2317,18 @@ export async function computeHealthScore(profileIds: number[]): Promise<HealthSc
   }
 
   const total = savingsScore + budgetScore + balanceScore + incomeScore;
-  const { grade, label, color, tone } = scoreGrade(total);
+  // With nothing measured, the total is just the neutral midpoints - don't grade that.
+  const hasData = savingsMeasured || budgetMeasured || runway.measured || incomes.length >= 2;
+  const { grade, label, color, tone } = hasData ? scoreGrade(total) : { ...scoreGrade(0), label: "Not enough data yet" };
+  const component = (score: number, max: number, measured: boolean) => ({ score, max, pct: Math.round((score / max) * 100), measured });
 
   return {
-    total, grade, label, color, tone,
+    total, hasData, grade, label, color, tone,
     components: {
-      savingsRate:     { score: savingsScore,  max: 40, pct: Math.round((savingsScore / 40)  * 100) },
-      budgetHealth:    { score: budgetScore,   max: 30, pct: Math.round((budgetScore / 30)   * 100) },
-      balanceRunway:   { score: balanceScore,  max: 20, pct: Math.round((balanceScore / 20)  * 100) },
-      incomeStability: { score: incomeScore,   max: 10, pct: Math.round((incomeScore / 10)   * 100) },
+      savingsRate:     component(savingsScore, 40, savingsMeasured),
+      budgetHealth:    component(budgetScore, 30, budgetMeasured),
+      balanceRunway:   component(balanceScore, 20, runway.measured),
+      incomeStability: component(incomeScore, 10, incomes.length >= 2),
     },
   };
 }
@@ -2268,24 +2359,24 @@ export async function computeCreditCardHealthScore(profileIds: number[]): Promis
   const monthStart = toISODate(new Date(now.getFullYear(), now.getMonth(), 1));
   // Computed directly (rather than via computeNetWorth) so excluded_from_insights accounts are
   // left out of this score entirely, independent of the hidden_from_dashboard/net-worth flag.
-  const creditDebtCents = async (asOfDate?: string): Promise<number> => {
+  // Returns what is owed (positive cents), summed per card - see `creditOwedCents` - or null when
+  // no card has a balance on file at all, which is no data rather than "nothing owed".
+  const creditOwed = async (asOfDate?: string): Promise<number | null> => {
     const dateFilter = asOfDate ? "AND t.date <= ?" : "";
     const params = asOfDate ? [asOfDate, ...profileIds] : [...profileIds];
-    const [row] = await db.select<{ total: number | null }[]>(
-      `SELECT COALESCE(SUM(bal),0) as total FROM (
-         SELECT (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL ${dateFilter}
-                 ORDER BY t.date DESC, t.id DESC LIMIT 1) as bal
-         FROM accounts a WHERE a.profile_id IN (${ph}) AND a.account_type='credit' AND a.excluded_from_insights=0
-       )`,
+    const rows = await db.select<{ bal: number | null }[]>(
+      `SELECT (SELECT t.balance_cents FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL ${dateFilter}
+               ORDER BY t.date DESC, t.id DESC LIMIT 1) as bal
+       FROM accounts a WHERE a.profile_id IN (${ph}) AND a.account_type='credit' AND a.excluded_from_insights=0`,
       params
     );
-    return row?.total ?? 0;
+    return rows.some((r) => r.bal !== null) ? creditOwedCents(rows.map((r) => r.bal)) : null;
   };
-  const [debtCents, priorDebtCents] = await Promise.all([
-    creditDebtCents(),
-    creditDebtCents(monthStart),
+  const [debtAbs, priorOwed] = await Promise.all([
+    creditOwed(),
+    creditOwed(monthStart),
   ]);
-  const debtAbs = Math.abs(debtCents);
+  if (debtAbs === null) return empty();
 
   let score: number;
   if (debtAbs === 0) score = 100;
@@ -2296,16 +2387,16 @@ export async function computeCreditCardHealthScore(profileIds: number[]): Promis
   else score = 15;
 
   // Trend nudge: paid down more than $50 this month -> +10, grew more than $50 -> -10
-  const delta = debtCents - priorDebtCents;
-  if (delta > 5000) score = Math.min(100, score + 10);
-  else if (delta < -5000) score = Math.max(0, score - 10);
+  const paidDown = (priorOwed ?? debtAbs) - debtAbs;
+  if (paidDown > 5000) score = Math.min(100, score + 10);
+  else if (paidDown < -5000) score = Math.max(0, score - 10);
 
   const { grade, label, color, tone } = scoreGrade(score);
   const detail = debtAbs === 0
     ? "No revolving balance, against a national average of about $6,000"
     : `${formatCents(debtAbs)} owed against a national average of about ${formatCents(benchmarkCents)}`;
 
-  return { score, hasData: true, grade, label, color, tone, detail, debtCents, benchmarkCents };
+  return { score, hasData: true, grade, label, color, tone, detail, debtCents: 0 - debtAbs, benchmarkCents };
 }
 
 // ─── Debt Payoff Plan ──────────────────────────────────────────────────────────

@@ -757,6 +757,9 @@ body::after {
    BearingBar/PlannedBar, wizard stepper, page grids). Token colors only. */
 .stat-row { display: grid; gap: 24px; padding-bottom: 24px; border-bottom: 1px solid hsl(var(--border)); align-items: start; }
 .stat-row-item > strong { line-height: 1.15; }
+/* Investments summary: the portfolio value centered on its own row, the supporting figures a centered row beneath. */
+.portfolio-hero { text-align: center; }
+.portfolio-hero > [data-hero] { grid-column: 1 / -1; }
 .empty-state { padding: 32px 0; }
 .locked-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 0; font-size: 13px; color: hsl(var(--warning)); border-top: 1px solid hsl(var(--warning) / 0.35); border-bottom: 1px solid hsl(var(--warning) / 0.35); }
 .ranked-bars > * + * { border-top: 1px solid hsl(var(--border) / 0.6); }

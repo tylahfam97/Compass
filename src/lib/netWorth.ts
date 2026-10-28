@@ -55,6 +55,12 @@ export function holdingRoiPct(marketValueCents: number | null, costBasisCents: n
   return ((marketValueCents - costBasisCents) / costBasisCents) * 100;
 }
 
+/** Units held across rows (shares, coins); null unless every row reports a positive count. */
+function totalUnits(rows: { shares: number | null }[]): number | null {
+  if (rows.some((r) => r.shares === null || r.shares <= 0)) return null;
+  return rows.reduce((s, r) => s + (r.shares ?? 0), 0);
+}
+
 /**
  * Computes a net-worth snapshot for one or more profiles: liquid cash (checking
  * accounts), debt (credit card balances, stored negative), and investment
@@ -145,9 +151,10 @@ export async function getNetWorthHistory(
  * Holdings are grouped first (matching how the Investments page groups lots, by security type
  * + symbol/description, per account) since some statement formats (e.g. a 401(k)) never report a real cost
  * basis at all - only ever a period's ending balance. Those groups fall back to comparing
- * their OWN earliest tracked snapshot against the latest one, so they still contribute once at
- * least two snapshots exist, rather than being silently excluded from Investment Health
- * forever no matter how much import history accumulates. A holding imported for the first time
+ * their OWN earliest tracked snapshot against the latest one, rescaled to the current unit count
+ * so contributions are not counted as growth (units must be known on both snapshots), so they
+ * still contribute once at least two snapshots exist rather than being silently excluded from
+ * Investment Health forever. A holding imported for the first time
  * (no earlier snapshot yet) has no baseline to compare against and is skipped until its next
  * statement is imported. A group missing from its account's latest snapshot was sold and is
  * skipped (its older rows only ever serve as a baseline while it is still held).
@@ -158,9 +165,9 @@ export async function computeInvestmentReturn(profileIds: number[]): Promise<Inv
   const ph = profileIds.map(() => "?").join(",");
   const allRows = await db.select<{
     account_id: number; security_type: SecurityType; symbol: string | null; description: string; as_of_date: string;
-    cost_basis_cents: number | null; market_value_cents: number | null; trade_date: string | null;
+    cost_basis_cents: number | null; market_value_cents: number | null; trade_date: string | null; shares: number | null;
   }[]>(
-    `SELECT h.account_id, h.security_type, h.symbol, h.description, h.as_of_date, h.cost_basis_cents, h.market_value_cents, h.trade_date
+    `SELECT h.account_id, h.security_type, h.symbol, h.description, h.as_of_date, h.cost_basis_cents, h.market_value_cents, h.trade_date, h.shares
      FROM holdings h WHERE h.profile_id IN (${ph})`,
     [...profileIds]
   );
@@ -189,8 +196,10 @@ export async function computeInvestmentReturn(profileIds: number[]): Promise<Inv
 
     if (latestCost > 0) {
       // Real cost basis available for this holding - use it directly, weighted by trade date.
+      // Compare it only with the value of the SAME lots: a lot with no cost basis has no knowable
+      // gain, and adding its value against another lot's cost would invent one.
       totalCost += latestCost;
-      totalMv += latestMv;
+      totalMv += latestCostRows.reduce((s, r) => s + (r.market_value_cents ?? 0), 0);
       for (const r of latestCostRows) {
         if (!r.trade_date) continue;
         const days = (today - new Date(r.trade_date).getTime()) / 86_400_000;
@@ -199,17 +208,29 @@ export async function computeInvestmentReturn(profileIds: number[]): Promise<Inv
       continue;
     }
 
-    // No real cost basis for this holding - fall back to its own earliest tracked snapshot as
-    // a growth baseline. Requires at least 2 distinct snapshot dates.
-    const earliestDate = rows.reduce((min, r) => (r.as_of_date < min ? r.as_of_date : min), rows[0].as_of_date);
-    if (earliestDate === latestDate) continue;
-    const earliestMv = rows.filter((r) => r.as_of_date === earliestDate).reduce((s, r) => s + (r.market_value_cents ?? 0), 0);
-    if (earliestMv <= 0) continue;
+    // No real cost basis for this holding - fall back to its own earliest tracked snapshot as a
+    // baseline for PRICE movement only. New contributions raise market value too, and counting
+    // them as return invents profit (a 401(k) that doubles from deposits is not up 100%). So the
+    // baseline is rescaled to today's unit count, using the earliest snapshot that reports units;
+    // without units on both ends the change can't be split into price vs. contributions and the
+    // holding is skipped.
+    // ponytail: every change in units is treated as money added, so a split or a reinvested
+    // distribution reads as price change only; use investment_activity (buy/reinvest) rows if
+    // statements start carrying them for these holdings.
+    const latestUnits = totalUnits(latestRows);
+    const baseDate = [...new Set(rows.map((r) => r.as_of_date))]
+      .filter((d) => d < latestDate && totalUnits(rows.filter((r) => r.as_of_date === d)) !== null)
+      .sort()[0];
+    if (!baseDate || latestUnits === null) continue;
+    const baseRows = rows.filter((r) => r.as_of_date === baseDate);
+    const baseMv = baseRows.reduce((s, r) => s + (r.market_value_cents ?? 0), 0);
+    if (baseMv <= 0) continue;
+    const baseline = baseMv * (latestUnits / totalUnits(baseRows)!);
 
-    totalCost += earliestMv;
+    totalCost += baseline;
     totalMv += latestMv;
-    const days = (today - new Date(earliestDate).getTime()) / 86_400_000;
-    if (days > 0) weightedDays += days * earliestMv;
+    const days = (today - new Date(baseDate).getTime()) / 86_400_000;
+    if (days > 0) weightedDays += days * baseline;
   }
 
   if (totalCost <= 0) return { absoluteReturnPct: null, annualizedReturnPct: null, hasCostBasis: false };

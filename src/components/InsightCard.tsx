@@ -25,6 +25,7 @@ const TYPE_ICONS: Record<string, React.ElementType> = {
   expense_ratio_drift:    PercentIcon,
   weekend_spending:       PercentIcon,
   interest_paid:          PercentIcon,
+  cash_vs_card_interest:  PercentIcon,
   // Trending up (notable in a spend context)
   unusual_spike:          TrendUpIcon,
   category_creep:         TrendUpIcon,

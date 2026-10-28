@@ -705,6 +705,55 @@ test("Ledger crypto export imports as an investment holding with transfers, not 
   expect(database.prepare("SELECT COUNT(*) AS n FROM transactions").get()).toEqual(transactionsBefore);
 });
 
+test("Investments leads with a labeled portfolio summary scoped to the chosen account", async ({ page, database }) => {
+  // Invented accounts: a brokerage priced in September with a known cost basis, and a retirement
+  // fund last priced in June with none.
+  database.prepare("INSERT INTO accounts (id,name,account_type,institution,profile_id) VALUES (10,'Sample Brokerage','investment','Example Securities',1), (11,'Sample Retirement','investment','',1)").run();
+  const holding = database.prepare("INSERT INTO holdings (account_id,profile_id,as_of_date,security_type,symbol,description,shares,market_value_cents,cost_basis_cents) VALUES (?,1,?,?,?,?,?,?,?)");
+  holding.run(10, "2026-09-30", "stock", "SMPL", "Sample Corp", 10, 100_000, 80_000);
+  holding.run(11, "2026-06-30", "mutual_fund", null, "Sample Target Fund", null, 500_000, null);
+  const summary = database.prepare("INSERT INTO investment_summaries (account_id,profile_id,period_start,period_end,beginning_value_cents,ending_value_cents) VALUES (?,1,?,?,?,?)");
+  summary.run(10, "2026-09-01", "2026-09-30", 90_000, 100_000);
+  summary.run(11, "2026-04-01", "2026-06-30", 450_000, 500_000);
+
+  await page.setViewportSize({ width: 768, height: 1000 });
+  await page.goto("/investments");
+  const hero = page.getByRole("group", { name: "Portfolio summary, All 2 accounts" });
+  await expect(hero).toContainText("Portfolio value");
+  await expect(hero).toContainText("$6,000.00");
+  await expect(hero).toContainText("Mixed");
+  await expect(hero).toContainText("Jun 30, 2026 to Sep 30, 2026");
+  // The unknown-cost fund adds no gain: $1,000 - $800, on the 17% of value with a cost basis.
+  await expect(hero).toContainText("$200.00");
+  await expect(hero).toContainText("17% of value");
+  const heroBox = (await hero.boundingBox())!;
+  const tabBox = (await page.getByRole("button", { name: /^Holdings/ }).boundingBox())!;
+  expect(heroBox.y + heroBox.height).toBeLessThanOrEqual(tabBox.y);
+  // The value leads, centered across the summary, with the supporting figures below it.
+  const value = hero.locator(".stat-row-item[data-hero]");
+  const valueBox = (await value.locator("strong").boundingBox())!;
+  expect(Math.abs(valueBox.x + valueBox.width / 2 - (heroBox.x + heroBox.width / 2))).toBeLessThanOrEqual(2);
+  await expect(value).toHaveCSS("text-align", "center");
+  const firstSupport = (await hero.locator(".stat-row-item:not([data-hero])").first().boundingBox())!;
+  expect(firstSupport.y).toBeGreaterThanOrEqual((await value.boundingBox())!.y + (await value.boundingBox())!.height);
+  // Each account keeps its own statement period - never one merged "latest" period.
+  await expect(page.getByRole("region", { name: "Latest statement, Sample Brokerage" })).toContainText("Sep 1, 2026 – Sep 30, 2026");
+  await expect(page.getByRole("region", { name: "Latest statement, Sample Retirement" })).toContainText("Apr 1, 2026 – Jun 30, 2026");
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  // Keyboard, not a programmatic select: End moves to the last account (sorted by name).
+  await page.getByRole("combobox", { name: /^Account/ }).focus();
+  await page.keyboard.press("End");
+  const scoped = page.getByRole("group", { name: "Portfolio summary, Sample Retirement" });
+  await expect(scoped).toContainText("Account value");
+  await expect(scoped).toContainText("$5,000.00");
+  await expect(scoped).toContainText("Unknown");
+  await expect(scoped).toContainText("Jun 30, 2026");
+  await expect(page.getByRole("region", { name: /^Latest statement/ })).toHaveCount(1);
+  await expect(page.getByText("Sample Target Fund")).toBeVisible();
+  await expect(page.getByText("Sample Corp")).toHaveCount(0);
+});
+
 test("card PDF with a Charges column but no credits this cycle still imports charges as spending", async ({ page, database }) => {
   const pdf = syntheticPdf([[
     [40, 760, "Billing Period: 08/01/26-08/31/26"], [40, 740, "Previous balance $0.00"], [40, 726, "New balance $50.00"],

@@ -95,7 +95,8 @@ export type InsightType =
   | "dividend_income_projected"
   | "investment_income_received"
   | "realized_gains_ytd"
-  | "portfolio_concentration_risk";
+  | "portfolio_concentration_risk"
+  | "cash_vs_card_interest";
 
 /** Category ID reserved for internal bank transfers — excluded from expense totals. */
 export const TRANSFER_CATEGORY_ID = 20;
@@ -330,10 +331,14 @@ export interface HealthScoreComponent {
   score: number;
   max: number;
   pct: number;
+  /** False when the inputs were missing and `score` is the component's neutral midpoint. */
+  measured: boolean;
 }
 
 export interface HealthScore {
   total: number;
+  /** False when no component could be measured: `total` is then only neutral midpoints. */
+  hasData: boolean;
   grade: string;
   label: string;
   /** CSS colour built from a design token (see `scoreGrade`). */
