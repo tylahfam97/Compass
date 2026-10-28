@@ -44,8 +44,13 @@ export interface ForecastRule extends RecurringSchedule {
 }
 
 export interface ForecastDay {
+  /** What-if change to everyday spending on this day, signed: positive is extra spending,
+   *  negative is a cut. Never more negative than the typical spending it trims. */
   scenarioSpendCents?: number;
-  purchaseCents?: number;
+  /** What-if extra income landing on this day (a monthly amount spread across the month). */
+  scenarioIncomeCents?: number;
+  /** What-if one-off on this day, signed: negative is a purchase, positive is money in. */
+  oneOffCents?: number;
   date: string;
   /** Projected balance at the end of this day. */
   balanceCents: number;
@@ -73,6 +78,10 @@ export interface ForecastResult {
   /** Extra day-to-day spending the user asked to simulate, across the whole window. Zero unless
    *  a what-if is running - the projection never invents spending on its own. */
   assumedSpendCents: number;
+  /** What-if money in (extra monthly income plus a one-off deposit). Zero unless the user asks. */
+  scenarioIncomeCents: number;
+  /** The scheduled paycheck the what-if left out, if any. */
+  skippedIncome: ForecastEvent | null;
   /**
    * Income in this window minus the bills scheduled against it - what's left over to live on.
    */
@@ -84,8 +93,15 @@ export interface ForecastResult {
 }
 
 export interface ProjectCashFlowInput {
-  extraSpendCents?: number;
-  purchase?: { date: string; amountCents: number };
+  /** What-if change to everyday spending, signed (negative = spend less). A cut never takes a
+   *  day's spending below zero, so it can only trim spending that is actually projected. */
+  spendChange?: { cents: number; per: "day" | "month" };
+  /** What-if extra income per month, spread evenly over each month's days. */
+  extraIncomeMonthlyCents?: number;
+  /** What-if: leave out the first scheduled income in the window (a late or missed paycheck). */
+  skipNextIncome?: boolean;
+  /** What-if one-off. `amountCents` is positive; `kind: "in"` adds it, otherwise it is spent. */
+  purchase?: { date: string; amountCents: number; kind?: "out" | "in" };
   startingBalanceCents: number;
   /** YYYY-MM-DD, normally today. */
   startDate: string;
@@ -189,13 +205,25 @@ export function monthlyEquivalentCents(rule: { cadence: RecurringCadence; amount
   return Math.round(rule.amount_cents * OCCURRENCES_PER_MONTH[rule.cadence]);
 }
 
+/** One day's share of a monthly amount: spread evenly over that calendar month's days, with the
+ *  cent remainder on the first days, so a whole month always sums to exactly `monthlyCents`. */
+export function monthlyShareCents(monthlyCents: number, iso: string): number {
+  const [y, m, d] = iso.split("-").map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const base = Math.trunc(monthlyCents / daysInMonth);
+  const remainder = monthlyCents - base * daysInMonth;
+  return base + (d <= Math.abs(remainder) ? Math.sign(remainder) : 0);
+}
+
 export function projectCashFlow(input: ProjectCashFlowInput): ForecastResult {
   const { startingBalanceCents, startDate, days, events } = input;
-  const dailySpendCents = input.dailySpendCents ?? 0;
+  const dailySpendCents = Math.max(0, input.dailySpendCents ?? 0);
   const buffer = input.bufferCents ?? 0;
+  const skippedIncome = input.skipNextIncome ? events.find((e) => e.amountCents > 0 && e.date >= startDate) ?? null : null;
 
   const byDate = new Map<string, ForecastEvent[]>();
   for (const e of events) {
+    if (e === skippedIncome) continue;
     const list = byDate.get(e.date);
     if (list) list.push(e);
     else byDate.set(e.date, [e]);
@@ -207,9 +235,9 @@ export function projectCashFlow(input: ProjectCashFlowInput): ForecastResult {
   let totalIncome = 0;
   let totalBills = 0;
   let assumedSpend = 0;
-  const extra = Math.max(0, Math.round(input.extraSpendCents ?? 0));
-  const dailyExtra = days > 0 ? Math.floor(extra / days) : 0;
-  const remainder = days > 0 ? extra % days : 0;
+  let scenarioIncome = 0;
+  const change = input.spendChange;
+  const extraIncome = Math.max(0, Math.round(input.extraIncomeMonthlyCents ?? 0));
 
   for (let i = 0; i < days; i++) {
     const date = toISODate(addDays(start, i));
@@ -220,12 +248,16 @@ export function projectCashFlow(input: ProjectCashFlowInput): ForecastResult {
       if (e.amountCents > 0) totalIncome += e.amountCents;
       else totalBills += Math.abs(e.amountCents);
     }
-    const purchaseCents = input.purchase?.date === date ? Math.max(0, Math.round(input.purchase.amountCents)) : 0;
-    const scenarioSpendCents = dailyExtra + (i < remainder ? 1 : 0) + purchaseCents;
-    balance -= dailySpendCents + scenarioSpendCents;
-    assumedSpend += dailySpendCents + scenarioSpendCents;
+    const changeCents = !change ? 0 : change.per === "day" ? Math.round(change.cents) : monthlyShareCents(Math.round(change.cents), date);
+    const spend = Math.max(0, dailySpendCents + changeCents);
+    const oneOffAmount = input.purchase?.date === date ? Math.max(0, Math.round(input.purchase.amountCents)) : 0;
+    const oneOffCents = input.purchase?.kind === "in" ? oneOffAmount : 0 - oneOffAmount;
+    const scenarioIncomeCents = extraIncome ? monthlyShareCents(extraIncome, date) : 0;
+    balance += scenarioIncomeCents + oneOffCents - spend;
+    assumedSpend += spend + Math.max(0, -oneOffCents);
+    scenarioIncome += scenarioIncomeCents + Math.max(0, oneOffCents);
 
-    out.push({ date, balanceCents: balance, events: dayEvents, committedCents: 0, scenarioSpendCents, purchaseCents });
+    out.push({ date, balanceCents: balance, events: dayEvents, committedCents: 0, scenarioSpendCents: spend - dailySpendCents, scenarioIncomeCents, oneOffCents });
   }
 
   // Reverse pass: what's still owed after each day. Has to run backwards because a day's
@@ -247,7 +279,7 @@ export function projectCashFlow(input: ProjectCashFlowInput): ForecastResult {
   const shortfallDays = out.filter((d) => d.balanceCents < 0);
   const firstShortfall = shortfallDays[0] ?? null;
 
-  const nextIncome = events.find((e) => e.amountCents > 0 && e.date >= startDate) ?? null;
+  const nextIncome = events.find((e) => e !== skippedIncome && e.amountCents > 0 && e.date >= startDate) ?? null;
   const makesItToPayday = nextIncome
     ? !out.some((d) => d.date <= nextIncome.date && d.balanceCents < 0)
     : !firstShortfall;
@@ -262,6 +294,8 @@ export function projectCashFlow(input: ProjectCashFlowInput): ForecastResult {
     totalIncomeCents: totalIncome,
     totalBillsCents: totalBills,
     assumedSpendCents: assumedSpend,
+    scenarioIncomeCents: scenarioIncome,
+    skippedIncome,
     afterBillsCents: totalIncome - totalBills,
     endingBalanceCents: out.length > 0 ? out[out.length - 1].balanceCents : startingBalanceCents,
     safeToSpendCents: (lowPoint?.balanceCents ?? startingBalanceCents) - buffer,

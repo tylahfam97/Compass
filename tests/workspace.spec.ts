@@ -102,6 +102,18 @@ test("Plan preserves red deficits and updates the scenario immediately", async (
   await expect(page.locator(".plan-rules")).toHaveAttribute("open", "");
 });
 
+test("Plan separates have-now, expected and scenario figures", async ({ page, database }) => {
+  expect(database.isOpen).toBe(true);
+  await page.reload();
+  await expect(page.getByTestId("horizon-now")).toContainText("$1,000.00");
+  await expect(page.getByTestId("horizon-month-to-date")).toContainText("so far:");
+  await expect(page.getByTestId("horizon-scenario")).toContainText("Same as expected");
+  await page.getByRole("checkbox", { name: /Skip my next paycheck/ }).check();
+  await expect(page.getByTestId("horizon-scenario")).toContainText("-$3,000.00 vs expected");
+  await page.getByRole("button", { name: "Reset", exact: true }).click();
+  await expect(page.getByTestId("horizon-scenario")).toContainText("Same as expected");
+});
+
 test("Plan purchase preview is inspectable and never writes transactions", async ({ page, database }, testInfo) => {
   const before = database.prepare('SELECT COUNT(*) AS total FROM transactions').get()?.total;
   await page.reload();

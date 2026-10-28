@@ -2,6 +2,52 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.9 — Clear Horizon 🧭 (provisional dev build, unreleased)
+
+> **Draft for the `dev` branch.** 1.3.9 is a placeholder number one step ahead of the
+> released 1.3.8 on main. It is not a stable release. The final version and these notes are
+> set again when `dev` is promoted to main, against whatever main is at that point.
+
+The Cash-flow horizon on Plan had the right idea but asked you to decode it. You had to work
+out which line was which, the chart had no hover read-out, and the only thing you could change
+was one lump of extra spending. It now answers three questions in order: what you have, what
+you will have, and what you could have if things change. (#110)
+
+### Have, will have, could have
+- Three figures sit above the chart. **Have now** is your checking balance and the date it was
+  last recorded. **Expected** is that balance plus the income and bills you scheduled, plus
+  typical spending if you turned it on. **Your scenario** is Expected with your what-if changes
+  applied, and shows how far it is from Expected.
+- A line under them shows this month so far: money in and money spent from checking since the
+  1st. That money is already in Have now, so it is never projected a second time. Transfers and
+  card payments are not counted as spending, the same rule every report uses.
+- A balance that has not been updated for more than a week, or an account with no balance on
+  file, is called out next to Have now instead of being passed off as current.
+- When the window runs past this month, a Month end marker and line show where Expected and
+  your scenario stand on the last day of the month.
+
+### A chart you can read
+- The lines are named Expected and Your scenario. The scenario line appears only when it
+  actually differs from Expected.
+- Hovering a day shows both balances. The day inspector names each what-if item and marks it
+  as hypothetical.
+- Balance breakdown adds up Expected on its own line. Your what-if changes follow on a
+  separate line, so scheduled money and hypothetical money never share one sum.
+
+### Change the conditions
+- **Everyday spending**, per day or per month. A monthly figure is spread over each calendar
+  month's own days, to the exact cent. Once typical spending is included you can also cut it,
+  down to zero spending for the day and no further, so a cut can never create money.
+- **Extra income** per month, for a raise or side income. It is only counted when you add it.
+- **Skip my next paycheck**, for a paycheck that is late or doesn't arrive. The skip stays tied
+  to that one paycheck and never moves on to the next one.
+- **One-off** money out (a purchase) or money in (a refund or gift) on a date.
+- **Reset** clears every what-if change and the reserve. Scenarios saved by earlier versions
+  carry over: the old extra-spending amount becomes a per-month change.
+
+Nothing here writes a transaction, and nothing is sent anywhere. The forecast still covers
+checking accounts only, and it assumes your scheduled income arrives. It is not a guarantee.
+
 ## Compass 1.3.1 — Soundings 🧭
 
 Overview used to repeat the Dashboard. It opened on account admin, then showed you the same
