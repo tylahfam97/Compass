@@ -4,12 +4,13 @@ import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
   BarChart, Bar,
 } from "recharts";
-import { TrendUpIcon, TrendDownIcon, CaretRightIcon, CaretDownIcon, InfoIcon } from "@phosphor-icons/react";
+import { TrendUpIcon, CaretRightIcon, CaretDownIcon, InfoIcon } from "@phosphor-icons/react";
 import { getDb } from "@/lib/db";
 import { formatCurrency, formatDate, formatAxisCurrency, accountChartColor } from "@/lib/utils";
 import { holdingRoiPct, latestHoldingPerAccount } from "@/lib/netWorth";
 import { useProfileStore } from "@/stores/profileStore";
 import InfoTooltip from "@/components/InfoTooltip";
+import StatRow from "@/components/StatRow";
 import { Skeleton, TableSkeleton } from "@/components/Skeleton";
 import type { Holding, SecurityType, ActivityType, InvestmentActivity, InvestmentSummary } from "@/lib/types";
 
@@ -98,6 +99,49 @@ export function buildPortfolioHistory(
   });
 }
 
+/** One investment account with any imported positions, activity or statements. */
+interface InvestmentAccount {
+  id: number;
+  name: string;
+  institution: string | null;
+}
+
+/** Rows belonging to the selected account, or every row for "all". */
+function scopeToAccount<T extends { account_id: number }>(rows: T[], accountFilter: number | "all"): T[] {
+  return accountFilter === "all" ? rows : rows.filter((r) => r.account_id === accountFilter);
+}
+
+/**
+ * Headline figures for a set of current holdings. Unrealized gain compares cost basis only with
+ * the market value of the SAME lots: a lot whose cost basis is unknown (a 401(k) balance line, a
+ * wallet export) has no gain to report, and counting its whole value as gain would invent profit.
+ * A zero cost basis counts as unknown, matching `holdingRoiPct` and the return calculation.
+ */
+export function summarizeHoldings(
+  rows: Pick<Holding, "market_value_cents" | "cost_basis_cents" | "est_annual_income_cents">[]
+) {
+  let marketValue = 0, costBasis = 0, trackedValue = 0, hasCostBasis = false;
+  let estIncome: number | null = null;
+  for (const h of rows) {
+    marketValue += h.market_value_cents ?? 0;
+    if (h.cost_basis_cents) {
+      costBasis += h.cost_basis_cents;
+      trackedValue += h.market_value_cents ?? 0;
+      hasCostBasis = true;
+    }
+    if (h.est_annual_income_cents !== null) estIncome = (estIncome ?? 0) + h.est_annual_income_cents;
+  }
+  return {
+    marketValue,
+    costBasis: hasCostBasis ? costBasis : null,
+    unrealized: hasCostBasis ? trackedValue - costBasis : null,
+    /** Share (0-1) of market value whose cost basis is known; null when there is no value. */
+    costBasisCoverage: marketValue > 0 ? trackedValue / marketValue : null,
+    /** Null when no lot reports an estimate (not the same as an estimate of $0). */
+    estIncome,
+  };
+}
+
 function groupHoldings(rows: Holding[]): HoldingGroup[] {
   const groups = new Map<string, HoldingGroup>();
   for (const row of rows) {
@@ -143,13 +187,15 @@ export default function InvestmentsPage() {
   const profileId = activeProfile?.id ?? 1;
 
   const [loading, setLoading] = useState(true);
-  const [asOfDate, setAsOfDate] = useState<string | null>(null);
-  const [holdings, setHoldings] = useState<Holding[]>([]);
-  const [valueOverTime, setValueOverTime] = useState<ValuePoint[]>([]);
+  const [allHoldings, setAllHoldings] = useState<Holding[]>([]);
+  const [historyRows, setHistoryRows] = useState<{ account_id: number; as_of_date: string; total: number }[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [activity, setActivity] = useState<InvestmentActivity[]>([]);
-  const [accountSnapshots, setAccountSnapshots] = useState<AccountSnapshot[]>([]);
-  const [latestSummary, setLatestSummary] = useState<InvestmentSummary | null>(null);
+  const [allActivity, setAllActivity] = useState<InvestmentActivity[]>([]);
+  const [allSnapshots, setAllSnapshots] = useState<AccountSnapshot[]>([]);
+  const [allSummaries, setAllSummaries] = useState<InvestmentSummary[]>([]);
+  const [accounts, setAccounts] = useState<InvestmentAccount[]>([]);
+  /** "all", or one account id - scopes every figure, tab and statement on the page. */
+  const [accountFilter, setAccountFilter] = useState<number | "all">("all");
   const [tab, setTab] = useState<InvestmentTab>("holdings");
   const [activityFilter, setActivityFilter] = useState<ActivityType | "all">("all");
 
@@ -157,14 +203,9 @@ export default function InvestmentsPage() {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setAccountFilter("all");
       const db = await getDb();
-      const [latestRow, historyRows, activityRows, summaryRows] = await Promise.all([
-        db.select<{ d: string | null }[]>(
-          // Latest across accounts, purely for the header label - the holdings below are each
-          // account's own snapshot, so `mixedAsOfDates` warns when they don't share this date.
-          `SELECT MAX(h.as_of_date) as d FROM holdings h WHERE h.profile_id=? AND ${latestHoldingPerAccount()}`,
-          [profileId]
-        ),
+      const [history, activityRows, summaryRows, accountRows, rows, accts] = await Promise.all([
         db.select<{ account_id: number; as_of_date: string; total: number }[]>(
           `SELECT account_id, as_of_date, SUM(COALESCE(market_value_cents, 0)) as total
            FROM holdings WHERE profile_id=?
@@ -175,56 +216,65 @@ export default function InvestmentsPage() {
           "SELECT * FROM investment_activity WHERE profile_id=? ORDER BY trade_date DESC, id DESC",
           [profileId]
         ),
+        // Each account's OWN latest statement - accounts file on different schedules, so one
+        // profile-wide "latest" would show a single account's period as if it were everyone's.
         db.select<InvestmentSummary[]>(
-          "SELECT * FROM investment_summaries WHERE profile_id=? ORDER BY period_end DESC LIMIT 1",
+          `SELECT s.* FROM investment_summaries s
+           WHERE s.profile_id=? AND s.period_end = (SELECT MAX(s2.period_end) FROM investment_summaries s2
+                                                    WHERE s2.account_id = s.account_id)
+           ORDER BY s.period_end DESC, s.id DESC`,
           [profileId]
         ),
-      ]);
-      const latest = latestRow[0]?.d ?? null;
-      if (cancelled) return;
-      setAsOfDate(latest);
-      setActivity(activityRows);
-      setLatestSummary(summaryRows[0] ?? null);
-      setValueOverTime(buildPortfolioHistory(historyRows));
-      if (latest) {
-        const rows = await db.select<Holding[]>(
+        db.select<InvestmentAccount[]>(
+          `SELECT a.id, a.name, a.institution FROM accounts a
+           WHERE a.profile_id=? AND (EXISTS (SELECT 1 FROM holdings h WHERE h.account_id=a.id)
+             OR EXISTS (SELECT 1 FROM investment_activity ia WHERE ia.account_id=a.id)
+             OR EXISTS (SELECT 1 FROM investment_summaries s WHERE s.account_id=a.id))
+           ORDER BY a.name COLLATE NOCASE, a.id`,
+          [profileId]
+        ),
+        db.select<Holding[]>(
           `SELECT h.* FROM holdings h
            WHERE h.profile_id=? AND ${latestHoldingPerAccount()}
            ORDER BY h.security_type, h.description`,
           [profileId]
-        );
-        const accts = await db.select<AccountSnapshot[]>(
+        ),
+        db.select<AccountSnapshot[]>(
           `SELECT a.id, a.name, a.institution, h.as_of_date,
                   SUM(COALESCE(h.market_value_cents, 0)) as total, COUNT(*) as positions
            FROM holdings h JOIN accounts a ON a.id = h.account_id
            WHERE h.profile_id=? AND ${latestHoldingPerAccount()}
            GROUP BY a.id ORDER BY total DESC`,
           [profileId]
-        );
-        if (!cancelled) { setHoldings(rows); setAccountSnapshots(accts); }
-      } else {
-        setHoldings([]);
-        setAccountSnapshots([]);
-      }
-      if (!cancelled) setLoading(false);
+        ),
+      ]);
+      if (cancelled) return;
+      setHistoryRows(history);
+      setAllActivity(activityRows);
+      setAllSummaries(summaryRows); // UNIQUE(account_id, period_end): one latest row per account
+      setAccounts(accountRows);
+      setAllHoldings(rows);
+      setAllSnapshots(accts);
+      setLoading(false);
     })().catch(() => setLoading(false));
     return () => { cancelled = true; };
   }, [profileId]);
 
-  const kpis = useMemo(() => {
-    let marketValue = 0, costBasis = 0, hasCostBasis = false, estIncome = 0;
-    for (const h of holdings) {
-      marketValue += h.market_value_cents ?? 0;
-      if (h.cost_basis_cents !== null) { costBasis += h.cost_basis_cents; hasCostBasis = true; }
-      estIncome += h.est_annual_income_cents ?? 0;
-    }
-    return {
-      marketValue,
-      costBasis: hasCostBasis ? costBasis : null,
-      unrealized: hasCostBasis ? marketValue - costBasis : null,
-      estIncome,
-    };
-  }, [holdings]);
+  const holdings = useMemo(() => scopeToAccount(allHoldings, accountFilter), [allHoldings, accountFilter]);
+  const activity = useMemo(() => scopeToAccount(allActivity, accountFilter), [allActivity, accountFilter]);
+  const summaries = useMemo(() => scopeToAccount(allSummaries, accountFilter), [allSummaries, accountFilter]);
+  const accountSnapshots = useMemo(
+    () => allSnapshots.filter((a) => accountFilter === "all" || a.id === accountFilter),
+    [allSnapshots, accountFilter]
+  );
+  const valueOverTime = useMemo(
+    () => buildPortfolioHistory(scopeToAccount(historyRows, accountFilter)),
+    [historyRows, accountFilter]
+  );
+  const accountName = (id: number) => accounts.find((a) => a.id === id)?.name ?? "Investment account";
+  const selectedAccount = accountFilter === "all" ? null : accounts.find((a) => a.id === accountFilter) ?? null;
+
+  const kpis = useMemo(() => summarizeHoldings(holdings), [holdings]);
 
   const sectionTotals = useMemo(() => {
     const totals = new Map<SecurityType, number>();
@@ -268,9 +318,11 @@ export default function InvestmentsPage() {
     [activity]
   );
 
+  /** The type filter, falling back to "all" when the selected account has no activity of that type. */
+  const shownType = activityFilter === "all" || activityTypesPresent.includes(activityFilter) ? activityFilter : "all";
   const filteredActivity = useMemo(
-    () => (activityFilter === "all" ? activity : activity.filter((a) => a.activity_type === activityFilter)),
-    [activity, activityFilter]
+    () => (shownType === "all" ? activity : activity.filter((a) => a.activity_type === shownType)),
+    [activity, shownType]
   );
 
   /** Income actually received (dividends, interest, reinvested distributions), by month -
@@ -309,6 +361,14 @@ export default function InvestmentsPage() {
     [accountSnapshots]
   );
 
+  /** Sum of each in-scope account's own latest year-to-date figure, counting only statements from
+   *  this calendar year (a December statement's YTD belongs to last year); null when none has one. */
+  const yearStart = `${new Date().getFullYear()}-01-01`;
+  const ytdSummaries = summaries.filter((s) => s.period_end >= yearStart && s.realized_gain_ytd_cents !== null);
+  const realizedYtd = ytdSummaries.length > 0
+    ? ytdSummaries.reduce((sum, s) => sum + (s.realized_gain_ytd_cents ?? 0), 0)
+    : null;
+
   const chartData = valueOverTime.map((p) => ({ as_of_date: p.as_of_date, value: p.total }));
   const tooltipStyle = { backgroundColor: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" };
 
@@ -323,7 +383,7 @@ export default function InvestmentsPage() {
     );
   }
 
-  if (!asOfDate && activity.length === 0) {
+  if (allHoldings.length === 0 && allActivity.length === 0 && allSummaries.length === 0) {
     return (
       <div className="workspace-page text-center py-16">
         <div className="flex justify-center mb-4 text-[hsl(var(--muted-foreground))]"><TrendUpIcon size={48} /></div>
@@ -345,32 +405,104 @@ export default function InvestmentsPage() {
     { id: "income", label: "Income & Gains" },
   ];
 
+  const pricedDates = [...new Set(accountSnapshots.map((a) => a.as_of_date))].sort();
+  const positions = accountSnapshots.reduce((n, a) => n + a.positions, 0);
+  const scopeLabel = selectedAccount
+    ? selectedAccount.name
+    : `${accounts.length === 1 ? accounts[0].name : `All ${accounts.length} accounts`}`;
+  const coverage = kpis.costBasisCoverage;
+  // The tab bar is hidden for an account with no activity or statements - show its holdings then.
+  const view: InvestmentTab = activity.length > 0 || summaries.length > 0 ? tab : "holdings";
+  const positionsHint = `${positions} ${positions === 1 ? "position" : "positions"}`;
+
   return (
     <div className="workspace-page space-y-6 investments-workspace">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold">Investments</h1>
           <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">
-            {!asOfDate
+            {pricedDates.length === 0
               ? "No positions snapshot yet"
               : mixedAsOfDates
                 ? `${accountSnapshots.length} accounts, each priced as of its own latest statement`
-                : `Priced as of ${formatDate(asOfDate)}`}
+                : `Priced as of ${formatDate(pricedDates[0])}`}
           </p>
         </div>
-        <Link to="/import" className="px-4 py-1.5 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
-          Import New Statement
-        </Link>
+        <div className="flex items-center gap-3 flex-wrap">
+          {accounts.length > 1 && (
+            <label className="flex items-center gap-2 text-sm">
+              <span className="text-[hsl(var(--muted-foreground))]">Account</span>
+              <select
+                value={accountFilter}
+                onChange={(e) => setAccountFilter(e.target.value === "all" ? "all" : Number(e.target.value))}
+                className="border rounded-lg px-2 py-1.5 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))] max-w-[16rem]"
+              >
+                <option value="all">All accounts ({accounts.length})</option>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>{a.name}{a.institution ? `, ${a.institution}` : ""}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          <Link to="/import" className="px-4 py-1.5 border rounded-lg text-sm hover:bg-[hsl(var(--muted))] transition-colors">
+            Import New Statement
+          </Link>
+        </div>
       </div>
 
-      {(activity.length > 0 || latestSummary) && (
+      {holdings.length > 0 && (
+        <section className="border rounded-2xl px-5 pt-4 pb-1 bg-[hsl(var(--surface-raised))]">
+          <StatRow
+            ariaLabel={`Portfolio summary, ${scopeLabel}`}
+            columns="auto"
+            items={[
+              {
+                label: selectedAccount ? "Account value" : "Portfolio value",
+                value: formatCurrency(kpis.marketValue),
+                // Accounts with only activity or statements add nothing to the value - say so.
+                hint: !selectedAccount && accountSnapshots.length < accounts.length
+                  ? `${accountSnapshots.length} of ${accounts.length} accounts have positions · ${positionsHint}`
+                  : `${scopeLabel} · ${positionsHint}`,
+                tone: "gold",
+                hero: true,
+              },
+              {
+                label: "Unrealized gain/loss",
+                value: kpis.unrealized === null ? "Unknown" : formatCurrency(kpis.unrealized),
+                tone: kpis.unrealized === null ? "muted" : kpis.unrealized >= 0 ? "success" : "error",
+                hint: kpis.unrealized === null
+                  ? "No cost basis on these statements"
+                  : coverage !== null && coverage < 0.995
+                    ? `On the ${Math.round(coverage * 100)}% of value with a known cost basis`
+                    : `Against ${formatCurrency(kpis.costBasis ?? 0)} cost basis`,
+              },
+              {
+                label: "Est. annual income",
+                value: kpis.estIncome === null ? "Not reported" : formatCurrency(kpis.estIncome),
+                tone: kpis.estIncome === null ? "muted" : "default",
+                hint: "Brokerage projection, not income received",
+              },
+              {
+                label: pricedDates.length > 1 ? "Valuation dates" : "Priced as of",
+                value: pricedDates.length > 1 ? "Mixed" : formatDate(pricedDates[0]),
+                tone: pricedDates.length > 1 ? "warning" : "default",
+                hint: pricedDates.length > 1
+                  ? `Each account's latest, ${formatDate(pricedDates[0])} to ${formatDate(pricedDates[pricedDates.length - 1])}`
+                  : selectedAccount ? "Latest statement" : "Each account's latest statement",
+              },
+            ]}
+          />
+        </section>
+      )}
+
+      {(activity.length > 0 || summaries.length > 0) && (
         <div className="flex gap-1 border-b">
           {TABS.map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
               className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                tab === t.id
+                view === t.id
                   ? "border-[hsl(var(--primary))] text-[hsl(var(--gold-ink))]"
                   : "border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
               }`}
@@ -384,28 +516,31 @@ export default function InvestmentsPage() {
         </div>
       )}
 
-      {latestSummary && (
-        <div className="border rounded-xl overflow-hidden">
+      {/* One card per account: statement periods differ by account, so they are never merged. */}
+      {summaries.map((summary) => (
+        <div key={summary.id} className="border rounded-xl overflow-hidden" aria-label={`Latest statement, ${accountName(summary.account_id)}`} role="region">
           <div className="px-4 py-2.5 border-b flex items-center justify-between gap-2 flex-wrap">
-            <span className="font-semibold text-sm">Latest Statement Period</span>
+            <span className="font-semibold text-sm">
+              Latest statement <span className="text-[hsl(var(--muted-foreground))] font-normal">· {accountName(summary.account_id)}</span>
+            </span>
             <span className="text-xs text-[hsl(var(--muted-foreground))]">
-              {latestSummary.period_start ? `${formatDate(latestSummary.period_start)} – ` : ""}
-              {formatDate(latestSummary.period_end)}
+              {summary.period_start ? `${formatDate(summary.period_start)} – ` : "Period ending "}
+              {formatDate(summary.period_end)}
             </span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-px bg-[hsl(var(--border))]">
             {([
-              ["Beginning Value", latestSummary.beginning_value_cents, false],
-              ["Ending Value", latestSummary.ending_value_cents, false],
-              ["Change in Value", latestSummary.change_in_value_cents, true],
-              ["Cash Balance", latestSummary.cash_balance_cents, false],
-              ["Deposits", latestSummary.deposits_cents, false],
-              ["Withdrawals", latestSummary.withdrawals_cents, false],
-              ["Income", latestSummary.income_cents, false],
-              ["Realized Gain", latestSummary.realized_gain_cents, true],
-              ["Realized Gain (YTD)", latestSummary.realized_gain_ytd_cents, true],
-              ["Unrealized Gain", latestSummary.unrealized_gain_cents, true],
-              ["Fees", latestSummary.fees_cents, false],
+              ["Beginning Value", summary.beginning_value_cents, false],
+              ["Ending Value", summary.ending_value_cents, false],
+              ["Change in Value", summary.change_in_value_cents, true],
+              ["Cash Balance", summary.cash_balance_cents, false],
+              ["Deposits", summary.deposits_cents, false],
+              ["Withdrawals", summary.withdrawals_cents, false],
+              ["Income", summary.income_cents, false],
+              ["Realized Gain", summary.realized_gain_cents, true],
+              ["Realized Gain (YTD)", summary.realized_gain_ytd_cents, true],
+              ["Unrealized Gain", summary.unrealized_gain_cents, true],
+              ["Fees", summary.fees_cents, false],
             ] as [string, number | null, boolean][])
               .filter(([, v]) => v !== null)
               .map(([label, v, signed]) => (
@@ -420,16 +555,16 @@ export default function InvestmentsPage() {
               ))}
           </div>
         </div>
-      )}
+      ))}
 
-      {tab === "activity" && (
+      {view === "activity" && (
         <div className="border rounded-xl overflow-hidden">
           <div className="px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap">
             <span className="font-semibold text-sm">
               Activity <span className="text-[hsl(var(--muted-foreground))] font-normal">({filteredActivity.length})</span>
             </span>
             <select
-              value={activityFilter}
+              value={shownType}
               onChange={(e) => setActivityFilter(e.target.value as ActivityType | "all")}
               className="border rounded-lg px-2 py-1 text-xs bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
             >
@@ -476,7 +611,7 @@ export default function InvestmentsPage() {
         </div>
       )}
 
-      {tab === "income" && (
+      {view === "income" && (
         <div className="space-y-4">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="border rounded-xl px-4 py-4 text-center">
@@ -497,11 +632,9 @@ export default function InvestmentsPage() {
             <div className="border rounded-xl px-4 py-4 text-center">
               <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1">Realized Gain (YTD)</p>
               <p className={`text-xl font-bold ${
-                (latestSummary?.realized_gain_ytd_cents ?? 0) >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"
+                (realizedYtd ?? 0) >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"
               }`}>
-                {latestSummary?.realized_gain_ytd_cents !== null && latestSummary?.realized_gain_ytd_cents !== undefined
-                  ? formatCurrency(latestSummary.realized_gain_ytd_cents)
-                  : "-"}
+                {realizedYtd !== null ? formatCurrency(realizedYtd) : "-"}
               </p>
             </div>
           </div>
@@ -525,7 +658,7 @@ export default function InvestmentsPage() {
             {realizedLots.length === 0 ? (
               <p className="px-4 py-6 text-sm text-[hsl(var(--muted-foreground))] text-center">
                 Your statements report realized gains only as an account-level total, not per sale.
-                See the <strong>Realized Gain</strong> figures in the statement period card above.
+                See the <strong>Realized Gain</strong> figures on each account's latest statement above.
               </p>
             ) : (
               <table className="w-full text-sm">
@@ -561,22 +694,21 @@ export default function InvestmentsPage() {
         </div>
       )}
 
-      {tab === "holdings" && holdings.length === 0 && (
+      {view === "holdings" && holdings.length === 0 && (
         <p className="border rounded-xl px-4 py-8 text-sm text-[hsl(var(--muted-foreground))] text-center">
           This statement had no priced positions - only activity. Import a statement with a
           holdings section to see your portfolio here.
         </p>
       )}
 
-      {tab === "holdings" && holdings.length > 0 && (
+      {view === "holdings" && holdings.length > 0 && (
       <>
-      {accountSnapshots.length > 1 && (
+      {accountFilter === "all" && accountSnapshots.length > 1 && (
         <div className="border rounded-xl overflow-hidden">
-          <div className="px-4 py-3 border-b flex items-center justify-between">
+          <div className="px-4 py-3 border-b">
             <span className="font-semibold text-sm">
               Accounts <span className="text-[hsl(var(--muted-foreground))] font-normal">({accountSnapshots.length})</span>
             </span>
-            <span className="font-semibold text-sm">{formatCurrency(kpis.marketValue)}</span>
           </div>
           <table className="w-full text-sm">
             <thead>
@@ -591,7 +723,9 @@ export default function InvestmentsPage() {
               {accountSnapshots.map((a) => (
                 <tr key={a.id} className="border-t">
                   <td className="px-4 py-2 text-xs">
-                    {a.name}
+                    <button type="button" onClick={() => setAccountFilter(a.id)} className="text-left hover:underline" aria-label={`Show only ${a.name}`}>
+                      {a.name}
+                    </button>
                     {a.institution && <span className="text-[hsl(var(--muted-foreground))]">, {a.institution}</span>}
                   </td>
                   <td className="px-4 py-2 text-xs text-[hsl(var(--muted-foreground))]">{formatDate(a.as_of_date)}</td>
@@ -610,32 +744,6 @@ export default function InvestmentsPage() {
           )}
         </div>
       )}
-
-      {/* KPI tiles */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="border rounded-xl px-4 py-4 text-center">
-          <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1">Portfolio Value</p>
-          <p className="text-xl font-bold">{formatCurrency(kpis.marketValue)}</p>
-        </div>
-        <div className="border rounded-xl px-4 py-4 text-center">
-          <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1">Cost Basis</p>
-          <p className="text-xl font-bold">{kpis.costBasis !== null ? formatCurrency(kpis.costBasis) : "-"}</p>
-        </div>
-        <div className="border rounded-xl px-4 py-4 text-center">
-          <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1">Unrealized Gain/Loss</p>
-          <p className={`text-xl font-bold flex items-center justify-center gap-1 ${kpis.unrealized === null ? "" : kpis.unrealized >= 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}`}>
-            {kpis.unrealized !== null && (kpis.unrealized >= 0 ? <TrendUpIcon size={16} /> : <TrendDownIcon size={16} />)}
-            {kpis.unrealized !== null ? formatCurrency(kpis.unrealized) : "-"}
-          </p>
-        </div>
-        <div className="border rounded-xl px-4 py-4 text-center">
-          <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1 flex items-center justify-center gap-1">
-            Est. Annual Income
-            <InfoTooltip text="The brokerage's own projected annual income estimate as of the statement date - typically dividends, interest, and other distributions. It's a forward-looking estimate, not a record of income actually paid." />
-          </p>
-          <p className="text-xl font-bold">{formatCurrency(kpis.estIncome)}</p>
-        </div>
-      </div>
 
       {/* Value over time + allocation */}
       {(chartData.length >= 2 || allocationData.length > 0) && (
