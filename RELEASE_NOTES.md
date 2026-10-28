@@ -2,6 +2,54 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.7 — Paper Trail 🧭
+
+Two import fixes. PDF card and bank statements now import their real rows, or say clearly why they
+can't. Ledger Live crypto exports can now be imported into Investments.
+
+### Fixed
+- **PDF statements no longer lose rows to small layout differences.** Many statements print the
+  amount a point or so above or below the description. Compass read that as two lines with half a
+  row each and dropped both. Lines are now grouped with a tolerance based on the font size, and
+  sideways margin text is ignored. (#109)
+- **Dates printed without a year get the right year.** Statements that print `12/28` used to import
+  as 2001. The year now comes from the statement period, so a December charge on a
+  December–January statement keeps the earlier year. The posting date column is no longer added
+  to the description. (#109)
+- **Signs and columns are read the way the statement prints them.** A separate `-` or `+` before an
+  amount, `CR` amounts, and Debit/Credit/Balance or Withdrawals/Deposits columns (in any order) are
+  now read correctly. Merchant names that wrap onto a second line are joined. On a card statement,
+  charges import as spending and payments as payments, based on the statement's own previous and
+  new balance. (#109)
+- **Missing rows are reported.** If the rows Compass finds don't add up to the change between the
+  statement's previous and new balance, or a dated line has no readable amount, the preview lists
+  it before you import. Auto-Import All stops at that file and opens it in the wizard instead of
+  importing part of it. It does the same for a file whose columns differ from the first file's.
+  (#109)
+- **Clearer messages when there is nothing to import.** A statement with no transactions in the
+  period now says so. Card statements are no longer called loan statements because they mention a
+  "minimum payment due". Scanned PDFs without text get their own message. (#109)
+
+### Added
+- **Ledger Live crypto in Investments.** Import a Ledger Live operations CSV with the
+  Investment / Brokerage option. Each coin becomes a Crypto holding, and every receive and send is
+  recorded as a transfer, not as income, spending, a buy or a sell. Balances follow Ledger's own
+  rule: a send already includes its network fee, so fees are not subtracted twice. Amounts are summed
+  exactly, so very small balances are kept. Cost basis is shown as unknown, since the export
+  doesn't include what you paid. The holding is valued at the price in the export, not a live price.
+  Failed or unsupported operations are left out and listed. Importing the same export again doesn't
+  duplicate anything. (#109)
+
+### Tests
+- New tests check positioned-text statement layouts: offset amounts, two date columns, wrapped
+  names, a December–January statement, reordered bank columns over two pages, `CR` amounts, an
+  unreadable amount, a missing row and a statement with no activity. Further tests cover Ledger
+  balance precision, fees and skipped operations.
+- New browser tests build small invented PDFs and CSVs in the test and run them through the real
+  import wizard and database layer. They check the exact saved rows, signs and years, that
+  importing the same statement again adds nothing, the no-activity message, and Ledger holdings
+  and transfers with no new transactions.
+
 ## Compass 1.3.6 — Honest Counts 🧭
 
 A maintenance release for the private download-statistics page. The app itself is unchanged.
