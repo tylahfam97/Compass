@@ -1106,15 +1106,15 @@ export function parseLedgerLiveCSV(data: string[][]): ParsedInvestment | null {
   if (!looksLikeLedgerExport(data)) return null;
   const norm = data[0].map((h) => (h ?? "").toLowerCase().trim());
   const col = (name: string) => norm.indexOf(name);
-  const [dateI, statusI, tickerI, typeI, amountI, feeI, hashI, accountI, cvTickerI, cvOpI, cvExportI] = [
+  const [dateI, statusI, tickerI, typeI, amountI, feeI, hashI, accountI, xpubI, cvTickerI, cvOpI, cvExportI] = [
     "operation date", "status", "currency ticker", "operation type", "operation amount", "operation fees",
-    "operation hash", "account name", "countervalue ticker", "countervalue at operation date", "countervalue at csv export",
+    "operation hash", "account name", "account xpub", "countervalue ticker", "countervalue at operation date", "countervalue at csv export",
   ].map(col);
   const cell = (row: string[], i: number) => (i >= 0 ? (row[i] ?? "").trim() : "");
 
   const holdings = new Map<string, { ticker: string; account: string; units: bigint; cvExport: number; cvUnits: bigint }>();
   const activity: ParsedActivity[] = [];
-  let failed = 0, unsupported = 0, malformed = 0, nonUsd = 0;
+  let failed = 0, failedFees = 0, unsupported = 0, malformed = 0, nonUsd = 0;
 
   for (const row of data.slice(1)) {
     if (row.every((c) => !(c ?? "").trim())) continue;
@@ -1123,7 +1123,20 @@ export function parseLedgerLiveCSV(data: string[][]): ParsedInvestment | null {
     const units = coinUnits(cell(row, amountI));
     const date = localDateOf(cell(row, dateI));
     if (!ticker || units === null || !date) { malformed++; continue; }
-    if (cell(row, statusI).toLowerCase() !== "confirmed") { failed++; continue; }
+    if (cell(row, statusI).toLowerCase() !== "confirmed") {
+      // A failed send still spent its network fee (Ledger keeps it in history for that reason).
+      const fee = coinUnits(cell(row, feeI));
+      if (type === "OUT" && fee) {
+        const account = cell(row, accountI) || "Ledger";
+        const key = `${account}\u0000${ticker}`;
+        const h = holdings.get(key) ?? { ticker, account, units: 0n, cvExport: 0, cvUnits: 0n };
+        h.units -= fee;
+        holdings.set(key, h);
+        failedFees++;
+      }
+      failed++;
+      continue;
+    }
     // ponytail: IN/OUT/FEES only; staking/NFT/etc. types are reported, not guessed at.
     const sign = type === "IN" ? 1n : type === "OUT" || type === "FEES" ? -1n : 0n;
     if (sign === 0n) { unsupported++; continue; }
@@ -1152,8 +1165,9 @@ export function parseLedgerLiveCSV(data: string[][]): ParsedInvestment | null {
       // A historical fiat snapshot of the movement for reference, not a cost or a sale price.
       amount: fiat === "USD" && isFinite(cvAtOp) ? (sign > 0n ? cvAtOp : -cvAtOp) : 0,
       costBasis: null, realizedGain: null, acquiredDate: null, term: null,
-      // Not keyed on the account's display name, which can be renamed in Ledger Live between exports.
-      importKey: `ledger|${ticker}|${type}|${cell(row, hashI) || `${cell(row, dateI)}|${cell(row, amountI)}`}`,
+      // Keyed on the account's xpub, not its display name (which can be renamed between exports),
+      // so two wallets receiving from one transaction stay separate rows.
+      importKey: `ledger|${cell(row, xpubI)}|${ticker}|${type}|${cell(row, hashI) || `${cell(row, dateI)}|${cell(row, amountI)}`}`,
     });
   }
 
@@ -1170,11 +1184,11 @@ export function parseLedgerLiveCSV(data: string[][]): ParsedInvestment | null {
 
   const notes = [
     "Cost basis is unknown: Ledger exports don't include what you paid, so no gain or loss is calculated.",
-    "Value uses the price in the export's \"Countervalue at CSV Export\" column (the price when you exported), not a live price.",
+    "Value uses the price in the export's \"Countervalue at CSV Export\" column (the price when you exported), not a live price. The snapshot is dated today, so import a fresh export to update it.",
     "Receives and sends are recorded as wallet transfers, not income, spending, buys or sells.",
   ];
   if (rows.some((r) => r.shares !== null && r.shares < 0)) notes.push("Sends exceed receives for at least one asset, so this export looks incomplete - export the full history from Ledger Live.");
-  if (failed) notes.push(`${failed} failed or unconfirmed operation${failed === 1 ? " was" : "s were"} left out.`);
+  if (failed) notes.push(`${failed} failed or unconfirmed operation${failed === 1 ? " was" : "s were"} left out${failedFees ? `; the network fee${failedFees === 1 ? "" : "s"} of ${failedFees} failed send${failedFees === 1 ? " was" : "s were"} still subtracted from the balance` : ""}.`);
   if (unsupported) notes.push(`${unsupported} operation${unsupported === 1 ? "" : "s"} of an unsupported type (not IN/OUT/FEES) ${unsupported === 1 ? "was" : "were"} left out - check the balance against Ledger Live.`);
   if (malformed) notes.push(`${malformed} unreadable row${malformed === 1 ? " was" : "s were"} skipped.`);
   if (nonUsd) notes.push("Countervalues aren't in USD, so dollar values were left blank.");

@@ -26,7 +26,7 @@ import { TRANSFER_CATEGORY_ID, EXCLUDED_CATEGORY_ID } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
 import { reportLoadError } from "@/stores/toastStore";
 import { takePendingImportFiles } from "@/lib/pendingImport";
-import { parsePdfStatement, extractPdfRows, parseLoanStatementFile, type PdfParseResult } from "@/lib/pdfParse";
+import { parsePdfStatement, extractPdfRows, parseLoanStatementFile, legacyPdfRows, type PdfParseResult } from "@/lib/pdfParse";
 import InfoTooltip from "@/components/InfoTooltip";
 import ManageAccountsPanel from "@/components/ManageAccountsPanel";
 import LoanUploaderModal from "@/components/LoanUploaderModal";
@@ -93,6 +93,32 @@ async function readStatementRows(file: File): Promise<string[][]> {
 }
 
 type ImportKind = "bank" | "credit" | "investment";
+
+/** Hashes that PDF imports before 1.3.7 stored for these rows (same per-file ordinal rule as
+ *  `dedupeRowHash`), limited to the ones already on this account - so re-importing a statement
+ *  first imported by an older version doesn't duplicate it, while a genuinely repeated charge
+ *  that was never imported still goes in. */
+async function existingLegacyPdfHashes(rows: string[][], accountId: number): Promise<Map<string[], string>> {
+  const seen = new Map<string, number>();
+  const byRow = new Map<string[], string>();
+  for (const row of rows) {
+    const legacy = legacyPdfRows.get(row);
+    if (legacy && parseAmount(legacy[2]) !== 0) byRow.set(row, await dedupeRowHash(legacy, seen));
+  }
+  if (byRow.size === 0) return byRow;
+  const db = await getDb();
+  const hashes = [...byRow.values()];
+  const found = new Set<string>();
+  for (let i = 0; i < hashes.length; i += 500) {
+    const chunk = hashes.slice(i, i + 500);
+    const existing = await db.select<{ import_hash: string }[]>(
+      `SELECT import_hash FROM transactions WHERE account_id=? AND import_hash IN (${chunk.map(() => "?").join(",")})`,
+      [accountId, ...chunk]
+    );
+    for (const e of existing) found.add(e.import_hash);
+  }
+  return new Map([...byRow].filter(([, h]) => found.has(h)));
+}
 
 /** Why a PDF statement produced no rows, as the message the user sees. */
 function pdfNoRowsMessage(pdf: PdfParseResult): string {
@@ -1239,6 +1265,7 @@ export default function ImportPage() {
       const rowErrors: { index: number; message: string }[] = [];
 
       const seenHashCounts = new Map<string, number>();
+      const legacyHashes = await existingLegacyPdfHashes(parsed.rows, accountId);
       const rowPayloads: { params: unknown[]; categoryId: number | null }[] = [];
 
       for (let rowIndex = 0; rowIndex < parsed.rows.length; rowIndex++) {
@@ -1275,7 +1302,10 @@ export default function ImportPage() {
         }
 
         const amountCents = Math.round(amount * 100);
-        const hash = await dedupeRowHash(row, seenHashCounts);
+        // A row an earlier version already imported from this statement keeps its stored hash,
+        // so it is skipped as a duplicate rather than inserted again.
+        const freshHash = await dedupeRowHash(row, seenHashCounts);
+        const hash = legacyHashes.get(row) ?? freshHash;
         const categoryId = applyCategorizationRules(description, rules, amountCents);
         // Credit card statements print the amount you owe as a positive number, but that's a
         // liability - always store it negative, regardless of the file's own sign convention.
@@ -1429,6 +1459,7 @@ export default function ImportPage() {
       let imported = 0; let skipped = 0; let transferCount = 0; let invalidCount = 0;
       const rowErrors: { index: number; message: string }[] = [];
       const seenHashCounts = new Map<string, number>();
+      const legacyHashes = await existingLegacyPdfHashes(derived.rows, accountId);
       const rowPayloads: { params: unknown[]; categoryId: number | null }[] = [];
       for (const row of derived.rows) {
         const reqCols = [savedColMap.dateCol, savedColMap.descCol];
@@ -1445,7 +1476,10 @@ export default function ImportPage() {
         const amount = computeRowAmount(row, savedColMap);
         if (!date || !description || !isFinite(amount) || amount === 0) { invalidCount++; continue; }
         const amountCents = Math.round(amount * 100);
-        const hash = await dedupeRowHash(row, seenHashCounts);
+        // A row an earlier version already imported from this statement keeps its stored hash,
+        // so it is skipped as a duplicate rather than inserted again.
+        const freshHash = await dedupeRowHash(row, seenHashCounts);
+        const hash = legacyHashes.get(row) ?? freshHash;
         const categoryId = applyCategorizationRules(description, rules, amountCents);
         const balanceCents = savedColMap.balanceCol >= 0 && row[savedColMap.balanceCol]
           ? (() => { const c = Math.round(parseAmount(row[savedColMap.balanceCol]) * 100); return importKind === "credit" ? -Math.abs(c) : c; })() : null;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseStatementItems, type PdfTextItem } from "./pdfParse";
+import { parseStatementItems, legacyPdfRows, type PdfTextItem } from "./pdfParse";
 
 // Synthetic statement layouts built from positioned text items (what pdf.js hands the parser).
 // Names, dates and amounts are invented; only the layout traits mirror real statements.
@@ -103,7 +103,7 @@ describe("parseStatementItems: other layouts", () => {
       t(40, 652, "03/09"), t(120, 652, "SAMPLE BOOKS"), t(500, 652, "1O.00"),
     ]], today);
     expect(r.rows).toEqual([["2026-03-02", "SAMPLE HARDWARE", "64.00"], ["2026-03-05", "SAMPLE HARDWARE RETURN", "-14.00"]]);
-    expect(r.warnings).toEqual([expect.stringMatching(/^1 dated line .* no readable amount/)]);
+    expect(r.warnings).toEqual([expect.stringMatching(/doesn't print a previous and new balance/), expect.stringMatching(/^1 dated line .* no readable amount/)]);
     expect(r.mostlyPositive).toBe(false); // 1 of 2
   });
 
@@ -111,7 +111,45 @@ describe("parseStatementItems: other layouts", () => {
     const r = parseStatementItems([[t(40, 700, "Date"), t(120, 700, "Description"), t(500, 700, "Amount"),
       t(40, 680, "10/02"), t(120, 680, "SAMPLE TRANSIT"), t(500, 680, "-3.75")]], today);
     expect(r.rows).toEqual([["2026-10-02", "SAMPLE TRANSIT", "-3.75"]]);
-    expect(r.warnings).toEqual([expect.stringMatching(/period wasn't found/)]);
+    expect(r.warnings).toEqual([expect.stringMatching(/doesn't print a previous and new balance/), expect.stringMatching(/period wasn't found/)]);
+  });
+
+  it("keeps Debit and Credit together when a period only has one side, so signs stay right", () => {
+    const bank = parseStatementItems([[
+      t(40, 760, "Statement period 07/01/2026 - 07/31/2026"),
+      t(40, 740, "Beginning balance"), t(520, 740, "500.00"),
+      t(40, 700, "Date"), t(110, 700, "Description"), t(330, 700, "Withdrawals"), t(420, 700, "Deposits"), t(520, 700, "Balance"),
+      t(40, 680, "07/09"), t(110, 680, "SAMPLE UTILITY"), t(330, 680, "80.00"), t(520, 680, "420.00"),
+      t(40, 666, "07/31"), t(110, 666, "Ending balance"), t(520, 666, "420.00"),
+      t(40, 640, "07/09"), t(110, 640, "420.00"), t(200, 640, "07/31"), t(260, 640, "420.00"), // daily balance table
+      t(40, 600, "Ending balance"), t(520, 600, "420.00"),
+    ]], today);
+    expect(bank.headers).toEqual(["Date", "Description", "Debit", "Credit", "Balance"]);
+    expect(bank.rows).toEqual([["2026-07-09", "SAMPLE UTILITY", "80.00", "", "420.00"]]); // balance lines skipped
+    expect(bank.warnings).toEqual([]);
+    const card = parseStatementItems([[
+      t(40, 760, "Billing Period: 08/01/26-08/31/26"),
+      t(40, 740, "Previous balance $0.00"), t(40, 726, "New balance $50.00"),
+      t(40, 700, "Date"), t(110, 700, "Description"), t(420, 700, "Charges"), t(500, 700, "Credits"),
+      t(40, 680, "08/10"), t(110, 680, "SAMPLE SHOP"), t(420, 680, "50.00"),
+    ]], today);
+    expect(card.headers).toEqual(["Date", "Description", "Debit", "Credit"]);
+    expect(card.rows).toEqual([["2026-08-10", "SAMPLE SHOP", "50.00", ""]]);
+  });
+
+  it("doesn't call unreadable rows 'no activity', and keeps the pre-1.3.7 row for dedup", () => {
+    const unreadable = parseStatementItems([[
+      t(40, 760, "Billing Period: 08/01/26-08/31/26"), t(40, 740, "Previous balance $0.00"), t(40, 726, "New balance $0.00"),
+      t(40, 700, "Date"), t(110, 700, "Description"), t(500, 700, "Amount"),
+      t(40, 680, "08/10"), t(110, 680, "SAMPLE SHOP"), t(500, 680, "5O.00"),
+    ]], today);
+    expect(unreadable).toMatchObject({ rows: [], noActivity: false });
+    const r = parseStatementItems([[
+      t(40, 760, "Closing Date 03/14/2026"),
+      t(40, 680, "03/02"), t(80, 680, "03/03"), t(120, 680, "SAMPLE HARDWARE"), t(500, 680, "64.00"),
+    ]], today);
+    expect(r.rows).toEqual([["2026-03-02", "SAMPLE HARDWARE", "64.00"]]);
+    expect(legacyPdfRows.get(r.rows[0])).toEqual(["03/02", "03/03 SAMPLE HARDWARE", "64.00"]);
   });
 
   it("keeps the loan hint for loan statements and reports scanned PDFs", () => {

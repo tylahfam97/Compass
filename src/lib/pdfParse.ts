@@ -153,7 +153,7 @@ function tokenize(parts: PdfTextItem[]): Token[] {
   for (let i = 0; i < raw.length; i++) {
     const t = raw[i];
     const prev = out[out.length - 1];
-    if (prev && /^[-+−]?\$?$/.test(prev.s) && prev.s && MONEY_RE.test(t.s) && !/^[-+−(]/.test(t.s)) {
+    if (prev && /^[-+−]?\$?$/.test(prev.s) && prev.s && t.x0 - prev.x1 <= CELL_GAP_THRESHOLD && MONEY_RE.test(t.s) && !/^[-+−(]/.test(t.s)) {
       out[out.length - 1] = { s: prev.s + t.s, x0: prev.x0, x1: t.x1 };
     } else if (prev && /^(CR|DR)$/i.test(t.s) && MONEY_RE.test(prev.s)) {
       out[out.length - 1] = { s: `${prev.s} ${t.s}`, x0: prev.x0, x1: t.x1 };
@@ -268,7 +268,32 @@ function readHeader(tokens: Token[]): { kind: MoneyKind; x0: number; x1: number 
   return money.length > 0 && new Set(kinds).size === kinds.length ? money : null;
 }
 
-const SKIP_CONTINUATION_RE = /^(total|subtotal|page\b|continued|balance|previous|new balance|account|statement|fees charged|interest charged)/i;
+const SKIP_CONTINUATION_RE = /^(total|subtotal|page\b|continued|balance|previous|new balance|account|statement|fees charged|interest charge|summary|daily|annual percentage|important)/i;
+// Dated lines that are balances, not transactions: "Beginning balance", a daily-balance table.
+const BALANCE_LINE_RE = /^(beginning|ending|opening|closing|previous|new|daily|starting)\b.*\bbalance\b/i;
+
+// The row shape PDF imports had before 1.3.7 (printed date token, rest of line, last amount),
+// kept only so a statement imported by an earlier version is recognized as already imported.
+const LEGACY_DATE_RE = /^(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?|[A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{4})/;
+const LEGACY_AMOUNT_RE = /(\(\$?[\d,]+\.\d{2}\)|-?\$?[\d,]+\.\d{2}-?)$/;
+function legacyRow(text: string): string[] | null {
+  const d = text.match(LEGACY_DATE_RE);
+  if (!d) return null;
+  const rest = text.slice(d[0].length).trim();
+  const a = rest.match(LEGACY_AMOUNT_RE);
+  if (!a) return null;
+  const description = rest.slice(0, rest.length - a[0].length).trim();
+  if (!description) return null;
+  let t = a[0], negative = false;
+  if (t.startsWith("(") && t.endsWith(")")) { negative = true; t = t.slice(1, -1); }
+  if (t.startsWith("-")) { negative = true; t = t.slice(1); }
+  if (t.endsWith("-")) { negative = true; t = t.slice(0, -1); }
+  t = t.replace(/^\$/, "").replace(/,/g, "");
+  return [d[0], description, negative ? `-${t}` : t];
+}
+
+/** Output row -> the row an earlier Compass version produced for the same statement line. */
+export const legacyPdfRows = new WeakMap<string[], string[]>();
 
 /**
  * Turns a statement's text lines into transaction rows. Pure (no PDF access) so it is testable
@@ -293,7 +318,7 @@ function parseStatementLines(pages: PdfTextItem[][][], today: Date): Omit<PdfPar
   let yearGuessed = false;
 
   let header: { kind: MoneyKind; x0: number; x1: number }[] | null = null;
-  type Row = { date: string; desc: string; money: Record<string, string>; descX: number; y: number; page: number };
+  type Row = { date: string; desc: string; money: Record<string, string>; descX: number; y: number; page: number; legacy: string[] | null };
   const rows: Row[] = [];
   let unread = 0;
   let ambiguous = 0;
@@ -353,20 +378,21 @@ function parseStatementLines(pages: PdfTextItem[][][], today: Date): Omit<PdfPar
       if (date) {
         pending = null;
         if (!desc) { if (header) unread++; continue; }
+        if (BALANCE_LINE_RE.test(desc) || !/[A-Za-z]/.test(desc)) continue;
         if (money.length === 0) {
           pending = { date, desc, descX: descTokens[0].x0, y: lineY, page };
           continue;
         }
         const assigned = assign(money);
         if (!assigned) { ambiguous++; continue; }
-        rows.push({ date, desc, money: assigned, descX: descTokens[0].x0, y: lineY, page });
+        rows.push({ date, desc, money: assigned, descX: descTokens[0].x0, y: lineY, page, legacy: legacyRow(joinLine(parts)) });
         continue;
       }
 
       // An amounts-only line completing the dated line right above it.
       if (pending && pending.page === page && !desc && money.length > 0) {
         const assigned = assign(money);
-        if (assigned) rows.push({ ...pending, money: assigned, y: lineY });
+        if (assigned) rows.push({ ...pending, money: assigned, y: lineY, legacy: null });
         else ambiguous++;
         pending = null;
         continue;
@@ -387,9 +413,17 @@ function parseStatementLines(pages: PdfTextItem[][][], today: Date): Omit<PdfPar
 
   // Only the money columns rows actually use, in a fixed order, so a stray header-like line
   // elsewhere in the statement can't add empty columns for the wizard to pick up.
-  const used = (["Amount", "Debit", "Credit", "Balance"] as const).filter((k) => rows.some((r) => r.money[k] !== undefined));
+  // Debit and Credit always go together: a month with only withdrawals must still be read as
+  // a split layout, or the wizard would take the lone Debit column as a positive Amount.
+  const split = rows.some((r) => r.money.Debit !== undefined || r.money.Credit !== undefined);
+  const used = (["Amount", "Debit", "Credit", "Balance"] as const).filter((k) =>
+    (split && (k === "Debit" || k === "Credit")) || rows.some((r) => r.money[k] !== undefined));
   const columns: MoneyKind[] = used.length > 0 ? [...used] : ["Amount"];
-  const outRows = rows.map((r) => [r.date, r.desc, ...columns.map((c) => r.money[c] ?? "")]);
+  const outRows = rows.map((r) => {
+    const out = [r.date, r.desc, ...columns.map((c) => r.money[c] ?? "")];
+    if (r.legacy) legacyPdfRows.set(out, r.legacy);
+    return out;
+  });
 
   // Reconcile against the statement's own balances when it prints them.
   const balanceAfter = (labelRe: RegExp): number | null => {
@@ -410,7 +444,7 @@ function parseStatementLines(pages: PdfTextItem[][][], today: Date): Omit<PdfPar
   const fmt = (c: number) => (c / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
 
   let amountsIncreaseBalance: boolean | null = null;
-  const noActivity = rows.length === 0 && delta === 0;
+  const noActivity = rows.length === 0 && delta === 0 && unread === 0 && ambiguous === 0;
   if (delta !== null && rows.length > 0) {
     if (delta !== 0 && sumCents === delta) amountsIncreaseBalance = true;
     else if (delta !== 0 && sumCents === -delta) amountsIncreaseBalance = false;
@@ -418,6 +452,7 @@ function parseStatementLines(pages: PdfTextItem[][][], today: Date): Omit<PdfPar
       warnings.push(`The ${rows.length} rows found add up to ${fmt(Math.abs(sumCents))}, but the statement's balance changed by ${fmt(Math.abs(delta))} (from ${fmt(Math.round(previous! * 100))} to ${fmt(Math.round(latest! * 100))}). Some transactions may be missing or misread - compare with the statement before importing.`);
     }
   }
+  if (delta === null && rows.length > 0) warnings.push("This statement doesn't print a previous and new balance, so Compass couldn't check that these rows are complete and correct - review them against the statement.");
   if (unread > 0) warnings.push(`${unread} dated ${unread === 1 ? "line" : "lines"} in the transaction table had no readable amount and ${unread === 1 ? "was" : "were"} left out.`);
   if (ambiguous > 0) warnings.push(`${ambiguous} ${ambiguous === 1 ? "row" : "rows"} had amounts that couldn't be matched to the statement's columns and ${ambiguous === 1 ? "was" : "were"} left out.`);
   if (yearGuessed) warnings.push("The statement period wasn't found, so years for dates printed without one were guessed from today's date - check the dates.");

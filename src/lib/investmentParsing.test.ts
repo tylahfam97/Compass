@@ -390,7 +390,7 @@ describe("parseLedgerLiveCSV", () => {
     expect(detectInvestmentFormat(data)).toBe("ledger");
     const r = parseInvestmentWorkbook(data)!;
     const [h] = r.sections[0].rows;
-    expect(h).toMatchObject({ securityType: "crypto", symbol: "XRP", shares: 75.123445, costBasis: null });
+    expect(h).toMatchObject({ securityType: "crypto", symbol: "XRP", shares: 75.123405, costBasis: null });
     expect(h.price).toBeCloseTo(2.5, 4); // export countervalues are rounded to cents
     expect(h.marketValue).toBeCloseTo(187.81, 2);
   });
@@ -402,6 +402,6 @@ describe("parseLedgerLiveCSV", () => {
     ]);
     expect(new Set(r.activity.map((a) => a.importKey)).size).toBe(3);
     expect(r.summary).toBeNull();
-    expect(r.notes!.join(" ")).toMatch(/Cost basis is unknown.*1 failed or unconfirmed operation was left out.*1 operation of an unsupported type.*1 unreadable row was skipped/);
+    expect(r.notes!.join(" ")).toMatch(/Cost basis is unknown.*1 failed or unconfirmed operation was left out; the network fee of 1 failed send was still subtracted.*1 operation of an unsupported type.*1 unreadable row was skipped/);
   });
 });
