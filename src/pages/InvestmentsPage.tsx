@@ -18,10 +18,11 @@ const SECTION_LABELS: Record<SecurityType, string> = {
   etf: "ETFs",
   mutual_fund: "Mutual Funds",
   cash: "Cash",
+  crypto: "Crypto",
   other: "Other",
 };
 
-const SECTION_ORDER: SecurityType[] = ["stock", "etf", "mutual_fund", "other", "cash"];
+const SECTION_ORDER: SecurityType[] = ["stock", "etf", "mutual_fund", "crypto", "other", "cash"];
 
 const ACTIVITY_LABELS: Record<ActivityType, string> = {
   buy: "Buy", sell: "Sell", dividend: "Dividend", reinvest: "Reinvestment",

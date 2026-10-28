@@ -588,6 +588,122 @@ test("Auto-Import All pauses on a later file whose payments the first file's map
   expect(database.prepare("SELECT COUNT(*) AS n FROM import_sessions").get()).toEqual({ n: 2 });
 });
 
+// A minimal text-only PDF (Helvetica, one Tm per item) so the import runs real pdf.js extraction.
+// Every name, date and amount below is invented; only the layout mirrors real card statements.
+function syntheticPdf(pages: [number, number, string][][]): Buffer {
+  const objects = ["<< /Type /Catalog /Pages 2 0 R >>", "", "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"];
+  const kids: string[] = [];
+  for (const items of pages) {
+    const stream = items.map(([x, y, s]) => `BT /F1 8 Tf 1 0 0 1 ${x} ${y} Tm (${s.replace(/[\\()]/g, "\\$&")}) Tj ET`).join("\n");
+    objects.push(`<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`);
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${objects.length} 0 R >>`);
+    kids.push(`${objects.length} 0 R`);
+  }
+  objects[1] = `<< /Type /Pages /Kids [${kids.join(" ")}] /Count ${kids.length} >>`;
+  let pdf = "%PDF-1.4\n";
+  const offsets = objects.map((body, i) => { const at = Buffer.byteLength(pdf); pdf += `${i + 1} 0 obj\n${body}\nendobj\n`; return at; });
+  const xref = Buffer.byteLength(pdf);
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, "0")} 00000 n \n`).join("")}`;
+  return Buffer.from(`${pdf}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+}
+
+// Trans./Post date columns, amounts ~1pt off the description baseline, a detached "-" sign, a
+// wrapped merchant name, year-less dates across New Year, and a summary that must not import.
+const cardStatementPdf = (rows = true) => syntheticPdf([[
+  [34, 700, "Billing Period: 12/06/25-01/05/26"],
+  [317, 660, "Previous balance"], [553, 660, rows ? "$1,000.00" : "$0.00"],
+  [317, 646, "Payments"], [549, 646, "-"], [553, 646, rows ? "$500.00" : "$0.00"],
+  [317, 632, "Purchases"], [548, 632, rows ? "+$145.20" : "+$0.00"],
+  [317, 618, "New balance"], [553, 618, rows ? "$645.20" : "$0.00"],
+  [34, 600, "Minimum payment due: $41.00"],
+  [37, 560, "Trans."], [100, 560, "Post"],
+  [37, 550, "date"], [100, 550, "date"], [163, 550, "Description"], [548, 550, "Amount"],
+  ...(rows ? [
+    [37, 530, "12/28"], [100, 530, "12/29"], [163, 530, "SAMPLE GROCERY MARKET"], [551, 528.9, "$120.00"],
+    [37, 516, "12/30"], [100, 516, "12/30"], [163, 516, "ONLINE PAYMENT THANK YOU"], [549, 514.8, "-"], [553, 514.8, "$500.00"],
+    [37, 502, "01/02"], [100, 502, "01/03"], [163, 502, "EXAMPLE COFFEE ROASTERS"], [551, 500.7, "$25.20"],
+    [163, 492, "PORTLAND OR"],
+  ] as [number, number, string][] : []),
+  [41, 450, "Total fees charged in this billing period"], [551, 449, "$0.00"],
+]]);
+
+test("credit card PDF statement imports every row with the right sign and year, once", async ({ page, database }) => {
+  const importPdf = async (existing: boolean) => {
+    await page.goto("/import");
+    await page.getByRole("button", { name: /Credit Card Statement/ }).click();
+    await page.locator("#csv-input").setInputFiles({ name: "synthetic-statement.pdf", mimeType: "application/pdf", buffer: cardStatementPdf() });
+    if (existing) await page.getByRole("button", { name: "Existing account", exact: true }).click();
+    else await page.getByPlaceholder("e.g. Chase Sapphire").fill("Synthetic Card");
+    for (let i = 0; i < 5; i++) await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await page.getByRole("button", { name: "Continue to Preview" }).click();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await page.getByRole("button", { name: "Import 3 Transactions" }).click();
+  };
+  await importPdf(false);
+  await expect(page.getByText("Import complete")).toBeVisible();
+  const rows = () => database.prepare(
+    "SELECT t.date, t.description, t.amount_cents, t.category_id FROM transactions t JOIN accounts a ON a.id=t.account_id WHERE a.account_type='credit' ORDER BY t.date"
+  ).all();
+  expect(rows()).toEqual([
+    { date: "2025-12-28", description: "SAMPLE GROCERY MARKET", amount_cents: -12000, category_id: expect.anything() },
+    { date: "2025-12-30", description: "ONLINE PAYMENT THANK YOU", amount_cents: 50000, category_id: 20 },
+    { date: "2026-01-02", description: "EXAMPLE COFFEE ROASTERS PORTLAND OR", amount_cents: -2520, category_id: expect.anything() },
+  ]);
+  await importPdf(true);
+  await expect(page.getByText("Already imported")).toBeVisible();
+  expect(rows()).toHaveLength(3);
+});
+
+test("PDF statement with no activity says so instead of importing nothing or suggesting a loan", async ({ page, database }) => {
+  const before = database.prepare("SELECT COUNT(*) AS n FROM transactions").get();
+  await page.goto("/import");
+  await page.getByRole("button", { name: /Credit Card Statement/ }).click();
+  await page.locator("#csv-input").setInputFiles({ name: "synthetic-quiet.pdf", mimeType: "application/pdf", buffer: cardStatementPdf(false) });
+  await expect(page.getByText(/That statement has no transactions/)).toBeVisible();
+  await expect(page.getByText(/loan statement/)).toHaveCount(0);
+  expect(database.prepare("SELECT COUNT(*) AS n FROM transactions").get()).toEqual(before);
+});
+
+test("Ledger crypto export imports as an investment holding with transfers, not spending", async ({ page, database }) => {
+  // Invented operations: 100.123456 in, 25.000014 out (fee included), a dust receipt, a failed send.
+  const csv = [
+    "Operation Date,Status,Currency Ticker,Operation Type,Operation Amount,Operation Fees,Operation Hash,Account Name,Account xpub,Countervalue Ticker,Countervalue at Operation Date,Countervalue at CSV Export",
+    "2026-09-20T15:00:00.000Z,Confirmed,XRP,OUT,25.000014,0.000014,SYNTHETIC3,Sample Wallet,xpub-sample,USD,50.00,62.50",
+    "2026-09-10T15:00:00.000Z,Confirmed,XRP,IN,0.000003,0.00003,SYNTHETIC2,Sample Wallet,xpub-sample,USD,0.00,0.00",
+    "2026-09-01T15:00:00.000Z,Confirmed,XRP,IN,100.123456,0.000017,SYNTHETIC1,Sample Wallet,xpub-sample,USD,200.25,250.31",
+    "2026-09-21T15:00:00.000Z,Failed,XRP,OUT,5,0.00004,SYNTHETIC4,Sample Wallet,xpub-sample,USD,10.00,12.50",
+  ].join("\n");
+  const transactionsBefore = database.prepare("SELECT COUNT(*) AS n FROM transactions").get();
+  const importLedger = async (replace: boolean) => {
+    await page.goto("/import");
+    await page.getByRole("button", { name: /Investment \/ Brokerage/ }).click();
+    await page.locator("#csv-input").setInputFiles({ name: "synthetic-ledger.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
+    if (replace) await page.getByRole("button", { name: "Existing account", exact: true }).click();
+    else await page.getByPlaceholder("e.g. Fidelity Brokerage").fill("Sample Ledger");
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await expect(page.getByRole("note")).toContainText("Cost basis is unknown");
+    await expect(page.getByRole("note")).toContainText("1 failed or unconfirmed operation was left out");
+    await page.getByRole("button", { name: "Import 1 Position + 3 Activity" }).click();
+    if (replace) await page.getByRole("button", { name: "Replace that snapshot" }).click();
+  };
+  await importLedger(false);
+  await expect(page.getByText("Import complete")).toBeVisible();
+  const holdings = () => database.prepare("SELECT security_type, symbol, shares, cost_basis_cents FROM holdings").all();
+  const activity = () => database.prepare("SELECT activity_type, quantity, amount_cents FROM investment_activity ORDER BY trade_date").all();
+  expect(holdings()).toEqual([{ security_type: "crypto", symbol: "XRP", shares: 75.123445, cost_basis_cents: null }]);
+  expect(activity()).toEqual([
+    { activity_type: "transfer", quantity: 100.123456, amount_cents: 20025 },
+    { activity_type: "transfer", quantity: 0.000003, amount_cents: 0 },
+    { activity_type: "transfer", quantity: -25.000014, amount_cents: -5000 },
+  ]);
+  // Re-importing the same export replaces the snapshot and skips every known operation.
+  await importLedger(true);
+  await expect(page.getByText(/Import complete|Already imported/)).toBeVisible();
+  expect(holdings()).toHaveLength(1);
+  expect(activity()).toHaveLength(3);
+  expect(database.prepare("SELECT COUNT(*) AS n FROM transactions").get()).toEqual(transactionsBefore);
+});
+
 test("workspace follows restored and maximized widths", async ({ page, database }) => {
   expect(database.isOpen).toBe(true);
   await page.goto("/budgets");

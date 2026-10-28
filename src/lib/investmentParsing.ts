@@ -46,6 +46,9 @@ export interface ParsedActivity {
   realizedGain: number | null;
   acquiredDate: string | null;
   term: "short" | "long" | null;
+  /** A source-provided unique id (e.g. a wallet operation hash) - when present it alone
+   *  identifies the row for reimport dedup, so two identical-looking movements aren't merged. */
+  importKey?: string;
 }
 
 /** A statement's period-level totals ("what happened to this account this period"). Every
@@ -77,6 +80,8 @@ export interface ParsedInvestment {
   /** The account's name as printed on the statement, used to suggest an account in the wizard. */
   accountLabel: string | null;
   accountNumber: string | null;
+  /** Caveats shown on the review step (e.g. unknown cost basis, rows left out). */
+  notes?: string[];
 }
 
 /** Builds a positions-only result for the formats that are a portfolio export rather than a
@@ -1052,9 +1057,142 @@ export function parseEtradeStatement(data: string[][]): ParsedInvestment | null 
   };
 }
 
+// ─── Ledger Live operations export (crypto wallet CSV) ─────────────────────────
+
+const LEDGER_REQUIRED_HEADERS = ["operation date", "status", "currency ticker", "operation type", "operation amount", "operation hash"];
+
+export function looksLikeLedgerExport(data: string[][]): boolean {
+  const norm = (data[0] ?? []).map((h) => (h ?? "").toLowerCase().trim());
+  return LEDGER_REQUIRED_HEADERS.every((h) => norm.includes(h));
+}
+
+/** Coin amounts carry up to 18 decimals (ETH), past what a float adds exactly, so balances are
+ *  summed as scaled integers and only converted to a number once at the end. */
+const COIN_SCALE = 18;
+function coinUnits(s: string): bigint | null {
+  const m = s.trim().match(/^(\d+)(?:\.(\d+))?$/);
+  if (!m || (m[2] ?? "").length > COIN_SCALE) return null;
+  return BigInt(m[1] + (m[2] ?? "").padEnd(COIN_SCALE, "0"));
+}
+function unitsToNumber(u: bigint): number {
+  const neg = u < 0n;
+  const s = (neg ? -u : u).toString().padStart(COIN_SCALE + 1, "0");
+  const n = Number(`${s.slice(0, -COIN_SCALE)}.${s.slice(-COIN_SCALE)}`);
+  return neg ? -n : n;
+}
+
+/** A local calendar date for an operation's UTC timestamp (Compass dates are local YYYY-MM-DD). */
+function localDateOf(timestamp: string): string | null {
+  return localIso(new Date(timestamp.trim()));
+}
+function localIso(d: Date): string | null {
+  if (isNaN(d.getTime())) return null;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * Parses a Ledger Live "operations history" CSV export into one crypto holding per
+ * account+ticker plus every operation as a wallet transfer.
+ *
+ * Ledger Live's own Operation type documents that an OUT amount already includes the network
+ * fee and an IN amount excludes it (the sender paid it), so the balance is sum(IN) - sum(OUT) and
+ * the Fees column is informational - subtracting it again would double-count. The export carries
+ * no purchase cost, so cost basis stays unknown, and movements are transfers, never buys, sells
+ * or income. The holding is valued with the price implied by "Countervalue at CSV Export" (the
+ * export-time snapshot), not a live price. Failed or unrecognized operations are left out and
+ * reported in `notes` rather than guessed at.
+ */
+export function parseLedgerLiveCSV(data: string[][]): ParsedInvestment | null {
+  if (!looksLikeLedgerExport(data)) return null;
+  const norm = data[0].map((h) => (h ?? "").toLowerCase().trim());
+  const col = (name: string) => norm.indexOf(name);
+  const [dateI, statusI, tickerI, typeI, amountI, feeI, hashI, accountI, cvTickerI, cvOpI, cvExportI] = [
+    "operation date", "status", "currency ticker", "operation type", "operation amount", "operation fees",
+    "operation hash", "account name", "countervalue ticker", "countervalue at operation date", "countervalue at csv export",
+  ].map(col);
+  const cell = (row: string[], i: number) => (i >= 0 ? (row[i] ?? "").trim() : "");
+
+  const holdings = new Map<string, { ticker: string; account: string; units: bigint; cvExport: number; cvUnits: bigint }>();
+  const activity: ParsedActivity[] = [];
+  let failed = 0, unsupported = 0, malformed = 0, nonUsd = 0;
+
+  for (const row of data.slice(1)) {
+    if (row.every((c) => !(c ?? "").trim())) continue;
+    const ticker = cell(row, tickerI).toUpperCase();
+    const type = cell(row, typeI).toUpperCase();
+    const units = coinUnits(cell(row, amountI));
+    const date = localDateOf(cell(row, dateI));
+    if (!ticker || units === null || !date) { malformed++; continue; }
+    if (cell(row, statusI).toLowerCase() !== "confirmed") { failed++; continue; }
+    // ponytail: IN/OUT/FEES only; staking/NFT/etc. types are reported, not guessed at.
+    const sign = type === "IN" ? 1n : type === "OUT" || type === "FEES" ? -1n : 0n;
+    if (sign === 0n) { unsupported++; continue; }
+
+    const account = cell(row, accountI) || "Ledger";
+    const key = `${account}\u0000${ticker}`;
+    const h = holdings.get(key) ?? { ticker, account, units: 0n, cvExport: 0, cvUnits: 0n };
+    h.units += sign * units;
+    const fiat = cell(row, cvTickerI).toUpperCase();
+    const cvAtExport = parseFloat(cell(row, cvExportI));
+    if (fiat === "USD" && units > 0n && isFinite(cvAtExport)) { h.cvExport += cvAtExport; h.cvUnits += units; }
+    holdings.set(key, h);
+
+    const cvAtOp = parseFloat(cell(row, cvOpI));
+    if (fiat !== "USD") nonUsd++;
+    const quantity = unitsToNumber(sign * units);
+    const fee = cell(row, feeI);
+    activity.push({
+      date, settleDate: null, activityType: "transfer",
+      rawActivityType: type === "IN" ? "Received" : type === "OUT" ? "Sent" : "Network fee",
+      symbol: ticker,
+      description: type === "IN" ? `Received ${ticker}` : type === "OUT"
+        ? `Sent ${ticker}${fee && coinUnits(fee) ? ` (includes ${fee} ${ticker} network fee)` : ""}`
+        : `${ticker} network fee`,
+      quantity, price: null,
+      // A historical fiat snapshot of the movement for reference, not a cost or a sale price.
+      amount: fiat === "USD" && isFinite(cvAtOp) ? (sign > 0n ? cvAtOp : -cvAtOp) : 0,
+      costBasis: null, realizedGain: null, acquiredDate: null, term: null,
+      // Not keyed on the account's display name, which can be renamed in Ledger Live between exports.
+      importKey: `ledger|${ticker}|${type}|${cell(row, hashI) || `${cell(row, dateI)}|${cell(row, amountI)}`}`,
+    });
+  }
+
+  const rows: InvestmentRow[] = [...holdings.values()].map((h) => {
+    const shares = unitsToNumber(h.units);
+    const price = h.cvUnits > 0n ? h.cvExport / unitsToNumber(h.cvUnits) : null;
+    return {
+      securityType: "crypto", symbol: h.ticker, description: `${h.ticker} (${h.account})`,
+      shares, price, marketValue: price !== null ? shares * price : null, costBasis: null,
+      tradeDate: null, dividendPerShare: null, estAnnualIncome: null,
+    };
+  });
+  if (rows.length === 0) return null;
+
+  const notes = [
+    "Cost basis is unknown: Ledger exports don't include what you paid, so no gain or loss is calculated.",
+    "Value uses the price in the export's \"Countervalue at CSV Export\" column (the price when you exported), not a live price.",
+    "Receives and sends are recorded as wallet transfers, not income, spending, buys or sells.",
+  ];
+  if (rows.some((r) => r.shares !== null && r.shares < 0)) notes.push("Sends exceed receives for at least one asset, so this export looks incomplete - export the full history from Ledger Live.");
+  if (failed) notes.push(`${failed} failed or unconfirmed operation${failed === 1 ? " was" : "s were"} left out.`);
+  if (unsupported) notes.push(`${unsupported} operation${unsupported === 1 ? "" : "s"} of an unsupported type (not IN/OUT/FEES) ${unsupported === 1 ? "was" : "were"} left out - check the balance against Ledger Live.`);
+  if (malformed) notes.push(`${malformed} unreadable row${malformed === 1 ? " was" : "s were"} skipped.`);
+  if (nonUsd) notes.push("Countervalues aren't in USD, so dollar values were left blank.");
+
+  const section: InvestmentSection = {
+    title: "Crypto", securityType: "crypto",
+    headerRow: ["Description", "Symbol", "Units", "Price", "Market Value"],
+    rawRows: rows.map((r) => [r.description, r.symbol ?? "", String(r.shares), String(r.price ?? ""), String(r.marketValue ?? "")]),
+    colMap: { description: 0, symbol: 1, shares: 2, price: 3, marketValue: 4 },
+    rows, totalMarketValue: rows.reduce((s, r) => s + (r.marketValue ?? 0), 0),
+  };
+  // The export has no as-of date of its own; like the other position exports, it's valued today.
+  return { asOfDate: localIso(new Date())!, sections: [section], activity, summary: null, accountLabel: rows.length === 1 ? rows[0].description : null, accountNumber: null, notes };
+}
+
 // ─── Format dispatch ───────────────────────────────────────────────────────────
 
-export type InvestmentFormat = "thrivent" | "fidelity" | "principal" | "etrade" | "wells-fargo";
+export type InvestmentFormat = "thrivent" | "fidelity" | "principal" | "etrade" | "ledger" | "wells-fargo";
 
 /**
  * Detects the format of an investment CSV/XLSX/PDF based on distinctive header names or
@@ -1073,12 +1211,13 @@ export function detectInvestmentFormat(data: string[][]): InvestmentFormat {
   // detected from the first few rows alone; scan the whole extracted PDF text instead.
   if (looksLikePrincipalStatement(data)) return "principal";
   if (looksLikeEtradeStatement(data)) return "etrade";
+  if (looksLikeLedgerExport(data)) return "ledger";
   return "wells-fargo";
 }
 
 /** Human-readable list of supported formats, shown when detection fails. */
 export const SUPPORTED_INVESTMENT_FORMATS =
-  "Wells Fargo Advisors (XLSX), Fidelity and Thrivent (CSV), Principal (PDF quarterly statement), and E*TRADE / Morgan Stanley (PDF client statement)";
+  "Wells Fargo Advisors (XLSX), Fidelity and Thrivent (CSV), Principal (PDF quarterly statement), E*TRADE / Morgan Stanley (PDF client statement), and Ledger Live crypto operations (CSV)";
 
 /**
  * Dispatcher: detects the brokerage export format and routes to the appropriate parser.
@@ -1090,6 +1229,7 @@ export function parseInvestmentWorkbook(data: string[][]): ParsedInvestment | nu
   if (fmt === "fidelity")  return parseFidelityPositionsCSV(data);
   if (fmt === "principal") return parsePrincipalStatement(data);
   if (fmt === "etrade")    return parseEtradeStatement(data);
+  if (fmt === "ledger")    return parseLedgerLiveCSV(data);
 
   // Wells Fargo Advisors: sectioned format
   const asOfDate = detectStatementDate(data) ?? todayIso();

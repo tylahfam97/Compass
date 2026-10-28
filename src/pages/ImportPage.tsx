@@ -26,7 +26,7 @@ import { TRANSFER_CATEGORY_ID, EXCLUDED_CATEGORY_ID } from "@/lib/types";
 import { useProfileStore } from "@/stores/profileStore";
 import { reportLoadError } from "@/stores/toastStore";
 import { takePendingImportFiles } from "@/lib/pendingImport";
-import { parsePdfStatement, extractPdfRows, parseLoanStatementFile } from "@/lib/pdfParse";
+import { parsePdfStatement, extractPdfRows, parseLoanStatementFile, type PdfParseResult } from "@/lib/pdfParse";
 import InfoTooltip from "@/components/InfoTooltip";
 import ManageAccountsPanel from "@/components/ManageAccountsPanel";
 import LoanUploaderModal from "@/components/LoanUploaderModal";
@@ -93,6 +93,22 @@ async function readStatementRows(file: File): Promise<string[][]> {
 }
 
 type ImportKind = "bank" | "credit" | "investment";
+
+/** Why a PDF statement produced no rows, as the message the user sees. */
+function pdfNoRowsMessage(pdf: PdfParseResult): string {
+  if (!pdf.hasText) return "That PDF has no selectable text - it looks like a scanned or photographed statement, which isn't supported. Download the statement as a PDF or CSV/XLSX from your bank's website instead.";
+  if (pdf.noActivity) return "That statement has no transactions - its balance didn't change this period, so there's nothing to import.";
+  if (pdf.looksLikeLoanStatement) return "Couldn't find an itemized transaction table in that PDF - it looks like a loan statement, which tracks a balance over time rather than individual transactions. Use the \"Loan Statement\" option on the import screen instead.";
+  return "Couldn't find a transaction table in that PDF (nothing that starts with a date and ends with an amount). Try a CSV/XLSX export from your bank instead.";
+}
+
+/** Compass stores spending as negative. A card statement normally prints charges as positive, a
+ *  bank statement prints money in as positive - the statement's own balance change settles which
+ *  it did; a card statement without one falls back to whether most amounts are positive. */
+function pdfInvertAmounts(pdf: PdfParseResult, kind: ImportKind | null): boolean {
+  if (kind === "credit") return pdf.amountsIncreaseBalance ?? pdf.mostlyPositive;
+  return pdf.amountsIncreaseBalance === false;
+}
 
 interface ColMap {
   dateCol: number;
@@ -473,6 +489,7 @@ export default function ImportPage() {
   const [maxStepReached, setMaxStepReached] = useState(1);
   const [currentFilename, setCurrentFilename] = useState("");
   const [isPdfImport, setIsPdfImport] = useState(false);
+  const [pdfWarnings, setPdfWarnings] = useState<string[]>([]);
   const [importSubmitting, setImportSubmitting] = useState(false);
   const [colMap, setColMap] = useState<ColMap>({ dateCol: 0, descCol: 1, amountCol: 2, typeCol: -1, balanceCol: -1, invertAmounts: false, debitCol: -1, creditCol: -1 });
   const [currentBalanceInput, setCurrentBalanceInput] = useState("");
@@ -500,6 +517,8 @@ export default function ImportPage() {
   const [batchAutoMode, setBatchAutoMode] = useState(false);
   const [totalBatchCount, setTotalBatchCount] = useState(0);
   const batchSavedColMapRef = useRef<ColMap | null>(null);
+  /** The approved file's column headers - a batch file with different columns gets the wizard. */
+  const batchHeadersRef = useRef<string[] | null>(null);
   const [showLoanUploader, setShowLoanUploader] = useState(false);
   // Remembers which concrete account the previous file in THIS import session resolved to,
   // keyed by account type - `finishParsingData`/`finishParsingInvestmentData` reset
@@ -809,7 +828,7 @@ export default function ImportPage() {
       let activityImported = 0;
       let activitySkipped = 0;
       for (const act of invParsed.activity) {
-        const importHash = await hashRow([
+        const importHash = await hashRow(act.importKey ? ["inv", act.importKey] : [
           "inv", act.date, act.rawActivityType, act.description,
           String(act.quantity ?? ""), String(act.amount),
         ]);
@@ -914,17 +933,14 @@ export default function ImportPage() {
         });
         return;
       }
-      parsePdfStatement(file).then(({ rows, looksLikeLoanStatement }) => {
-        if (rows.length === 0) {
-          setError(
-            looksLikeLoanStatement
-              ? "Couldn't find an itemized transaction table in that PDF - it looks like a loan statement, which tracks a balance over time rather than individual transactions. Use the \"Loan Statement\" option on the import screen instead."
-              : "Couldn't find any transactions in that PDF. It may be a scanned/image statement (no selectable text), which isn't supported - try a CSV/XLSX export from your bank instead."
-          );
+      parsePdfStatement(file).then((pdf) => {
+        if (pdf.rows.length === 0) {
+          setError(pdfNoRowsMessage(pdf));
           setStep("upload");
           return;
         }
-        finishParsingData([["Date", "Description", "Amount"], ...rows]);
+        finishParsingData([pdf.headers, ...pdf.rows], pdfInvertAmounts(pdf, importKind));
+        setPdfWarnings(pdf.warnings);
         // Credit-card statements almost never have a per-transaction running-balance column,
         // so this is the only shot at pre-filling "Current balance" from the statement itself
         // rather than the account's last-saved anchor - kicked off after finishParsingData (which
@@ -1041,7 +1057,8 @@ export default function ImportPage() {
   };
 
   /** Shared logic to detect headers, load presets, and advance to the wizard after parsing. */
-  const finishParsingData = useCallback((data: string[][]) => {
+  const finishParsingData = useCallback((data: string[][], invertOverride?: boolean) => {
+    setPdfWarnings([]);
     const initialSkip = findRealHeaderRow(data);
     setRawData(data);
     setSkipRows(initialSkip);
@@ -1105,6 +1122,9 @@ export default function ImportPage() {
         setColMap(autoDetect(headers));
         setProfileFound(false);
       }
+      // A PDF statement's own balances show which way its amounts run - that beats a saved
+      // mapping, which every PDF shares since they all get the same synthetic header.
+      if (invertOverride !== undefined) setColMap((m) => ({ ...m, invertAmounts: invertOverride }));
       setStep("wizard:account");
     })();
   }, [profileId, selectedPresetId]);
@@ -1350,6 +1370,19 @@ export default function ImportPage() {
     setStep("importing");
     let data: string[][];
     try {
+      // A PDF that needs review (no rows, rows that don't add up to the statement's balances,
+      // amounts running the other way than the approved file's) goes to the wizard instead.
+      if (/\.pdf$/i.test(file.name)) {
+        const pdf = await parsePdfStatement(file);
+        const invert = pdfInvertAmounts(pdf, importKind);
+        if (pdf.rows.length === 0 || pdf.warnings.length > 0 ||
+            (pdf.amountsIncreaseBalance !== null && invert !== savedColMap.invertAmounts)) {
+          setBatchAutoMode(false);
+          batchSavedColMapRef.current = null;
+          processFile(file);
+          return;
+        }
+      }
       data = await readStatementRows(file);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -1365,7 +1398,8 @@ export default function ImportPage() {
     // drop rows that only the other half holds (e.g. card payments). Stop auto mode before
     // anything from this file is written and hand it to the normal wizard, where the
     // omitted-column warning shows; the rest of the queue stays for "Next File".
-    if (countOmittedSplitRows(derived.headers, derived.rows, savedColMap).count > 0) {
+    if (countOmittedSplitRows(derived.headers, derived.rows, savedColMap).count > 0 ||
+        (batchHeadersRef.current && derived.headers.join("\u0000") !== batchHeadersRef.current.join("\u0000"))) {
       setBatchAutoMode(false);
       batchSavedColMapRef.current = null;
       processFile(file);
@@ -1504,6 +1538,8 @@ export default function ImportPage() {
     setBatchAutoMode(false);
     setTotalBatchCount(0);
     batchSavedColMapRef.current = null;
+    batchHeadersRef.current = null;
+    setPdfWarnings([]);
     lastResolvedAccountRef.current = null;
   };
 
@@ -2317,6 +2353,14 @@ export default function ImportPage() {
             </div>
           </div>
 
+          {invParsed.notes && invParsed.notes.length > 0 && (
+            <ul role="note" className="text-xs space-y-1 p-3 border border-[hsl(var(--warning)/0.35)] rounded-lg bg-[hsl(var(--warning)/0.06)]">
+              {invParsed.notes.map((note) => (
+                <li key={note} className="flex items-start gap-1.5"><InfoIcon size={13} className="shrink-0 mt-0.5 text-[hsl(var(--warning))]" />{note}</li>
+              ))}
+            </ul>
+          )}
+
           {accountChoice && (
             <p className="text-xs text-[hsl(var(--success))] flex items-center gap-1">
               <CheckCircleIcon size={12} />
@@ -2597,6 +2641,12 @@ export default function ImportPage() {
 
           {omittedSplitWarning}
 
+          {isPdfImport && pdfWarnings.length > 0 && (
+            <ul role="alert" className="text-xs text-[hsl(var(--warning))] space-y-1 p-3 border border-[hsl(var(--warning)/0.4)] rounded-lg bg-[hsl(var(--warning)/0.06)]">
+              {pdfWarnings.map((w) => <li key={w} className="flex items-start gap-1.5"><WarningIcon size={13} className="shrink-0 mt-0.5" />{w}</li>)}
+            </ul>
+          )}
+
           {isPdfImport && (
             <p className="text-xs text-[hsl(var(--warning))] flex items-start gap-1.5 p-3 border border-[hsl(var(--warning)/0.35)] rounded-lg bg-[hsl(var(--warning)/0.06)]">
               <InfoIcon size={13} className="shrink-0 mt-0.5" />
@@ -2716,6 +2766,7 @@ export default function ImportPage() {
                   const total = batchQueue.length + 1;
                   setTotalBatchCount(total);
                   batchSavedColMapRef.current = { ...colMap };
+                  batchHeadersRef.current = parsed.headers;
                   setBatchAutoMode(true);
                   handleImport();
                 }}
