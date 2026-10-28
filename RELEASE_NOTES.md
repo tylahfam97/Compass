@@ -2,6 +2,58 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.8 — True Bearing 🧭
+
+Investments now opens with what your portfolio is worth and which account each figure comes
+from. The Insights scores were checked line by line: several calculation bugs are fixed, and
+parts of a score that have nothing to measure yet now say so. One new insight compares spare
+cash with the card interest it could stop.
+
+### Investments
+- **Portfolio value comes first.** A summary bar under the page title shows portfolio value,
+  unrealized gain or loss, estimated annual income and the date values are priced as of. When
+  accounts were last priced on different dates it says "Mixed" and shows the range, instead of
+  implying one common date. (#111)
+- **One account or all of them.** An Account menu scopes the summary, holdings, activity, income
+  and gains, the value chart and the statements to a single account. Clicking an account's name in
+  the Accounts table does the same. (#111)
+- **Every statement names its account.** Each account's latest statement now has its own card with
+  the account name and that account's own period. Before, only the most recent statement across
+  all accounts was shown, under a generic "Latest Statement Period" title. Realized gain (YTD) now
+  adds up every account's own figure from this year's statements instead of showing one
+  account's. (#111)
+- **No invented gains.** Unrealized gain is measured only on holdings with a known cost basis.
+  Holdings without one, such as a Ledger crypto export or a balance-only 401(k) line, used to count
+  their whole value as gain. The summary shows what share of the portfolio has a known cost basis.
+  (#111)
+
+### Insights scores
+- **Being overdrawn no longer outscores a thin cushion.** A zero or negative checking balance got
+  the neutral 10 of 20 runway points, more than a small positive balance earned. It now scores the
+  lowest band. (#111)
+- **A card in credit isn't debt.** Credit Card Health added every card's balance together and took
+  the absolute value, so a refund or overpayment on one card counted as debt, or hid what another
+  card owed. Each card's amount owed is now counted on its own, and a card with no balance on file
+  is treated as no data rather than a perfect score. (#111)
+- **Deposits aren't investment returns.** For holdings without a cost basis, Investment Health
+  compared today's value with the first snapshot, so money you added counted as growth: a fund that
+  doubled from deposits looked up 100%. It now measures price change only, using the number of
+  shares or coins, and leaves out holdings that don't report units. Where a cost basis is known,
+  it is compared only with the value of the lots it belongs to. (#111)
+- **"No data yet" instead of a made-up result.** A part of the health score with nothing to measure
+  (no budgets, no checking balance, no income history) still counts at its neutral midpoint, but now
+  says "No data yet" rather than showing that midpoint as a result, and a score with nothing
+  measured at all shows no grade. A savings window with no transactions at all counted as 0 of 40;
+  it now gets the same neutral midpoint as the other parts. The score explainer also states that
+  investments and debt are scored on their own cards. Realized gains year to date count only this
+  year's statements. (#111)
+
+### New insight
+- **Spare cash vs. card interest.** When checking holds more than a month of your average spending
+  and a card charged interest last month, Insights estimates how much interest a year you would
+  stop by paying part of that card from the spare cash, costliest card first. The estimate uses the
+  interest your statements actually show, not an assumed rate. (#111)
+
 ## Compass 1.3.7 — Paper Trail 🧭
 
 Two import fixes. PDF card and bank statements now import their real rows, or say clearly why they
