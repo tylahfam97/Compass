@@ -2,14 +2,14 @@ import PlannedBar from "@/components/PlannedBar";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import CashFlowHorizon from "@/components/CashFlowHorizon";
-import { loadScenario, saveScenario } from "@/lib/planScenario";
+import { loadScenario, saveScenario, SPEND_LIMIT, INCOME_LIMIT, type PlanScenario } from "@/lib/planScenario";
 import { CalendarCheckIcon, TrendUpIcon, SparkleIcon, WarningIcon, MagicWandIcon, EyeSlashIcon, BankIcon, CalendarPlusIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { motion } from "motion/react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { staggerContainer, riseIn } from "@/lib/motionPresets";
 import {
   projectCashFlow, expandOccurrences, deriveNextActions, resolveForecastWindow,
-  groupUpcomingEvents, monthlyEquivalentCents, toISODate, baselineIsUsable,
+  groupUpcomingEvents, monthlyEquivalentCents, toISODate, baselineIsUsable, daysFromToday,
   type NextAction, type NextActionTone, type ForecastWindowMode,
 } from "@/lib/forecast";
 import { simulateCustomDebtPayoff } from "@/lib/agent";
@@ -38,6 +38,10 @@ const WINDOWS: { id: PlanWindow; label: string }[] = [
  *  paycheck further out than the window being shown, and "through next month" always reaches
  *  the end of a 31-day month. */
 const MAX_LOOKAHEAD_DAYS = 95;
+/** A starting balance older than this is flagged, since everything since is missing from it. */
+const STALE_BALANCE_DAYS = 7;
+
+const signedCurrency = (cents: number) => `${cents > 0 ? "+" : ""}${formatCurrency(cents)}`;
 
 const ACTION_TONE: Record<NextActionTone, { color: string; label: string }> = {
   urgent:    { color: "hsl(var(--error))",   label: "Do this first" },
@@ -77,10 +81,12 @@ function ProfilePlan({ profileId }: { profileId: number }) {
   // What-if controls. These feed straight back into the pure projection, which is why it has to
   // stay synchronous - they recompute on every drag with no DB round trip. Persisted so a
   // scenario survives navigating away and back.
-  const [extraSpendCents, setExtraSpendCents] = useState(stored.extra);
   const [bufferCents, setBufferCents] = useState(stored.buffer);
   const [includeDetected, setIncludeDetected] = useState(stored.detected);
   const [useBaseline, setUseBaseline] = useState(stored.typical);
+  const [spend, setSpend] = useState<PlanScenario["spend"]>(stored.spend);
+  const [extraIncomeCents, setExtraIncomeCents] = useState(stored.income);
+  const [skipPayDate, setSkipPayDate] = useState(stored.skipPay);
   const [purchase, setPurchase] = useState(stored.purchase);
   const [holdScale, setHoldScale] = useState(false);
   useEffect(() => {
@@ -92,8 +98,8 @@ function ProfilePlan({ profileId }: { profileId: number }) {
   }, []);
 
   useEffect(() => {
-    saveScenario(profileId, { version: 1, window: planWindow, extra: extraSpendCents, buffer: bufferCents, detected: includeDetected, typical: useBaseline, purchase });
-  }, [profileId, planWindow, extraSpendCents, bufferCents, includeDetected, useBaseline, purchase]);
+    saveScenario(profileId, { version: 2, window: planWindow, buffer: bufferCents, detected: includeDetected, typical: useBaseline, spend, income: extraIncomeCents, skipPay: skipPayDate, purchase });
+  }, [profileId, planWindow, bufferCents, includeDetected, useBaseline, spend, extraIncomeCents, skipPayDate, purchase]);
 
   const load = useCallback(async () => {
     const sequence = ++loadSequence.current;
@@ -199,7 +205,11 @@ function ProfilePlan({ profileId }: { profileId: number }) {
     // simulating - the forecast still never invents a rate the user hasn't accepted.
     const baselineDaily = useBaseline && baselineIsUsable(inputs.baseline) ? inputs.baseline.dailySpendCents : 0;
     const dailySpendCents = baselineDaily;
+    const nextPay = events.find((e) => e.amountCents > 0) ?? null;
+    const skipPay = !!nextPay && nextPay.date === skipPayDate;
 
+    // Expected and scenario share the same start, events and typical spending; only the
+    // what-if inputs differ, so the gap between the two lines is exactly the user's changes.
     return {
       current: projectCashFlow({ startingBalanceCents: inputs.startingBalanceCents, startDate: start, days, events, dailySpendCents, bufferCents }),
       result: projectCashFlow({
@@ -209,7 +219,9 @@ function ProfilePlan({ profileId }: { profileId: number }) {
         events,
         dailySpendCents,
         bufferCents,
-        extraSpendCents,
+        spendChange: spend,
+        extraIncomeMonthlyCents: extraIncomeCents,
+        skipNextIncome: skipPay,
         purchase,
       }),
       days,
@@ -217,10 +229,12 @@ function ProfilePlan({ profileId }: { profileId: number }) {
       usedFallback,
       events,
       baselineDailyCents: baselineDaily,
+      nextPay,
+      skipPay,
       /** Scheduled items falling just outside the window, so the UI can point at the next one. */
       laterEvents: allEvents.filter((e) => e.date > endDate),
     };
-  }, [inputs, planWindow, extraSpendCents, bufferCents, includeDetected, useBaseline, purchase]);
+  }, [inputs, planWindow, spend, extraIncomeCents, skipPayDate, bufferCents, includeDetected, useBaseline, purchase]);
 
   const nextActions = useMemo(() => {
     if (!forecast || !inputs) return [];
@@ -294,14 +308,28 @@ function ProfilePlan({ profileId }: { profileId: number }) {
   }
 
   const result = forecast!.result;
+  const expected = forecast!.current;
   const incomplete = inputs.balanceSources.some((source) => source.balance === null);
+  const balanceAsOf = inputs.balanceSources.map((source) => source.date).filter((date): date is string => !!date).sort()[0] ?? null;
+  const balanceStale = !!balanceAsOf && daysFromToday(balanceAsOf) < -STALE_BALANCE_DAYS;
   const low = result.lowPoint;
   const short = result.firstShortfall;
   const windowDays = forecast!.days;
   const baselineDaily = forecast!.baselineDailyCents;
-  /** Whole-window totals for the waterfall; extra absorbs the per-day rounding remainder. */
-  const typicalSpendTotal = baselineDaily * windowDays;
-  const extraSpendTotal = result.assumedSpendCents - typicalSpendTotal;
+  const scenarioDelta = result.endingBalanceCents - expected.endingBalanceCents;
+  const spendLimit = SPEND_LIMIT[spend.per];
+  // A spending cut only trims typical spending the forecast actually includes; with none
+  // included there is nothing to cut, so the slider starts at zero.
+  const canCut = baselineDaily > 0;
+  const { nextPay, skipPay } = forecast!;
+  const scenarioChanged = spend.cents !== 0 || extraIncomeCents > 0 || skipPay || bufferCents > 0 || purchase.amountCents > 0;
+  const resetScenario = () => {
+    setSpend({ cents: 0, per: spend.per });
+    setExtraIncomeCents(0);
+    setSkipPayDate("");
+    setBufferCents(0);
+    setPurchase({ date: "", amountCents: 0, kind: "out" });
+  };
   const incomeCount = forecast!.events.filter((e) => e.amountCents > 0).length;
   const billCount = forecast!.events.filter((e) => e.amountCents < 0).length;
   const windowLabel =
@@ -409,8 +437,8 @@ function ProfilePlan({ profileId }: { profileId: number }) {
               </>
             ) : (
               <PlannedBar
-                plannedIncomeCents={result.totalIncomeCents}
-                plannedPaymentsCents={result.totalBillsCents}
+                plannedIncomeCents={expected.totalIncomeCents}
+                plannedPaymentsCents={expected.totalBillsCents}
                 depositCount={incomeCount}
                 billCount={billCount}
                 windowDays={windowDays}
@@ -431,40 +459,44 @@ function ProfilePlan({ profileId }: { profileId: number }) {
         </details>
         <details className="workspace-disclosure mt-5">
         <summary>Balance breakdown</summary>
+        {/* Expected only: the what-if changes get their own line below, so the scheduled
+            money and the hypothetical never add up inside one sum. */}
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 pt-4 text-sm tabular-nums">
           <span>{formatCurrency(inputs.startingBalanceCents)}</span>
           <span className="text-[hsl(var(--muted-foreground))] text-xs">now</span>
           <span className="text-[hsl(var(--muted-foreground))]">+</span>
-          <span style={{ color: "hsl(var(--success))" }}>{formatCurrency(result.totalIncomeCents)}</span>
+          <span style={{ color: "hsl(var(--success))" }}>{formatCurrency(expected.totalIncomeCents)}</span>
           <span className="text-[hsl(var(--muted-foreground))] text-xs">coming in</span>
           <span className="text-[hsl(var(--muted-foreground))]">−</span>
-          <span style={{ color: "hsl(var(--error))" }}>{formatCurrency(result.totalBillsCents)}</span>
+          <span style={{ color: "hsl(var(--error))" }}>{formatCurrency(expected.totalBillsCents)}</span>
           <span className="text-[hsl(var(--muted-foreground))] text-xs">bills</span>
-          {typicalSpendTotal > 0 && (
+          {expected.assumedSpendCents > 0 && (
             <>
               <span className="text-[hsl(var(--muted-foreground))]">−</span>
-              <span>{formatCurrency(typicalSpendTotal)}</span>
+              <span>{formatCurrency(expected.assumedSpendCents)}</span>
               <span className="text-[hsl(var(--muted-foreground))] text-xs">typical spending</span>
-            </>
-          )}
-          {extraSpendTotal > 0 && (
-            <>
-              <span className="text-[hsl(var(--muted-foreground))]">−</span>
-              <span style={{ color: "var(--gold)" }}>{formatCurrency(extraSpendTotal)}</span>
-              <span className="text-[hsl(var(--muted-foreground))] text-xs">what-if spending</span>
             </>
           )}
           <span className="text-[hsl(var(--muted-foreground))]">=</span>
           <span
             className="font-semibold"
-            style={{ color: result.endingBalanceCents < 0 ? "hsl(var(--error))" : "hsl(var(--success))" }}
+            style={{ color: expected.endingBalanceCents < 0 ? "hsl(var(--error))" : "hsl(var(--success))" }}
           >
-            {formatCurrency(result.endingBalanceCents)}
+            {formatCurrency(expected.endingBalanceCents)}
           </span>
           <span className="text-[hsl(var(--muted-foreground))] text-xs">
-            left on {formatDate(forecast!.endDate)}
+            expected on {formatDate(forecast!.endDate)}
           </span>
         </div>
+        {scenarioDelta !== 0 && (
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 pt-2 text-sm tabular-nums">
+            <span style={{ color: "var(--gold)" }}>{signedCurrency(scenarioDelta)}</span>
+            <span className="text-[hsl(var(--muted-foreground))] text-xs">what-if changes</span>
+            <span className="text-[hsl(var(--muted-foreground))]">=</span>
+            <span className="font-semibold" style={{ color: result.endingBalanceCents < 0 ? "hsl(var(--error))" : "var(--gold)" }}>{formatCurrency(result.endingBalanceCents)}</span>
+            <span className="text-[hsl(var(--muted-foreground))] text-xs">in your scenario</span>
+          </div>
+        )}
 
         {billCount === 0 && forecast!.events.length > 0 && (
           <p className="text-xs text-[hsl(var(--muted-foreground))] mt-4 pt-4 border-t">
@@ -485,24 +517,73 @@ function ProfilePlan({ profileId }: { profileId: number }) {
       <motion.section variants={riseIn} className="plan-scenarios space-y-5">
         <div>
           <h2 className="font-semibold text-sm flex items-center gap-1.5"><MagicWandIcon size={14} /> Your scenario</h2>
+          <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
+            What could happen if things change. Drawn as the gold line next to Expected; nothing here is recorded.
+          </p>
         </div>
 
         <div className="grid gap-6">
-          <label className="block">
-            <span className="text-xs font-medium">
-              Extra spending{" "}
-              <span className="tabular-nums" style={{ color: "var(--gold)" }}>{formatCurrency(extraSpendCents)}</span>
-            </span>
+          <div>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="text-xs font-medium" id="spend-change-label">
+                Everyday spending{" "}
+                <span className="tabular-nums" style={{ color: "var(--gold)" }}>{signedCurrency(canCut ? spend.cents : Math.max(0, spend.cents))}</span> per {spend.per}
+              </span>
+              <div className="flex gap-1 border rounded-lg p-0.5" role="group" aria-label="Spending change unit">
+                {(["day", "month"] as const).map((per) => (
+                  <button
+                    key={per}
+                    aria-pressed={spend.per === per}
+                    onClick={() => { if (spend.per !== per) setSpend({ cents: 0, per }); }}
+                    className={`px-2 py-0.5 text-[11px] rounded-md ${spend.per === per ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]" : "hover:bg-[hsl(var(--muted))]"}`}
+                  >
+                    Per {per}
+                  </button>
+                ))}
+              </div>
+            </div>
             <input
-              type="range" min={0} max={200_000} step={5_000}
-              value={extraSpendCents}
-              onChange={(e) => setExtraSpendCents(Number(e.target.value))}
+              type="range" aria-labelledby="spend-change-label"
+              min={canCut ? -spendLimit.max : 0} max={spendLimit.max} step={spendLimit.step}
+              value={canCut ? spend.cents : Math.max(0, spend.cents)}
+              onChange={(e) => setSpend({ cents: Number(e.target.value), per: spend.per })}
               className="w-full mt-2 accent-[hsl(var(--primary))]"
             />
             <span className="text-[11px] text-[hsl(var(--muted-foreground))]">
-              {formatCurrency(Math.round(extraSpendCents / windowDays))}/day over {windowDays} days
+              {spend.per === "month"
+                ? "Spread evenly over every day of each month. "
+                : "Added to every day in the window. "}
+              {canCut
+                ? `Left spends less; cuts stop at your typical ${formatCurrency(baselineDaily)}/day.`
+                : "Turn on typical spending to model cutting back."}
+            </span>
+          </div>
+
+          <label className="block">
+            <span className="text-xs font-medium">
+              Extra income{" "}
+              <span className="tabular-nums" style={{ color: "var(--gold)" }}>{formatCurrency(extraIncomeCents)}</span> per month
+            </span>
+            <input
+              type="range" min={0} max={INCOME_LIMIT.max} step={INCOME_LIMIT.step}
+              value={extraIncomeCents}
+              onChange={(e) => setExtraIncomeCents(Number(e.target.value))}
+              className="w-full mt-2 accent-[hsl(var(--primary))]"
+            />
+            <span className="text-[11px] text-[hsl(var(--muted-foreground))]">
+              A raise or side income, spread evenly over each month. Only counted here.
             </span>
           </label>
+
+          {nextPay && (
+            <label className="flex items-start gap-2 text-xs font-medium cursor-pointer select-none">
+              <input type="checkbox" checked={skipPay} onChange={(e) => setSkipPayDate(e.target.checked ? nextPay.date : "")} className="mt-0.5" />
+              <span>
+                Skip my next paycheck <span className="text-[hsl(var(--muted-foreground))] font-normal">({nextPay.description}, {formatCurrency(nextPay.amountCents)} on {formatDate(nextPay.date)})</span>
+                <span className="block text-[11px] text-[hsl(var(--muted-foreground))] font-normal">What if it is late or doesn't come in this window?</span>
+              </span>
+            </label>
+          )}
 
           <label className="block">
             <span className="text-xs font-medium">
@@ -522,7 +603,19 @@ function ProfilePlan({ profileId }: { profileId: number }) {
         </div>
 
         <fieldset className="border-t pt-4 space-y-3">
-          <legend className="text-sm font-medium">Purchase preview</legend>
+          <legend className="text-sm font-medium">One-off</legend>
+          <div className="flex gap-1 border rounded-lg p-0.5 w-fit" role="group" aria-label="One-off direction">
+            {([["out", "Money out (purchase)"], ["in", "Money in (refund, gift)"]] as const).map(([kind, label]) => (
+              <button
+                key={kind}
+                aria-pressed={purchase.kind === kind}
+                onClick={() => setPurchase({ ...purchase, kind })}
+                className={`px-2 py-0.5 text-[11px] rounded-md ${purchase.kind === kind ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]" : "hover:bg-[hsl(var(--muted))]"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <label className="block text-xs">Amount
             <input aria-label="Hypothetical purchase amount" type="number" min="0" max="1000000" step="0.01" value={purchase.amountCents / 100 || ""} onChange={(event) => setPurchase({ ...purchase, amountCents: Math.max(0, Math.min(100_000_000, Math.round(Number(event.target.value) * 100))) })} className="w-full border rounded-md bg-[hsl(var(--background))] px-3 py-2 mt-1" />
           </label>
@@ -540,7 +633,11 @@ function ProfilePlan({ profileId }: { profileId: number }) {
                   type="checkbox"
                   checked={useBaseline && baselineIsUsable(inputs.baseline)}
                   disabled={!baselineIsUsable(inputs.baseline)}
-                  onChange={(e) => setUseBaseline(e.target.checked)}
+                  onChange={(e) => {
+                    setUseBaseline(e.target.checked);
+                    // With no typical spending there is nothing to cut, so drop a saved cut rather than hide it.
+                    if (!e.target.checked) setSpend((s) => ({ ...s, cents: Math.max(0, s.cents) }));
+                  }}
                 />
                 <span>
                   Include my typical spending
@@ -555,9 +652,9 @@ function ProfilePlan({ profileId }: { profileId: number }) {
               Include {inputs.detected.length} detected bills
             </label>}
           </div>
-          {(extraSpendCents > 0 || bufferCents > 0 || purchase.amountCents > 0) && (
+          {scenarioChanged && (
             <button
-              onClick={() => { setExtraSpendCents(0); setBufferCents(0); setPurchase({ date: "", amountCents: 0 }); }}
+              onClick={resetScenario}
               className="text-xs font-semibold px-3 py-1.5 rounded-lg text-black transition-opacity hover:opacity-90 shrink-0"
               style={{ backgroundColor: "var(--gold)" }}
             >
@@ -569,7 +666,10 @@ function ProfilePlan({ profileId }: { profileId: number }) {
 
       {/* ── Projection chart ────────────────────────────────────────────── */}
       <motion.section variants={riseIn} className="plan-chart" id="plan-chart">
-        <CashFlowHorizon key={planWindow} current={forecast!.current} scenario={result} bufferCents={bufferCents} typicalDailyCents={baselineDaily} holdScale={holdScale} />
+        <CashFlowHorizon
+          key={planWindow} current={expected} scenario={result} bufferCents={bufferCents} typicalDailyCents={baselineDaily} holdScale={holdScale}
+          startingBalanceCents={inputs.startingBalanceCents} balanceAsOf={balanceAsOf} balanceStale={balanceStale} incomplete={incomplete} monthToDate={inputs.monthToDate}
+        />
       </motion.section>
 
       {/* ── What to do next ─────────────────────────────────────────────── */}
