@@ -1,7 +1,9 @@
 # =============================================================================
 # Compass — Download Statistics
 #
-# Runs nightly (and on demand) on the nginx self-hosted runner - the same box
+# Runs nightly, on demand, and after every "Host Release Downloads" run (so a
+# new release shows up within minutes instead of at the next nightly run) on
+# the nginx self-hosted runner - the same box
 # that serves privatecompass.app - and publishes a private download-count
 # summary with zero external services:
 #
@@ -53,6 +55,19 @@ on:
   schedule:
     - cron: "17 6 * * *" # daily, 06:17 UTC (odd minute avoids the cron rush)
   workflow_dispatch:
+  # Refresh right after a release is hosted. Fires on the default branch's copy
+  # of this file; the nightly schedule stays as the fallback if it ever doesn't.
+  workflow_run:
+    workflows: ["Host Release Downloads"]
+    types: [completed]
+
+# One run at a time: every run rewrites the same state file and its .bak copy.
+concurrency:
+  group: download-stats
+  cancel-in-progress: false
+
+permissions:
+  contents: read # reads the releases API and checks out the script; nothing else
 
 env:
   WEBSITE_PATH: /var/www/compass
@@ -63,6 +78,8 @@ jobs:
   stats:
     name: Tally downloads and publish stats page
     runs-on: [self-hosted, nginx]
+    # A failed/cancelled hosting run changes nothing worth re-counting.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
 
     steps:
       - name: Check out repo (for the stats script)
