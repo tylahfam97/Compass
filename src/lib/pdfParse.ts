@@ -270,7 +270,7 @@ function readHeader(tokens: Token[]): { kind: MoneyKind; x0: number; x1: number 
 
 const SKIP_CONTINUATION_RE = /^(total|subtotal|page\b|continued|balance|previous|new balance|account|statement|fees charged|interest charge|summary|daily|annual percentage|important)/i;
 // Dated lines that are balances, not transactions: "Beginning balance", a daily-balance table.
-const BALANCE_LINE_RE = /^(beginning|ending|opening|closing|previous|new|daily|starting)\b.*\bbalance\b/i;
+const BALANCE_LINE_RE = /^(beginning|ending|opening|closing|previous|new|daily|starting)( daily| ledger)? balance(\s+(as of|on|for)\b.*)?$/i;
 
 // The row shape PDF imports had before 1.3.7 (printed date token, rest of line, last amount),
 // kept only so a statement imported by an earlier version is recognized as already imported.

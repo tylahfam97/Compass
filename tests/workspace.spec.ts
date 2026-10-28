@@ -766,6 +766,27 @@ test("re-importing a PDF that 1.3.6 imported skips its rows but keeps a genuinel
   ]);
 });
 
+test("a year-less charge from last year's 1.3.6 import doesn't hide the same charge this year", async ({ page, database }) => {
+  // 1.3.6 stored a year-less "07/15" as 2001 under the old row hash; this year's identical line is new.
+  seedLegacyCard(database, [{ date: "2001-07-15", row: ["07/15", "SAMPLE ANNUAL FEE", "95.00"] }]);
+  const pdf = syntheticPdf([[
+    [34, 700, "Billing Period: 07/01/2026-07/31/2026"],
+    [317, 660, "Previous balance"], [553, 660, "$0.00"], [317, 646, "New balance"], [553, 646, "$95.00"],
+    [37, 550, "Date"], [163, 550, "Description"], [548, 550, "Amount"],
+    [37, 530, "07/15"], [163, 530, "SAMPLE ANNUAL FEE"], [551, 530, "$95.00"],
+  ]]);
+  await page.goto("/import");
+  await page.getByRole("button", { name: /Credit Card Statement/ }).click();
+  await page.locator("#csv-input").setInputFiles({ name: "synthetic-annual.pdf", mimeType: "application/pdf", buffer: pdf });
+  await page.getByRole("button", { name: "Existing account", exact: true }).click();
+  for (let i = 0; i < 5; i++) await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Continue to Preview" }).click();
+  await page.getByRole("button", { name: "Import 1 Transactions" }).click();
+  await expect(page.getByText("Import complete")).toBeVisible();
+  expect(database.prepare("SELECT date, amount_cents FROM transactions WHERE account_id=(SELECT id FROM accounts WHERE name='Synthetic Card') ORDER BY date").all())
+    .toEqual([{ date: "2001-07-15", amount_cents: -9500 }, { date: "2026-07-15", amount_cents: -9500 }]);
+});
+
 test("Auto-Import All skips rows a 1.3.6 import already holds", async ({ page, database }) => {
   seedLegacyCard(database, [{ date: "2026-08-05", row: grocer }, { date: "2026-08-03", row: coffee }, { date: "2026-08-03", row: coffee, ordinal: 1 }]);
   await page.goto("/import");

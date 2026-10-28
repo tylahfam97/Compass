@@ -126,6 +126,9 @@ describe("parseStatementItems: other layouts", () => {
     ]], today);
     expect(bank.headers).toEqual(["Date", "Description", "Debit", "Credit", "Balance"]);
     expect(bank.rows).toEqual([["2026-07-09", "SAMPLE UTILITY", "80.00", "", "420.00"]]); // balance lines skipped
+    const merchant = parseStatementItems([[t(40, 700, "Date"), t(110, 700, "Description"), t(500, 700, "Amount"),
+      t(40, 680, "07/09/2026"), t(110, 680, "NEW BALANCE ATHLETICS"), t(500, 680, "89.99")]], today);
+    expect(merchant.rows).toEqual([["2026-07-09", "NEW BALANCE ATHLETICS", "89.99"]]);
     expect(bank.warnings).toEqual([]);
     const card = parseStatementItems([[
       t(40, 760, "Billing Period: 08/01/26-08/31/26"),

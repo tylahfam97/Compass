@@ -103,7 +103,11 @@ async function existingLegacyPdfHashes(rows: string[][], accountId: number): Pro
   const byRow = new Map<string[], string>();
   for (const row of rows) {
     const legacy = legacyPdfRows.get(row);
-    if (legacy && parseAmount(legacy[2]) !== 0) byRow.set(row, await dedupeRowHash(legacy, seen));
+    if (!legacy || parseAmount(legacy[2]) === 0) continue;
+    const hash = await dedupeRowHash(legacy, seen);
+    // Only when the old row resolves to the same date: a year-less "07/15" was stored as a wrong
+    // year, and the same charge on next year's statement must not be mistaken for it.
+    if (parseDate(legacy[0]) === row[0]) byRow.set(row, hash);
   }
   if (byRow.size === 0) return byRow;
   const db = await getDb();
