@@ -369,3 +369,39 @@ describe("buildHoldingHeaderMap", () => {
     expect(parsed.sections[0].rows[0].estAnnualIncome).toBeNull();
   });
 });
+
+describe("parseLedgerLiveCSV", () => {
+  // Synthetic Ledger Live export (invented hashes, accounts and values). Ledger documents that an
+  // OUT amount already includes its network fee and an IN amount excludes the sender's fee.
+  const header = ["Operation Date", "Status", "Currency Ticker", "Operation Type", "Operation Amount", "Operation Fees", "Operation Hash", "Account Name", "Account xpub", "Countervalue Ticker", "Countervalue at Operation Date", "Countervalue at CSV Export"];
+  const op = (date: string, status: string, type: string, amount: string, fee: string, hash: string, cvOp: string, cvNow: string, ticker = "XRP") =>
+    [date, status, ticker, type, amount, fee, hash, "Sample Wallet", "xpub-sample", "USD", cvOp, cvNow];
+  const data = [
+    header,
+    op("2026-09-20T15:00:00.000Z", "Confirmed", "OUT", "25.000014", "0.000014", "H3", "50.00", "62.50"),
+    op("2026-09-10T15:00:00.000Z", "Confirmed", "IN", "0.000003", "0.00003", "H2", "0.00", "0.00"),
+    op("2026-09-01T15:00:00.000Z", "Confirmed", "IN", "100.123456", "0.000017", "H1", "200.25", "250.31"),
+    op("2026-09-21T15:00:00.000Z", "Failed", "OUT", "5", "0.00004", "H4", "10.00", "12.50"),
+    op("2026-09-22T15:00:00.000Z", "Confirmed", "NONE", "1", "0", "H5", "2.00", "2.50"),
+    op("not a date", "Confirmed", "IN", "1", "0", "H6", "2.00", "2.50"),
+  ];
+
+  it("is detected and keeps exact units: receipts minus sends, fees not subtracted twice", () => {
+    expect(detectInvestmentFormat(data)).toBe("ledger");
+    const r = parseInvestmentWorkbook(data)!;
+    const [h] = r.sections[0].rows;
+    expect(h).toMatchObject({ securityType: "crypto", symbol: "XRP", shares: 75.123405, costBasis: null });
+    expect(h.price).toBeCloseTo(2.5, 4); // export countervalues are rounded to cents
+    expect(h.marketValue).toBeCloseTo(187.81, 2);
+  });
+
+  it("records operations as transfers with unique ids and reports what it left out", () => {
+    const r = parseInvestmentWorkbook(data)!;
+    expect(r.activity.map((a) => [a.activityType, a.quantity, a.amount])).toEqual([
+      ["transfer", -25.000014, -50], ["transfer", 0.000003, 0], ["transfer", 100.123456, 200.25],
+    ]);
+    expect(new Set(r.activity.map((a) => a.importKey)).size).toBe(3);
+    expect(r.summary).toBeNull();
+    expect(r.notes!.join(" ")).toMatch(/Cost basis is unknown.*1 failed or unconfirmed operation was left out; the network fee of 1 failed send was still subtracted.*1 operation of an unsupported type.*1 unreadable row was skipped/);
+  });
+});

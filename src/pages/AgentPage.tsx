@@ -51,9 +51,9 @@ import { useMilestoneQueue } from "@/hooks/useMilestoneQueue";
 import { CardListSkeleton } from "@/components/Skeleton";
 
 const ROI_SECTION_LABELS: Record<SecurityType, string> = {
-  stock: "Stocks", etf: "ETFs", mutual_fund: "Mutual funds", cash: "Cash", other: "Other",
+  stock: "Stocks", etf: "ETFs", mutual_fund: "Mutual funds", cash: "Cash", crypto: "Crypto", other: "Other",
 };
-const ROI_SECTION_ORDER: SecurityType[] = ["stock", "etf", "mutual_fund", "other", "cash"];
+const ROI_SECTION_ORDER: SecurityType[] = ["stock", "etf", "mutual_fund", "crypto", "other", "cash"];
 
 /** Small standalone benchmark-based score card (Credit Card Health / Investment Health). */
 function MiniScoreCard({
