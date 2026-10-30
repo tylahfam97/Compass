@@ -75,11 +75,16 @@ const test = base.extend<{ database: DatabaseSync }>({
     for (let index = 0; index < 12; index++) {
       insertTransaction.run(date(-Math.floor(index / 3)), ["Green Market Groceries", "Neighborhood Coffee", "City Transit", "Bookshop & Stationery"][index % 4], -[8450, 650, 2400, 3800][index % 4], 100_000, categoryIds[index % 4], `preview-${index}`);
     }
+    // Plan projects this as a detected monthly charge on the day it was last seen. Tie that day to
+    // today so its next occurrence is always 11-14 days out, after the payday below: a fixed day
+    // such as the 1st falls before payday near every month end and moves the Plan low point.
+    // Capped at 28 so every month has the day.
+    const groceryDay = String(Math.min(Number(date(14).slice(-2)), 28)).padStart(2, "0");
     for (const monthsAgo of [1, 2]) {
       const historical = new Date();
       historical.setDate(1);
       historical.setMonth(historical.getMonth() - monthsAgo);
-      const historicalDate = `${historical.getFullYear()}-${String(historical.getMonth() + 1).padStart(2, "0")}-01`;
+      const historicalDate = `${historical.getFullYear()}-${String(historical.getMonth() + 1).padStart(2, "0")}-${groceryDay}`;
       insertTransaction.run(historicalDate, "Prior month groceries", -40_000 - monthsAgo * 5_000, 100_000, categoryIds[0], `historical-${monthsAgo}`);
     }
     const insertRule = database.prepare("INSERT INTO recurring_rules (profile_id,account_id,description,amount_cents,category_id,cadence,day_of_month,start_date) VALUES (1,1,?,?,?,'monthly',?,?)");
