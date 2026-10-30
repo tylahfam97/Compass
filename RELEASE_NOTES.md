@@ -10,14 +10,14 @@
   bucket (a GET answered 200 whose logged bytes equal that version's installer size). Requests
   classified as automation, such as release-verification checks, are excluded from these
   columns. Versions without full verification coverage show "unknown" or note that earlier
-  requests are unknown. (#PR_NUMBER_PENDING)
+  requests are unknown. (#118)
 - **Raw request counts kept as diagnostics.** The raw website request totals (all time, last 30
   days, last 7 days) move to a section labelled diagnostic and including automation, and the
   per-day table header now reads "Installer requests (raw)". The per-version verified table,
-  including its Automation column, is unchanged. (#PR_NUMBER_PENDING)
+  including its Automation column, is unchanged. (#118)
 - **GitHub and updater figures unchanged.** GitHub installer counts are GitHub's own
   download_count and cannot be filtered to exclude automation; they and the in-app update
-  package counts are reported exactly as before. (#PR_NUMBER_PENDING)
+  package counts are reported exactly as before. (#118)
 
 ## Compass 1.3.9 — Open Water 🧭
 
