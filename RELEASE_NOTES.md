@@ -11,18 +11,20 @@ stopped short of the right edge while the sections above and below them did not.
 ### Layout
 - **Overview uses the whole width.** The Accounts table fills its column instead of stopping at
   880px under the full-width net worth chart. It still scrolls sideways inside its own box on a
-  narrow window, and the Profiles rail beside it on very wide windows is unchanged. (#108, maintenance PR pending)
+  narrow window, and the Profiles rail beside it on very wide windows is unchanged. (#108, #115)
 - **The same fix on Dashboard and Insights.** The month bar and the pay-cycle Watch on Dashboard,
   and the Fixed and flexible and Cost of money sections on Insights, now span the page like the
-  sections above and below them instead of stopping at 1040px. (#108, maintenance PR pending)
+  sections above and below them instead of stopping at 1040px. (#108, #115)
 
 ### Download statistics
-- **Refreshed after each release.** The download statistics now regenerate after every
-  successful release-hosting run, so a new version appears without waiting for the nightly run,
-  which remains as the fallback. (#113)
-- **Website transfers are verified.** A website download counts as complete only when the bytes
-  sent equal that installer's known size. Aborted, range (partial) and unverifiable requests are
-  reported in their own buckets. These are request counts, not people or installs. (#114)
+- **Set to refresh after each release.** The download statistics are now configured to
+  regenerate after every successful release-hosting run, so a new version can appear without
+  waiting for the nightly run, which remains as the fallback. (#113)
+- **Website transfers are verified.** A website download counts as complete only when the origin
+  logged a full GET response (status 200) with a positive byte count equal to that version's
+  installer size. Partial (206) responses never count as complete, known automated probes are
+  reported separately, and aborted or unverifiable requests have their own buckets. These are
+  request counts, not people, saved files or installs. (#114)
 
 ## Compass 1.3.8 — True Bearing 🧭
 
