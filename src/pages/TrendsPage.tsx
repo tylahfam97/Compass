@@ -9,7 +9,11 @@ import { motion, AnimatePresence } from "motion/react";
 import { TrendUpIcon, TrendDownIcon } from "@phosphor-icons/react";
 import { getDb } from "@/lib/db";
 import { incomeSumSql, expenseSumSql, categorySpendSql } from "@/lib/reportingSql";
-import { formatCurrency, formatMonthLabel, formatAxisCurrency, combineAccountBalances, separateAccountBalances, accountChartColor, lightenHex } from "@/lib/utils";
+import { formatCurrency, formatMonthLabel, formatAxisCurrency, combineAccountBalances, separateAccountBalances, accountChartColor } from "@/lib/utils";
+import { series, chartTooltipStyle, harmonizeColor } from "@/lib/chartTheme";
+import { summarizeCategories, type CategoryMonthRow, type CategoryMonths, type RankedCategory } from "@/lib/trends";
+import { useIsDark } from "@/hooks/useIsDark";
+import RankedBars from "@/components/RankedBars";
 import { pickVariantIndex } from "@/lib/voice";
 import { useProfileStore } from "@/stores/profileStore";
 import { handleLoadFailure } from "@/stores/toastStore";
@@ -18,8 +22,6 @@ import PinModal from "@/components/PinModal";
 import { Skeleton } from "@/components/Skeleton";
 
 interface MonthRow { month: string; income: number; expenses: number; }
-interface CatMonthRow { month: string; category: string; color: string; categoryId: number | null; total: number; }
-interface StackedRow { month: string; [cat: string]: string | number; }
 interface CumulativeRow { month: string; net: number; running: number; }
 interface CheckingBalanceMonthRow { month: string; balance: number; }
 interface CreditBalanceMonthRow { month: string; [accountKey: string]: string | number; }
@@ -42,10 +44,8 @@ function ProfileTrends() {
     try { sessionStorage.setItem(`compass_trends_view_${currentProfileId}`, String(range)); } catch { return; }
   }, [currentProfileId, range]);
   const [monthly, setMonthly] = useState<MonthRow[]>([]);
-  const [stacked, setStacked] = useState<StackedRow[]>([]);
-  const [catColors, setCatColors] = useState<Record<string, string>>({});
-  const [catIds, setCatIds] = useState<Record<string, number | null>>({});
-  const [catNames, setCatNames] = useState<string[]>([]);
+  const [stacked, setStacked] = useState<CategoryMonths[]>([]);
+  const [ranked, setRanked] = useState<RankedCategory[]>([]);
   const [cumulativeData, setCumulativeData] = useState<CumulativeRow[]>([]);
   const [checkingBalanceMonthly, setCheckingBalanceMonthly] = useState<CheckingBalanceMonthRow[]>([]);
   const [creditBalanceMonthly, setCreditBalanceMonthly] = useState<CreditBalanceMonthRow[]>([]);
@@ -56,6 +56,10 @@ function ProfileTrends() {
   const [loading, setLoading] = useState(true);
 
   const { activeProfile, profiles, unlockedIds, unlockProfile } = useProfileStore();
+  // Stored category/account hexes are a saturated rainbow; pin them to the theme's band.
+  const mode = useIsDark() ? "dark" : "light";
+  const paint = (color: string | null | undefined) => (color ? harmonizeColor(color, mode) : series.neutral);
+  const catNames = useMemo(() => ranked.map((c) => c.name), [ranked]);
   const profileId = activeProfile?.id ?? 1;
 
   const [viewMode, setViewMode] = useState<"profile" | "global">(() => {
@@ -177,7 +181,7 @@ function ProfileTrends() {
            GROUP BY month ORDER BY month`,
           [start, ...ids]
         ),
-        db.select<CatMonthRow[]>(
+        db.select<CategoryMonthRow[]>(
           `SELECT strftime('%Y-%m', t.date) as month, c.name as category, c.color, t.category_id as categoryId,
                   ${categorySpendSql()} as total
            FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
@@ -254,28 +258,9 @@ function ProfileTrends() {
         })
       );
 
-      // Bucket categories
-      const TOP_N = 6;
-      const catTotals: Record<string, number> = {};
-      catRows.forEach(r => { catTotals[r.category] = (catTotals[r.category] ?? 0) + r.total; });
-      const topCats = Object.entries(catTotals).sort(([,a],[,b]) => b-a).slice(0,TOP_N).map(([n]) => n);
-      const topSet = new Set(topCats);
-      const hasOther = catRows.some(r => !topSet.has(r.category));
-      const colorMap: Record<string, string> = {};
-      catRows.forEach(r => { if (topSet.has(r.category)) colorMap[r.category] = r.color; });
-      if (hasOther) colorMap["Other"] = "#9ca3af";
-      setCatColors(colorMap);
-      const idMap: Record<string, number | null> = {};
-      catRows.forEach(r => { if (topSet.has(r.category)) idMap[r.category] = r.categoryId; });
-      setCatIds(idMap);
-      setCatNames([...topCats, ...(hasOther ? ["Other"] : [])]);
-      const byMonth: Record<string, StackedRow> = {};
-      catRows.forEach(r => {
-        if (!byMonth[r.month]) byMonth[r.month] = { month: r.month };
-        const key = topSet.has(r.category) ? r.category : "Other";
-        byMonth[r.month][key] = ((byMonth[r.month][key] as number) ?? 0) + r.total;
-      });
-      setStacked(Object.values(byMonth).sort((a,b) => String(a.month).localeCompare(String(b.month))));
+      const categories = summarizeCategories(catRows);
+      setRanked(categories.ranked);
+      setStacked(categories.months);
       setLoading(false);
     }
     load().catch(handleLoadFailure("your trends", setLoading));
@@ -284,7 +269,9 @@ function ProfileTrends() {
 
   const hasData = monthly.length > 0;
   const allTimeNet = allTimeIncome - allTimeExpenses;
-  const tooltipStyle = { backgroundColor:"hsl(var(--background))",border:"1px solid hsl(var(--border))",borderRadius:"8px",fontSize:"12px",boxShadow:"var(--shadow-raised)" };
+  const tooltipStyle = chartTooltipStyle;
+  const rangeIncome = monthly.reduce((sum, m) => sum + m.income, 0);
+  const rangeExpenses = monthly.reduce((sum, m) => sum + m.expenses, 0);
 
   // Header readouts: each section carries its own figure so a heading is never just a label.
   const currentMonthKey = useMemo(() => {
@@ -296,15 +283,8 @@ function ProfileTrends() {
     if (complete.length === 0) return null;
     return Math.round(complete.reduce((s, m) => s + (m.income - m.expenses), 0) / complete.length);
   }, [monthly, currentMonthKey]);
-  const topCategoryOfRange = useMemo(() => {
-    let best: { name: string; total: number } | null = null;
-    for (const cat of catNames) {
-      if (cat === "Other") continue;
-      const total = stacked.reduce((s, row) => s + Number(row[cat] ?? 0), 0);
-      if (!best || total > best.total) best = { name: cat, total };
-    }
-    return best;
-  }, [stacked, catNames]);
+  const topCategoryOfRange = ranked.find((c) => c.name !== "Other") ?? null;
+  const expandedCat = ranked.find((c) => c.name === expandedCatName);
   const latestChecking = checkingBalanceMonthly.length > 0 ? checkingBalanceMonthly[checkingBalanceMonthly.length - 1] : null;
   const latestCreditTotal = useMemo(() => {
     if (creditBalanceMonthly.length === 0 || creditBalanceAccounts.length === 0) return null;
@@ -420,9 +400,9 @@ function ProfileTrends() {
                   </p>
                 )}
               </div>
-              <div className="trend-legend" aria-hidden="true">
-                <span><i style={{ background: "hsl(var(--success))" }} /> In</span>
-                <span><i style={{ background: "hsl(var(--error))" }} /> Out</span>
+              <div className="trend-legend">
+                <span><i style={{ background: series.income }} /> Income {formatCurrency(rangeIncome)}</span>
+                <span><i style={{ background: series.spending }} /> Expenses {formatCurrency(rangeExpenses)}</span>
               </div>
               <ResponsiveContainer width="100%" height={260}>
                 <BarChart
@@ -436,8 +416,8 @@ function ProfileTrends() {
                   <XAxis dataKey="month" tick={{ fontSize:11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={formatMonthLabel} axisLine={false} tickLine={false} />
                   <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize:11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} width={64} />
                   <Tooltip cursor={false} contentStyle={tooltipStyle} labelFormatter={(l) => formatMonthLabel(String(l))} formatter={v => formatCurrency(v as number)} />
-                  <Bar dataKey="income" name="Income" fill="hsl(var(--success))" radius={[4,4,0,0]} cursor="pointer" background={false} activeBar={{ fill: "hsl(var(--success) / 0.75)" }} />
-                  <Bar dataKey="expenses" name="Expenses" fill="hsl(var(--error))" radius={[4,4,0,0]} cursor="pointer" background={false} activeBar={{ fill: "hsl(var(--error) / 0.75)" }} />
+                  <Bar dataKey="income" name="Income" fill={series.income} radius={[4,4,0,0]} cursor="pointer" background={false} activeBar={{ fillOpacity: 0.75 }} />
+                  <Bar dataKey="expenses" name="Expenses" fill={series.spending} radius={[4,4,0,0]} cursor="pointer" background={false} activeBar={{ fillOpacity: 0.75 }} />
                 </BarChart>
               </ResponsiveContainer>
 
@@ -466,8 +446,8 @@ function ProfileTrends() {
                           {expandedMonthCats.map((c) => (
                             <div key={c.name} className="flex items-center justify-between text-xs py-1">
                               <span className="flex items-center gap-1.5 text-[hsl(var(--muted-foreground))]">
-                                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
-                                {c.name}
+                                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: paint(c.color) }} />
+                                {c.name ?? "Uncategorized"}
                               </span>
                               <span>{formatCurrency(c.total)}</span>
                             </div>
@@ -480,13 +460,13 @@ function ProfileTrends() {
               </AnimatePresence>
             </section>
 
-            {/* Where it went: the same months, cut by category */}
-            {stacked.length > 0 && catNames.length > 0 && (
+            {/* Where it went: the range's spending ranked by category */}
+            {ranked.length > 0 && (
               <section className="trend-section" data-drill>
                 <div className="trend-section-head">
                   <div>
                     <h2 className="font-semibold">Where it went</h2>
-                    <p className="trend-kicker">The top categories stacked month by month. Pick a category, in the chart or below it, to follow its line.</p>
+                    <p className="trend-kicker">Spending by category over the last {range} months, largest first. Pick a category for its month-by-month amounts.</p>
                   </div>
                   {topCategoryOfRange && (
                     <p className="trend-readout">
@@ -495,38 +475,13 @@ function ProfileTrends() {
                     </p>
                   )}
                 </div>
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={stacked} margin={{ left:8,right:8,top:4,bottom:4 }}>
-                    <XAxis dataKey="month" tick={{ fontSize:11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={formatMonthLabel} axisLine={false} tickLine={false} />
-                    <YAxis tickFormatter={formatAxisCurrency} tick={{ fontSize:11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} width={64} />
-                    <Tooltip cursor={false} contentStyle={tooltipStyle} labelFormatter={(l) => formatMonthLabel(String(l))} formatter={v => formatCurrency(v as number)} />
-                    {catNames.map(cat => (
-                      <Bar
-                        key={cat}
-                        dataKey={cat}
-                        stackId="cats"
-                        fill={catColors[cat] ?? "#9ca3af"}
-                        cursor="pointer"
-                        background={false}
-                        activeBar={{ fill: lightenHex(catColors[cat] ?? "#9ca3af") }}
-                        onClick={() => toggleCatSegmentExpand(cat)}
-                        opacity={expandedCatName && expandedCatName !== cat ? 0.4 : 1}
-                      />
-                    ))}
-                  </BarChart>
-                </ResponsiveContainer>
-                <div className="trend-chips" role="group" aria-label="Categories">
-                  {catNames.map((cat) => (
-                    <button
-                      key={cat}
-                      onClick={() => toggleCatSegmentExpand(cat)}
-                      aria-pressed={expandedCatName === cat}
-                    >
-                      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: catColors[cat] ?? "#9ca3af" }} />
-                      {cat}
-                    </button>
-                  ))}
-                </div>
+                <RankedBars
+                  items={ranked.map((c) => ({ key: c.name, name: c.name, value: c.total, color: paint(c.color) }))}
+                  formatValue={formatCurrency}
+                  context={`of spending over ${range} months`}
+                  onSelect={(item) => toggleCatSegmentExpand(item.name)}
+                  selectedKey={expandedCatName}
+                />
 
                 <AnimatePresence initial={false} mode="wait">
                   {expandedCatName && (
@@ -540,13 +495,13 @@ function ProfileTrends() {
                       <div className="mt-1 pt-3 border-t">
                         <div className="flex items-center justify-between mb-2">
                           <p className="text-xs font-semibold flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: catColors[expandedCatName] ?? "#9ca3af" }} />
+                            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: paint(expandedCat?.color) }} />
                             {expandedCatName} trend
                           </p>
-                          {catIds[expandedCatName] !== undefined && (
+                          {expandedCat?.categoryId != null && (
                             <Link
                               to="/transactions"
-                              state={{ category: catIds[expandedCatName] }}
+                              state={{ category: expandedCat.categoryId }}
                               className="text-[11px] text-[hsl(var(--gold-ink))] hover:underline"
                             >
                               View all
@@ -633,7 +588,7 @@ function ProfileTrends() {
                     <ReferenceLine y={0} stroke="hsl(var(--border))" strokeDasharray="3 3" />
                     {creditBalanceAccounts.map((acc) => (
                       <Line key={acc.id} type="monotone" dataKey={String(acc.id)} name={acc.name}
-                        stroke={acc.color} strokeWidth={2} dot={false} />
+                        stroke={paint(acc.color)} strokeWidth={2} dot={false} />
                     ))}
                   </LineChart>
                 </ResponsiveContainer>
@@ -642,7 +597,7 @@ function ProfileTrends() {
                   <div className="flex flex-wrap gap-3 mt-3">
                     {creditBalanceAccounts.map((acc) => (
                       <span key={acc.id} className="flex items-center gap-1.5 text-[10px] text-[hsl(var(--muted-foreground))]">
-                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: acc.color }} />
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: paint(acc.color) }} />
                         {acc.name}
                       </span>
                     ))}
@@ -668,7 +623,7 @@ function ProfileTrends() {
                             return (
                               <div key={acc.id} className="flex items-center justify-between text-xs py-1">
                                 <span className="flex items-center gap-1.5 text-[hsl(var(--muted-foreground))]">
-                                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: acc.color }} />
+                                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: paint(acc.color) }} />
                                   {acc.name}
                                 </span>
                                 <span className={cents < 0 ? "text-[hsl(var(--error))] font-medium" : "font-medium"}>{formatCurrency(cents)}</span>

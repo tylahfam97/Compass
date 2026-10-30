@@ -2,8 +2,11 @@ import { test as base, expect } from "@playwright/test";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { createHash } from "node:crypto";
 
-const test = base.extend<{ database: DatabaseSync }>({
-  database: async ({ page }, use) => {
+const test = base.extend<{ database: DatabaseSync; today: Date | undefined }>({
+  // Seeds dates from this day and, when set, pins the browser's Date to it too (timers keep running).
+  today: [undefined, { option: true }],
+  database: async ({ page, today }, use) => {
+    if (today) await page.clock.setFixedTime(today);
     const database = new DatabaseSync(":memory:");
     await page.exposeBinding("compassTestInvoke", async (_source, command: string, args: { sql?: string; params?: SQLInputValue[]; statements?: { sql: string; params?: SQLInputValue[] }[] } = {}) => {
       if (command === "db_select") return database.prepare(args.sql!).all(...(args.params ?? []));
@@ -63,7 +66,7 @@ const test = base.extend<{ database: DatabaseSync }>({
     await page.goto("/plan");
     await expect(page.getByText("No checking account yet", { exact: true })).toBeVisible();
     const date = (offset: number) => {
-      const value = new Date();
+      const value = new Date(today ?? Date.now());
       value.setDate(value.getDate() + offset);
       return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
     };
@@ -72,8 +75,11 @@ const test = base.extend<{ database: DatabaseSync }>({
     const category = (name: string) => Number(database.prepare("SELECT id FROM categories WHERE name=? LIMIT 1").get(name)?.id ?? 15);
     const categoryIds = ["Groceries", "Food & Dining", "Transportation", "Shopping"].map(category);
     const insertTransaction = database.prepare("INSERT INTO transactions (account_id,profile_id,date,description,amount_cents,balance_cents,category_id,import_hash) VALUES (1,1,?,?,?,?,?,?)");
+    // Recent activity spans up to three days back but never before the 1st, so month-scoped views
+    // (Reports' $459.00, Transactions' three Green Market rows) hold all 12 rows on the 1st-3rd too.
+    const daysIntoMonth = Number(date(0).slice(-2)) - 1;
     for (let index = 0; index < 12; index++) {
-      insertTransaction.run(date(-Math.floor(index / 3)), ["Green Market Groceries", "Neighborhood Coffee", "City Transit", "Bookshop & Stationery"][index % 4], -[8450, 650, 2400, 3800][index % 4], 100_000, categoryIds[index % 4], `preview-${index}`);
+      insertTransaction.run(date(-Math.min(Math.floor(index / 3), daysIntoMonth)), ["Green Market Groceries", "Neighborhood Coffee", "City Transit", "Bookshop & Stationery"][index % 4], -[8450, 650, 2400, 3800][index % 4], 100_000, categoryIds[index % 4], `preview-${index}`);
     }
     // Plan projects this as a detected monthly charge on the day it was last seen. Tie that day to
     // today so its next occurrence is always 11-14 days out, after the payday below: a fixed day
@@ -81,7 +87,7 @@ const test = base.extend<{ database: DatabaseSync }>({
     // Capped at 28 so every month has the day.
     const groceryDay = String(Math.min(Number(date(14).slice(-2)), 28)).padStart(2, "0");
     for (const monthsAgo of [1, 2]) {
-      const historical = new Date();
+      const historical = new Date(today ?? Date.now());
       historical.setDate(1);
       historical.setMonth(historical.getMonth() - monthsAgo);
       const historicalDate = `${historical.getFullYear()}-${String(historical.getMonth() + 1).padStart(2, "0")}-${groceryDay}`;
@@ -100,7 +106,12 @@ const test = base.extend<{ database: DatabaseSync }>({
   },
 });
 
-test("Plan preserves red deficits and updates the scenario immediately", async ({ page, database }) => {
+// The Plan forecast runs from the browser's today, so these figures need a fixed one: a mid-month
+// noon puts Rent (day+1) and Paycheck (day+4) before the 1st-of-month grocery estimate, away from
+// month ends and DST changes. Real-date runs fail whenever the 1st falls before payday.
+const planTest = test.extend({ today: new Date(2026, 5, 15, 12) });
+
+planTest("Plan preserves red deficits and updates the scenario immediately", async ({ page, database }) => {
   expect(database.isOpen).toBe(true);
   await page.reload();
   const amount = page.getByTestId("safe-to-spend");
@@ -124,7 +135,7 @@ test("Plan preserves red deficits and updates the scenario immediately", async (
   await expect(page.locator(".plan-rules")).toHaveAttribute("open", "");
 });
 
-test("Plan purchase preview is inspectable and never writes transactions", async ({ page, database }, testInfo) => {
+planTest("Plan purchase preview is inspectable and never writes transactions", async ({ page, database }, testInfo) => {
   const before = database.prepare('SELECT COUNT(*) AS total FROM transactions').get()?.total;
   await page.reload();
   await page.getByLabel('Hypothetical purchase amount').fill('250.01');
@@ -169,7 +180,7 @@ test("Plan purchase preview is inspectable and never writes transactions", async
   expect(database.prepare('SELECT COUNT(*) AS total FROM transactions').get()?.total).toBe(before);
 });
 
-test("Plan marks missing balances and respects playback motion preferences", async ({ page, database }) => {
+planTest("Plan marks missing balances and respects playback motion preferences", async ({ page, database }) => {
   database.prepare("INSERT INTO accounts (name,account_type,profile_id) VALUES ('Unrecorded checking','checking',1)").run();
   await page.reload();
   await expect(page.getByTestId('safe-to-spend')).toHaveText('Unavailable');
@@ -456,6 +467,37 @@ test("Budgets shows negative net usage without rolling over net credits", async 
   await expect(budget).toContainText('Next carry: $200.00');
   await expect(budget).toContainText('Credits exceed debits');
   await expect(budget).not.toContainText('Daily allowance');
+});
+
+test("Trends ranks range spending by category and keeps profiles apart", async ({ page, database }) => {
+  // The fixture's spending: Groceries $253.50 recent + $450 and $500 in the two prior months,
+  // Shopping $114, Transportation $72, Food & Dining $19.50; all inside the 3-month range.
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  database.prepare("INSERT INTO profiles(id,name,avatar_color) VALUES (2,'Second profile','#0284c7')").run();
+  database.prepare("INSERT INTO accounts (id,name,account_type,profile_id) VALUES (2,'Second checking','checking',2)").run();
+  database.prepare("INSERT INTO transactions (account_id,profile_id,date,description,amount_cents,category_id,import_hash) VALUES (2,2,?,'Second profile shopping',-99900,(SELECT id FROM categories WHERE name='Shopping' LIMIT 1),'second-profile')").run(today);
+  await page.goto("/trends");
+  await page.getByRole("button", { name: /Preview profile/ }).click();
+  const section = page.locator(".trend-section").filter({ hasText: "Where it went" });
+  const rows = section.locator(".ranked-bars > button");
+  await expect(page.locator(".trend-legend")).toContainText("Expenses $1,409.00");
+  await expect(rows.locator("span.truncate")).toHaveText(["Groceries", "Shopping", "Transportation", "Food & Dining"]);
+  await expect(section.getByRole("img", { name: "Groceries: $1,203.50, 85% of spending over 6 months" })).toBeVisible();
+  await expect(section.getByRole("img", { name: "Food & Dining: $19.50, 1% of spending over 6 months" })).toBeVisible();
+
+  await rows.filter({ hasText: "Shopping" }).click();
+  await expect(rows.filter({ hasText: "Shopping" })).toHaveAttribute("aria-pressed", "true");
+  await expect(section.getByText("Shopping trend")).toBeVisible();
+  await expect(section.getByRole("link", { name: "View all" })).toBeVisible();
+
+  await page.getByRole("group", { name: "Range" }).getByRole("button", { name: "3mo" }).click();
+  await expect(section.getByRole("img", { name: "Groceries: $1,203.50, 85% of spending over 3 months" })).toBeVisible();
+
+  await page.getByRole("switch").click();
+  await expect(page.locator(".trend-legend")).toContainText("Expenses $2,408.00");
+  await expect(rows.locator("span.truncate")).toHaveText(["Groceries", "Shopping", "Transportation", "Food & Dining"]);
+  await expect(section.getByRole("img", { name: "Shopping: $1,113.00, 46% of spending over 3 months" })).toBeVisible();
 });
 
 test("Reports uses exact selected dates and opens expense details", async ({ page, database }) => {

@@ -407,9 +407,13 @@ def build_page(meta, releases, per_version, per_day_totals, revalidated, win_tot
 
     rows, vrows = [], []
     for v in versions:
-        pv = per_version.get(v, {f: 0 for f in FAMILIES})
+        # Site columns: verified complete only (automation excluded); raw stays diagnostic.
+        fc = sv["per_version_family"].get(v)
+        cov_v = vcov.get(v, "none")
+        pv = {**(fc or dict.fromkeys(FAMILIES, 0)), "total": sum((fc or {}).values())}
+        pv = {k: n if cov_v == "full" else "unknown" if fc is None else f"{n} (earlier unknown)"
+              for k, n in pv.items()}
         gh = gh_by_version.get(v)
-        site_sum = sum(pv.values())
         cls = ' class="pre"' if gh and gh["prerelease"] else ""
         rows.append(
             f'<tr{cls}>'
@@ -418,7 +422,7 @@ def build_page(meta, releases, per_version, per_day_totals, revalidated, win_tot
             f'<td>{gh["total"] if gh else "—"}</td>'
             f'<td>{gh.get("updater", 0) if gh else "—"}</td>'
             f'<td>{pv["exe"]}</td><td>{pv["msi"]}</td><td>{pv["dmg"]}</td>'
-            f'<td>{site_sum}</td></tr>')
+            f'<td>{pv["total"]}</td></tr>')
         if v in vpv or v in vcov:
             b = vpv.get(v, dict.fromkeys(BUCKETS, 0))
             cov = vcov.get(v, "none")
@@ -450,26 +454,29 @@ def build_page(meta, releases, per_version, per_day_totals, revalidated, win_tot
 <div class="card"><strong>{gh_total}</strong><small>GitHub installer fetches, all time</small></div>
 <div class="card"><strong>{upd_total}</strong><small>GitHub in-app update packages, all time</small></div>
 <div class="card"><strong>{v_total}</strong><small>website verified complete transfers, since {since[:10]}</small></div>
-<div class="card"><strong>{site_total}</strong><small>website installer requests (raw), recorded</small></div>
-<div class="card"><strong>{win_totals["30d"]}</strong><small>website requests (raw), last 30 days</small></div>
-<div class="card"><strong>{win_totals["7d"]}</strong><small>website requests (raw), last 7 days</small></div>
 </div>
 <h2>WHAT IS COUNTED</h2>
 <ul class="notes">
 <li><b>GitHub installers</b>: GitHub's download_count for each release's .exe, .msi and .dmg. GitHub counts every fetch, including automation: the Host Release Downloads job fetches each hosted installer once per stable release, and other fetches may also be automated. Nothing is subtracted.</li>
 <li><b>GitHub updates</b>: download_count of the .nsis.zip package that the in-app updater installs (via latest.json). Shown separately and not added to any total. Signatures, latest.json and other assets are not counted anywhere.</li>
-<li><b>Website</b>: GET requests for /downloads/*.exe|.msi|.dmg answered 200 or 206 by the server (compass.access.log). Repeated 206 range requests for one file from the same address and user agent on one log day count once. HEAD requests and 304 responses are not counted.</li>
+<li><b>Website (raw, diagnostic only)</b>: GET requests for /downloads/*.exe|.msi|.dmg answered 200 or 206 by the server (compass.access.log). Repeated 206 range requests for one file from the same address and user agent on one log day count once. HEAD requests and 304 responses are not counted.</li>
 <li><b>Origin 304</b>: conditional requests answered "not modified", e.g. Cloudflare revalidating a cached installer. Shown for context only; a 304 is not proof of a completed download, and downloads served from a cache without contacting the server are not visible here.</li>
-<li><b>Website verified</b> (rule {sv["rule"]}, from log lines since {since}): {e(sv["basis"])} <i>Incomplete</i> = 200 with fewer/other bytes; <i>Partial</i> = 206 range responses (never promoted); <i>Unverifiable</i> = no known size or version; <i>Automation</i> = our own checks or self-declared crawlers. Requests before {since} have unknown verification. GitHub and website figures are different measures and are not added together.</li>
+<li><b>Website verified</b> (rule {sv["rule"]}, from log lines since {since}): {e(sv["basis"])} <i>Incomplete</i> = 200 with fewer/other bytes; <i>Partial</i> = 206 range responses (never promoted); <i>Unverifiable</i> = no known size or version; <i>Automation</i> = our own checks or self-declared crawlers. Requests before {since} have unknown verification. The BY VERSION site columns show only these complete transfers; automation is excluded there and listed in the verified table. GitHub and website figures are different measures and are not added together.</li>
 </ul>
 <h2>BY VERSION</h2>
-<table><thead><tr><th>Version</th><th>Published</th><th>GitHub installers</th><th>GitHub updates</th><th>Site .exe</th><th>Site .msi</th><th>Site .dmg</th><th>Site requests (raw)</th></tr></thead>
+<table><thead><tr><th>Version</th><th>Published</th><th>GitHub installers</th><th>GitHub updates</th><th>Site verified .exe</th><th>Site verified .msi</th><th>Site verified .dmg</th><th>Site verified complete</th></tr></thead>
 <tbody>{"".join(rows) or '<tr><td colspan="8">Nothing recorded yet.</td></tr>'}</tbody></table>
 <h2>WEBSITE VERIFIED TRANSFERS BY VERSION</h2>
 <table><thead><tr><th>Version</th><th>Complete</th><th>Incomplete 200</th><th>Partial 206</th><th>Unverifiable</th><th>Automation</th><th>Coverage</th></tr></thead>
 <tbody>{"".join(vrows) or '<tr><td colspan="7">No log lines verified yet.</td></tr>'}</tbody></table>
+<h2>WEBSITE RAW REQUESTS (DIAGNOSTIC, INCLUDES AUTOMATION)</h2>
+<div class="cards">
+<div class="card"><strong>{site_total}</strong><small>website installer requests (raw), recorded</small></div>
+<div class="card"><strong>{win_totals["30d"]}</strong><small>website requests (raw), last 30 days</small></div>
+<div class="card"><strong>{win_totals["7d"]}</strong><small>website requests (raw), last 7 days</small></div>
+</div>
 <h2>WEBSITE, LAST 14 RECORDED DAYS (SERVER LOG DATE)</h2>
-<table><thead><tr><th>Day</th><th>Installer requests</th><th>Origin 304 (not counted)</th></tr></thead>
+<table><thead><tr><th>Day</th><th>Installer requests (raw)</th><th>Origin 304 (not counted)</th></tr></thead>
 <tbody>{"".join(day_rows) or '<tr><td colspan="3">Nothing recorded yet.</td></tr>'}</tbody></table>
 <footer>Generated {e(meta["updated"])} · refreshed daily around 06:17 UTC · GitHub fetched {e(meta["github_fetched"] or "never")} ·
 logs read this run cover {cov_txt} · website history begins when tracking began; GitHub counts are complete history from the API.</footer>
@@ -534,11 +541,14 @@ def main():
     per_version, per_day_totals, win_totals = rollup(state["website"])  # before saving: bad state fails here
     vfrom = state.get("site_verified_from")
     v_per_version, v_per_day, v_coverage = rollup_verified(state["site_verified"], state["website"], vfrom)
+    v_family = rollup({d: {f: {v: b.get("complete", 0) for v, b in vers.items()} for f, vers in fams.items()}
+                       for d, fams in state["site_verified"].items()})[0]
     save_state(state)
     meta = {"updated": state["updated"], "github_fetched": github["fetched"],
             "github_error": gh_error, "log_coverage": coverage}
     site_verified = {"rule": VERIFIED_RULE, "since": vfrom, "basis": VERIFIED_BASIS,
-                     "per_version": v_per_version, "per_day": v_per_day, "coverage": v_coverage}
+                     "per_version": v_per_version, "per_version_family": v_family,
+                     "per_day": v_per_day, "coverage": v_coverage}
     releases = github["releases"]
 
     out_dir.mkdir(parents=True, exist_ok=True)
