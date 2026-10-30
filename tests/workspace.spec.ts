@@ -2,8 +2,11 @@ import { test as base, expect } from "@playwright/test";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { createHash } from "node:crypto";
 
-const test = base.extend<{ database: DatabaseSync }>({
-  database: async ({ page }, use) => {
+const test = base.extend<{ database: DatabaseSync; today: Date | undefined }>({
+  // Seeds dates from this day and, when set, pins the browser's Date to it too (timers keep running).
+  today: [undefined, { option: true }],
+  database: async ({ page, today }, use) => {
+    if (today) await page.clock.setFixedTime(today);
     const database = new DatabaseSync(":memory:");
     await page.exposeBinding("compassTestInvoke", async (_source, command: string, args: { sql?: string; params?: SQLInputValue[]; statements?: { sql: string; params?: SQLInputValue[] }[] } = {}) => {
       if (command === "db_select") return database.prepare(args.sql!).all(...(args.params ?? []));
@@ -63,7 +66,7 @@ const test = base.extend<{ database: DatabaseSync }>({
     await page.goto("/plan");
     await expect(page.getByText("No checking account yet", { exact: true })).toBeVisible();
     const date = (offset: number) => {
-      const value = new Date();
+      const value = new Date(today ?? Date.now());
       value.setDate(value.getDate() + offset);
       return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
     };
@@ -76,7 +79,7 @@ const test = base.extend<{ database: DatabaseSync }>({
       insertTransaction.run(date(-Math.floor(index / 3)), ["Green Market Groceries", "Neighborhood Coffee", "City Transit", "Bookshop & Stationery"][index % 4], -[8450, 650, 2400, 3800][index % 4], 100_000, categoryIds[index % 4], `preview-${index}`);
     }
     for (const monthsAgo of [1, 2]) {
-      const historical = new Date();
+      const historical = new Date(today ?? Date.now());
       historical.setDate(1);
       historical.setMonth(historical.getMonth() - monthsAgo);
       const historicalDate = `${historical.getFullYear()}-${String(historical.getMonth() + 1).padStart(2, "0")}-01`;
@@ -95,7 +98,12 @@ const test = base.extend<{ database: DatabaseSync }>({
   },
 });
 
-test("Plan preserves red deficits and updates the scenario immediately", async ({ page, database }) => {
+// The Plan forecast runs from the browser's today, so these figures need a fixed one: a mid-month
+// noon puts Rent (day+1) and Paycheck (day+4) before the 1st-of-month grocery estimate, away from
+// month ends and DST changes. Real-date runs fail whenever the 1st falls before payday.
+const planTest = test.extend({ today: new Date(2026, 5, 15, 12) });
+
+planTest("Plan preserves red deficits and updates the scenario immediately", async ({ page, database }) => {
   expect(database.isOpen).toBe(true);
   await page.reload();
   const amount = page.getByTestId("safe-to-spend");
@@ -119,7 +127,7 @@ test("Plan preserves red deficits and updates the scenario immediately", async (
   await expect(page.locator(".plan-rules")).toHaveAttribute("open", "");
 });
 
-test("Plan purchase preview is inspectable and never writes transactions", async ({ page, database }, testInfo) => {
+planTest("Plan purchase preview is inspectable and never writes transactions", async ({ page, database }, testInfo) => {
   const before = database.prepare('SELECT COUNT(*) AS total FROM transactions').get()?.total;
   await page.reload();
   await page.getByLabel('Hypothetical purchase amount').fill('250.01');
@@ -164,7 +172,7 @@ test("Plan purchase preview is inspectable and never writes transactions", async
   expect(database.prepare('SELECT COUNT(*) AS total FROM transactions').get()?.total).toBe(before);
 });
 
-test("Plan marks missing balances and respects playback motion preferences", async ({ page, database }) => {
+planTest("Plan marks missing balances and respects playback motion preferences", async ({ page, database }) => {
   database.prepare("INSERT INTO accounts (name,account_type,profile_id) VALUES ('Unrecorded checking','checking',1)").run();
   await page.reload();
   await expect(page.getByTestId('safe-to-spend')).toHaveText('Unavailable');
