@@ -75,11 +75,16 @@ const test = base.extend<{ database: DatabaseSync }>({
     for (let index = 0; index < 12; index++) {
       insertTransaction.run(date(-Math.floor(index / 3)), ["Green Market Groceries", "Neighborhood Coffee", "City Transit", "Bookshop & Stationery"][index % 4], -[8450, 650, 2400, 3800][index % 4], 100_000, categoryIds[index % 4], `preview-${index}`);
     }
+    // Plan projects this as a detected monthly charge on the day it was last seen. Tie that day to
+    // today so its next occurrence is always 11-14 days out, after the payday below: a fixed day
+    // such as the 1st falls before payday near every month end and moves the Plan low point.
+    // Capped at 28 so every month has the day.
+    const groceryDay = String(Math.min(Number(date(14).slice(-2)), 28)).padStart(2, "0");
     for (const monthsAgo of [1, 2]) {
       const historical = new Date();
       historical.setDate(1);
       historical.setMonth(historical.getMonth() - monthsAgo);
-      const historicalDate = `${historical.getFullYear()}-${String(historical.getMonth() + 1).padStart(2, "0")}-01`;
+      const historicalDate = `${historical.getFullYear()}-${String(historical.getMonth() + 1).padStart(2, "0")}-${groceryDay}`;
       insertTransaction.run(historicalDate, "Prior month groceries", -40_000 - monthsAgo * 5_000, 100_000, categoryIds[0], `historical-${monthsAgo}`);
     }
     const insertRule = database.prepare("INSERT INTO recurring_rules (profile_id,account_id,description,amount_cents,category_id,cadence,day_of_month,start_date) VALUES (1,1,?,?,?,'monthly',?,?)");
@@ -275,6 +280,26 @@ test("Insights leads with full-width financial context above review", async ({ p
       return Math.abs(context.width - available) <= 1 && review.top >= context.bottom && Math.abs(review.width - context.width) <= 1;
     })).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`insights-context-first-${width}.png`) });
+  }
+});
+
+// #108: on a wide window these sections used to stop at a fixed cap and leave the right empty.
+test("wide sections span their column on a wide window", async ({ page, database }) => {
+  // A fortnightly payroll in the past drives the Watch (detected cycle) and Fixed and flexible
+  // (complete months with income); the base fixture has neither.
+  const deposit = database.prepare("INSERT INTO transactions (account_id,profile_id,date,description,amount_cents,balance_cents,category_id,import_hash) VALUES (1,1,date('now','localtime',?),'Payroll deposit',300000,100000,(SELECT id FROM categories WHERE name='Income'),?)");
+  for (const days of [1, 15, 29, 43]) deposit.run(`-${days} days`, `payroll-${days}`);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.setViewportSize({ width: 2560, height: 1000 });
+  for (const [route, selector] of [['/overview', '.overview-roster table'], ['/', '.bearing, .pay-watch'], ['/agent', '.fixed-flex, .cost-of-money']]) {
+    await page.goto(route);
+    for (const part of selector.split(', ')) await expect(page.locator(part).first()).toBeVisible();
+    await expect.poll(() => page.evaluate((sel) => [...document.querySelectorAll(sel)].filter((element) => {
+      const parent = element.parentElement!;
+      const style = getComputedStyle(parent);
+      const available = parent.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      return Math.abs(element.getBoundingClientRect().width - available) > 1;
+    }).map((element) => element.className), selector), { message: route }).toEqual([]);
   }
 });
 

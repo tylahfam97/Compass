@@ -769,7 +769,6 @@ body::after {
 .account-row[data-hidden="true"] { opacity: 0.55; }
 .account-row-main { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 12px; align-items: center; text-align: left; min-width: 0; padding: 4px 6px; margin: -4px -6px; border-radius: var(--radius-md); transition: background-color 120ms ease; }
 .account-row-main:hover { background: hsl(var(--foreground) / 0.04); }
-.bearing { max-width: 1040px; }
 .bearing-track { position: relative; display: flex; height: 8px; border-radius: 4px; background: hsl(var(--muted)); }
 .bearing-seg { height: 100%; transform-origin: left center; }
 .bearing-seg:first-child { border-radius: 4px 0 0 4px; }
@@ -784,7 +783,7 @@ body::after {
 .bearing-seg-unknown { background: hsl(var(--foreground) / 0.25); }
 .bearing-seg-over { background: hsl(var(--warning)); }
 /* Fixed and flexible instrument (Insights) */
-.fixed-flex { max-width: 1040px; padding-bottom: 24px; border-bottom: 1px solid hsl(var(--border)); }
+.fixed-flex { padding-bottom: 24px; border-bottom: 1px solid hsl(var(--border)); }
 .fixed-flex .stat-row { border-bottom: 0; padding-bottom: 0; }
 /* Insight rows: icon, text, money figure, dismiss */
 .insight-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto 16px; gap: 0 14px; padding: 14px 0; border-bottom: 1px solid hsl(var(--border) / 0.6); transition: background-color 120ms ease; }
@@ -845,9 +844,9 @@ body::after {
    than widening the page. [data-num] carries the alignment so a Tailwind text utility
    never has to outrank these selectors. */
 .overview-roster { overflow-x: auto; max-width: 100%; }
-/* Five columns never need the full width of a wide window; capping it keeps the name and
-   its balance in one eyeful instead of separated by a field of empty space. */
-.overview-roster table { width: 100%; min-width: 520px; max-width: 880px; border-collapse: collapse; }
+/* The roster spans its column like every other section; a fixed cap here left the right of
+   a wide window empty beneath the full-width soundings (#108). */
+.overview-roster table { width: 100%; min-width: 520px; border-collapse: collapse; }
 .overview-roster [data-num] { text-align: right; }
 .overview-roster thead th { font-size: 11px; font-weight: 500; color: hsl(var(--muted-foreground)); text-align: left; padding: 0 12px 8px 0; border-bottom: 1px solid hsl(var(--border)); }
 .overview-roster tbody th[scope="colgroup"] { font-size: 12px; font-weight: 600; color: hsl(var(--muted-foreground)); text-align: left; padding: 18px 0 4px; border: 0; }
@@ -1068,7 +1067,7 @@ body::after {
 
 /* ── Cost of money (Insights) ────────────────────────────────────────────────
    Paid and earned as two lengths of one scale, the live accrual as two plain figures. */
-.cost-of-money { max-width: 1040px; padding-bottom: 24px; border-bottom: 1px solid hsl(var(--border)); }
+.cost-of-money { padding-bottom: 24px; border-bottom: 1px solid hsl(var(--border)); }
 .cost-of-money .stat-row { border-bottom: 0; padding-bottom: 0; }
 .cost-tracks { display: grid; gap: 8px; max-width: 640px; }
 .cost-track-row { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 12px; align-items: center; font-size: 12px; color: hsl(var(--muted-foreground)); }
@@ -1086,7 +1085,7 @@ body::after {
 }
 
 /* ── The Watch (Dashboard): this pay cycle against the usual curve ───────────── */
-.pay-watch { max-width: 1040px; border-top: 1px solid hsl(var(--border)); padding-top: 20px; }
+.pay-watch { border-top: 1px solid hsl(var(--border)); padding-top: 20px; }
 .pay-watch .stat-row { border-bottom: 0; padding-bottom: 0; }
 .pay-watch-plot { width: 100%; }
 .pay-watch-axis { stroke: hsl(var(--border)); }
