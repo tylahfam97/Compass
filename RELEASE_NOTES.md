@@ -2,6 +2,23 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.10 — Verified Transfers 🧭
+
+### Download statistics
+- **Website columns show verified complete transfers only.** On the download statistics page,
+  the BY VERSION Site .exe, .msi and .dmg columns and their total now show the verified complete
+  bucket (a GET answered 200 whose logged bytes equal that version's installer size). Requests
+  classified as automation, such as release-verification checks, are excluded from these
+  columns. Versions without full verification coverage show "unknown" or note that earlier
+  requests are unknown. (#PR_NUMBER_PENDING)
+- **Raw request counts kept as diagnostics.** The raw website request totals (all time, last 30
+  days, last 7 days) move to a section labelled diagnostic and including automation, and the
+  per-day table header now reads "Installer requests (raw)". The per-version verified table,
+  including its Automation column, is unchanged. (#PR_NUMBER_PENDING)
+- **GitHub and updater figures unchanged.** GitHub installer counts are GitHub's own
+  download_count and cannot be filtered to exclude automation; they and the in-app update
+  package counts are reported exactly as before. (#PR_NUMBER_PENDING)
+
 ## Compass 1.3.9 — Open Water 🧭
 
 Wide windows no longer leave a field of empty space beside the content. Several sections had a
