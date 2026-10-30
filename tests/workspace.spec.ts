@@ -72,8 +72,11 @@ const test = base.extend<{ database: DatabaseSync }>({
     const category = (name: string) => Number(database.prepare("SELECT id FROM categories WHERE name=? LIMIT 1").get(name)?.id ?? 15);
     const categoryIds = ["Groceries", "Food & Dining", "Transportation", "Shopping"].map(category);
     const insertTransaction = database.prepare("INSERT INTO transactions (account_id,profile_id,date,description,amount_cents,balance_cents,category_id,import_hash) VALUES (1,1,?,?,?,?,?,?)");
+    // Recent activity spans up to three days back but never before the 1st, so month-scoped views
+    // (Reports' $459.00, Transactions' three Green Market rows) hold all 12 rows on the 1st-3rd too.
+    const daysIntoMonth = Number(date(0).slice(-2)) - 1;
     for (let index = 0; index < 12; index++) {
-      insertTransaction.run(date(-Math.floor(index / 3)), ["Green Market Groceries", "Neighborhood Coffee", "City Transit", "Bookshop & Stationery"][index % 4], -[8450, 650, 2400, 3800][index % 4], 100_000, categoryIds[index % 4], `preview-${index}`);
+      insertTransaction.run(date(-Math.min(Math.floor(index / 3), daysIntoMonth)), ["Green Market Groceries", "Neighborhood Coffee", "City Transit", "Bookshop & Stationery"][index % 4], -[8450, 650, 2400, 3800][index % 4], 100_000, categoryIds[index % 4], `preview-${index}`);
     }
     // Plan projects this as a detected monthly charge on the day it was last seen. Tie that day to
     // today so its next occurrence is always 11-14 days out, after the payday below: a fixed day
