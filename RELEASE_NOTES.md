@@ -2,6 +2,28 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.9 — Open Water 🧭
+
+Wide windows no longer leave a field of empty space beside the content. Several sections had a
+fixed width cap while the page around them spans the whole workspace, so on a large screen they
+stopped short of the right edge while the sections above and below them did not.
+
+### Layout
+- **Overview uses the whole width.** The Accounts table fills its column instead of stopping at
+  880px under the full-width net worth chart. It still scrolls sideways inside its own box on a
+  narrow window, and the Profiles rail beside it on very wide windows is unchanged. (#108, maintenance PR pending)
+- **The same fix on Dashboard and Insights.** The month bar and the pay-cycle Watch on Dashboard,
+  and the Fixed and flexible and Cost of money sections on Insights, now span the page like the
+  sections above and below them instead of stopping at 1040px. (#108, maintenance PR pending)
+
+### Download statistics
+- **Refreshed after each release.** The download statistics now regenerate after every
+  successful release-hosting run, so a new version appears without waiting for the nightly run,
+  which remains as the fallback. (#113)
+- **Website transfers are verified.** A website download counts as complete only when the bytes
+  sent equal that installer's known size. Aborted, range (partial) and unverifiable requests are
+  reported in their own buckets. These are request counts, not people or installs. (#114)
+
 ## Compass 1.3.8 — True Bearing 🧭
 
 Investments now opens with what your portfolio is worth and which account each figure comes

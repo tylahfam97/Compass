@@ -278,6 +278,26 @@ test("Insights leads with full-width financial context above review", async ({ p
   }
 });
 
+// #108: on a wide window these sections used to stop at a fixed cap and leave the right empty.
+test("wide sections span their column on a wide window", async ({ page, database }) => {
+  // A fortnightly payroll in the past drives the Watch (detected cycle) and Fixed and flexible
+  // (complete months with income); the base fixture has neither.
+  const deposit = database.prepare("INSERT INTO transactions (account_id,profile_id,date,description,amount_cents,balance_cents,category_id,import_hash) VALUES (1,1,date('now','localtime',?),'Payroll deposit',300000,100000,(SELECT id FROM categories WHERE name='Income'),?)");
+  for (const days of [1, 15, 29, 43]) deposit.run(`-${days} days`, `payroll-${days}`);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.setViewportSize({ width: 2560, height: 1000 });
+  for (const [route, selector] of [['/overview', '.overview-roster table'], ['/', '.bearing, .pay-watch'], ['/agent', '.fixed-flex, .cost-of-money']]) {
+    await page.goto(route);
+    for (const part of selector.split(', ')) await expect(page.locator(part).first()).toBeVisible();
+    await expect.poll(() => page.evaluate((sel) => [...document.querySelectorAll(sel)].filter((element) => {
+      const parent = element.parentElement!;
+      const style = getComputedStyle(parent);
+      const available = parent.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      return Math.abs(element.getBoundingClientRect().width - available) > 1;
+    }).map((element) => element.className), selector), { message: route }).toEqual([]);
+  }
+});
+
 test("Insights retains available sections with limited history", async ({ page, database }) => {
   database.exec("DELETE FROM transactions WHERE date < date('now','start of month')");
   await page.goto('/agent');
