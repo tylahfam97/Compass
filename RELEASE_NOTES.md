@@ -2,6 +2,43 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.10 — Clear Readings 🧭
+
+Trends is easier to read, the download statistics count only verified complete website
+transfers, and two date-dependent UI tests no longer fail on certain days of the month.
+
+### Trends
+- **Theme colors.** Trends charts use the app's shared chart colors: income in sea blue,
+  expenses in gold, and category and card colors adjusted to the light or dark theme, instead of
+  bright stored colors and red/green bars. (#106)
+- **Income and expenses for the range.** The monthly chart's legend shows the total income and
+  expenses for the selected 3, 6 or 12 months next to each label. (#106)
+- **Spending ranked by category.** The stacked monthly category chart is replaced by a ranked list
+  of the range's top categories, each with its amount and share of spending, and the remainder
+  grouped as Other. Selecting a category still shows its month-by-month amounts and a link to its
+  transactions. Totals use the same spending rules as before. (#106)
+
+### Download statistics
+- **Website columns show verified complete transfers only.** On the download statistics page,
+  the BY VERSION Site .exe, .msi and .dmg columns and their total now show the verified complete
+  bucket (a GET answered 200 whose logged bytes equal that version's installer size). Requests
+  classified as automation, such as release-verification checks, are excluded from these
+  columns. Versions without full verification coverage show "unknown" or note that earlier
+  requests are unknown. (#118)
+- **Raw request counts kept as diagnostics.** The raw website request totals (all time, last 30
+  days, last 7 days) move to a section labelled diagnostic and including automation, and the
+  per-day table header now reads "Installer requests (raw)". The per-version verified table,
+  including its Automation column, is unchanged. (#118)
+- **GitHub and updater figures unchanged.** GitHub installer counts are GitHub's own
+  download_count and cannot be filtered to exclude automation; they and the in-app update
+  package counts are reported exactly as before. (#118)
+
+### Tests
+- **Plan tests use a fixed date.** The Plan UI tests pin the browser and fixture to a mid-month
+  date, so they no longer fail when the 1st of the month falls before payday. (#116)
+- **Reports fixture stays in the current month.** The UI test fixture keeps its recent rows on or
+  after the 1st, so the Reports month totals hold on the first days of a month. (#117)
+
 ## Compass 1.3.9 — Open Water 🧭
 
 Wide windows no longer leave a field of empty space beside the content. Several sections had a

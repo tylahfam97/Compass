@@ -8,6 +8,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import tempfile
 import time
 from datetime import datetime, timezone
@@ -153,6 +154,7 @@ def main():
         _, out5 = run(d)
         assert out5["github"] == [] and out5["github_error"] == "boom" and out5["github_fetched"] is None
     verified_checks()
+    display_checks()
     print("download stats checks: OK")
 
 
@@ -255,6 +257,65 @@ def verified_checks():
         assert "| 1.3.8 | 3 | 0 | 6 | unknown |" in S.build_summary(
             {"log_coverage": None, "github_fetched": None, "github_error": None},
             out3["github"], out3["website_per_version"], {"7d": 0, "30d": 0}, out3["site_verified"])
+
+
+def by_version_row(page, v):
+    """Cells after the version in the first (BY VERSION) table row for v."""
+    m = re.search(rf'<tr[^>]*><td class="v">{re.escape(v)}</td>(.*?)</tr>', page)
+    return re.findall(r"<td>(.*?)</td>", m.group(1))
+
+
+def display_checks():
+    """BY VERSION site columns show verified complete only; raw stays raw, in a diagnostic area."""
+    EXE, MSI, DMG, PROBE = 6714328, 9310208, 18320908, 147456
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        logs, dl = d / "logs", d / "downloads"
+        logs.mkdir(); dl.mkdir()
+        S.LOG_GLOB = str(logs / "compass.access.log*")
+        S.DOWNLOADS_DIR, S.WEB_ROOT, S.STATE_FILE = dl, d / "web", d / "state.json"
+        names = {}
+        for v in ("1.3.8", "1.3.9"):
+            names[v] = (f"Compass_{v}_x64-setup.exe", f"Compass_{v}_x64_en-US.msi", f"Compass_{v}_aarch64.dmg")
+            for n, size in zip(names[v], (EXE, MSI, DMG)):
+                with open(dl / n, "wb") as fh:
+                    fh.truncate(size)
+        S.urllib.request.urlopen = fake_api([[
+            {"tag_name": "v1.3.9", "draft": False, "prerelease": False, "published_at": "2026-10-30T00:00:00Z",
+             "assets": [{"name": names["1.3.9"][0], "download_count": 5, "size": EXE},
+                        {"name": "Compass_1.3.9_x64-setup.nsis.zip", "download_count": 2, "size": 1}]}]])
+        # Legacy raw only: 1.3.8 on 10-28 (before verification) and 1.3.0 (never verified).
+        S.STATE_FILE.write_text(json.dumps({"website": {
+            "2026-10-28": {"exe": {"1.3.8": 2}}, "2026-09-01": {"msi": {"1.3.0": 4}}}}))
+        e8, m8, g8 = (f"/downloads/{n}" for n in names["1.3.8"])
+        T = "29/Oct/2026:10:00:0{} +0000"
+        body = "".join([
+            bline(T.format(0), "GET", e8, 200, EXE),                       # complete
+            bline(T.format(1), "GET", e8, 200, EXE, ua="curl/8.5.0"),      # complete (curl eligible)
+            bline(T.format(2), "GET", e8, 200, 1024),                      # short
+            bline(T.format(3), "GET", m8, 200, MSI),                       # complete
+            bline(T.format(4), "GET", g8, 206, DMG),                       # partial
+            bline(T.format(5), "GET", g8, 200, PROBE, ua="Hermes"),        # probe
+        ] + [bline(f"30/Oct/2026:12:00:0{i} +0000", "GET", f"/downloads/{n}", 200, PROBE, ua="Hermes")
+             for i, n in enumerate(names["1.3.9"])])                       # latest: automation only
+        (logs / "compass.access.log").write_text(body)
+        state, out = run(d)
+        page = (S.WEB_ROOT / S.STATS_DIR / "index.html").read_text()
+        # Raw data and opaque GitHub/updater figures untouched.
+        assert out["website_per_version"]["1.3.9"] == {"exe": 1, "msi": 1, "dmg": 1}
+        assert out["website_per_version"]["1.3.8"] == {"exe": 5, "msi": 1, "dmg": 2}
+        assert out["site_verified"]["per_version"]["1.3.9"]["automation"] == 3
+        # Columns: published, GH installers, GH updates, site .exe, .msi, .dmg, site total.
+        assert by_version_row(page, "1.3.9") == ["2026-10-30", "5", "2", "0", "0", "0", "0"], page
+        eu = " (earlier unknown)"
+        assert by_version_row(page, "1.3.8")[3:] == ["2" + eu, "1" + eu, "0" + eu, "3" + eu]
+        assert by_version_row(page, "1.3.0")[3:] == ["unknown"] * 4
+        assert out["site_verified"]["per_version_family"]["1.3.8"] == {"exe": 2, "msi": 1, "dmg": 0}
+        # Raw totals (which include the probes) only appear in the labelled diagnostic area.
+        diag = page.index("DIAGNOSTIC")
+        assert diag < page.index("website installer requests (raw), recorded") and \
+            '<strong>15</strong><small>website installer requests (raw)' in page[diag:]
+        assert page.count("(raw)") == page[diag:].count("(raw)"), "raw figure outside diagnostic area"
 
 
 if __name__ == "__main__":
