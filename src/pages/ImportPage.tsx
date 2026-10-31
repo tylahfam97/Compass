@@ -866,7 +866,7 @@ export default function ImportPage() {
       let activityImported = 0;
       let activitySkipped = 0;
       for (const act of invParsed.activity) {
-        const importHash = await hashRow([
+        const importHash = await hashRow(act.importKey ? ["inv", act.importKey] : [
           "inv", act.date, act.rawActivityType, act.description,
           String(act.quantity ?? ""), String(act.amount),
         ]);
@@ -2345,6 +2345,14 @@ export default function ImportPage() {
               </p>
             </div>
           </div>
+
+          {invParsed.notes && invParsed.notes.length > 0 && (
+            <ul role="note" className="text-xs space-y-1 p-3 border border-[hsl(var(--warning)/0.35)] rounded-lg bg-[hsl(var(--warning)/0.06)]">
+              {invParsed.notes.map((note) => (
+                <li key={note} className="flex items-start gap-1.5"><InfoIcon size={13} className="shrink-0 mt-0.5 text-[hsl(var(--warning))]" />{note}</li>
+              ))}
+            </ul>
+          )}
 
           {accountChoice && (
             <p className="text-xs text-[hsl(var(--success))] flex items-center gap-1">

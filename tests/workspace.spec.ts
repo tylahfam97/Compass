@@ -586,3 +586,66 @@ for (const viewport of [768, 1024, 1440, 1920, 2560].map((width) => ({ width, he
     }
   });
 }
+// Ported from main (#109), plus the #107 match against the imported receipt.
+test("Ledger crypto export imports as an investment holding with transfers, not spending", async ({ page, database }) => {
+  // Invented operations: 100.123456 in, 25.000014 out (fee included), a dust receipt, a failed send.
+  const csv = [
+    "Operation Date,Status,Currency Ticker,Operation Type,Operation Amount,Operation Fees,Operation Hash,Account Name,Account xpub,Countervalue Ticker,Countervalue at Operation Date,Countervalue at CSV Export",
+    "2026-09-20T15:00:00.000Z,Confirmed,XRP,OUT,25.000014,0.000014,SYNTHETIC3,Sample Wallet,xpub-sample,USD,50.00,62.50",
+    "2026-09-10T15:00:00.000Z,Confirmed,XRP,IN,0.000003,0.00003,SYNTHETIC2,Sample Wallet,xpub-sample,USD,0.00,0.00",
+    "2026-09-01T15:00:00.000Z,Confirmed,XRP,IN,100.123456,0.000017,SYNTHETIC1,Sample Wallet,xpub-sample,USD,200.25,250.31",
+    "2026-09-21T15:00:00.000Z,Failed,XRP,OUT,5,0.00004,SYNTHETIC4,Sample Wallet,xpub-sample,USD,10.00,12.50",
+  ].join("\n");
+  // Invented checking rows categorized Crypto (25): one exactly equal to the IN's countervalue,
+  // one a cent off inside the same ±5-day window, one equal to the wallet OUT (a send, never a
+  // deposit) and one equal to a cash deposit (no coin symbol) added to the Ledger account below.
+  // Only the exact receipt match may move to Transfers (20); nothing is created or re-amounted.
+  const insertPurchase = database.prepare("INSERT INTO transactions (account_id,profile_id,date,description,amount_cents,balance_cents,category_id,import_hash) VALUES (1,1,?,?,?,100000,25,?)");
+  insertPurchase.run("2026-08-31", "Sample exchange purchase", -20025, "crypto-exact");
+  insertPurchase.run("2026-09-02", "Sample exchange purchase", -20024, "crypto-near");
+  insertPurchase.run("2026-09-20", "Sample exchange purchase", -5000, "crypto-send");
+  insertPurchase.run("2026-09-14", "Sample exchange purchase", -7500, "crypto-cash");
+  const transactionsBefore = database.prepare("SELECT COUNT(*) AS n FROM transactions").get();
+  const importLedger = async (replace: boolean) => {
+    await page.goto("/import");
+    await page.getByRole("button", { name: /Investment \/ Brokerage/ }).click();
+    await page.locator("#csv-input").setInputFiles({ name: "synthetic-ledger.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
+    if (replace) await page.getByRole("button", { name: "Existing account", exact: true }).click();
+    else await page.getByPlaceholder("e.g. Fidelity Brokerage").fill("Sample Ledger");
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await expect(page.getByRole("note")).toContainText("Cost basis is unknown");
+    await expect(page.getByRole("note")).toContainText("1 failed or unconfirmed operation was left out");
+    await page.getByRole("button", { name: "Import 1 Position + 3 Activity" }).click();
+    if (replace) await page.getByRole("button", { name: "Replace that snapshot" }).click();
+  };
+  await importLedger(false);
+  await expect(page.getByText("Import complete")).toBeVisible();
+  const holdings = () => database.prepare("SELECT security_type, symbol, shares, cost_basis_cents FROM holdings").all();
+  const activity = () => database.prepare("SELECT activity_type, quantity, amount_cents FROM investment_activity ORDER BY trade_date").all();
+  const purchases = () => database.prepare("SELECT import_hash, amount_cents, category_id FROM transactions WHERE import_hash LIKE 'crypto-%' ORDER BY import_hash").all();
+  expect(holdings()).toEqual([{ security_type: "crypto", symbol: "XRP", shares: 75.123405, cost_basis_cents: null }]);
+  expect(activity()).toEqual([
+    { activity_type: "transfer", quantity: 100.123456, amount_cents: 20025 },
+    { activity_type: "transfer", quantity: 0.000003, amount_cents: 0 },
+    { activity_type: "transfer", quantity: -25.000014, amount_cents: -5000 },
+  ]);
+  const matched = [
+    { import_hash: "crypto-cash", amount_cents: -7500, category_id: 25 },
+    { import_hash: "crypto-exact", amount_cents: -20025, category_id: 20 },
+    { import_hash: "crypto-near", amount_cents: -20024, category_id: 25 },
+    { import_hash: "crypto-send", amount_cents: -5000, category_id: 25 },
+  ];
+  expect(purchases()).toEqual(matched);
+  // A co-located brokerage cash deposit (symbol NULL) in the crypto-holding account is not a coin
+  // deposit, so the re-import's reconcile must leave the same-amount Crypto row alone.
+  const ledgerAccount = database.prepare("SELECT DISTINCT account_id AS id FROM holdings WHERE security_type='crypto'").get() as { id: number };
+  database.prepare("INSERT INTO investment_activity (account_id,profile_id,trade_date,activity_type,symbol,description,amount_cents,import_hash) VALUES (?,1,'2026-09-15','deposit',NULL,'Sample cash deposit',7500,'sample-cash-deposit')").run(ledgerAccount.id);
+  // Re-importing the same export replaces the snapshot, skips every known operation and keeps the match.
+  await importLedger(true);
+  await expect(page.getByText(/Import complete|Already imported/)).toBeVisible();
+  expect(holdings()).toHaveLength(1);
+  expect(activity()).toHaveLength(4); // the 3 Ledger operations + the cash deposit
+  expect(purchases()).toEqual(matched);
+  expect(database.prepare("SELECT COUNT(*) AS n FROM crypto_transfer_links").get()).toEqual({ n: 1 });
+  expect(database.prepare("SELECT COUNT(*) AS n FROM transactions").get()).toEqual(transactionsBefore);
+});

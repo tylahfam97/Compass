@@ -9,9 +9,10 @@
 > prerelease for testing, not a stable release. The final version and these notes are set again
 > when `dev` is promoted to main, against whatever main is at that point.
 
-This build carries the Cash-flow horizon rework below (#110, #112), plus two import fixes: an
-optional category review before an import is saved (#103), and Crypto purchases that are really
-deposits into a crypto portfolio you track are no longer counted as spending (#107).
+This build carries the Cash-flow horizon rework below (#110, #112), plus import changes: an
+optional category review before an import is saved (#103), Crypto purchases that are really
+deposits into a crypto portfolio you track are no longer counted as spending (#107), and the
+Ledger Live crypto import from main 1.3.7 (#109), so that matching has a portfolio to match against.
 
 ### Review categories before you import (#103)
 - The import Preview has a new **Review categories before importing** panel. It is closed by
@@ -38,9 +39,29 @@ deposits into a crypto portfolio you track are no longer counted as spending (#1
 - Undoing the portfolio import, or deleting that account, puts the purchase back to Crypto. If
   you re-categorize a matched purchase yourself, Compass leaves your choice alone. Re-running
   categorization rules does not undo a match that is still in place.
-- **Limit on this build:** it can't import a crypto portfolio yet (the Ledger Live import is on
-  main, and there is no Coinbase import), so no matches happen on this `dev` build by itself.
-  Deposits into a brokerage account such as E*TRADE are never treated as crypto.
+- The deposit side is a Ledger Live receive (see below). Its dollar amount is Ledger's
+  "Countervalue at Operation Date": what the coins were worth when they arrived, not what you
+  paid. Exchange fees, spreads, network fees and price moves usually make the two differ, so most
+  real purchases will not match exactly and stay Crypto spending. An exact match is a strong hint,
+  not proof, that the purchase paid for that receive; re-categorize it if it didn't.
+- Sends out of the wallet are never matched or counted as spending, and a purchase is never split
+  between spending and investment.
+- **Limits on this build:** there is no Coinbase import. Deposits into a brokerage account such as
+  E*TRADE are never treated as crypto.
+
+### Ledger Live crypto in Investments (#109, from main 1.3.7)
+- Import a Ledger Live operations CSV with the Investment / Brokerage option. Each coin becomes a
+  Crypto holding, and every receive and send is recorded as a transfer, not as income, spending, a
+  buy or a sell. Balances follow Ledger's own rule: a send already includes its network fee, so
+  fees are not subtracted twice. Amounts are summed exactly, so very small balances are kept. Cost
+  basis is shown as unknown, since the export doesn't include what you paid. The holding is valued
+  at the price in the export, not a live price, and dated the day you import it. Failed,
+  unconfirmed or unsupported operations are left out and listed. The network fee a failed send
+  still cost is subtracted from the balance; a send that is only pending is left out with no fee
+  taken. Importing the same export again doesn't duplicate anything.
+- This is the import that main shipped in 1.3.7, brought to `dev` without the rest of main, with
+  one change: a pending send no longer has its network fee subtracted;
+  main's other 1.3.7 to 1.3.10 changes are not in this build.
 
 ### Cash-flow horizon (#110, #112)
 

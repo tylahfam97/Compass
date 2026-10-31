@@ -1318,7 +1318,8 @@ async function runMigrations(db: CompassDb): Promise<void> {
 
 /**
  * Moves Crypto-categorized outflows that unambiguously match a deposit in a tracked crypto
- * portfolio (an investment account holding crypto) into Transfers, so the same money isn't counted as both spending and an investment
+ * portfolio (a deposit of a coin its investment account holds as crypto) into Transfers, so the
+ * same money isn't counted as both spending and an investment
  * (#107). Safe to run any time and in either import order: already-linked rows and deposits
  * are never reused, ambiguous or near-miss amounts are left alone, and a link whose deposit
  * has since been removed (an undone import, a deleted account) is reverted - the outflow goes
@@ -1354,13 +1355,15 @@ export async function reconcileCryptoTransfers(): Promise<number> {
   );
   const outflows: CryptoOutflow[] = outflowRows.map((r) => ({ ...r, eligible: r.categoryId === CRYPTO_CATEGORY_ID }));
   if (!outflows.some((o) => o.eligible)) return 0;
-  // Only a crypto portfolio (an investment account holding crypto) counts - a brokerage deposit
-  // of the same amount is unrelated money, and statement sweeps are cash moves, not deposits.
+  // Only a deposit of a coin the account holds as crypto counts (checked per activity, not per
+  // account) - a brokerage cash deposit (no symbol) or stock transfer in the same account is
+  // unrelated money, and statement sweeps are cash moves, not deposits.
   const deposits = await db.select<PortfolioDeposit[]>(
     `SELECT ia.id, ia.profile_id AS profileId, ia.trade_date AS date, ia.amount_cents AS amountCents
        FROM investment_activity ia JOIN accounts a ON a.id = ia.account_id
       WHERE a.account_type = 'investment' AND ia.activity_type IN ('deposit','transfer') AND ia.amount_cents > 0
-        AND EXISTS (SELECT 1 FROM holdings h WHERE h.account_id = a.id AND h.security_type = 'crypto')
+        AND EXISTS (SELECT 1 FROM holdings h WHERE h.account_id = a.id AND h.security_type = 'crypto'
+                    AND h.symbol = ia.symbol)
         AND ia.id NOT IN (SELECT activity_id FROM crypto_transfer_links)`
   );
   const matches = matchCryptoTransfers(outflows, deposits);
