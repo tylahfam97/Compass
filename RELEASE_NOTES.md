@@ -2,11 +2,47 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
-## Compass 1.3.9 — Clear Horizon 🧭 (provisional dev build, unreleased)
+## Compass 1.3.11 — Clear Horizon 🧭 (development build for `dev`, unreleased)
 
-> **Draft for the `dev` branch.** 1.3.9 is a placeholder number one step ahead of the
-> released 1.3.8 on main. It is not a stable release. The final version and these notes are
-> set again when `dev` is promoted to main, against whatever main is at that point.
+> **Draft for the `dev` branch.** 1.3.11 is the development version one step after the released
+> 1.3.10 on main; it replaces the earlier placeholder 1.3.9 used for this dev work. It is a
+> prerelease for testing, not a stable release. The final version and these notes are set again
+> when `dev` is promoted to main, against whatever main is at that point.
+
+This build carries the Cash-flow horizon rework below (#110, #112), plus two import fixes: an
+optional category review before an import is saved (#103), and Crypto purchases that are really
+deposits into a crypto portfolio you track are no longer counted as spending (#107).
+
+### Review categories before you import (#103)
+- The import Preview has a new **Review categories before importing** panel. It is closed by
+  default, so importing without it works exactly as before.
+- Rows are grouped by merchant, each group showing its row count, total and the category your
+  saved rules would give it. Pick a category for the whole group, or open the group to give
+  single rows a different one, such as a pharmacy purchase at a grocery store.
+- Nothing is saved until you click Import. Cancel, picking a new file or changing the column
+  mapping throws the choices away. Every row is still imported with its original amount and sign, and duplicate detection
+  works the same way. You can still change categories afterwards under Transactions.
+- The review applies to the file you are looking at. Files imported automatically after it in a
+  batch use your saved rules, as before.
+
+### Crypto purchases matched to your crypto portfolio (#107)
+- A bank or card purchase categorized **Crypto** now moves to **Transfers** when it matches a
+  deposit into a crypto portfolio you track (an investment account that holds crypto): exactly
+  the same amount to the cent, within five days either side, and with nothing else that could
+  also match. The money is then counted once, as an investment, instead of also as spending.
+- It works in either order: import the bank statement first or the portfolio first.
+- Amounts and dates are never changed, and no transaction is created or deleted. If two
+  purchases or two deposits could match, if a same-amount transfer could be the deposit's real
+  funding, or if the amounts differ by even a cent (exchange fees, spreads), nothing is matched
+  and the purchase stays Crypto spending.
+- Undoing the portfolio import, or deleting that account, puts the purchase back to Crypto. If
+  you re-categorize a matched purchase yourself, Compass leaves your choice alone. Re-running
+  categorization rules does not undo a match that is still in place.
+- **Limit on this build:** it can't import a crypto portfolio yet (the Ledger Live import is on
+  main, and there is no Coinbase import), so no matches happen on this `dev` build by itself.
+  Deposits into a brokerage account such as E*TRADE are never treated as crypto.
+
+### Cash-flow horizon (#110, #112)
 
 The Cash-flow horizon on Plan had the right idea but asked you to decode it. You had to work
 out which line was which, the chart had no hover read-out, and the only thing you could change
