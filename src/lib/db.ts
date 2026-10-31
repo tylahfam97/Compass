@@ -1,5 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { CategorizationRule, Account, RecurringRule, RecurringCadence } from "./types";
+import { TRANSFER_CATEGORY_ID } from "./types";
+import { CRYPTO_CATEGORY_ID, matchCryptoTransfers } from "./cryptoTransfers";
+import type { CryptoOutflow, PortfolioDeposit } from "./cryptoTransfers";
 
 // ─── Invoke-based DB wrapper ──────────────────────────────────────────────────
 // Mirrors the tauri-plugin-sql Database API (select / execute) so all call
@@ -1301,6 +1304,81 @@ async function runMigrations(db: CompassDb): Promise<void> {
     }
     await db.execute("PRAGMA user_version = 31");
   }
+  // Crypto purchases matched to a tracked portfolio deposit (#107). Idempotent and deliberately
+  // NOT version-gated, so it can't collide with a numbered migration on another branch.
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS crypto_transfer_links (
+      transaction_id       INTEGER NOT NULL UNIQUE,
+      activity_id          INTEGER NOT NULL UNIQUE,
+      previous_category_id INTEGER,
+      created_at           TEXT    NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+}
+
+/**
+ * Moves Crypto-categorized outflows that unambiguously match a deposit in a tracked crypto
+ * portfolio (a deposit of a coin its investment account holds as crypto) into Transfers, so the
+ * same money isn't counted as both spending and an investment
+ * (#107). Safe to run any time and in either import order: already-linked rows and deposits
+ * are never reused, ambiguous or near-miss amounts are left alone, and a link whose deposit
+ * has since been removed (an undone import, a deleted account) is reverted - the outflow goes
+ * back to its previous category unless the user has re-categorized it in the meantime.
+ * Amounts, dates and rows are never changed, created or deleted. Returns new matches made.
+ */
+export async function reconcileCryptoTransfers(): Promise<number> {
+  const db = await getDb();
+  await db.executeBatch([
+    {
+      sql: `UPDATE transactions SET category_id = (
+              SELECT l.previous_category_id FROM crypto_transfer_links l WHERE l.transaction_id = transactions.id)
+            WHERE category_id = ${TRANSFER_CATEGORY_ID}
+              AND id IN (SELECT l.transaction_id FROM crypto_transfer_links l
+                         WHERE NOT EXISTS (SELECT 1 FROM investment_activity ia WHERE ia.id = l.activity_id))`,
+      params: [],
+    },
+    {
+      sql: `DELETE FROM crypto_transfer_links
+            WHERE NOT EXISTS (SELECT 1 FROM investment_activity ia WHERE ia.id = crypto_transfer_links.activity_id)
+               OR NOT EXISTS (SELECT 1 FROM transactions t WHERE t.id = crypto_transfer_links.transaction_id)`,
+      params: [],
+    },
+  ]);
+  // Unlinked Transfers outflows are fetched too: they may be a deposit's real funding, so they
+  // make a same-amount Crypto purchase ambiguous rather than matchable.
+  const outflowRows = await db.select<{ id: number; profileId: number; date: string; amountCents: number; categoryId: number }[]>(
+    `SELECT t.id, COALESCE(t.profile_id, 1) AS profileId, t.date, t.amount_cents AS amountCents, t.category_id AS categoryId
+       FROM transactions t JOIN accounts a ON a.id = t.account_id
+      WHERE t.category_id IN (?, ?) AND t.amount_cents < 0 AND a.account_type <> 'investment'
+        AND t.id NOT IN (SELECT transaction_id FROM crypto_transfer_links)`,
+    [CRYPTO_CATEGORY_ID, TRANSFER_CATEGORY_ID]
+  );
+  const outflows: CryptoOutflow[] = outflowRows.map((r) => ({ ...r, eligible: r.categoryId === CRYPTO_CATEGORY_ID }));
+  if (!outflows.some((o) => o.eligible)) return 0;
+  // Only a deposit of a coin the account holds as crypto counts (checked per activity, not per
+  // account) - a brokerage cash deposit (no symbol) or stock transfer in the same account is
+  // unrelated money, and statement sweeps are cash moves, not deposits.
+  const deposits = await db.select<PortfolioDeposit[]>(
+    `SELECT ia.id, ia.profile_id AS profileId, ia.trade_date AS date, ia.amount_cents AS amountCents
+       FROM investment_activity ia JOIN accounts a ON a.id = ia.account_id
+      WHERE a.account_type = 'investment' AND ia.activity_type IN ('deposit','transfer') AND ia.amount_cents > 0
+        AND EXISTS (SELECT 1 FROM holdings h WHERE h.account_id = a.id AND h.security_type = 'crypto'
+                    AND h.symbol = ia.symbol)
+        AND ia.id NOT IN (SELECT activity_id FROM crypto_transfer_links)`
+  );
+  const matches = matchCryptoTransfers(outflows, deposits);
+  if (matches.length === 0) return 0;
+  await db.executeBatch(matches.flatMap((m) => [
+    {
+      sql: "INSERT INTO crypto_transfer_links (transaction_id, activity_id, previous_category_id) VALUES (?, ?, ?)",
+      params: [m.transactionId, m.activityId, CRYPTO_CATEGORY_ID],
+    },
+    {
+      sql: "UPDATE transactions SET category_id=? WHERE id=? AND category_id=?",
+      params: [TRANSFER_CATEGORY_ID, m.transactionId, CRYPTO_CATEGORY_ID],
+    },
+  ]));
+  return matches.length;
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────
@@ -1563,6 +1641,9 @@ export async function deleteAccountWithData(accountId: number): Promise<void> {
     );
   }
   await db.execute("DELETE FROM accounts WHERE id=?", [accountId]);
+  // Its deposits may have been matched to Crypto purchases elsewhere - put those back. The
+  // account is already gone, so a failure here must not report the delete itself as failed.
+  try { await reconcileCryptoTransfers(); } catch { /* retried after the next import */ }
 }
 
 /**
@@ -2101,7 +2182,10 @@ export async function reapplyCategorizationRules(
 
   // Fetch ALL transactions for this profile so user rules can override anything.
   const transactions = await db.select<{ id: number; description: string; amount_cents: number; category_id: number | null }[]>(
-    `SELECT id, description, amount_cents, category_id FROM transactions WHERE profile_id=? ORDER BY id`,
+    // Crypto purchases matched to a portfolio deposit stay Transfers (see reconcileCryptoTransfers).
+    `SELECT id, description, amount_cents, category_id FROM transactions
+     WHERE profile_id=? AND NOT (COALESCE(category_id, 0) = ${TRANSFER_CATEGORY_ID} AND id IN (SELECT transaction_id FROM crypto_transfer_links))
+     ORDER BY id`,
     [profileId]
   );
   debugLog(`[autoCat] ${transactions.length} transactions to evaluate (mode=${mode})`);

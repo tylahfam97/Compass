@@ -226,7 +226,7 @@ export interface Category {
 }
 
 /** Broad security classification used to group holdings in the Investments page. */
-export type SecurityType = "stock" | "etf" | "mutual_fund" | "cash" | "other";
+export type SecurityType = "stock" | "etf" | "mutual_fund" | "cash" | "crypto" | "other";
 
 /** A single lot/position row imported from a brokerage portfolio-positions export. */
 export interface Holding {

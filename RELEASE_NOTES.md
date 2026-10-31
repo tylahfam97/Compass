@@ -2,11 +2,68 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
-## Compass 1.3.9 — Clear Horizon 🧭 (provisional dev build, unreleased)
+## Compass 1.3.11 — Clear Horizon 🧭 (development build for `dev`, unreleased)
 
-> **Draft for the `dev` branch.** 1.3.9 is a placeholder number one step ahead of the
-> released 1.3.8 on main. It is not a stable release. The final version and these notes are
-> set again when `dev` is promoted to main, against whatever main is at that point.
+> **Draft for the `dev` branch.** 1.3.11 is the development version one step after the released
+> 1.3.10 on main; it replaces the earlier placeholder 1.3.9 used for this dev work. It is a
+> prerelease for testing, not a stable release. The final version and these notes are set again
+> when `dev` is promoted to main, against whatever main is at that point.
+
+This build carries the Cash-flow horizon rework below (#110, #112), plus import changes: an
+optional category review before an import is saved (#103), Crypto purchases that are really
+deposits into a crypto portfolio you track are no longer counted as spending (#107), and the
+Ledger Live crypto import from main 1.3.7 (#109), so that matching has a portfolio to match against.
+
+### Review categories before you import (#103)
+- The import Preview has a new **Review categories before importing** panel. It is closed by
+  default, so importing without it works exactly as before.
+- Rows are grouped by merchant, each group showing its row count, total and the category your
+  saved rules would give it. Pick a category for the whole group, or open the group to give
+  single rows a different one, such as a pharmacy purchase at a grocery store.
+- Nothing is saved until you click Import. Cancel, picking a new file or changing the column
+  mapping throws the choices away. Every row is still imported with its original amount and sign, and duplicate detection
+  works the same way. You can still change categories afterwards under Transactions.
+- The review applies to the file you are looking at. Files imported automatically after it in a
+  batch use your saved rules, as before.
+
+### Crypto purchases matched to your crypto portfolio (#107)
+- A bank or card purchase categorized **Crypto** now moves to **Transfers** when it matches a
+  deposit into a crypto portfolio you track (an investment account that holds crypto): exactly
+  the same amount to the cent, within five days either side, and with nothing else that could
+  also match. The money is then counted once, as an investment, instead of also as spending.
+- It works in either order: import the bank statement first or the portfolio first.
+- Amounts and dates are never changed, and no transaction is created or deleted. If two
+  purchases or two deposits could match, if a same-amount transfer could be the deposit's real
+  funding, or if the amounts differ by even a cent (exchange fees, spreads), nothing is matched
+  and the purchase stays Crypto spending.
+- Undoing the portfolio import, or deleting that account, puts the purchase back to Crypto. If
+  you re-categorize a matched purchase yourself, Compass leaves your choice alone. Re-running
+  categorization rules does not undo a match that is still in place.
+- The deposit side is a Ledger Live receive (see below). Its dollar amount is Ledger's
+  "Countervalue at Operation Date": what the coins were worth when they arrived, not what you
+  paid. Exchange fees, spreads, network fees and price moves usually make the two differ, so most
+  real purchases will not match exactly and stay Crypto spending. An exact match is a strong hint,
+  not proof, that the purchase paid for that receive; re-categorize it if it didn't.
+- Sends out of the wallet are never matched or counted as spending, and a purchase is never split
+  between spending and investment.
+- **Limits on this build:** there is no Coinbase import. Deposits into a brokerage account such as
+  E*TRADE are never treated as crypto.
+
+### Ledger Live crypto in Investments (#109, from main 1.3.7)
+- Import a Ledger Live operations CSV with the Investment / Brokerage option. Each coin becomes a
+  Crypto holding, and every receive and send is recorded as a transfer, not as income, spending, a
+  buy or a sell. Balances follow Ledger's own rule: a send already includes its network fee, so
+  fees are not subtracted twice. Amounts are summed exactly, so very small balances are kept. Cost
+  basis is shown as unknown, since the export doesn't include what you paid. The holding is valued
+  at the price in the export, not a live price, and dated the day you import it. Failed,
+  unconfirmed or unsupported operations are left out and listed. The network fee a failed send
+  still cost is subtracted from the balance; a send that is only pending is left out with no fee
+  taken. Importing the same export again doesn't duplicate anything.
+- This is the import that main shipped in 1.3.7, brought to `dev` without the rest of main, with
+  one change: a pending send no longer has its network fee subtracted;
+  main's other 1.3.7 to 1.3.10 changes are not in this build.
+
+### Cash-flow horizon (#110, #112)
 
 The Cash-flow horizon on Plan had the right idea but asked you to decode it. You had to work
 out which line was which, the chart had no hover read-out, and the only thing you could change
@@ -47,6 +104,19 @@ you will have, and what you could have if things change. (#110)
 
 Nothing here writes a transaction, and nothing is sent anywhere. The forecast still covers
 checking accounts only, and it assumes your scheduled income arrives. It is not a guarantee.
+
+### Release tag provenance (technical, PR120)
+- The Windows release publisher (`scripts/publish-release.ps1`) now creates the tag at the exact
+  commit the workflow checked out (`GITHUB_SHA`, sent as `target_commitish`). Before, it sent no
+  target, so GitHub tagged the default branch (main): the earlier `v1.3.9-dev` tag points at main,
+  not at the dev build it ships.
+- The publisher stops before deleting or creating anything if `GITHUB_SHA` is missing, not a full
+  40-character SHA, or different from the checkout's `HEAD`, or if it is not run from that
+  checkout's root. It stops before creating the release unless GitHub answers HTTP 404 for the old
+  tag after deletion; a network, auth or other error also stops it. Manual runs must set
+  `GITHUB_SHA` to the built commit.
+- This binds the tag to the checked-out source commit. It does not prove the uploaded installers
+  were built from that commit; in CI they are built in the same job after checkout.
 
 ## Compass 1.3.1 — Soundings 🧭
 

@@ -7,8 +7,11 @@ import { useNavigate } from "react-router-dom";
 import {
   getDb, applyCategorizationRules, recomputeCalculatedBalances,
   listAccountsForProfile, resolveAccountId, setAccountInterestRate, setAccountMinimumPayment,
-  getManualTransactionsForAccount, shiftBalanceAnchorForTransactionChange,
+  getManualTransactionsForAccount, shiftBalanceAnchorForTransactionChange, reconcileCryptoTransfers,
 } from "@/lib/db";
+import { loadCategories } from "@/lib/categoryManagement";
+import { groupRowsForReview, reviewedCategory, groupCategory } from "@/lib/importReview";
+import type { ReviewRow } from "@/lib/importReview";
 import type { AccountChoice } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { parseDate, parseAmount, parseSplitAmount, dedupeRowHash, hashRow, findDuplicateCandidates } from "@/lib/importParsing";
@@ -18,7 +21,7 @@ import {
   HOLDING_FIELDS, SUPPORTED_INVESTMENT_FORMATS,
 } from "@/lib/investmentParsing";
 import type { InvestmentRow, ParsedInvestment } from "@/lib/investmentParsing";
-import type { CategorizationRule, Account, ActivityType } from "@/lib/types";
+import type { CategorizationRule, Account, ActivityType, Category } from "@/lib/types";
 import { TRANSFER_CATEGORY_ID, EXCLUDED_CATEGORY_ID } from "@/lib/types";
 import { toISODate } from "@/lib/forecast";
 import { useProfileStore } from "@/stores/profileStore";
@@ -283,6 +286,15 @@ interface Summary {
   /** Statement activity lines (trades, dividends, transfers) written alongside the holdings
    *  snapshot - only brokerage statements carry these, portfolio exports never do. */
   activityImported?: number;
+  /** Crypto purchases matched one-to-one to a deposit in a tracked crypto portfolio and moved
+   *  to Transfers (#107) - by this import or any earlier one it completed a match for. */
+  cryptoMatched?: number;
+}
+
+/** Runs the crypto-transfer reconciliation after an import has already been committed. A
+ *  failure here must not turn a successful import into an error screen, so it reports 0. */
+async function reconcileCryptoAfterImport(): Promise<number> {
+  try { return await reconcileCryptoTransfers(); } catch { return 0; }
 }
 
 interface ImportSession {
@@ -482,6 +494,15 @@ export default function ImportPage() {
   const [dupCandidates, setDupCandidates] = useState<(DuplicateCandidate & { resolution: "keep_both" | "keep_manual" | "keep_imported" })[]>([]);
   const [profileFound, setProfileFound] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
+  // Optional pre-import category review (#103): staged per-row choices keyed by parsed row index.
+  // Nothing is written until the user confirms the import; Cancel, a new file or a changed column
+  // mapping discards them.
+  const [categoryOverrides, setCategoryOverrides] = useState<Map<number, number>>(() => new Map());
+  const [reviewRows, setReviewRows] = useState<ReviewRow[]>([]);
+  const [reviewCategories, setReviewCategories] = useState<Category[]>([]);
+  // Only open panels render their rows and selects, so a multi-year file stays responsive.
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [openReviewGroups, setOpenReviewGroups] = useState<Set<string>>(() => new Set());
   // Set when an import would land on a snapshot date this account already has - the preview
   // step then asks whether to replace it rather than silently doubling every position.
   const [duplicateSnapshot, setDuplicateSnapshot] = useState<{ accountId: number; count: number; profileIdOverride?: number } | null>(null);
@@ -519,6 +540,45 @@ export default function ImportPage() {
   useEffect(() => {
     if (detectedMonth) setTargetMonth(detectedMonth);
   }, [detectedMonth]);
+
+  // A different file or column mapping changes what each row is, so staged review choices go.
+  useEffect(() => { setCategoryOverrides(new Map()); setReviewRows([]); }, [parsed, colMap]);
+
+  // Preview: what the saved rules would assign each row, computed exactly like the import loop.
+  useEffect(() => {
+    if (step !== "wizard:preview" || !parsed) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const db = await getDb();
+        const [rules, categories] = await Promise.all([
+          db.select<CategorizationRule[]>(
+            "SELECT * FROM categorization_rules WHERE profile_id=? OR profile_id IS NULL ORDER BY priority DESC",
+            [profileId]
+          ),
+          loadCategories(profileId),
+        ]);
+        // Same row filters as handleImport, so the review never lists a row the import would skip.
+        const requiredCols = [colMap.dateCol, colMap.descCol, colMap.typeCol,
+          ...(colMap.debitCol >= 0 || colMap.creditCol >= 0 ? [colMap.debitCol, colMap.creditCol] : [colMap.amountCol])];
+        const maxIdx = Math.max(...requiredCols);
+        const keptManual = new Set(dupCandidates.filter((c) => c.resolution === "keep_manual").map((c) => c.rowIndex));
+        const rows: ReviewRow[] = [];
+        parsed.rows.forEach((row, rowIndex) => {
+          if (row.length <= maxIdx || keptManual.has(rowIndex)) return;
+          const date = parseDate(row[colMap.dateCol] ?? "");
+          const description = (row[colMap.descCol] ?? "").trim();
+          const amount = computeRowAmount(row, colMap);
+          if (!date || !description || !isFinite(amount) || amount === 0) return;
+          const amountCents = Math.round(amount * 100);
+          rows.push({ rowIndex, date, description, amountCents, suggestedCategoryId: applyCategorizationRules(description, rules, amountCents) });
+        });
+        if (!cancelled) { setReviewRows(rows); setReviewCategories(categories); }
+      } catch { if (!cancelled) { setReviewRows([]); setReviewCategories([]); } }
+    })();
+    return () => { cancelled = true; };
+  }, [step, parsed, colMap, profileId, dupCandidates]);
+  const reviewGroups = useMemo(() => groupRowsForReview(reviewRows), [reviewRows]);
 
   // On entering the "which account" step, load this profile's existing accounts of the
   // relevant type and suggest a match - preferring the account this same import session
@@ -726,6 +786,8 @@ export default function ImportPage() {
       }
     }
     await db.execute("DELETE FROM import_sessions WHERE id=?", [sessionId]);
+    // Undoing either side of a matched crypto purchase reverts that match (see reconcileCryptoTransfers).
+    await reconcileCryptoAfterImport();
     setConfirmDeleteId(null);
     await loadHistory();
   };
@@ -804,7 +866,7 @@ export default function ImportPage() {
       let activityImported = 0;
       let activitySkipped = 0;
       for (const act of invParsed.activity) {
-        const importHash = await hashRow([
+        const importHash = await hashRow(act.importKey ? ["inv", act.importKey] : [
           "inv", act.date, act.rawActivityType, act.description,
           String(act.quantity ?? ""), String(act.amount),
         ]);
@@ -871,7 +933,8 @@ export default function ImportPage() {
 
       await db.execute("UPDATE import_sessions SET row_count=?, skipped_count=? WHERE id=?",
         [imported + activityImported, activitySkipped, sessionId]);
-      setSummary({ imported, skipped: activitySkipped, activityImported });
+      const cryptoMatched = await reconcileCryptoAfterImport();
+      setSummary({ imported, skipped: activitySkipped, activityImported, cryptoMatched });
       await loadHistory();
       setStep("done");
     } catch (err) {
@@ -1251,7 +1314,8 @@ export default function ImportPage() {
 
         const amountCents = Math.round(amount * 100);
         const hash = await dedupeRowHash(row, seenHashCounts);
-        const categoryId = applyCategorizationRules(description, rules, amountCents);
+        // A category staged in the optional review wins; otherwise the saved rules decide, as before.
+        const categoryId = categoryOverrides.get(rowIndex) ?? applyCategorizationRules(description, rules, amountCents);
         // Credit card statements print the amount you owe as a positive number, but that's a
         // liability - always store it negative, regardless of the file's own sign convention.
         const balanceCents = colMap.balanceCol >= 0 && row[colMap.balanceCol]
@@ -1323,8 +1387,9 @@ export default function ImportPage() {
       if (colMap.balanceCol < 0 || deletedAnyManual) {
         await recomputeCalculatedBalances(accountId);
       }
+      const cryptoMatched = await reconcileCryptoAfterImport();
 
-      setSummary({ imported, skipped, invalidCount, transferCount, errors: rowErrors, keptManualCount, replacedManualCount });
+      setSummary({ imported, skipped, invalidCount, transferCount, errors: rowErrors, keptManualCount, replacedManualCount, cryptoMatched });
       await loadHistory();
       setStep("done");
       setImportSubmitting(false);
@@ -1435,8 +1500,9 @@ export default function ImportPage() {
       if (savedColMap.balanceCol < 0) {
         await recomputeCalculatedBalances(accountId);
       }
+      const cryptoMatched = await reconcileCryptoAfterImport();
       await loadHistory();
-      setSummary({ imported, skipped, invalidCount, transferCount, errors: rowErrors });
+      setSummary({ imported, skipped, invalidCount, transferCount, errors: rowErrors, cryptoMatched });
       setStep("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -2280,6 +2346,14 @@ export default function ImportPage() {
             </div>
           </div>
 
+          {invParsed.notes && invParsed.notes.length > 0 && (
+            <ul role="note" className="text-xs space-y-1 p-3 border border-[hsl(var(--warning)/0.35)] rounded-lg bg-[hsl(var(--warning)/0.06)]">
+              {invParsed.notes.map((note) => (
+                <li key={note} className="flex items-start gap-1.5"><InfoIcon size={13} className="shrink-0 mt-0.5 text-[hsl(var(--warning))]" />{note}</li>
+              ))}
+            </ul>
+          )}
+
           {accountChoice && (
             <p className="text-xs text-[hsl(var(--success))] flex items-center gap-1">
               <CheckCircleIcon size={12} />
@@ -2633,6 +2707,81 @@ export default function ImportPage() {
             </table>
           </div>
 
+          {/* Optional category review (#103) - collapsed by default; choices are staged until Import. */}
+          {reviewGroups.length > 0 && reviewCategories.length > 0 && (
+            <details className="border rounded-xl overflow-hidden" data-testid="import-category-review"
+              open={reviewOpen} onToggle={(e) => setReviewOpen((e.currentTarget as HTMLDetailsElement).open)}>
+              <summary className="px-4 py-2 bg-[hsl(var(--muted))] text-xs font-medium cursor-pointer select-none">
+                Review categories before importing (optional){categoryOverrides.size > 0 && ` - ${categoryOverrides.size} changed`}
+              </summary>
+              {reviewOpen && <div className="p-3 space-y-2 max-h-96 overflow-y-auto">
+                <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                  Suggestions come from your saved rules. Set a category for a whole group, then open the group to give
+                  individual rows a different one. Every row is still imported; nothing is saved until you click Import,
+                  and you can still edit categories afterwards.
+                </p>
+                {reviewGroups.map((group) => {
+                  const shared = groupCategory(group, categoryOverrides);
+                  const setRows = (rows: ReviewRow[], categoryId: number) => setCategoryOverrides((prev) => {
+                    const next = new Map(prev);
+                    for (const r of rows) next.set(r.rowIndex, categoryId);
+                    return next;
+                  });
+                  const options = reviewCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>);
+                  return (
+                    <div key={group.key} className="border rounded-lg">
+                      <div className="flex items-center gap-2 px-3 py-1.5 text-xs">
+                        <span className="flex-1 truncate">{group.label}</span>
+                        <span className="text-[hsl(var(--muted-foreground))] shrink-0">
+                          {group.rows.length} {group.rows.length === 1 ? "row" : "rows"} · {formatCurrency(group.rows.reduce((s, r) => s + r.amountCents, 0))}
+                        </span>
+                        <select aria-label={`Category for ${group.label}`} value={shared ?? ""}
+                          onChange={(e) => { if (e.target.value) setRows(group.rows, Number(e.target.value)); }}
+                          className="border rounded px-1.5 py-0.5 text-xs bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
+                          {shared === null && <option value="">Mixed</option>}
+                          {options}
+                        </select>
+                      </div>
+                      <details className="px-3 pb-1.5" open={openReviewGroups.has(group.key)}
+                        onToggle={(e) => {
+                          const open = (e.currentTarget as HTMLDetailsElement).open;
+                          setOpenReviewGroups((prev) => {
+                            if (prev.has(group.key) === open) return prev;
+                            const next = new Set(prev);
+                            if (open) next.add(group.key); else next.delete(group.key);
+                            return next;
+                          });
+                        }}>
+                        <summary className="text-xs text-[hsl(var(--muted-foreground))] cursor-pointer select-none">
+                          Show rows to set exceptions
+                        </summary>
+                      {openReviewGroups.has(group.key) && <ul className="pt-1 space-y-1">
+                        {group.rows.map((row) => (
+                          <li key={row.rowIndex} className="flex items-center gap-2 text-xs">
+                            <span className="text-[hsl(var(--muted-foreground))] whitespace-nowrap">{formatDate(row.date)}</span>
+                            <span className="flex-1 truncate">{row.description}</span>
+                            <span className={row.amountCents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}>{formatCurrency(row.amountCents)}</span>
+                            <select aria-label={`Category for ${row.description} on ${row.date}`} value={reviewedCategory(row, categoryOverrides)}
+                              onChange={(e) => setRows([row], Number(e.target.value))}
+                              className="border rounded px-1.5 py-0.5 text-xs bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
+                              {options}
+                            </select>
+                          </li>
+                        ))}
+                      </ul>}
+                      </details>
+                    </div>
+                  );
+                })}
+                {categoryOverrides.size > 0 && (
+                  <button onClick={() => setCategoryOverrides(new Map())} className="text-xs text-[hsl(var(--gold-ink))] hover:underline">
+                    Undo all review changes
+                  </button>
+                )}
+              </div>}
+            </details>
+          )}
+
           {/* Statement month - single or multi-month */}
           {isMultiMonth ? (
             <div className="p-4 border rounded-xl" style={{ backgroundColor: "hsl(var(--primary)/0.05)" }}>
@@ -2781,6 +2930,16 @@ export default function ImportPage() {
             <p className="text-xs text-[hsl(var(--muted-foreground))] mb-6 max-w-md mx-auto">
               Also recorded <strong>{summary.activityImported}</strong> statement activity {summary.activityImported === 1 ? "line" : "lines"}
               {!!summary.skipped && <> ({summary.skipped} already imported)</>}.
+            </p>
+          )}
+          {!!summary.cryptoMatched && (
+            <p className="text-xs text-[hsl(var(--muted-foreground))] mb-6 max-w-md mx-auto border rounded-lg px-3 py-2"
+              style={{ backgroundColor: "hsl(var(--primary)/0.05)" }}>
+              <strong className="text-[hsl(var(--foreground))]">{summary.cryptoMatched}</strong> Crypto{" "}
+              {summary.cryptoMatched === 1 ? "purchase matches" : "purchases match"} a deposit of exactly the same amount
+              in your crypto portfolio, so {summary.cryptoMatched === 1 ? "it was" : "they were"} moved to Transfers -
+              the money is counted once, as an investment, not also as spending. Amounts weren't changed; re-categorize
+              under Transactions if a match is wrong.
             </p>
           )}
           <div className="flex gap-3 justify-center">
