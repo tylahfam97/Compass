@@ -105,6 +105,19 @@ you will have, and what you could have if things change. (#110)
 Nothing here writes a transaction, and nothing is sent anywhere. The forecast still covers
 checking accounts only, and it assumes your scheduled income arrives. It is not a guarantee.
 
+### Release tag provenance (technical, PR120)
+- The Windows release publisher (`scripts/publish-release.ps1`) now creates the tag at the exact
+  commit the workflow checked out (`GITHUB_SHA`, sent as `target_commitish`). Before, it sent no
+  target, so GitHub tagged the default branch (main): the earlier `v1.3.9-dev` tag points at main,
+  not at the dev build it ships.
+- The publisher stops before deleting or creating anything if `GITHUB_SHA` is missing, not a full
+  40-character SHA, or different from the checkout's `HEAD`, or if it is not run from that
+  checkout's root. It stops before creating the release unless GitHub answers HTTP 404 for the old
+  tag after deletion; a network, auth or other error also stops it. Manual runs must set
+  `GITHUB_SHA` to the built commit.
+- This binds the tag to the checked-out source commit. It does not prove the uploaded installers
+  were built from that commit; in CI they are built in the same job after checkout.
+
 ## Compass 1.3.1 — Soundings 🧭
 
 Overview used to repeat the Dashboard. It opened on account admin, then showed you the same

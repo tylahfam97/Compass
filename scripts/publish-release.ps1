@@ -1,5 +1,6 @@
 # GitHub release publisher - called from .github/workflows/build.yml
-# Env vars required: GH_TOKEN, APP_VERSION, GH_REPO
+# Env vars required: GH_TOKEN, APP_VERSION, GH_REPO, GITHUB_SHA (set by Actions; for a manual
+# run, set it yourself to the full SHA of the checked-out commit you built - it is never guessed)
 
 # Force TLS 1.2 - PowerShell 5.1 defaults to TLS 1.0 which GitHub rejects
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -24,6 +25,34 @@ if (-not $token) {
     Write-Error "GH_TOKEN is empty - check the GITHUB_TOKEN secret in repo settings"
     exit 1
 }
+
+# Provenance: the release tag must point at the exact commit that was built. GITHUB_SHA is the
+# commit actions/checkout checked out in this workflow run. Without target_commitish, GitHub
+# creates the tag on the default branch (main), so a dev build ended up tagged at main's HEAD.
+# Verified here, before any release/tag is deleted or created. No fallback: a local/manual run
+# must set GITHUB_SHA to the full 40-character SHA of the checkout it built from.
+$buildSha = "$env:GITHUB_SHA"
+if ($buildSha -cnotmatch '^[0-9a-f]{40}$') {
+    Write-Error "Release provenance check failed: GITHUB_SHA must be the full 40-character lowercase commit SHA of the built checkout (got '$buildSha'). Nothing was published."
+    exit 1
+}
+$repoRoot = Split-Path -Parent $PSScriptRoot
+# RELEASE_NOTES.md and the installer paths below are read relative to the current directory, so
+# the checked HEAD must be the directory being published from. Fail closed; never change cwd.
+if ((Get-Location).ProviderPath -ne $repoRoot) {
+    Write-Error "Release provenance check failed: run from the repository root $repoRoot (current: $((Get-Location).ProviderPath)). Nothing was published."
+    exit 1
+}
+$checkoutSha = (git -C $repoRoot rev-parse --verify "HEAD^{commit}" 2>$null | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $checkoutSha -cnotmatch '^[0-9a-f]{40}$') {
+    Write-Error "Release provenance check failed: could not resolve HEAD of $repoRoot with git. Nothing was published."
+    exit 1
+}
+if ($checkoutSha -ne $buildSha) {
+    Write-Error "Release provenance check failed: checkout HEAD $checkoutSha does not match GITHUB_SHA $buildSha. Nothing was published."
+    exit 1
+}
+Write-Host "Release provenance: $tagName will be created at $buildSha"
 
 Write-Host "Publishing $tagName for $repo | prerelease=$isPrerelease (token length: $($token.Length))"
 
@@ -69,7 +98,16 @@ if ($tagDel.message -and $tagDel.message -ne "") {
     Write-Host "Removed existing tag ref $tagName"
 }
 
-# Create the release - GitHub creates the tag at HEAD automatically
+# If the tag still exists, GitHub would ignore target_commitish and reuse its old commit.
+# Continue only on a completed request answered with HTTP 404 for the exact ref; a found tag,
+# network/curl failure, auth error, rate limit or any other status stops here.
+$tagStatus = curl.exe -s -o NUL -w "%{http_code}" @authHeaders ($api + "/git/ref/tags/" + $tagName)
+if ($LASTEXITCODE -ne 0 -or "$tagStatus".Trim() -ne "404") {
+    Write-Error "Release provenance check failed: could not confirm tag $tagName is absent (curl exit $LASTEXITCODE, HTTP '$tagStatus'), so it cannot be created at $buildSha. Nothing was created."
+    exit 1
+}
+
+# Create the release - GitHub creates the tag at the verified build commit
 $releaseNotes = if (Test-Path "RELEASE_NOTES.md") {
     [IO.File]::ReadAllText((Resolve-Path "RELEASE_NOTES.md").Path)
 } else {
@@ -78,6 +116,7 @@ $releaseNotes = if (Test-Path "RELEASE_NOTES.md") {
 
 $releaseJson = (@{
     tag_name               = $tagName
+    target_commitish       = $buildSha
     name                   = if ($isPrerelease) { "[DEV] Compass $tagName" } else { "Compass $tagName" }
     body                   = $releaseNotes
     draft                  = $false
