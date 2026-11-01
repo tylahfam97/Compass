@@ -37,6 +37,19 @@ export interface CryptoTransferMatch {
   activityId: number;
 }
 
+/**
+ * A Crypto or Transfers outflow as stored. Only a Crypto row, or one already auto-matched (now
+ * Transfers, re-checked as the purchase it was), may be matched; a plain Transfers row (possible
+ * real funding) or a row whose match the user undid only competes, making its amount ambiguous.
+ */
+export function toCryptoOutflow(row: {
+  id: number; profileId: number; date: string; amountCents: number;
+  categoryId: number | null; linked: number | boolean; rejected: number | boolean;
+}): CryptoOutflow {
+  const { id, profileId, date, amountCents, categoryId, linked, rejected } = row;
+  return { id, profileId, date, amountCents, eligible: !rejected && (categoryId === CRYPTO_CATEGORY_ID || !!linked) };
+}
+
 function dayNumber(iso: string): number {
   const [y, m, d] = iso.split("-").map(Number);
   return Date.UTC(y, m - 1, d) / 86_400_000;
@@ -74,4 +87,27 @@ export function matchCryptoTransfers(
   return candidates
     .filter(([o, d]) => o.eligible && perOutflow.get(o.id) === 1 && perDeposit.get(d.id) === 1)
     .map(([o, d]) => ({ transactionId: o.id, activityId: d.id }));
+}
+
+export interface CryptoTransferLink extends CryptoTransferMatch {
+  /** Category the outflow had before it was moved to Transfers (restored on revocation). */
+  previousCategoryId: number | null;
+}
+
+/**
+ * Diffs the stored automatic links against a fresh `matchCryptoTransfers` run over ALL current
+ * evidence: a link the fresh run doesn't reproduce exactly (now ambiguous, deposit gone, amount
+ * edited) is revoked; a fresh match not already stored is added. An unchanged pair is left alone.
+ */
+export function planCryptoLinkChanges(
+  links: CryptoTransferLink[],
+  matches: CryptoTransferMatch[],
+): { revoke: CryptoTransferLink[]; add: CryptoTransferMatch[] } {
+  const key = (m: CryptoTransferMatch) => `${m.transactionId}:${m.activityId}`;
+  const fresh = new Set(matches.map(key));
+  const stored = new Set(links.map(key));
+  return {
+    revoke: links.filter((l) => !fresh.has(key(l))),
+    add: matches.filter((m) => !stored.has(key(m))),
+  };
 }
