@@ -213,6 +213,8 @@ export interface Transaction {
   // Joined from accounts table (only selected in a few places that need it)
   account_type?: string;
   account_name?: string;
+  /** Moved to Transfers as a crypto portfolio deposit (#107): 1 automatic exact-cent match, 2 user-confirmed. */
+  crypto_matched?: number;
 }
 
 export interface Category {

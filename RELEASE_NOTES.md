@@ -2,6 +2,49 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.12 — crypto matching corrections (development build for `dev`, unreleased)
+
+> **Technical draft for the `dev` branch.** 1.3.12 follows the 1.3.11 dev prerelease, which is
+> kept as published. It is a prerelease for testing, not a stable release; main is still 1.3.10.
+> The final version and notes are set again when `dev` is promoted to main.
+
+Corrections to the Crypto-to-portfolio matching added in 1.3.11 (#107), from the post-merge audit.
+
+- **Later imports can now undo a match that has become ambiguous (audit F1).** Every automatic
+  match is re-checked against all current data each time matching runs. If a later import adds
+  another same-amount Crypto purchase, another same-amount crypto deposit, or a same-amount
+  Transfers outflow that could be the real funding, the match is reverted and the purchase goes
+  back to Crypto, just as if that data had been there first. A match whose deposit is gone or
+  whose amount or date was edited out of range is reverted the same way. Amounts, dates and IDs
+  are never changed.
+- **Changing categories now runs matching (audit F2).** Changing one row's category, bulk
+  re-categorizing, deleting rows, adding or editing a transaction by hand, re-running
+  categorization rules (including saving a rule with "apply") and deleting a custom category all
+  re-check matches. Previously only imports, undo and account deletion did.
+- **Your corrections stick.** Re-categorizing a matched purchase is remembered as a correction:
+  that purchase is never auto-matched again, including after undoing and re-importing the same
+  statement. It still counts as a same-amount competitor, so it cannot cause a different purchase
+  to be matched in its place. To treat it as a transfer, set it to Transfers yourself.
+- **Matched rows are marked (audit F3).** Transactions labels each row "Auto-matched crypto
+  deposit" (automatic exact-amount match) or "Confirmed crypto deposit" (your decision).
+- **Confirm a deposit yourself, including unequal amounts.** Opening a bank outflow shows nearby
+  unmatched crypto deposits (same profile, within 10 days). Choose one and confirm it as an
+  investment transfer; if the amounts differ you must first confirm the difference is fees or
+  price movement. The whole outflow then counts as a transfer, not spending; its amount, the
+  account balance and the deposit are unchanged. "Keep as spending" stops automatic matching for
+  that row, and "Undo" reverts any match. A confirmed match is reverted if either amount later
+  changes or the deposit is removed. Corrections are now remembered per account.
+- **Split a purchase yourself.** Instead of confirming the whole outflow, you can type how much
+  of it was invested; the rest stays spending in a category you choose. The original row keeps
+  its import identity and becomes the invested part (Transfers, linked to the deposit); a second
+  row with the same date and account holds the spending part. The two always add up to the
+  original amount to the cent. "Undo split" restores the original row exactly, and refuses
+  (changing nothing) if either part was edited since. Undoing the import removes both parts.
+- **Still not supported:** Coinbase exports (no Coinbase parser exists in Compass and none was
+  added; no current Coinbase export format with its fee/total semantics was verified), and
+  treating wallet sends as spending. Nothing is created, re-amounted or split automatically -
+  only by your explicit split - and no cost basis is inferred.
+
 ## Compass 1.3.11 — Clear Horizon 🧭 (development build for `dev`, unreleased)
 
 > **Draft for the `dev` branch.** 1.3.11 is the development version one step after the released

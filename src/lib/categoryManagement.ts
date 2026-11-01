@@ -1,4 +1,4 @@
-import { getDb } from "./db";
+import { getDb, reconcileCryptoTransfers } from "./db";
 import type { Category } from "./types";
 
 export async function loadCategories(profileId: number): Promise<Category[]> {
@@ -40,4 +40,6 @@ export async function deleteUserCategory(profileId: number, categoryId: number, 
     { sql: "UPDATE categories SET parent_id=? WHERE parent_id=?", params: [source.parent_id, categoryId] },
     { sql: "DELETE FROM categories WHERE id=? AND profile_id=? AND is_system=0", params: [categoryId, profileId] },
   ]);
+  // Rows just moved into Crypto or Transfers can change portfolio matches (#107).
+  try { await reconcileCryptoTransfers(); } catch { /* retried after the next change */ }
 }
