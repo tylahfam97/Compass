@@ -50,6 +50,9 @@ it("confirm guards on what the user saw and never touches amount/balance", async
   expect(insert.sql).toMatch(/t\.account_id = \? AND COALESCE\(t\.profile_id, 1\) = \? AND t\.date = \?/);
   expect(insert.sql).toMatch(/NOT IN \(SELECT parent_id FROM transaction_splits\)/);
   expect(update.sql).toMatch(/SET category_id = \d+\s/);
+  // Only the link this batch inserted, and only while the row keeps the category the dialog saw.
+  expect(update.sql).toMatch(/confirmed = 1 AND activity_id = \?/);
+  expect(update.params).toEqual([7, 21, 3]);
   expect(batches.flat().some((s) => /amount_cents\s*=\s*\?.*SET|SET[^W]*amount_cents|balance/i.test(s.sql))).toBe(false);
 });
 

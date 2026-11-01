@@ -79,6 +79,7 @@ const ALLOWED_MIGRATION_TABLES = new Set([
   "investment_activity",
   "investment_summaries",
   "recurring_rules",
+  "crypto_transfer_links",
 ]);
 
 const SAFE_COLUMN_NAME_RE = /^[a-z_][a-z0-9_]*$/i;
@@ -1462,13 +1463,16 @@ export async function confirmCryptoTransfer(seen: SeenOutflow, deposit: SeenDepo
       params: seenParams(seen, deposit),
     },
     {
+      // Only the link this batch inserted, and only if the row still has the category the dialog saw.
       sql: `UPDATE transactions SET category_id = ${TRANSFER_CATEGORY_ID}
-             WHERE id = ? AND id IN (SELECT transaction_id FROM crypto_transfer_links WHERE confirmed = 1)`,
-      params: [seen.transactionId],
+             WHERE id = ? AND COALESCE(category_id, 0) = COALESCE(?, 0)
+               AND id IN (SELECT transaction_id FROM crypto_transfer_links WHERE confirmed = 1 AND activity_id = ?)`,
+      params: [seen.transactionId, seen.categoryId, deposit.id],
     },
   ]);
   const [ok] = await db.select<{ n: number }[]>(
-    "SELECT COUNT(*) AS n FROM crypto_transfer_links WHERE transaction_id = ? AND activity_id = ? AND confirmed = 1",
+    `SELECT COUNT(*) AS n FROM crypto_transfer_links l JOIN transactions t ON t.id = l.transaction_id
+      WHERE l.transaction_id = ? AND l.activity_id = ? AND l.confirmed = 1 AND t.category_id = ${TRANSFER_CATEGORY_ID}`,
     [seen.transactionId, deposit.id]
   );
   if (!ok?.n) throw new Error("This transaction or deposit changed since you opened it - reopen it and try again.");
@@ -1634,7 +1638,7 @@ export async function allowCryptoMatching(transactionId: number): Promise<void> 
        AND t.account_id = crypto_transfer_rejections.account_id AND t.import_hash = crypto_transfer_rejections.import_hash)`,
     [transactionId]
   );
-  await reconcileCryptoTransfers();
+  await reconcileCryptoTransfers().catch(() => 0); // re-checked after the next change
 }
 
 /**
