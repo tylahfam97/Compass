@@ -76,7 +76,7 @@ it("keep-as-spending and profile erase are scoped to the account, not a bare imp
   const exec = vi.mocked(invoke).mock.calls.find(([c]) => c === "db_execute")!;
   expect((exec[1] as any).sql).toMatch(/SELECT account_id, import_hash FROM transactions WHERE id = \?/);
   await deleteAllProfileData(2);
-  const erase = batches.at(-1)!;
+  const erase = batches[batches.length - 1];
   const i = erase.findIndex((s) => /crypto_transfer_rejections/.test(s.sql));
   expect(erase[i].sql).toMatch(/account_id IN \(SELECT id FROM accounts WHERE profile_id=\?\)/);
   expect(i).toBeLessThan(erase.findIndex((s) => /DELETE FROM accounts/.test(s.sql)));
@@ -129,7 +129,7 @@ it("undo split marks first, then removes the part, link and restores, all keyed 
   expect(mark.sql).toMatch(/p\.account_id = transaction_splits\.account_id/);
   const token = mark.params[0];
   expect(delChild.sql).toMatch(/import_hash = 'split:' \|\| \? AND account_id = \(SELECT account_id/);
-  for (const st of [delChild, delLink, reject, restore]) expect(st.params.at(-1)).toBe(token);
+  for (const st of [delChild, delLink, reject, restore]) expect(st.params[st.params.length - 1]).toBe(token);
   expect(restore.sql).toMatch(/amount_cents = \(SELECT original_cents/);
   expect(drop.params).toEqual([7, token]);
 });
@@ -146,7 +146,7 @@ it("whole-row undo never touches a split original", async () => {
 
 it("profile erase removes split snapshots by account before accounts", async () => {
   await deleteAllProfileData(2);
-  const erase = batches.at(-1)!;
+  const erase = batches[batches.length - 1];
   const i = erase.findIndex((st) => /DELETE FROM transaction_splits/.test(st.sql));
   expect(erase[i].sql).toMatch(/account_id IN \(SELECT id FROM accounts WHERE profile_id=\?\)/);
   expect(i).toBeLessThan(erase.findIndex((st) => /DELETE FROM accounts/.test(st.sql)));
