@@ -115,7 +115,7 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
       const db = await getDb();
       if (isAdd) {
         // Generate a unique hash for manually-added transactions
-        const hash = "manual_" + crypto.randomUUID();
+        const hash = "manual_" + globalThis.crypto.randomUUID();
         await db.execute(
           `INSERT INTO transactions
              (account_id, date, amount_cents, description, category_id, notes, import_hash, profile_id)
