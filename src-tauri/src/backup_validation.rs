@@ -11,7 +11,7 @@ pub(crate) struct ValidatedBackup<'a> {
     pub database: &'a [u8],
 }
 
-fn parse_backup(bytes: &[u8]) -> Result<(&[u8], &[u8]), String> {
+pub(crate) fn parse_backup(bytes: &[u8]) -> Result<(&[u8], &[u8]), String> {
     let mut remaining = bytes
         .strip_prefix(BACKUP_MAGIC)
         .ok_or_else(|| "this file doesn't look like a Compass backup".to_string())?;

@@ -1442,3 +1442,84 @@
     margin-top: var(--sp-8);
   }
 }
+
+/* ── Comparison notes, guide links and the import guide page ──────────────── */
+@layer components {
+  /* Sentence cells: wrap instead of the checkmark table's nowrap. */
+  .compare-table--fit th,
+  .compare-table--fit td {
+    white-space: normal;
+    vertical-align: top;
+    min-width: 12rem;
+    line-height: 1.55;
+  }
+  .compare-table--fit tbody th { color: var(--text); font-weight: 600; min-width: 8rem; }
+
+  .compare-sources,
+  .compare-guide-link,
+  .how-guide-link {
+    max-width: 860px;
+    margin: var(--sp-6) auto 0;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    line-height: 1.65;
+    text-align: center;
+  }
+  .compare-sources { font-size: 0.8125rem; color: var(--text-subtle); }
+  .compare-sources a,
+  .compare-guide-link a,
+  .how-guide-link a { text-decoration: underline; text-underline-offset: 2px; }
+  .how-guide-link { margin-top: var(--sp-10); font-size: 1rem; }
+
+  .guide {
+    max-width: 760px;
+    margin-inline: auto;
+    padding-top: calc(64px + var(--sp-12));
+    padding-bottom: var(--sp-16);
+  }
+  .guide h1 {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    font-size: clamp(2rem, 5vw, 2.75rem);
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  .guide h2 {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    font-size: clamp(1.5rem, 3.5vw, 1.875rem);
+    line-height: 1.25;
+    margin-top: var(--sp-12);
+    margin-bottom: var(--sp-4);
+  }
+  .guide h3 { font-size: 1.0625rem; font-weight: 700; margin-top: var(--sp-6); margin-bottom: var(--sp-2); }
+  .guide p { color: var(--text-muted); line-height: 1.75; margin-bottom: var(--sp-4); }
+  .guide a { text-decoration: underline; text-underline-offset: 2px; }
+  .guide .guide-updated { font-size: 0.875rem; color: var(--text-subtle); margin-top: var(--sp-3); }
+  .guide .guide-lead { font-size: 1.125rem; color: var(--text); margin-top: var(--sp-6); }
+
+  .guide-figure { margin: var(--sp-8) 0; }
+  .guide-figure img {
+    width: 100%;
+    height: auto;
+    border-radius: var(--r-lg);
+    border: 1px solid var(--border);
+  }
+  .guide-figure figcaption { font-size: 0.8125rem; color: var(--text-subtle); margin-top: var(--sp-2); }
+  .guide .guide-text-equivalent { font-size: 0.9375rem; }
+
+  .guide .table-wrap { margin-bottom: var(--sp-6); }
+  .guide-table th,
+  .guide-table td { white-space: normal; vertical-align: top; min-width: 10rem; line-height: 1.55; }
+
+  .guide-next {
+    margin-top: var(--sp-12);
+    padding: var(--sp-6);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+  }
+  .guide-next h2 { margin-top: 0; }
+  .guide-next p:last-child { margin-bottom: 0; }
+}
