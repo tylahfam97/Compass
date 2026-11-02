@@ -104,6 +104,7 @@ export function PlanMapView({ result, startingBalanceCents, bufferCents, typical
 }
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** The calendar: the window as weeks, each day shaded by its end-of-day balance. */
 export function PlanCalendarView({ result, bufferCents }: Pick<ViewProps, "result" | "bufferCents">) {
@@ -139,7 +140,7 @@ export function PlanCalendarView({ result, bufferCents }: Pick<ViewProps, "resul
               style={{ "--level": day.level.toFixed(3) } as CSSProperties}
               onClick={() => setPicked(day.date)}
             >
-              <span className="plan-cal-date">{day.dayOfMonth}</span>
+              <span className="plan-cal-date">{day.dayOfMonth === 1 || day.date === days[0].date ? `${MONTHS[Number(day.date.slice(5, 7)) - 1]} ${day.dayOfMonth}` : day.dayOfMonth}</span>
               <strong className="tabular-nums">{compact(day.balanceCents)}</strong>
               <span className="plan-cal-pips" aria-hidden="true">
                 {day.inCents > 0 && <i data-kind="in" />}
@@ -149,6 +150,11 @@ export function PlanCalendarView({ result, bufferCents }: Pick<ViewProps, "resul
             </button>
           ))}
       </div>
+      <p className="plan-cal-legend" aria-hidden="true">
+        <span><span className="plan-cal-pips"><i data-kind="in" /></span>Money in</span>
+        <span><span className="plan-cal-pips"><i data-kind="out" /></span>Money out</span>
+        <span><span className="plan-cal-pips"><i data-kind="whatif" /></span>One-off what-if</span>
+      </p>
       <div className="plan-cal-detail" aria-live="polite">
         <p className="text-xs text-[hsl(var(--muted-foreground))]">
           {formatDate(selected.date)}: <span className="font-medium text-[hsl(var(--foreground))]">{formatCurrency(selected.balanceCents)}</span> at the end of the day

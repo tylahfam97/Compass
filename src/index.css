@@ -70,8 +70,8 @@
 
   --shadow-ink: 224 45% 25%;
   --scrim: 224 55% 12%;
-  --bearing-ring: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1000 1000' fill='none' stroke='%23111c3b' stroke-width='1.2'%3E%3Ccircle cx='500' cy='500' r='488' stroke-opacity='1'/%3E%3Ccircle cx='500' cy='500' r='452' stroke-opacity='0.6'/%3E%3Ccircle cx='500' cy='500' r='330' stroke-opacity='0.5'/%3E%3Ccircle cx='500' cy='500' r='180' stroke-opacity='0.35'/%3E%3Cpath d='M500.0 90.0L500.0 12.0M539.4 49.7L542.5 13.9M578.5 54.9L584.7 19.4M617.0 63.4L626.3 28.6M654.6 75.3L666.9 41.4M691.0 90.3L706.2 57.7M715.0 127.6L744.0 77.4M759.3 129.7L779.9 100.3M790.5 153.7L813.7 126.2M819.6 180.4L845.1 154.9M846.3 209.5L873.8 186.3M870.3 240.7L899.7 220.1M872.4 285.0L922.6 256.0M909.7 309.0L942.3 293.8M924.7 345.4L958.6 333.1M936.6 383.0L971.4 373.7M945.1 421.5L980.6 415.3M950.3 460.6L986.1 457.5M910.0 500.0L988.0 500.0M950.3 539.4L986.1 542.5M945.1 578.5L980.6 584.7M936.6 617.0L971.4 626.3M924.7 654.6L958.6 666.9M909.7 691.0L942.3 706.2M872.4 715.0L922.6 744.0M870.3 759.3L899.7 779.9M846.3 790.5L873.8 813.7M819.6 819.6L845.1 845.1M790.5 846.3L813.7 873.8M759.3 870.3L779.9 899.7M715.0 872.4L744.0 922.6M691.0 909.7L706.2 942.3M654.6 924.7L666.9 958.6M617.0 936.6L626.3 971.4M578.5 945.1L584.7 980.6M539.4 950.3L542.5 986.1M500.0 910.0L500.0 988.0M460.6 950.3L457.5 986.1M421.5 945.1L415.3 980.6M383.0 936.6L373.7 971.4M345.4 924.7L333.1 958.6M309.0 909.7L293.8 942.3M285.0 872.4L256.0 922.6M240.7 870.3L220.1 899.7M209.5 846.3L186.3 873.8M180.4 819.6L154.9 845.1M153.7 790.5L126.2 813.7M129.7 759.3L100.3 779.9M127.6 715.0L77.4 744.0M90.3 691.0L57.7 706.2M75.3 654.6L41.4 666.9M63.4 617.0L28.6 626.3M54.9 578.5L19.4 584.7M49.7 539.4L13.9 542.5M90.0 500.0L12.0 500.0M49.7 460.6L13.9 457.5M54.9 421.5L19.4 415.3M63.4 383.0L28.6 373.7M75.3 345.4L41.4 333.1M90.3 309.0L57.7 293.8M127.6 285.0L77.4 256.0M129.7 240.7L100.3 220.1M153.7 209.5L126.2 186.3M180.4 180.4L154.9 154.9M209.5 153.7L186.3 126.2M240.7 129.7L220.1 100.3M285.0 127.6L256.0 77.4M309.0 90.3L293.8 57.7M345.4 75.3L333.1 41.4M383.0 63.4L373.7 28.6M421.5 54.9L415.3 19.4M460.6 49.7L457.5 13.9'/%3E%3Cpath stroke-opacity='0.45' stroke-dasharray='2 10' d='M500 70V930M70 500H930'/%3E%3Cpath stroke-opacity='0.9' d='M500 120L484 168H516Z'/%3E%3C/svg%3E");
-  --glow-strength: 0.13;
+  --bearing-ring: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1000 1000' fill='none' stroke='%23111c3b' stroke-width='1.2'%3E%3Ccircle cx='500' cy='500' r='488' stroke-opacity='1'/%3E%3Ccircle cx='500' cy='500' r='452' stroke-opacity='0.6'/%3E%3Cpath d='M500.0 90.0L500.0 12.0M539.4 49.7L542.5 13.9M578.5 54.9L584.7 19.4M617.0 63.4L626.3 28.6M654.6 75.3L666.9 41.4M691.0 90.3L706.2 57.7M715.0 127.6L744.0 77.4M759.3 129.7L779.9 100.3M790.5 153.7L813.7 126.2M819.6 180.4L845.1 154.9M846.3 209.5L873.8 186.3M870.3 240.7L899.7 220.1M872.4 285.0L922.6 256.0M909.7 309.0L942.3 293.8M924.7 345.4L958.6 333.1M936.6 383.0L971.4 373.7M945.1 421.5L980.6 415.3M950.3 460.6L986.1 457.5M910.0 500.0L988.0 500.0M950.3 539.4L986.1 542.5M945.1 578.5L980.6 584.7M936.6 617.0L971.4 626.3M924.7 654.6L958.6 666.9M909.7 691.0L942.3 706.2M872.4 715.0L922.6 744.0M870.3 759.3L899.7 779.9M846.3 790.5L873.8 813.7M819.6 819.6L845.1 845.1M790.5 846.3L813.7 873.8M759.3 870.3L779.9 899.7M715.0 872.4L744.0 922.6M691.0 909.7L706.2 942.3M654.6 924.7L666.9 958.6M617.0 936.6L626.3 971.4M578.5 945.1L584.7 980.6M539.4 950.3L542.5 986.1M500.0 910.0L500.0 988.0M460.6 950.3L457.5 986.1M421.5 945.1L415.3 980.6M383.0 936.6L373.7 971.4M345.4 924.7L333.1 958.6M309.0 909.7L293.8 942.3M285.0 872.4L256.0 922.6M240.7 870.3L220.1 899.7M209.5 846.3L186.3 873.8M180.4 819.6L154.9 845.1M153.7 790.5L126.2 813.7M129.7 759.3L100.3 779.9M127.6 715.0L77.4 744.0M90.3 691.0L57.7 706.2M75.3 654.6L41.4 666.9M63.4 617.0L28.6 626.3M54.9 578.5L19.4 584.7M49.7 539.4L13.9 542.5M90.0 500.0L12.0 500.0M49.7 460.6L13.9 457.5M54.9 421.5L19.4 415.3M63.4 383.0L28.6 373.7M75.3 345.4L41.4 333.1M90.3 309.0L57.7 293.8M127.6 285.0L77.4 256.0M129.7 240.7L100.3 220.1M153.7 209.5L126.2 186.3M180.4 180.4L154.9 154.9M209.5 153.7L186.3 126.2M240.7 129.7L220.1 100.3M285.0 127.6L256.0 77.4M309.0 90.3L293.8 57.7M345.4 75.3L333.1 41.4M383.0 63.4L373.7 28.6M421.5 54.9L415.3 19.4M460.6 49.7L457.5 13.9'/%3E%3Cpath stroke-opacity='0.9' d='M500 120L484 168H516Z'/%3E%3C/svg%3E");
+  --glow-strength: 0.22;
   --graticule: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1400 1000' fill='none' stroke='%23111c3b' stroke-opacity='0.07' stroke-width='1'%3E%3Cellipse cx='700' cy='1180' rx='1500' ry='980'/%3E%3Cellipse cx='700' cy='1180' rx='1240' ry='800'/%3E%3Cellipse cx='700' cy='1180' rx='980' ry='620'/%3E%3Cellipse cx='700' cy='1180' rx='720' ry='440'/%3E%3Cellipse cx='700' cy='-260' rx='1500' ry='900'/%3E%3Cellipse cx='700' cy='-260' rx='1200' ry='700'/%3E%3Cpath d='M-100 120 C 300 60 1100 60 1500 120'/%3E%3Cpath d='M-100 880 C 300 940 1100 940 1500 880'/%3E%3C/svg%3E");
 }
 
@@ -98,8 +98,8 @@
 
   --shadow-ink: 226 80% 3%;
   --scrim: 226 80% 3%;
-  --bearing-ring: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1000 1000' fill='none' stroke='%23ffffff' stroke-width='1.2'%3E%3Ccircle cx='500' cy='500' r='488' stroke-opacity='1'/%3E%3Ccircle cx='500' cy='500' r='452' stroke-opacity='0.6'/%3E%3Ccircle cx='500' cy='500' r='330' stroke-opacity='0.5'/%3E%3Ccircle cx='500' cy='500' r='180' stroke-opacity='0.35'/%3E%3Cpath d='M500.0 90.0L500.0 12.0M539.4 49.7L542.5 13.9M578.5 54.9L584.7 19.4M617.0 63.4L626.3 28.6M654.6 75.3L666.9 41.4M691.0 90.3L706.2 57.7M715.0 127.6L744.0 77.4M759.3 129.7L779.9 100.3M790.5 153.7L813.7 126.2M819.6 180.4L845.1 154.9M846.3 209.5L873.8 186.3M870.3 240.7L899.7 220.1M872.4 285.0L922.6 256.0M909.7 309.0L942.3 293.8M924.7 345.4L958.6 333.1M936.6 383.0L971.4 373.7M945.1 421.5L980.6 415.3M950.3 460.6L986.1 457.5M910.0 500.0L988.0 500.0M950.3 539.4L986.1 542.5M945.1 578.5L980.6 584.7M936.6 617.0L971.4 626.3M924.7 654.6L958.6 666.9M909.7 691.0L942.3 706.2M872.4 715.0L922.6 744.0M870.3 759.3L899.7 779.9M846.3 790.5L873.8 813.7M819.6 819.6L845.1 845.1M790.5 846.3L813.7 873.8M759.3 870.3L779.9 899.7M715.0 872.4L744.0 922.6M691.0 909.7L706.2 942.3M654.6 924.7L666.9 958.6M617.0 936.6L626.3 971.4M578.5 945.1L584.7 980.6M539.4 950.3L542.5 986.1M500.0 910.0L500.0 988.0M460.6 950.3L457.5 986.1M421.5 945.1L415.3 980.6M383.0 936.6L373.7 971.4M345.4 924.7L333.1 958.6M309.0 909.7L293.8 942.3M285.0 872.4L256.0 922.6M240.7 870.3L220.1 899.7M209.5 846.3L186.3 873.8M180.4 819.6L154.9 845.1M153.7 790.5L126.2 813.7M129.7 759.3L100.3 779.9M127.6 715.0L77.4 744.0M90.3 691.0L57.7 706.2M75.3 654.6L41.4 666.9M63.4 617.0L28.6 626.3M54.9 578.5L19.4 584.7M49.7 539.4L13.9 542.5M90.0 500.0L12.0 500.0M49.7 460.6L13.9 457.5M54.9 421.5L19.4 415.3M63.4 383.0L28.6 373.7M75.3 345.4L41.4 333.1M90.3 309.0L57.7 293.8M127.6 285.0L77.4 256.0M129.7 240.7L100.3 220.1M153.7 209.5L126.2 186.3M180.4 180.4L154.9 154.9M209.5 153.7L186.3 126.2M240.7 129.7L220.1 100.3M285.0 127.6L256.0 77.4M309.0 90.3L293.8 57.7M345.4 75.3L333.1 41.4M383.0 63.4L373.7 28.6M421.5 54.9L415.3 19.4M460.6 49.7L457.5 13.9'/%3E%3Cpath stroke-opacity='0.45' stroke-dasharray='2 10' d='M500 70V930M70 500H930'/%3E%3Cpath stroke-opacity='0.9' d='M500 120L484 168H516Z'/%3E%3C/svg%3E");
-  --glow-strength: 0.17;
+  --bearing-ring: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1000 1000' fill='none' stroke='%23ffffff' stroke-width='1.2'%3E%3Ccircle cx='500' cy='500' r='488' stroke-opacity='1'/%3E%3Ccircle cx='500' cy='500' r='452' stroke-opacity='0.6'/%3E%3Cpath d='M500.0 90.0L500.0 12.0M539.4 49.7L542.5 13.9M578.5 54.9L584.7 19.4M617.0 63.4L626.3 28.6M654.6 75.3L666.9 41.4M691.0 90.3L706.2 57.7M715.0 127.6L744.0 77.4M759.3 129.7L779.9 100.3M790.5 153.7L813.7 126.2M819.6 180.4L845.1 154.9M846.3 209.5L873.8 186.3M870.3 240.7L899.7 220.1M872.4 285.0L922.6 256.0M909.7 309.0L942.3 293.8M924.7 345.4L958.6 333.1M936.6 383.0L971.4 373.7M945.1 421.5L980.6 415.3M950.3 460.6L986.1 457.5M910.0 500.0L988.0 500.0M950.3 539.4L986.1 542.5M945.1 578.5L980.6 584.7M936.6 617.0L971.4 626.3M924.7 654.6L958.6 666.9M909.7 691.0L942.3 706.2M872.4 715.0L922.6 744.0M870.3 759.3L899.7 779.9M846.3 790.5L873.8 813.7M819.6 819.6L845.1 845.1M790.5 846.3L813.7 873.8M759.3 870.3L779.9 899.7M715.0 872.4L744.0 922.6M691.0 909.7L706.2 942.3M654.6 924.7L666.9 958.6M617.0 936.6L626.3 971.4M578.5 945.1L584.7 980.6M539.4 950.3L542.5 986.1M500.0 910.0L500.0 988.0M460.6 950.3L457.5 986.1M421.5 945.1L415.3 980.6M383.0 936.6L373.7 971.4M345.4 924.7L333.1 958.6M309.0 909.7L293.8 942.3M285.0 872.4L256.0 922.6M240.7 870.3L220.1 899.7M209.5 846.3L186.3 873.8M180.4 819.6L154.9 845.1M153.7 790.5L126.2 813.7M129.7 759.3L100.3 779.9M127.6 715.0L77.4 744.0M90.3 691.0L57.7 706.2M75.3 654.6L41.4 666.9M63.4 617.0L28.6 626.3M54.9 578.5L19.4 584.7M49.7 539.4L13.9 542.5M90.0 500.0L12.0 500.0M49.7 460.6L13.9 457.5M54.9 421.5L19.4 415.3M63.4 383.0L28.6 373.7M75.3 345.4L41.4 333.1M90.3 309.0L57.7 293.8M127.6 285.0L77.4 256.0M129.7 240.7L100.3 220.1M153.7 209.5L126.2 186.3M180.4 180.4L154.9 154.9M209.5 153.7L186.3 126.2M240.7 129.7L220.1 100.3M285.0 127.6L256.0 77.4M309.0 90.3L293.8 57.7M345.4 75.3L333.1 41.4M383.0 63.4L373.7 28.6M421.5 54.9L415.3 19.4M460.6 49.7L457.5 13.9'/%3E%3Cpath stroke-opacity='0.9' d='M500 120L484 168H516Z'/%3E%3C/svg%3E");
+  --glow-strength: 0.36;
   --graticule: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1400 1000' fill='none' stroke='%23ffffff' stroke-opacity='0.045' stroke-width='1'%3E%3Cellipse cx='700' cy='1180' rx='1500' ry='980'/%3E%3Cellipse cx='700' cy='1180' rx='1240' ry='800'/%3E%3Cellipse cx='700' cy='1180' rx='980' ry='620'/%3E%3Cellipse cx='700' cy='1180' rx='720' ry='440'/%3E%3Cellipse cx='700' cy='-260' rx='1500' ry='900'/%3E%3Cellipse cx='700' cy='-260' rx='1200' ry='700'/%3E%3Cpath d='M-100 120 C 300 60 1100 60 1500 120'/%3E%3Cpath d='M-100 880 C 300 940 1100 940 1500 880'/%3E%3C/svg%3E");
 }
 
@@ -708,7 +708,8 @@ body::after {
      lib/pointerGlow.ts) with an eased nine-stop falloff - no slope breaks, so no Mach rings -
      and a faint grain dithers the 8-bit steps that are left;
    - ::after lights the boundary with layered box-shadows, which are true Gaussian blurs.
-   Only opacity transitions, so hover costs a composite, not a re-layout. */
+   Only opacity transitions; while the pointer moves, the spotlight repaints once per frame on the
+   hovered card only. Note isolation also confines descendant z-index (tooltips) to the card. */
 .chart-clickable, .insight-card-hover {
   isolation: isolate;
   --glow-x: 50%;
@@ -723,7 +724,7 @@ body::after {
   pointer-events: none;
   background:
     var(--dither) 0 0 / 160px 160px,
-    radial-gradient(480px circle at var(--glow-x) var(--glow-y),
+    radial-gradient(300px circle at var(--glow-x) var(--glow-y),
       hsl(var(--primary) / 1) 0%, hsl(var(--primary) / 0.957) 12.5%, hsl(var(--primary) / 0.844) 25%,
       hsl(var(--primary) / 0.684) 37.5%, hsl(var(--primary) / 0.5) 50%, hsl(var(--primary) / 0.316) 62.5%,
       hsl(var(--primary) / 0.156) 75%, hsl(var(--primary) / 0.043) 87.5%, hsl(var(--primary) / 0) 100%);
@@ -1298,8 +1299,8 @@ body::after {
 .horizon-plot .recharts-surface { animation: horizon-draw 0.9s var(--ease-out-expo) both; }
 
 .plan-cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
-.plan-cal-weekday { padding-bottom: 2px; font-size: 11px; text-align: center; color: hsl(var(--muted-foreground)); }
-.plan-cal-pad { min-height: 66px; }
+.plan-cal-weekday { padding: 0 0 2px 9px; font-size: 11px; color: hsl(var(--muted-foreground)); }
+.plan-cal-pad { min-height: 66px; border: 1px dashed hsl(var(--border) / 0.45); border-radius: 8px; }
 .plan-cal-day {
   --level: 0.5;
   position: relative;
@@ -1311,6 +1312,7 @@ body::after {
   min-width: 0;
   min-height: 66px;
   padding: 6px 8px;
+  background: hsl(var(--background));
   text-align: left;
   border-radius: 8px;
   border: 1px solid hsl(var(--border) / 0.7);
@@ -1325,7 +1327,7 @@ body::after {
   z-index: -1;
   border-radius: inherit;
   background: hsl(var(--sea));
-  opacity: calc(0.04 + var(--level) * 0.16);
+  opacity: calc(0.05 + var(--level) * 0.38);
 }
 .plan-cal-day[data-tone="below"] { border-color: hsl(var(--warning) / 0.5); }
 .plan-cal-day[data-tone="below"]::before { background: hsl(var(--warning)); opacity: 0.14; }
@@ -1340,10 +1342,14 @@ body::after {
 .plan-cal-pips i[data-kind="in"] { background: hsl(var(--success)); }
 .plan-cal-pips i[data-kind="out"] { background: hsl(var(--error)); }
 .plan-cal-pips i[data-kind="whatif"] { background: var(--gold); }
+.plan-cal-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 10px; font-size: 11px; color: hsl(var(--muted-foreground)); }
+.plan-cal-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.plan-cal-legend .plan-cal-pips { margin: 0; }
 .plan-cal-detail { margin-top: 14px; padding-top: 10px; border-top: 1px solid hsl(var(--border)); }
 @container (max-width: 719px) {
   .plan-cal { gap: 3px; }
   .plan-cal-day { min-height: 52px; padding: 4px 5px; }
+  .plan-cal-weekday { padding-left: 6px; }
   .plan-cal-day strong { font-size: 11px; }
   .plan-cal-pad { min-height: 52px; }
 }
@@ -1366,33 +1372,24 @@ body::after {
   transform: translate3d(var(--aurora-shift, 0px), 0, 0);
   transition: transform 1.8s var(--ease-out-expo);
 }
+/* Centred on the window's bottom-right corner, so only one quadrant of the bezel shows, low
+   and out of the way of the content. */
 .backdrop-bearing {
   position: absolute;
   width: 132vmin;
   height: 132vmin;
-  right: -46vmin;
-  bottom: -58vmin;
+  right: -66vmin;
+  bottom: -66vmin;
 }
 .bearing-dial {
   position: absolute;
   inset: 0;
   background: var(--bearing-ring) center / contain no-repeat;
-  opacity: 0.075;
+  opacity: 0.06;
   transform: rotate(var(--heading, 0deg));
   transition: transform 1.6s var(--ease-out-expo);
 }
-.dark .bearing-dial { opacity: 0.06; }
-/* The lubber line: a fixed gold notch the dial turns under, like a ship's compass. */
-.bearing-lubber {
-  position: absolute;
-  left: 50%;
-  top: 0.4%;
-  width: 2px;
-  height: 4.5%;
-  margin-left: -1px;
-  border-radius: 1px;
-  background: linear-gradient(hsl(var(--primary) / 0.55), hsl(var(--primary) / 0));
-}
+.dark .bearing-dial { opacity: 0.05; }
 /* A page change sweeps one gold line across the top of the workspace and fades: the
    instrument confirming its new heading. Zero height, so layout never moves. */
 .route-glint { position: sticky; top: 0; z-index: 5; display: block; height: 0; pointer-events: none; }
@@ -1433,9 +1430,7 @@ body::after {
 /* ── 1.3.13 polish: browser surfaces in the palette ─────────────────────────────── */
 ::selection { background: hsl(var(--primary) / 0.3); }
 input, textarea { caret-color: hsl(var(--primary)); }
+/* Standard properties only: WebView2 colours its scrollbars; macOS keeps its native overlay bars
+   (custom ::-webkit-scrollbar rules would swap them for always-visible classic ones). */
 html { scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent; }
 * { scrollbar-width: thin; }
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 9999px; background: hsl(var(--muted-foreground) / 0.32) content-box; }
-::-webkit-scrollbar-thumb:hover { background-color: hsl(var(--primary) / 0.6); }

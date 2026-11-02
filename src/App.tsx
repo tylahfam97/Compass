@@ -94,8 +94,7 @@ function RoutedContent() {
 /**
  * The workspace backdrop: a faint aurora and a bearing dial, behind everything and fixed to the
  * window. Each page has its own heading (its place in the sidebar), so changing page turns the
- * dial under its gold lubber line and drifts the aurora a little, then everything rests - no
- * continuous animation. Hidden behind the opaque launch screen, so the login is unchanged.
+ * dial and drifts the aurora a little, then everything rests - no continuous animation. Hidden behind the opaque launch screen, so the login is unchanged.
  */
 function AppBackdrop() {
   const { pathname } = useLocation();
@@ -109,7 +108,6 @@ function AppBackdrop() {
       <div className="backdrop-aurora" />
       <div className="backdrop-bearing">
         <div className="bearing-dial" />
-        <div className="bearing-lubber" />
       </div>
     </div>
   );

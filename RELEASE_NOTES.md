@@ -12,12 +12,13 @@ brings together the 1.3.11 and 1.3.12 development builds (#120, #121, #122) and 
 
 ### Plan: limits that follow your money (#123)
 - **The sliders now top out at the money you actually have.** "Keep in reserve" used to stop at a
-  fixed $2,000. It now runs from $0 up to your liquid cash: the checking and savings balances the
-  forecast starts from, added together. Credit cards, investments, crypto and loans are never counted.
+  fixed $2,000. It now runs from $0 up to your liquid cash: the latest balances of your bank
+  accounts (checking or savings statements imported as Bank), added together, which is the same cash
+  the forecast starts from. Credit cards, investments, crypto and loans are never counted.
   The top of the range is printed under the slider.
 - **Spending and income changes scale too.** The everyday-spending and extra-income sliders run up to
   the larger of your liquid cash and your scheduled monthly income, so a raise or a big month can still
-  be modeled when checking is low. A spending cut reaches exactly your typical spending and no further.
+  be modeled when checking is low. A spending cut reaches down to your typical spending.
 - **Steps that fit the range.** Each slider moves in round steps sized to its range ($10 steps on
   $1,000, $250 steps on $25,000), by mouse or arrow keys.
 - **Your saved choices are kept.** If a saved cushion is more than you have today, it is shown and used
@@ -46,7 +47,7 @@ brings together the 1.3.11 and 1.3.12 development builds (#120, #121, #122) and 
 ### A smoother, sharper finish (#123)
 - **Card glow, rebuilt.** The gold glow on clickable cards used to be a blurred blob with visible rings
   in its fade. It is now a soft light that follows your pointer, fading in an even curve with a faint
-  grain so no rings show, plus a clean lit edge. It costs only a fade on hover. Insight card icons got
+  grain so no rings show, plus a clean lit edge. It only redraws the card under the pointer. Insight card icons got
   the same smooth falloff.
 - **Page changes.** Pages fade and rise a little more gently, a thin gold line sweeps across the top as
   a page arrives, and the gold marker in the sidebar glides to the page you picked instead of jumping.
@@ -55,7 +56,8 @@ brings together the 1.3.11 and 1.3.12 development builds (#120, #121, #122) and 
   behind the opaque sign-in screen, which is unchanged.
 - **Instrument controls.** Sliders across Plan and the Chart page show a gold fill from zero to the value
   and a ringed thumb that lights while held; signed sliders mark where zero is. Loading placeholders
-  get a slow scanning light. Text selection, the text cursor and scrollbars use the app's colors.
+  get a slow scanning light. Text selection and the text cursor use the app's colors, and so do scrollbars on
+  Windows.
 - The color palette, the Chart page's map, the graticule, the sign-in particles and the gold borders
   that mark clickable boxes are all kept.
 
@@ -80,7 +82,7 @@ brings together the 1.3.11 and 1.3.12 development builds (#120, #121, #122) and 
 - You can confirm a deposit yourself, including unequal amounts once you confirm the difference is fees
   or price movement, or split a purchase into the invested part and the part that stays spending. The
   two parts always add up to the original amount, and "Undo split" restores the row exactly.
-- **Partial:** #107 stays open. There is no Coinbase import, wallet sends are never treated as spending,
+- **Partial:** #107 stays open. There is no Coinbase import, wallet sends are not matched,
   and no cost basis is inferred. Ledger Live's dollar figure is the coins' value when they arrived, so
   most real purchases differ by fees or spreads and stay Crypto spending.
 

@@ -97,15 +97,18 @@ export function scenarioLimits(input: { liquidCents: number | null; monthlyIncom
   const liquid = input.liquidCents;
   const typicalDaily = Math.max(0, Math.round(input.typicalDailyCents ?? 0));
   const usable = liquid !== null && liquid >= 100;
-  const flowScale = Math.max(usable ? liquid : 0, Math.max(0, Math.round(input.monthlyIncomeCents ?? 0)));
+  // validateScenario resets saved values past SCENARIO_MAX_CENTS, so no range may reach past it
+  // (every step divides it, so rounding to a step can't overshoot either).
+  const cap = (c: number) => Math.min(c, SCENARIO_MAX_CENTS);
+  const flowScale = cap(Math.max(usable ? liquid : 0, Math.max(0, Math.round(input.monthlyIncomeCents ?? 0))));
 
-  const buffer = usable ? upTo(liquid) : { min: 0, ...BUFFER_LIMIT };
+  const buffer = usable ? upTo(cap(liquid)) : { min: 0, ...BUFFER_LIMIT };
   const flows = flowScale >= 100;
   const month = flows ? upTo(flowScale) : { min: 0, ...SPEND_LIMIT.month };
   const day = flows ? upTo(Math.max(100, Math.round(flowScale / 30))) : { min: 0, ...SPEND_LIMIT.day };
   // Typical spending is per day; a month of it is the most a monthly cut can remove.
-  month.min = cutFloor(typicalDaily * 31, month.step);
-  day.min = cutFloor(typicalDaily, day.step);
+  month.min = cutFloor(cap(typicalDaily * 31), month.step);
+  day.min = cutFloor(cap(typicalDaily), day.step);
   const income = flows ? upTo(flowScale) : { min: 0, ...INCOME_LIMIT };
 
   return { liquidCents: liquid, fallback: !usable, buffer, spend: { day, month }, income, flowScaleCents: flowScale };

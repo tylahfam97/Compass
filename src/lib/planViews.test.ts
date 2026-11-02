@@ -1,12 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { projectCashFlow, type ForecastEvent } from "./forecast";
-import { clampToLimit, niceStep, scenarioLimits, validateScenario, BUFFER_LIMIT, INCOME_LIMIT, SPEND_LIMIT } from "./planScenario";
+import { clampToLimit, niceStep, scenarioLimits, validateScenario, BUFFER_LIMIT, INCOME_LIMIT, SCENARIO_MAX_CENTS, SPEND_LIMIT } from "./planScenario";
 import { buildPlanCalendar, buildPlanFlow } from "./planViews";
 
 const event = (date: string, amountCents: number, description: string, categoryName: string | null = null): ForecastEvent =>
   ({ key: `${date}-${description}`, date, description, amountCents, source: "rule", categoryName, categoryColor: categoryName ? "#3b82f6" : null });
 
 describe("slider limits follow liquid cash (#123)", () => {
+  it("never offers a value that would be reset on the next load", () => {
+    const rich = scenarioLimits({ liquidCents: 9_000_000_000, monthlyIncomeCents: 9_000_000_000, typicalDailyCents: 9_000_000_000 });
+    for (const limit of [rich.buffer, rich.income, rich.spend.month, rich.spend.day]) {
+      expect(limit.max).toBeLessThanOrEqual(SCENARIO_MAX_CENTS);
+      expect(limit.min).toBeGreaterThanOrEqual(-SCENARIO_MAX_CENTS);
+    }
+    const saved = validateScenario({ version: 2, buffer: rich.buffer.max, income: rich.income.max, spend: { cents: rich.spend.month.min, per: "month" } });
+    expect([saved.buffer, saved.income, saved.spend.cents]).toEqual([rich.buffer.max, rich.income.max, rich.spend.month.min]);
+  });
+
   it("tops the cushion out at the liquid cash instead of a fixed $2,000", () => {
     const limits = scenarioLimits({ liquidCents: 1_234_567 });
     expect(limits.fallback).toBe(false);

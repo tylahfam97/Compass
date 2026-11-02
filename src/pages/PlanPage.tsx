@@ -411,7 +411,7 @@ function ProfilePlan({ profileId }: { profileId: number }) {
   const fallbackNote = liquid === null ? "No checking balance is on file yet" : "No liquid cash is available right now";
   const cushionCap = range.fallback
     ? <>{fallbackNote}, so the standard {formatCurrencyWhole(range.buffer.max)} range applies.</>
-    : <>Up to your liquid cash: <span className="tabular-nums">{formatCurrency(liquid!)}</span> <InfoTooltip text="Checking and savings balances the forecast starts from, added together. Credit cards, investments, crypto and loans are never counted." />{incomplete ? " (known balances only)" : ""}</>;
+    : <>Up to your liquid cash: <span className="tabular-nums">{formatCurrency(liquid!)}</span> <InfoTooltip text="The latest balances of your bank accounts (checking or savings statements imported as Bank), added together: the same cash the forecast starts from. Credit cards, investments, crypto and loans are never counted." />{incomplete ? " (known balances only)" : ""}</>;
   const { nextPay, skipPay } = forecast!;
   const scenarioChanged = spend.cents !== 0 || extraIncomeCents > 0 || skipPay || bufferCents > 0 || purchase.amountCents > 0;
   const resetScenario = () => {
