@@ -5,7 +5,7 @@
 > bank login, has no cloud account, and stores everything in a SQLCipher AES-256
 > encrypted database on the user's own machine.
 
-Compass is a desktop application built with Tauri, React and Rust. The user downloads a CSV file or Excel (.xlsx) workbook of transactions from their own bank or card issuer and imports it through a guided wizard with column mapping, a preview, saved layouts and duplicate detection. Categorisation, budgeting, forecasting, net worth and investment tracking all run locally. There is no Compass account or cloud service holding the data, no telemetry, and no subscription.
+Compass is a desktop application built with Tauri, React and Rust, by Chrysis Networks (https://chrysisnetworks.com), which also signs the Windows installers. The user downloads a CSV file or Excel (.xlsx) workbook of transactions from their own bank or card issuer and imports it through a guided wizard with column mapping, a preview, saved layouts and duplicate detection. Categorisation, budgeting, forecasting, net worth and investment tracking all run locally. There is no Compass account or cloud service holding the data, no telemetry, and no subscription.
 
 ## What it costs
 
@@ -57,6 +57,11 @@ No live bank connections, no cloud sync, no shared access, single currency only,
 
 - Website: https://privatecompass.app
 - Import guide: https://privatecompass.app/import-guide.html
+- Desktop Personal Finance Software, Free & Private: https://privatecompass.app/personal-finance-software/
+- CSV Budgeting App: Budget from Bank Statements: https://privatecompass.app/csv-budgeting-app/
+- Private Budgeting App with Encrypted Local Storage: https://privatecompass.app/private-budgeting-app/
+- Budgeting App Without Bank Connection or Login: https://privatecompass.app/budgeting-without-bank-connection/
+- Built by: Chrysis Networks, https://chrysisnetworks.com
 - Source code: https://github.com/tylahfam97/Compass
 - Releases and downloads: https://github.com/tylahfam97/Compass/releases
 - Release notes: https://github.com/tylahfam97/Compass/blob/main/RELEASE_NOTES.md
