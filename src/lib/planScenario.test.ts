@@ -37,7 +37,10 @@ describe("cash-flow scenario", () => {
     expect(result.buffer).toBe(0);
     expect(result.income).toBe(0);
     expect(result.purchase).toEqual({ date: "", amountCents: 0, kind: "out" });
-    expect(validateScenario({ spend: { cents: 25_000, per: "day" } }).spend).toEqual({ cents: 0, per: "day" });
+    // Ranges follow liquid cash now (#123), so storage only rejects values past the sanity bound.
+    expect(validateScenario({ spend: { cents: 25_000, per: "day" } }).spend).toEqual({ cents: 25_000, per: "day" });
+    expect(validateScenario({ spend: { cents: 100_000_001, per: "day" } }).spend).toEqual({ cents: 0, per: "day" });
+    expect(validateScenario({ buffer: 750_000, income: 900_000 })).toMatchObject({ buffer: 750_000, income: 900_000 });
     expect(validateScenario({ spend: { cents: -4_000, per: "week" as never } }).spend).toEqual({ cents: -4_000, per: "month" });
     // A skipped paycheck is bound to its date; an old boolean or an impossible date is dropped.
     expect(validateScenario({ skipPay: "2026-10-07" }).skipPay).toBe("2026-10-07");

@@ -1,11 +1,17 @@
 import PlannedBar from "@/components/PlannedBar";
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import CashFlowHorizon from "@/components/CashFlowHorizon";
-import { loadScenario, saveScenario, SPEND_LIMIT, INCOME_LIMIT, type PlanScenario } from "@/lib/planScenario";
-import { CalendarCheckIcon, TrendUpIcon, SparkleIcon, WarningIcon, MagicWandIcon, EyeSlashIcon, BankIcon, CalendarPlusIcon, CaretRightIcon } from "@phosphor-icons/react";
+import { PlanCalendarView, PlanMapView } from "@/components/PlanViews";
+import Segmented from "@/components/Segmented";
+import CountUp from "@/components/CountUp";
+import {
+  loadScenario, saveScenario, scenarioLimits, clampToLimit,
+  type PlanScenario, type PlanView, type PlanPanel, type SliderLimit,
+} from "@/lib/planScenario";
+import { CalendarCheckIcon, TrendUpIcon, SparkleIcon, WarningIcon, MagicWandIcon, EyeSlashIcon, BankIcon, CalendarPlusIcon, CaretRightIcon, ChartLineIcon, MapTrifoldIcon, CalendarBlankIcon, SlidersHorizontalIcon } from "@phosphor-icons/react";
 import { motion } from "motion/react";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatCurrencyWhole, formatDate } from "@/lib/utils";
 import { staggerContainer, riseIn } from "@/lib/motionPresets";
 import {
   projectCashFlow, expandOccurrences, deriveNextActions, resolveForecastWindow,
@@ -34,6 +40,19 @@ const WINDOWS: { id: PlanWindow; label: string }[] = [
   { id: "nextMonth",  label: "Through next month" },
 ];
 
+/** The line chart stays the default; the map and calendar are other readings of it (#123). */
+const VIEWS: { id: PlanView; label: string; icon: ReactNode }[] = [
+  { id: "line",     label: "Line",     icon: <ChartLineIcon size={14} /> },
+  { id: "map",      label: "Map",      icon: <MapTrifoldIcon size={14} /> },
+  { id: "calendar", label: "Calendar", icon: <CalendarBlankIcon size={14} /> },
+];
+
+const PANELS: { id: PlanPanel; label: string }[] = [
+  { id: "actions",  label: "Next steps" },
+  { id: "upcoming", label: "Upcoming cash flow" },
+  { id: "payoff",   label: "Put your spare money to work" },
+];
+
 /** Events are expanded this far ahead regardless of window, so "to next paycheck" can find a
  *  paycheck further out than the window being shown, and "through next month" always reaches
  *  the end of a 31-day month. */
@@ -42,6 +61,40 @@ const MAX_LOOKAHEAD_DAYS = 95;
 const STALE_BALANCE_DAYS = 7;
 
 const signedCurrency = (cents: number) => `${cents > 0 ? "+" : ""}${formatCurrency(cents)}`;
+const countCurrency = (value: number) => formatCurrency(Math.round(value));
+
+/** A what-if slider: the gold fill tracks the value, and the scale under it names the range
+ *  and where its top comes from. */
+function ScenarioRange({ labelId, label, aside, value, limit, onChange, scale, hint, signed = false }: {
+  labelId: string; label: ReactNode; aside?: ReactNode; value: number; limit: SliderLimit; onChange: (cents: number) => void;
+  scale: ReactNode; hint: ReactNode; signed?: boolean;
+}) {
+  const span = limit.max - limit.min;
+  const fill = span > 0 ? ((value - limit.min) / span) * 100 : 0;
+  const zero = span > 0 && limit.min < 0 ? (-limit.min / span) * 100 : 0;
+  return (
+    <div className="plan-range">
+      <div className="plan-range-head">
+        <span className="text-xs font-medium" id={labelId}>{label}</span>
+        {aside}
+      </div>
+      <input
+        type="range" aria-labelledby={labelId} className="instrument-range"
+        min={limit.min} max={limit.max} step={limit.step} value={value}
+        aria-valuetext={signed ? signedCurrency(value) : formatCurrency(value)}
+        style={{ "--fill": `${fill.toFixed(2)}%`, "--zero": `${zero.toFixed(2)}%` } as CSSProperties}
+        data-signed={limit.min < 0 || undefined}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
+      <div className="plan-range-scale" aria-hidden="true">
+        <span>{limit.min < 0 ? signedCurrency(limit.min) : formatCurrencyWhole(limit.min)}</span>
+        <span>{formatCurrencyWhole(limit.max)}</span>
+      </div>
+      <p className="plan-range-cap">{scale}</p>
+      <span className="text-[11px] text-[hsl(var(--muted-foreground))]">{hint}</span>
+    </div>
+  );
+}
 
 const ACTION_TONE: Record<NextActionTone, { color: string; label: string }> = {
   urgent:    { color: "hsl(var(--error))",   label: "Do this first" },
@@ -88,6 +141,13 @@ function ProfilePlan({ profileId }: { profileId: number }) {
   const [extraIncomeCents, setExtraIncomeCents] = useState(stored.income);
   const [skipPayDate, setSkipPayDate] = useState(stored.skipPay);
   const [purchase, setPurchase] = useState(stored.purchase);
+  // Layout preferences (#123): which view draws the forecast and which sections show.
+  const [view, setView] = useState<PlanView>(stored.view);
+  const [hidden, setHidden] = useState<PlanPanel[]>(stored.hidden);
+  const [markers, setMarkers] = useState(stored.markers);
+  const shows = (panel: PlanPanel) => !hidden.includes(panel);
+  const togglePanel = (panel: PlanPanel, show: boolean) =>
+    setHidden((current) => (show ? current.filter((p) => p !== panel) : [...current.filter((p) => p !== panel), panel]));
   const [holdScale, setHoldScale] = useState(false);
   useEffect(() => {
     const release = () => setHoldScale(false);
@@ -98,8 +158,8 @@ function ProfilePlan({ profileId }: { profileId: number }) {
   }, []);
 
   useEffect(() => {
-    saveScenario(profileId, { version: 2, window: planWindow, buffer: bufferCents, detected: includeDetected, typical: useBaseline, spend, income: extraIncomeCents, skipPay: skipPayDate, purchase });
-  }, [profileId, planWindow, bufferCents, includeDetected, useBaseline, spend, extraIncomeCents, skipPayDate, purchase]);
+    saveScenario(profileId, { version: 2, window: planWindow, buffer: bufferCents, detected: includeDetected, typical: useBaseline, spend, income: extraIncomeCents, skipPay: skipPayDate, purchase, view, hidden, markers });
+  }, [profileId, planWindow, bufferCents, includeDetected, useBaseline, spend, extraIncomeCents, skipPayDate, purchase, view, hidden, markers]);
 
   const load = useCallback(async () => {
     const sequence = ++loadSequence.current;
@@ -180,13 +240,36 @@ function ProfilePlan({ profileId }: { profileId: number }) {
 
   const handleAction = (a: NextAction) => {
     if (a.anchor === "payoff" && debtContext) setPayoffOpen(true);
-    else if (a.anchor === "detected") upcomingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    else if (a.anchor === "detected") {
+      // A hidden section is brought back rather than leaving the action pointing at nothing.
+      if (!shows("upcoming")) togglePanel("upcoming", true);
+      window.requestAnimationFrame(() => upcomingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    }
     else if (a.anchor === "rules") {
       if (rulesRef.current) rulesRef.current.open = true;
       setRuleFormRequest((r) => ({ tick: r.tick + 1, income: a.key === "add_income" }));
       rulesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   };
+
+  // Typical spending the projection includes (0 when off or there is too little history).
+  const baselineDailyCents = inputs && useBaseline && baselineIsUsable(inputs.baseline) ? inputs.baseline.dailySpendCents : 0;
+
+  /** Slider ranges from the cash actually on hand (#123): the cushion tops out at the liquid
+   *  balances the forecast starts from; spending and income changes at the larger of that and
+   *  scheduled monthly income. Null liquid = no balance recorded on any checking account. */
+  const limits = useMemo(() => {
+    if (!inputs) return null;
+    const anyBalance = inputs.balanceSources.some((source) => source.balance !== null);
+    const monthlyIncomeCents = inputs.rules.reduce((sum, r) => sum + Math.max(0, monthlyEquivalentCents(r)), 0);
+    return scenarioLimits({ liquidCents: anyBalance ? inputs.startingBalanceCents : null, monthlyIncomeCents, typicalDailyCents: baselineDailyCents });
+  }, [inputs, baselineDailyCents]);
+
+  // Saved values stay as saved; the projection and sliders use them clamped to today's range,
+  // so a balance that dips (or a missing import) never rewrites the user's choices.
+  const effectiveBuffer = limits ? clampToLimit(bufferCents, limits.buffer) : bufferCents;
+  const effectiveSpendCents = limits ? clampToLimit(spend.cents, limits.spend[spend.per]) : spend.cents;
+  const effectiveIncome = limits ? clampToLimit(extraIncomeCents, limits.income) : extraIncomeCents;
 
   const forecast = useMemo(() => {
     if (!inputs) return null;
@@ -203,7 +286,7 @@ function ProfilePlan({ profileId }: { profileId: number }) {
 
     // Per-day outflow = the user's typical spending (when opted in) plus whatever extra they're
     // simulating - the forecast still never invents a rate the user hasn't accepted.
-    const baselineDaily = useBaseline && baselineIsUsable(inputs.baseline) ? inputs.baseline.dailySpendCents : 0;
+    const baselineDaily = baselineDailyCents;
     const dailySpendCents = baselineDaily;
     const nextPay = events.find((e) => e.amountCents > 0) ?? null;
     const skipPay = !!nextPay && nextPay.date === skipPayDate;
@@ -211,16 +294,16 @@ function ProfilePlan({ profileId }: { profileId: number }) {
     // Expected and scenario share the same start, events and typical spending; only the
     // what-if inputs differ, so the gap between the two lines is exactly the user's changes.
     return {
-      current: projectCashFlow({ startingBalanceCents: inputs.startingBalanceCents, startDate: start, days, events, dailySpendCents, bufferCents }),
+      current: projectCashFlow({ startingBalanceCents: inputs.startingBalanceCents, startDate: start, days, events, dailySpendCents, bufferCents: effectiveBuffer }),
       result: projectCashFlow({
         startingBalanceCents: inputs.startingBalanceCents,
         startDate: start,
         days,
         events,
         dailySpendCents,
-        bufferCents,
-        spendChange: spend,
-        extraIncomeMonthlyCents: extraIncomeCents,
+        bufferCents: effectiveBuffer,
+        spendChange: { cents: effectiveSpendCents, per: spend.per },
+        extraIncomeMonthlyCents: effectiveIncome,
         skipNextIncome: skipPay,
         purchase,
       }),
@@ -234,7 +317,7 @@ function ProfilePlan({ profileId }: { profileId: number }) {
       /** Scheduled items falling just outside the window, so the UI can point at the next one. */
       laterEvents: allEvents.filter((e) => e.date > endDate),
     };
-  }, [inputs, planWindow, spend, extraIncomeCents, skipPayDate, bufferCents, includeDetected, useBaseline, purchase]);
+  }, [inputs, planWindow, effectiveSpendCents, spend.per, effectiveIncome, skipPayDate, effectiveBuffer, includeDetected, baselineDailyCents, purchase]);
 
   const nextActions = useMemo(() => {
     if (!forecast || !inputs) return [];
@@ -317,10 +400,18 @@ function ProfilePlan({ profileId }: { profileId: number }) {
   const windowDays = forecast!.days;
   const baselineDaily = forecast!.baselineDailyCents;
   const scenarioDelta = result.endingBalanceCents - expected.endingBalanceCents;
-  const spendLimit = SPEND_LIMIT[spend.per];
+  const range = limits!;
+  const spendLimit = range.spend[spend.per];
   // A spending cut only trims typical spending the forecast actually includes; with none
-  // included there is nothing to cut, so the slider starts at zero.
+  // included there is nothing to cut, so the slider starts at zero (scenarioLimits' min).
   const canCut = baselineDaily > 0;
+  const liquid = range.liquidCents;
+  // Where the spending/income ranges come from, in words.
+  const flowBasis = !range.fallback && (liquid ?? 0) >= range.flowScaleCents ? "your liquid cash" : range.flowScaleCents > 0 ? "your scheduled monthly income" : null;
+  const fallbackNote = liquid === null ? "No checking balance is on file yet" : "No liquid cash is available right now";
+  const cushionCap = range.fallback
+    ? <>{fallbackNote}, so the standard {formatCurrencyWhole(range.buffer.max)} range applies.</>
+    : <>Up to your liquid cash: <span className="tabular-nums">{formatCurrency(liquid!)}</span> <InfoTooltip text="Checking and savings balances the forecast starts from, added together. Credit cards, investments, crypto and loans are never counted." />{incomplete ? " (known balances only)" : ""}</>;
   const { nextPay, skipPay } = forecast!;
   const scenarioChanged = spend.cents !== 0 || extraIncomeCents > 0 || skipPay || bufferCents > 0 || purchase.amountCents > 0;
   const resetScenario = () => {
@@ -350,22 +441,30 @@ function ProfilePlan({ profileId }: { profileId: number }) {
             {formatDate(toISODate(new Date()))} to {formatDate(forecast!.endDate)}
           </p>
         </div>
-        <div className="shrink-0">
-          <div className="flex gap-1 border rounded-lg p-1 w-fit" role="group" aria-label="Forecast window">
-            {WINDOWS.map((w) => (
-              <button
-                key={w.id}
-                onClick={() => setWindowPersisted(w.id)}
-                aria-pressed={planWindow === w.id}
-                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                  planWindow === w.id
-                    ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
-                    : "hover:bg-[hsl(var(--muted))]"
-                }`}
-              >
-                {w.label}
-              </button>
-            ))}
+        <div className="shrink-0 plan-heading-tools">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            <Segmented id="plan-window" label="Forecast window" value={planWindow} options={WINDOWS} onChange={setWindowPersisted} />
+            <details
+              className="transaction-tools plan-customize"
+              onKeyDown={(event) => { if (event.key === "Escape") (event.currentTarget as HTMLDetailsElement).open = false; }}
+            >
+              <summary className="workspace-icon border" title="Customize this page" aria-label="Customize this page"><SlidersHorizontalIcon size={16} /></summary>
+              <div className="transaction-tools-menu plan-customize-menu">
+                <p className="plan-customize-title">Show on this page</p>
+                {PANELS.map((panel) => (
+                  <label key={panel.id}>
+                    <input type="checkbox" checked={shows(panel.id)} onChange={(e) => togglePanel(panel.id, e.target.checked)} />
+                    {panel.label}
+                  </label>
+                ))}
+                <p className="plan-customize-title">Line chart</p>
+                <label>
+                  <input type="checkbox" checked={markers} onChange={(e) => setMarkers(e.target.checked)} />
+                  Mark bill and payday dates
+                </label>
+                <p className="plan-customize-note">Saved for this profile. Reset only clears your what-ifs.</p>
+              </div>
+            </details>
           </div>
           <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-1.5 text-right">
             {windowDays} days, {inputs.checkingAccountCount} checking account{inputs.checkingAccountCount === 1 ? "" : "s"}
@@ -378,6 +477,7 @@ function ProfilePlan({ profileId }: { profileId: number }) {
       <motion.section
         variants={riseIn}
         className="plan-summary"
+        data-state={short ? "short" : result.safeToSpendCents < 0 ? "risk" : "ok"}
         style={{ borderColor: short ? "hsl(var(--error))" : undefined }}
       >
         <div className="flex items-start gap-4">
@@ -411,7 +511,7 @@ function ProfilePlan({ profileId }: { profileId: number }) {
           <div className="plan-primary-metric">
             <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Safe to spend</p>
             <p className="plan-available tabular-nums" data-testid="safe-to-spend" style={{ color: result.safeToSpendCents < 0 ? "hsl(var(--error))" : undefined }}>
-              {incomplete ? "Unavailable" : formatCurrency(result.safeToSpendCents)}
+              {incomplete ? "Unavailable" : <CountUp value={result.safeToSpendCents} format={countCurrency} />}
             </p>
             <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">
               {incomplete ? "Missing a recorded checking balance" : result.safeToSpendCents < 0 ? "Short of your cash cushion" : "Above your reserved cushion"}
@@ -420,7 +520,7 @@ function ProfilePlan({ profileId }: { profileId: number }) {
           <div>
             <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Lowest point</p>
             <p className="text-2xl font-medium tabular-nums mt-1" style={{ color: (low?.balanceCents ?? 0) < 0 ? "hsl(var(--error))" : undefined }}>
-              {low ? formatCurrency(low.balanceCents) : "—"}
+              {low ? <CountUp value={low.balanceCents} format={countCurrency} /> : "—"}
             </p>
             <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">
               {low ? formatDate(low.date) : "No projection"}
@@ -523,57 +623,35 @@ function ProfilePlan({ profileId }: { profileId: number }) {
         </div>
 
         <div className="grid gap-6">
-          <div>
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <span className="text-xs font-medium" id="spend-change-label">
-                Everyday spending{" "}
-                <span className="tabular-nums" style={{ color: "var(--gold)" }}>{signedCurrency(canCut ? spend.cents : Math.max(0, spend.cents))}</span> per {spend.per}
-              </span>
-              <div className="flex gap-1 border rounded-lg p-0.5" role="group" aria-label="Spending change unit">
-                {(["day", "month"] as const).map((per) => (
-                  <button
-                    key={per}
-                    aria-pressed={spend.per === per}
-                    onClick={() => { if (spend.per !== per) setSpend({ cents: 0, per }); }}
-                    className={`px-2 py-0.5 text-[11px] rounded-md ${spend.per === per ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]" : "hover:bg-[hsl(var(--muted))]"}`}
-                  >
-                    Per {per}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <input
-              type="range" aria-labelledby="spend-change-label"
-              min={canCut ? -spendLimit.max : 0} max={spendLimit.max} step={spendLimit.step}
-              value={canCut ? spend.cents : Math.max(0, spend.cents)}
-              onChange={(e) => setSpend({ cents: Number(e.target.value), per: spend.per })}
-              className="w-full mt-2 accent-[hsl(var(--primary))]"
+          <ScenarioRange
+              labelId="spend-change-label" signed limit={spendLimit} value={effectiveSpendCents}
+              aside={<Segmented
+                id="plan-spend-unit" size="sm" label="Spending change unit" value={spend.per}
+                options={[{ id: "day", label: "Per day" }, { id: "month", label: "Per month" }] as const}
+                onChange={(per) => setSpend({ cents: 0, per })}
+              />}
+              onChange={(cents) => setSpend({ cents, per: spend.per })}
+              label={<>Everyday spending{" "}<span className="tabular-nums" style={{ color: "var(--gold)" }}>{signedCurrency(effectiveSpendCents)}</span> per {spend.per}</>}
+              scale={flowBasis
+                ? <>Up to {formatCurrencyWhole(spendLimit.max)} more a {spend.per}, scaled to {flowBasis}</>
+                : <>{fallbackNote}, so the standard range applies.</>}
+              hint={<>
+                {spend.per === "month" ? "Spread evenly over every day of each month. " : "Added to every day in the window. "}
+                {canCut
+                  ? `Left spends less; cuts stop at your typical ${formatCurrency(baselineDaily)}/day.`
+                  : "Turn on typical spending to model cutting back."}
+              </>}
             />
-            <span className="text-[11px] text-[hsl(var(--muted-foreground))]">
-              {spend.per === "month"
-                ? "Spread evenly over every day of each month. "
-                : "Added to every day in the window. "}
-              {canCut
-                ? `Left spends less; cuts stop at your typical ${formatCurrency(baselineDaily)}/day.`
-                : "Turn on typical spending to model cutting back."}
-            </span>
-          </div>
 
-          <label className="block">
-            <span className="text-xs font-medium">
-              Extra income{" "}
-              <span className="tabular-nums" style={{ color: "var(--gold)" }}>{formatCurrency(extraIncomeCents)}</span> per month
-            </span>
-            <input
-              type="range" min={0} max={INCOME_LIMIT.max} step={INCOME_LIMIT.step}
-              value={extraIncomeCents}
-              onChange={(e) => setExtraIncomeCents(Number(e.target.value))}
-              className="w-full mt-2 accent-[hsl(var(--primary))]"
-            />
-            <span className="text-[11px] text-[hsl(var(--muted-foreground))]">
-              A raise or side income, spread evenly over each month. Only counted here.
-            </span>
-          </label>
+          <ScenarioRange
+            labelId="extra-income-label" limit={range.income} value={effectiveIncome}
+            onChange={setExtraIncomeCents}
+            label={<>Extra income{" "}<span className="tabular-nums" style={{ color: "var(--gold)" }}>{formatCurrency(effectiveIncome)}</span> per month</>}
+            scale={flowBasis
+              ? <>Up to {formatCurrencyWhole(range.income.max)} a month, scaled to {flowBasis}</>
+              : <>{fallbackNote}, so the standard range applies.</>}
+            hint="A raise or side income, spread evenly over each month. Only counted here."
+          />
 
           {nextPay && (
             <label className="flex items-start gap-2 text-xs font-medium cursor-pointer select-none">
@@ -585,37 +663,24 @@ function ProfilePlan({ profileId }: { profileId: number }) {
             </label>
           )}
 
-          <label className="block">
-            <span className="text-xs font-medium">
-              Keep in reserve{" "}
-              <span className="tabular-nums" style={{ color: "var(--gold)" }}>{formatCurrency(bufferCents)}</span>
-            </span>
-            <input
-              type="range" min={0} max={200_000} step={5_000}
-              value={bufferCents}
-              onChange={(e) => setBufferCents(Number(e.target.value))}
-              className="w-full mt-2 accent-[hsl(var(--primary))]"
-            />
-            <span className="text-[11px] text-[hsl(var(--muted-foreground))]">
-              Protected cash, not an expense
-            </span>
-          </label>
+          <ScenarioRange
+            labelId="reserve-label" limit={range.buffer} value={effectiveBuffer}
+            onChange={setBufferCents}
+            label={<>Keep in reserve{" "}<span className="tabular-nums" style={{ color: "var(--gold)" }}>{formatCurrency(effectiveBuffer)}</span></>}
+            scale={cushionCap}
+            hint={bufferCents > effectiveBuffer
+              ? <span style={{ color: "hsl(var(--warning))" }}>Your saved cushion of {formatCurrency(bufferCents)} is more than you have, so {formatCurrency(effectiveBuffer)} is used until your balance catches up.</span>
+              : "Protected cash, not an expense"}
+          />
         </div>
 
         <fieldset className="border-t pt-4 space-y-3">
           <legend className="text-sm font-medium">One-off</legend>
-          <div className="flex gap-1 border rounded-lg p-0.5 w-fit" role="group" aria-label="One-off direction">
-            {([["out", "Money out (purchase)"], ["in", "Money in (refund, gift)"]] as const).map(([kind, label]) => (
-              <button
-                key={kind}
-                aria-pressed={purchase.kind === kind}
-                onClick={() => setPurchase({ ...purchase, kind })}
-                className={`px-2 py-0.5 text-[11px] rounded-md ${purchase.kind === kind ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]" : "hover:bg-[hsl(var(--muted))]"}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            id="plan-one-off" size="sm" label="One-off direction" value={purchase.kind}
+            options={[{ id: "out", label: "Money out (purchase)" }, { id: "in", label: "Money in (refund, gift)" }] as const}
+            onChange={(kind) => setPurchase({ ...purchase, kind })}
+          />
           <label className="block text-xs">Amount
             <input aria-label="Hypothetical purchase amount" type="number" min="0" max="1000000" step="0.01" value={purchase.amountCents / 100 || ""} onChange={(event) => setPurchase({ ...purchase, amountCents: Math.max(0, Math.min(100_000_000, Math.round(Number(event.target.value) * 100))) })} className="w-full border rounded-md bg-[hsl(var(--background))] px-3 py-2 mt-1" />
           </label>
@@ -666,14 +731,34 @@ function ProfilePlan({ profileId }: { profileId: number }) {
 
       {/* ── Projection chart ────────────────────────────────────────────── */}
       <motion.section variants={riseIn} className="plan-chart" id="plan-chart">
-        <CashFlowHorizon
-          key={planWindow} current={expected} scenario={result} bufferCents={bufferCents} typicalDailyCents={baselineDaily} holdScale={holdScale}
-          startingBalanceCents={inputs.startingBalanceCents} balanceAsOf={balanceAsOf} balanceStale={balanceStale} incomplete={incomplete} monthToDate={inputs.monthToDate}
-        />
+        <div className="plan-view-bar">
+          <Segmented id="plan-view" label="Forecast view" value={view} options={VIEWS} onChange={setView} />
+        </div>
+        {/* One view at a time. Like page changes (App.tsx), a keyed remount gives an entrance-only
+            fade/rise, so switching is never held up by an exit animation. MotionConfig drops the
+            movement under reduced motion. */}
+        <motion.div
+          key={view}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+        >
+          {view === "map" ? (
+            <PlanMapView result={result} startingBalanceCents={inputs.startingBalanceCents} bufferCents={effectiveBuffer} typicalDailyCents={baselineDaily} scenarioChanged={scenarioDelta !== 0 || purchase.amountCents > 0} />
+          ) : view === "calendar" ? (
+            <PlanCalendarView result={result} bufferCents={effectiveBuffer} />
+          ) : (
+            <CashFlowHorizon
+              key={planWindow} current={expected} scenario={result} bufferCents={effectiveBuffer} typicalDailyCents={baselineDaily} holdScale={holdScale}
+              startingBalanceCents={inputs.startingBalanceCents} balanceAsOf={balanceAsOf} balanceStale={balanceStale} incomplete={incomplete} monthToDate={inputs.monthToDate}
+              showMarkers={markers}
+            />
+          )}
+        </motion.div>
       </motion.section>
 
       {/* ── What to do next ─────────────────────────────────────────────── */}
-      {!incomplete && nextActions.length > 0 && (
+      {!incomplete && nextActions.length > 0 && shows("actions") && (
         <motion.section variants={riseIn} className="plan-actions">
           <h2 className="font-semibold text-sm mb-3">Next steps</h2>
           <div className="space-y-2">
@@ -711,7 +796,7 @@ function ProfilePlan({ profileId }: { profileId: number }) {
       )}
 
       {/* ── Put the surplus to work ────────────────────────────────────── */}
-      {payoff && debtContext && (
+      {payoff && debtContext && shows("payoff") && (
         <motion.section variants={riseIn} className="plan-payoff">
           <h2 className="font-semibold text-sm flex items-center gap-1.5">
             <BankIcon size={14} style={{ color: "var(--gold)" }} /> Put your spare money to work
@@ -767,7 +852,7 @@ function ProfilePlan({ profileId }: { profileId: number }) {
       )}
 
       {/* ── Bill calendar ──────────────────────────────────────────────── */}
-      <motion.section variants={riseIn} className="plan-upcoming" ref={upcomingRef}>
+      {shows("upcoming") && <motion.section variants={riseIn} className="plan-upcoming" ref={upcomingRef}>
         <h2 className="font-semibold text-sm mb-1">Upcoming cash flow</h2>
         <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">
           {incomeCount} deposits, {billCount} bills
@@ -845,7 +930,7 @@ function ProfilePlan({ profileId }: { profileId: number }) {
             </button>
           </p>
         )}
-      </motion.section>
+      </motion.section>}
 
       <motion.details variants={riseIn} ref={rulesRef} className="workspace-disclosure plan-rules">
         <summary>Manage scheduled bills &amp; income</summary>

@@ -1,6 +1,6 @@
 /** A single pulsing placeholder block - the building block for page-level skeleton loaders. */
 export function Skeleton({ className = "" }: { className?: string }) {
-  return <div className={`animate-pulse rounded-md bg-[hsl(var(--muted))] ${className}`} />;
+  return <div className={`animate-pulse skeleton-scan rounded-md bg-[hsl(var(--muted))] ${className}`} />;
 }
 
 /** Skeleton for a budget/goal-style card: accent bar + title row + progress bar + amounts row. */

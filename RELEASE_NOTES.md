@@ -2,164 +2,111 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
-## Compass 1.3.12 — crypto matching corrections (development build for `dev`, unreleased)
+## Compass 1.3.13 — Clear Horizon 🧭
 
-> **Technical draft for the `dev` branch.** 1.3.12 follows the 1.3.11 dev prerelease, which is
-> kept as published. It is a prerelease for testing, not a stable release; main is still 1.3.10.
-> The final version and notes are set again when `dev` is promoted to main.
+Plan stops guessing how much money you have to play with, and it can now show your forecast three
+ways. Imports gain a category review and stop counting crypto portfolio deposits as spending. And the
+whole app has a new finish: smoother page changes, a calmer, sharper glow on clickable cards and a
+quiet instrument-panel backdrop, without changing its colors or the sign-in screen. This release
+brings together the 1.3.11 and 1.3.12 development builds (#120, #121, #122) and the Plan work in #123.
 
-Corrections to the Crypto-to-portfolio matching added in 1.3.11 (#107), from the post-merge audit.
+### Plan: limits that follow your money (#123)
+- **The sliders now top out at the money you actually have.** "Keep in reserve" used to stop at a
+  fixed $2,000. It now runs from $0 up to your liquid cash: the checking and savings balances the
+  forecast starts from, added together. Credit cards, investments, crypto and loans are never counted.
+  The top of the range is printed under the slider.
+- **Spending and income changes scale too.** The everyday-spending and extra-income sliders run up to
+  the larger of your liquid cash and your scheduled monthly income, so a raise or a big month can still
+  be modeled when checking is low. A spending cut reaches exactly your typical spending and no further.
+- **Steps that fit the range.** Each slider moves in round steps sized to its range ($10 steps on
+  $1,000, $250 steps on $25,000), by mouse or arrow keys.
+- **Your saved choices are kept.** If a saved cushion is more than you have today, it is shown and used
+  at your current maximum, with a note, but the saved value is not overwritten; it comes back once the
+  balance does. Move the slider and the new value is saved.
+- **No balance on file, a zero balance or an overdraft** keep the previous ranges, labeled as such, so
+  every control stays usable.
 
-- **Later imports can now undo a match that has become ambiguous (audit F1).** Every automatic
-  match is re-checked against all current data each time matching runs. If a later import adds
-  another same-amount Crypto purchase, another same-amount crypto deposit, or a same-amount
-  Transfers outflow that could be the real funding, the match is reverted and the purchase goes
-  back to Crypto, just as if that data had been there first. A match whose deposit is gone or
-  whose amount or date was edited out of range is reverted the same way. Amounts, dates and IDs
-  are never changed.
-- **Changing categories now runs matching (audit F2).** Changing one row's category, bulk
-  re-categorizing, deleting rows, adding or editing a transaction by hand, re-running
-  categorization rules (including saving a rule with "apply") and deleting a custom category all
-  re-check matches. Previously only imports, undo and account deletion did.
-- **Your corrections stick.** Re-categorizing a matched purchase is remembered as a correction:
-  that purchase is never auto-matched again, including after undoing and re-importing the same
-  statement. It still counts as a same-amount competitor, so it cannot cause a different purchase
-  to be matched in its place. To treat it as a transfer, set it to Transfers yourself.
-- **Matched rows are marked (audit F3).** Transactions labels each row "Auto-matched crypto
-  deposit" (automatic exact-amount match) or "Confirmed crypto deposit" (your decision).
-- **Confirm a deposit yourself, including unequal amounts.** Opening a bank outflow shows nearby
-  unmatched crypto deposits (same profile, within 10 days). Choose one and confirm it as an
-  investment transfer; if the amounts differ you must first confirm the difference is fees or
-  price movement. The whole outflow then counts as a transfer, not spending; its amount, the
-  account balance and the deposit are unchanged. "Keep as spending" stops automatic matching for
-  that row, and "Undo" reverts any match. A confirmed match is reverted if either amount later
-  changes or the deposit is removed. Corrections are now remembered per account.
-- **Split a purchase yourself.** Instead of confirming the whole outflow, you can type how much
-  of it was invested; the rest stays spending in a category you choose. The original row keeps
-  its import identity and becomes the invested part (Transfers, linked to the deposit); a second
-  row with the same date and account holds the spending part. The two always add up to the
-  original amount to the cent. "Undo split" restores the original row exactly, and refuses
-  (changing nothing) if either part was edited since. Undoing the import removes both parts.
-- **Still not supported:** Coinbase exports (no Coinbase parser exists in Compass and none was
-  added; no current Coinbase export format with its fee/total semantics was verified), and
-  treating wallet sends as spending. Nothing is created, re-amounted or split automatically -
-  only by your explicit split - and no cost basis is inferred.
+### Plan: three ways to read the forecast (#123)
+- **Line** (still the default) is the Cash-flow horizon you know, and it now draws itself in from today.
+- **Map** shows this window's money as currents, the same map the Chart page uses: what you have now,
+  paychecks and any what-if income on the left, through checking, to bills by category, everyday
+  spending, your what-ifs (in gold) and what is left at the end, split into your reserve and the rest.
+  If the window runs short, the gap shows as a red Shortfall. Scrub or play the window to watch it fill.
+- **Calendar** lays the window out as weeks. Each day shows its end-of-day balance, shaded brighter as
+  it holds more, amber below your cushion and red below zero, with dots for money in, money out and a
+  one-off. Pick a day to see what lands on it.
+- **Customize** (the sliders icon next to the window picker) hides sections you don't use (Next steps,
+  Upcoming cash flow, Put your spare money to work) and turns the bill and payday markers on the line
+  chart on or off. The view and these choices are saved per profile; Reset still clears only your
+  what-ifs.
+- Safe to spend and Lowest point count smoothly to their new values as you drag, the window and unit
+  switches glide between settings, and the headline's top edge glows gold, amber or red with the verdict.
+  All of it respects the reduced-motion setting.
 
-## Compass 1.3.11 — Clear Horizon 🧭 (development build for `dev`, unreleased)
+### A smoother, sharper finish (#123)
+- **Card glow, rebuilt.** The gold glow on clickable cards used to be a blurred blob with visible rings
+  in its fade. It is now a soft light that follows your pointer, fading in an even curve with a faint
+  grain so no rings show, plus a clean lit edge. It costs only a fade on hover. Insight card icons got
+  the same smooth falloff.
+- **Page changes.** Pages fade and rise a little more gently, a thin gold line sweeps across the top as
+  a page arrives, and the gold marker in the sidebar glides to the page you picked instead of jumping.
+- **Backdrop.** Behind the workspace there is now a faint aurora and a bearing dial. The dial turns to a
+  new heading when you change page and then rests, so an idle window does no animation work. It sits
+  behind the opaque sign-in screen, which is unchanged.
+- **Instrument controls.** Sliders across Plan and the Chart page show a gold fill from zero to the value
+  and a ringed thumb that lights while held; signed sliders mark where zero is. Loading placeholders
+  get a slow scanning light. Text selection, the text cursor and scrollbars use the app's colors.
+- The color palette, the Chart page's map, the graticule, the sign-in particles and the gold borders
+  that mark clickable boxes are all kept.
 
-> **Draft for the `dev` branch.** 1.3.11 is the development version one step after the released
-> 1.3.10 on main; it replaces the earlier placeholder 1.3.9 used for this dev work. It is a
-> prerelease for testing, not a stable release. The final version and these notes are set again
-> when `dev` is promoted to main, against whatever main is at that point.
+### Review categories before you import (#103, #120)
+- The import Preview has a new **Review categories before importing** panel, closed by default, so
+  importing without it works exactly as before.
+- Rows are grouped by merchant, each with its count, total and the category your saved rules would
+  give it. Pick a category for a whole group, or open it to change single rows.
+- Nothing is saved until you click Import; Cancel, a new file or a mapping change throws the choices
+  away. Amounts, signs and duplicate detection are unchanged. Files imported automatically after it in
+  a batch use your saved rules, as before.
 
-This build carries the Cash-flow horizon rework below (#110, #112), plus import changes: an
-optional category review before an import is saved (#103), Crypto purchases that are really
-deposits into a crypto portfolio you track are no longer counted as spending (#107), and the
-Ledger Live crypto import from main 1.3.7 (#109), so that matching has a portfolio to match against.
+### Crypto purchases matched to your crypto portfolio (#107, partial; #120, #121)
+- A bank or card purchase categorized **Crypto** moves to **Transfers** when it matches a deposit into a
+  crypto portfolio you track: exactly the same amount to the cent, within five days either side, and
+  nothing else that could also match. It works in either import order. Amounts and dates are never
+  changed, and nothing is created or deleted automatically.
+- Matches are re-checked whenever the data changes: later imports, category changes, deleted or edited
+  rows and re-run rules. A match that has become ambiguous is undone. Re-categorizing a matched
+  purchase yourself is remembered per account, and that purchase is never auto-matched again.
+- Matched rows are labelled "Auto-matched crypto deposit" or "Confirmed crypto deposit".
+- You can confirm a deposit yourself, including unequal amounts once you confirm the difference is fees
+  or price movement, or split a purchase into the invested part and the part that stays spending. The
+  two parts always add up to the original amount, and "Undo split" restores the row exactly.
+- **Partial:** #107 stays open. There is no Coinbase import, wallet sends are never treated as spending,
+  and no cost basis is inferred. Ledger Live's dollar figure is the coins' value when they arrived, so
+  most real purchases differ by fees or spreads and stay Crypto spending.
 
-### Review categories before you import (#103)
-- The import Preview has a new **Review categories before importing** panel. It is closed by
-  default, so importing without it works exactly as before.
-- Rows are grouped by merchant, each group showing its row count, total and the category your
-  saved rules would give it. Pick a category for the whole group, or open the group to give
-  single rows a different one, such as a pharmacy purchase at a grocery store.
-- Nothing is saved until you click Import. Cancel, picking a new file or changing the column
-  mapping throws the choices away. Every row is still imported with its original amount and sign, and duplicate detection
-  works the same way. You can still change categories afterwards under Transactions.
-- The review applies to the file you are looking at. Files imported automatically after it in a
-  batch use your saved rules, as before.
+### Ledger Live crypto (#109)
+- The Ledger Live import that shipped in 1.3.7 has one correction: a send that is still pending no
+  longer has its network fee subtracted.
 
-### Crypto purchases matched to your crypto portfolio (#107)
-- A bank or card purchase categorized **Crypto** now moves to **Transfers** when it matches a
-  deposit into a crypto portfolio you track (an investment account that holds crypto): exactly
-  the same amount to the cent, within five days either side, and with nothing else that could
-  also match. The money is then counted once, as an investment, instead of also as spending.
-- It works in either order: import the bank statement first or the portfolio first.
-- Amounts and dates are never changed, and no transaction is created or deleted. If two
-  purchases or two deposits could match, if a same-amount transfer could be the deposit's real
-  funding, or if the amounts differ by even a cent (exchange fees, spreads), nothing is matched
-  and the purchase stays Crypto spending.
-- Undoing the portfolio import, or deleting that account, puts the purchase back to Crypto. If
-  you re-categorize a matched purchase yourself, Compass leaves your choice alone. Re-running
-  categorization rules does not undo a match that is still in place.
-- The deposit side is a Ledger Live receive (see below). Its dollar amount is Ledger's
-  "Countervalue at Operation Date": what the coins were worth when they arrived, not what you
-  paid. Exchange fees, spreads, network fees and price moves usually make the two differ, so most
-  real purchases will not match exactly and stay Crypto spending. An exact match is a strong hint,
-  not proof, that the purchase paid for that receive; re-categorize it if it didn't.
-- Sends out of the wallet are never matched or counted as spending, and a purchase is never split
-  between spending and investment.
-- **Limits on this build:** there is no Coinbase import. Deposits into a brokerage account such as
-  E*TRADE are never treated as crypto.
+### Cash-flow horizon (#110, #112, #120)
+- Have now, Expected and Your scenario sit above the chart, with this month so far beneath them; a stale
+  or missing balance is called out, and a Month end marker shows where the month closes.
+- The lines are named, hovering a day shows both balances, and the Balance breakdown keeps scheduled
+  money and what-if money in separate sums.
+- What-ifs: everyday spending per day or per month (a cut never goes below zero spending), extra income,
+  skipping the next paycheck, and a one-off money out or in. Nothing here writes a transaction. The
+  forecast covers checking accounts only and is not a guarantee.
 
-### Ledger Live crypto in Investments (#109, from main 1.3.7)
-- Import a Ledger Live operations CSV with the Investment / Brokerage option. Each coin becomes a
-  Crypto holding, and every receive and send is recorded as a transfer, not as income, spending, a
-  buy or a sell. Balances follow Ledger's own rule: a send already includes its network fee, so
-  fees are not subtracted twice. Amounts are summed exactly, so very small balances are kept. Cost
-  basis is shown as unknown, since the export doesn't include what you paid. The holding is valued
-  at the price in the export, not a live price, and dated the day you import it. Failed,
-  unconfirmed or unsupported operations are left out and listed. The network fee a failed send
-  still cost is subtracted from the balance; a send that is only pending is left out with no fee
-  taken. Importing the same export again doesn't duplicate anything.
-- This is the import that main shipped in 1.3.7, brought to `dev` without the rest of main, with
-  one change: a pending send no longer has its network fee subtracted;
-  main's other 1.3.7 to 1.3.10 changes are not in this build.
-
-### Cash-flow horizon (#110, #112)
-
-The Cash-flow horizon on Plan had the right idea but asked you to decode it. You had to work
-out which line was which, the chart had no hover read-out, and the only thing you could change
-was one lump of extra spending. It now answers three questions in order: what you have, what
-you will have, and what you could have if things change. (#110)
-
-### Have, will have, could have
-- Three figures sit above the chart. **Have now** is your checking balance and the date it was
-  last recorded. **Expected** is that balance plus the income and bills you scheduled, plus
-  typical spending if you turned it on. **Your scenario** is Expected with your what-if changes
-  applied, and shows how far it is from Expected.
-- A line under them shows this month so far: money in and money spent from checking since the
-  1st. That money is already in Have now, so it is never projected a second time. Transfers and
-  card payments are not counted as spending, the same rule every report uses.
-- A balance that has not been updated for more than a week, or an account with no balance on
-  file, is called out next to Have now instead of being passed off as current.
-- When the window runs past this month, a Month end marker and line show where Expected and
-  your scenario stand on the last day of the month.
-
-### A chart you can read
-- The lines are named Expected and Your scenario. The scenario line appears only when it
-  actually differs from Expected.
-- Hovering a day shows both balances. The day inspector names each what-if item and marks it
-  as hypothetical.
-- Balance breakdown adds up Expected on its own line. Your what-if changes follow on a
-  separate line, so scheduled money and hypothetical money never share one sum.
-
-### Change the conditions
-- **Everyday spending**, per day or per month. A monthly figure is spread over each calendar
-  month's own days, to the exact cent. Once typical spending is included you can also cut it,
-  down to zero spending for the day and no further, so a cut can never create money.
-- **Extra income** per month, for a raise or side income. It is only counted when you add it.
-- **Skip my next paycheck**, for a paycheck that is late or doesn't arrive. The skip stays tied
-  to that one paycheck and never moves on to the next one.
-- **One-off** money out (a purchase) or money in (a refund or gift) on a date.
-- **Reset** clears every what-if change and the reserve. Scenarios saved by earlier versions
-  carry over: the old extra-spending amount becomes a per-month change.
-
-Nothing here writes a transaction, and nothing is sent anywhere. The forecast still covers
-checking accounts only, and it assumes your scheduled income arrives. It is not a guarantee.
-
-### Release tag provenance (technical, PR120)
-- The Windows release publisher (`scripts/publish-release.ps1`) now creates the tag at the exact
-  commit the workflow checked out (`GITHUB_SHA`, sent as `target_commitish`). Before, it sent no
-  target, so GitHub tagged the default branch (main): the earlier `v1.3.9-dev` tag points at main,
-  not at the dev build it ships.
-- The publisher stops before deleting or creating anything if `GITHUB_SHA` is missing, not a full
-  40-character SHA, or different from the checkout's `HEAD`, or if it is not run from that
-  checkout's root. It stops before creating the release unless GitHub answers HTTP 404 for the old
-  tag after deletion; a network, auth or other error also stops it. Manual runs must set
-  `GITHUB_SHA` to the built commit.
-- This binds the tag to the checked-out source commit. It does not prove the uploaded installers
-  were built from that commit; in CI they are built in the same job after checkout.
+### Under the hood
+- **Ready for main.** This release brings main's 1.3.2 to 1.3.10 work and the development builds
+  together, so the development branch merges into main without conflicts. One end-to-end test was
+  present twice after that merge, which stopped the whole browser suite from loading; the duplicate is
+  removed.
+- **Release tags point at the right commit (#120).** The Windows release publisher tags the exact commit
+  it built (`GITHUB_SHA` as `target_commitish`) and stops before deleting or creating anything if that
+  commit is missing or doesn't match the checkout. The earlier `v1.3.9-dev` tag still points at main.
+- **Builds restored on dev (#122).** Fixed the two type errors that stopped the 1.3.11 dev build (a local
+  name shadowing `crypto`, and `Array.at` under the ES2020 library).
 
 ## Compass 1.3.10 — Clear Readings 🧭
 

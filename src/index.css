@@ -70,6 +70,8 @@
 
   --shadow-ink: 224 45% 25%;
   --scrim: 224 55% 12%;
+  --bearing-ring: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1000 1000' fill='none' stroke='%23111c3b' stroke-width='1.2'%3E%3Ccircle cx='500' cy='500' r='488' stroke-opacity='1'/%3E%3Ccircle cx='500' cy='500' r='452' stroke-opacity='0.6'/%3E%3Ccircle cx='500' cy='500' r='330' stroke-opacity='0.5'/%3E%3Ccircle cx='500' cy='500' r='180' stroke-opacity='0.35'/%3E%3Cpath d='M500.0 90.0L500.0 12.0M539.4 49.7L542.5 13.9M578.5 54.9L584.7 19.4M617.0 63.4L626.3 28.6M654.6 75.3L666.9 41.4M691.0 90.3L706.2 57.7M715.0 127.6L744.0 77.4M759.3 129.7L779.9 100.3M790.5 153.7L813.7 126.2M819.6 180.4L845.1 154.9M846.3 209.5L873.8 186.3M870.3 240.7L899.7 220.1M872.4 285.0L922.6 256.0M909.7 309.0L942.3 293.8M924.7 345.4L958.6 333.1M936.6 383.0L971.4 373.7M945.1 421.5L980.6 415.3M950.3 460.6L986.1 457.5M910.0 500.0L988.0 500.0M950.3 539.4L986.1 542.5M945.1 578.5L980.6 584.7M936.6 617.0L971.4 626.3M924.7 654.6L958.6 666.9M909.7 691.0L942.3 706.2M872.4 715.0L922.6 744.0M870.3 759.3L899.7 779.9M846.3 790.5L873.8 813.7M819.6 819.6L845.1 845.1M790.5 846.3L813.7 873.8M759.3 870.3L779.9 899.7M715.0 872.4L744.0 922.6M691.0 909.7L706.2 942.3M654.6 924.7L666.9 958.6M617.0 936.6L626.3 971.4M578.5 945.1L584.7 980.6M539.4 950.3L542.5 986.1M500.0 910.0L500.0 988.0M460.6 950.3L457.5 986.1M421.5 945.1L415.3 980.6M383.0 936.6L373.7 971.4M345.4 924.7L333.1 958.6M309.0 909.7L293.8 942.3M285.0 872.4L256.0 922.6M240.7 870.3L220.1 899.7M209.5 846.3L186.3 873.8M180.4 819.6L154.9 845.1M153.7 790.5L126.2 813.7M129.7 759.3L100.3 779.9M127.6 715.0L77.4 744.0M90.3 691.0L57.7 706.2M75.3 654.6L41.4 666.9M63.4 617.0L28.6 626.3M54.9 578.5L19.4 584.7M49.7 539.4L13.9 542.5M90.0 500.0L12.0 500.0M49.7 460.6L13.9 457.5M54.9 421.5L19.4 415.3M63.4 383.0L28.6 373.7M75.3 345.4L41.4 333.1M90.3 309.0L57.7 293.8M127.6 285.0L77.4 256.0M129.7 240.7L100.3 220.1M153.7 209.5L126.2 186.3M180.4 180.4L154.9 154.9M209.5 153.7L186.3 126.2M240.7 129.7L220.1 100.3M285.0 127.6L256.0 77.4M309.0 90.3L293.8 57.7M345.4 75.3L333.1 41.4M383.0 63.4L373.7 28.6M421.5 54.9L415.3 19.4M460.6 49.7L457.5 13.9'/%3E%3Cpath stroke-opacity='0.45' stroke-dasharray='2 10' d='M500 70V930M70 500H930'/%3E%3Cpath stroke-opacity='0.9' d='M500 120L484 168H516Z'/%3E%3C/svg%3E");
+  --glow-strength: 0.13;
   --graticule: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1400 1000' fill='none' stroke='%23111c3b' stroke-opacity='0.07' stroke-width='1'%3E%3Cellipse cx='700' cy='1180' rx='1500' ry='980'/%3E%3Cellipse cx='700' cy='1180' rx='1240' ry='800'/%3E%3Cellipse cx='700' cy='1180' rx='980' ry='620'/%3E%3Cellipse cx='700' cy='1180' rx='720' ry='440'/%3E%3Cellipse cx='700' cy='-260' rx='1500' ry='900'/%3E%3Cellipse cx='700' cy='-260' rx='1200' ry='700'/%3E%3Cpath d='M-100 120 C 300 60 1100 60 1500 120'/%3E%3Cpath d='M-100 880 C 300 940 1100 940 1500 880'/%3E%3C/svg%3E");
 }
 
@@ -96,7 +98,17 @@
 
   --shadow-ink: 226 80% 3%;
   --scrim: 226 80% 3%;
+  --bearing-ring: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1000 1000' fill='none' stroke='%23ffffff' stroke-width='1.2'%3E%3Ccircle cx='500' cy='500' r='488' stroke-opacity='1'/%3E%3Ccircle cx='500' cy='500' r='452' stroke-opacity='0.6'/%3E%3Ccircle cx='500' cy='500' r='330' stroke-opacity='0.5'/%3E%3Ccircle cx='500' cy='500' r='180' stroke-opacity='0.35'/%3E%3Cpath d='M500.0 90.0L500.0 12.0M539.4 49.7L542.5 13.9M578.5 54.9L584.7 19.4M617.0 63.4L626.3 28.6M654.6 75.3L666.9 41.4M691.0 90.3L706.2 57.7M715.0 127.6L744.0 77.4M759.3 129.7L779.9 100.3M790.5 153.7L813.7 126.2M819.6 180.4L845.1 154.9M846.3 209.5L873.8 186.3M870.3 240.7L899.7 220.1M872.4 285.0L922.6 256.0M909.7 309.0L942.3 293.8M924.7 345.4L958.6 333.1M936.6 383.0L971.4 373.7M945.1 421.5L980.6 415.3M950.3 460.6L986.1 457.5M910.0 500.0L988.0 500.0M950.3 539.4L986.1 542.5M945.1 578.5L980.6 584.7M936.6 617.0L971.4 626.3M924.7 654.6L958.6 666.9M909.7 691.0L942.3 706.2M872.4 715.0L922.6 744.0M870.3 759.3L899.7 779.9M846.3 790.5L873.8 813.7M819.6 819.6L845.1 845.1M790.5 846.3L813.7 873.8M759.3 870.3L779.9 899.7M715.0 872.4L744.0 922.6M691.0 909.7L706.2 942.3M654.6 924.7L666.9 958.6M617.0 936.6L626.3 971.4M578.5 945.1L584.7 980.6M539.4 950.3L542.5 986.1M500.0 910.0L500.0 988.0M460.6 950.3L457.5 986.1M421.5 945.1L415.3 980.6M383.0 936.6L373.7 971.4M345.4 924.7L333.1 958.6M309.0 909.7L293.8 942.3M285.0 872.4L256.0 922.6M240.7 870.3L220.1 899.7M209.5 846.3L186.3 873.8M180.4 819.6L154.9 845.1M153.7 790.5L126.2 813.7M129.7 759.3L100.3 779.9M127.6 715.0L77.4 744.0M90.3 691.0L57.7 706.2M75.3 654.6L41.4 666.9M63.4 617.0L28.6 626.3M54.9 578.5L19.4 584.7M49.7 539.4L13.9 542.5M90.0 500.0L12.0 500.0M49.7 460.6L13.9 457.5M54.9 421.5L19.4 415.3M63.4 383.0L28.6 373.7M75.3 345.4L41.4 333.1M90.3 309.0L57.7 293.8M127.6 285.0L77.4 256.0M129.7 240.7L100.3 220.1M153.7 209.5L126.2 186.3M180.4 180.4L154.9 154.9M209.5 153.7L186.3 126.2M240.7 129.7L220.1 100.3M285.0 127.6L256.0 77.4M309.0 90.3L293.8 57.7M345.4 75.3L333.1 41.4M383.0 63.4L373.7 28.6M421.5 54.9L415.3 19.4M460.6 49.7L457.5 13.9'/%3E%3Cpath stroke-opacity='0.45' stroke-dasharray='2 10' d='M500 70V930M70 500H930'/%3E%3Cpath stroke-opacity='0.9' d='M500 120L484 168H516Z'/%3E%3C/svg%3E");
+  --glow-strength: 0.17;
   --graticule: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1400 1000' fill='none' stroke='%23ffffff' stroke-opacity='0.045' stroke-width='1'%3E%3Cellipse cx='700' cy='1180' rx='1500' ry='980'/%3E%3Cellipse cx='700' cy='1180' rx='1240' ry='800'/%3E%3Cellipse cx='700' cy='1180' rx='980' ry='620'/%3E%3Cellipse cx='700' cy='1180' rx='720' ry='440'/%3E%3Cellipse cx='700' cy='-260' rx='1500' ry='900'/%3E%3Cellipse cx='700' cy='-260' rx='1200' ry='700'/%3E%3Cpath d='M-100 120 C 300 60 1100 60 1500 120'/%3E%3Cpath d='M-100 880 C 300 940 1100 940 1500 880'/%3E%3C/svg%3E");
+}
+
+:root {
+  /* Motion: confident deceleration for arrivals (impeccable animate.md), quick standard out. */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  /* A faint monochrome grain used to dither soft glows, so an 8-bit gradient never shows
+     its steps as rings. Alpha is low on purpose: it should be felt, not seen. */
+  --dither: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0.16 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 /* The sidebar is the instrument panel and stays night navy in both themes. Re-scoping the
@@ -249,6 +261,7 @@ h1, h2, h3 {
   padding: 6px 12px;
   font-size: 13px;
   border-radius: 4px;
+  transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 }
 .workspace-segments button[aria-pressed="true"] {
   background: hsl(var(--surface));
@@ -266,9 +279,9 @@ h1, h2, h3 {
   }
 }
 
-/* Sidebar active item: a 2px gold bearing mark on the leading edge. */
-.nav-active::before {
-  content: "";
+/* Sidebar active item: a 2px gold bearing mark on the leading edge. It is one element shared
+   by every item (motion layoutId in App.tsx), so switching pages glides it to the new item. */
+.nav-bearing {
   position: absolute;
   left: 0;
   top: 6px;
@@ -276,6 +289,7 @@ h1, h2, h3 {
   width: 2px;
   border-radius: 1px;
   background: hsl(var(--primary));
+  box-shadow: 0 0 2px hsl(var(--primary)), 0 0 10px hsl(var(--primary) / 0.55);
 }
 
 .plan-workspace {
@@ -677,7 +691,7 @@ body::after {
 
 /* A gold hairline along the top edge marks "this box can be clicked for detail": gold is
    the app's agency color, so its presence alone reads as an affordance. Static at rest;
-   the border warms on hover and the halo below confirms. */
+   the border warms on hover and the light below confirms. */
 .chart-clickable {
   position: relative;
   box-shadow: inset 0 1px 0 hsl(var(--primary) / 0.4);
@@ -686,23 +700,60 @@ body::after {
 .chart-clickable:hover {
   border-color: hsl(var(--primary) / 0.6);
 }
-/* Soft ambient halo behind the card, faintly present at rest so a clickable card reads as
-   interactive at a glance, dimming up slightly on hover as confirmation. `inset: 0` keeps
-   it clipped to the card's own footprint. */
-.chart-clickable::after {
+/* Hover light for clickable cards (#123 polish). The old halo was a three-stop radial blob
+   under a blur filter: the few linear segments showed as concentric rings, and on cards with
+   no fill the whole blob showed through. Now:
+   - isolation keeps both layers inside the card, above its fill and below its content;
+   - ::before is a spotlight that follows the pointer (--glow-x/--glow-y, set by
+     lib/pointerGlow.ts) with an eased nine-stop falloff - no slope breaks, so no Mach rings -
+     and a faint grain dithers the 8-bit steps that are left;
+   - ::after lights the boundary with layered box-shadows, which are true Gaussian blurs.
+   Only opacity transitions, so hover costs a composite, not a re-layout. */
+.chart-clickable, .insight-card-hover {
+  isolation: isolate;
+  --glow-x: 50%;
+  --glow-y: 0%;
+}
+.chart-clickable::before, .insight-card-hover::before {
   content: "";
   position: absolute;
   inset: 0;
   z-index: -1;
   border-radius: inherit;
-  background: radial-gradient(circle, color-mix(in srgb, var(--gold) 20%, transparent) 0%, color-mix(in srgb, var(--gold) 8%, transparent) 55%, transparent 78%);
-  filter: blur(6px);
-  opacity: 0.35;
   pointer-events: none;
-  transition: opacity 0.3s ease;
+  background:
+    var(--dither) 0 0 / 160px 160px,
+    radial-gradient(480px circle at var(--glow-x) var(--glow-y),
+      hsl(var(--primary) / 1) 0%, hsl(var(--primary) / 0.957) 12.5%, hsl(var(--primary) / 0.844) 25%,
+      hsl(var(--primary) / 0.684) 37.5%, hsl(var(--primary) / 0.5) 50%, hsl(var(--primary) / 0.316) 62.5%,
+      hsl(var(--primary) / 0.156) 75%, hsl(var(--primary) / 0.043) 87.5%, hsl(var(--primary) / 0) 100%);
+  opacity: 0;
+  transition: opacity 0.35s var(--ease-out-expo);
 }
-.chart-clickable:hover::after {
-  opacity: 0.65;
+.chart-clickable::after, .insight-card-hover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 1px hsl(var(--primary) / 0.28),
+    inset 0 1px 0 hsl(var(--primary) / 0.5),
+    0 0 0 1px hsl(var(--primary) / 0.08),
+    0 0 14px -3px hsl(var(--primary) / 0.32),
+    0 10px 30px -14px hsl(var(--primary) / 0.4);
+  opacity: 0.22;
+  transition: opacity 0.35s var(--ease-out-expo);
+}
+.insight-card-hover::after { opacity: 0; }
+.chart-clickable:hover::before, .chart-clickable:focus-visible::before,
+.insight-card-hover:hover::before, .insight-card-hover:focus-visible::before {
+  opacity: var(--glow-strength);
+}
+.chart-clickable:hover::after, .chart-clickable:focus-visible::after,
+.insight-card-hover:hover::after, .insight-card-hover:focus-visible::after {
+  opacity: 1;
 }
 
 /* Delayed "click for details" hint - pure CSS (no JS/state needed): stays invisible until
@@ -739,23 +790,27 @@ body::after {
    that gold marks interactive content. Plain CSS (not a Tailwind arbitrary value)
    so it can't be silently dropped by a JIT parsing edge case. */
 @keyframes insight-icon-glow-pulse {
-  0%, 100% { opacity: 0.6;  transform: scale(0.92); }
-  50%      { opacity: 0.95; transform: scale(1.1); }
+  0%, 100% { opacity: 0.75; transform: scale(0.94); }
+  50%      { opacity: 1;    transform: scale(1.06); }
 }
+/* Same eased falloff as the card light: it reaches zero at the circle's edge with a flat
+   slope, so there is no rim and no blur filter to rasterize every frame. */
 .insight-icon-glow {
   position: absolute;
-  inset: -10px;
+  inset: -12px;
   border-radius: 9999px;
   opacity: 0;
   pointer-events: none;
-  background: radial-gradient(circle, color-mix(in srgb, var(--gold) 65%, transparent) 0%, color-mix(in srgb, var(--gold) 38%, transparent) 60%, transparent 100%);
-  filter: blur(7px);
-  transition: opacity 0.2s ease;
+  background: radial-gradient(closest-side,
+    hsl(var(--primary) / 0.6) 0%, hsl(var(--primary) / 0.574) 12.5%, hsl(var(--primary) / 0.506) 25%,
+    hsl(var(--primary) / 0.41) 37.5%, hsl(var(--primary) / 0.3) 50%, hsl(var(--primary) / 0.19) 62.5%,
+    hsl(var(--primary) / 0.094) 75%, hsl(var(--primary) / 0.026) 87.5%, hsl(var(--primary) / 0) 100%);
+  transition: opacity 0.25s ease;
 }
 .group\/insight:hover .insight-icon-glow,
 .insight-card-hover:hover .insight-icon-glow {
   opacity: 1;
-  animation: insight-icon-glow-pulse 1.3s ease-in-out infinite;
+  animation: insight-icon-glow-pulse 2.4s ease-in-out infinite;
 }
 
 
@@ -938,9 +993,12 @@ body::after {
 
   .spotlight-sparkle,
   .insight-icon-glow,
-  .chart-clickable::after {
+  .chart-clickable::after,
+  .route-glint,
+  .skeleton-scan::after {
     animation: none !important;
   }
+  .route-glint { display: none; }
 
   /* Loading indicators are feedback, not decoration - killing them makes a busy app look
      frozen. Slowed right down rather than stopped. Only the timing is overridden so this
@@ -964,9 +1022,12 @@ body::after {
 
 .reduce-motion .spotlight-sparkle,
 .reduce-motion .insight-icon-glow,
-.reduce-motion .chart-clickable::after {
+.reduce-motion .chart-clickable::after,
+.reduce-motion .route-glint,
+.reduce-motion .skeleton-scan::after {
   animation: none !important;
 }
+.reduce-motion .route-glint { display: none; }
 
 .reduce-motion .animate-spin,
 .reduce-motion .animate-pulse,
@@ -1108,3 +1169,273 @@ body::after {
 .pay-watch-swatch-current { border-color: hsl(var(--primary)); }
 .pay-watch-swatch-typical { border-color: hsl(var(--muted-foreground)); border-top-style: dashed; }
 .pay-watch-swatch-past { border-color: hsl(var(--sea) / 0.4); }
+
+/* ── 1.3.13 polish: instrument controls ─────────────────────────────────────────
+   Segmented controls whose gold pill glides between settings (Segmented.tsx), and range
+   inputs drawn as instrument scales: a gold fill from zero to the value (--fill, and --zero
+   for signed ranges), a ringed thumb that lights while held. Palette tokens only. */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--muted) / 0.6);
+}
+.seg button {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 11px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  border-radius: 5px;
+  color: hsl(var(--muted-foreground));
+  transition: color 0.2s ease;
+}
+.seg button:hover { color: hsl(var(--foreground)); }
+.seg button[aria-pressed="true"] { color: hsl(var(--primary-foreground)); }
+.seg[data-size="sm"] button { padding: 3px 8px; font-size: 11px; }
+.seg-pill {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: hsl(var(--primary));
+  box-shadow: 0 1px 2px hsl(var(--shadow-ink) / 0.25), 0 0 14px -3px hsl(var(--primary) / 0.6);
+}
+.seg-label { display: inline-flex; align-items: center; gap: 6px; }
+
+.instrument-range {
+  --range-track: hsl(var(--muted-foreground) / 0.28);
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 22px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.instrument-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 9999px;
+  background: linear-gradient(90deg,
+    var(--range-track) 0 min(var(--zero, 0%), var(--fill, 0%)),
+    hsl(var(--primary)) min(var(--zero, 0%), var(--fill, 0%)) max(var(--zero, 0%), var(--fill, 0%)),
+    var(--range-track) max(var(--zero, 0%), var(--fill, 0%)) 100%);
+}
+.instrument-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border-radius: 9999px;
+  background: hsl(var(--surface));
+  border: 2px solid hsl(var(--primary));
+  box-shadow: 0 0 0 0 hsl(var(--primary) / 0), 0 1px 3px hsl(var(--shadow-ink) / 0.35);
+  transition: box-shadow 0.2s ease, transform 0.15s var(--ease-out-expo);
+}
+.instrument-range:hover::-webkit-slider-thumb { box-shadow: 0 0 0 5px hsl(var(--primary) / 0.16), 0 1px 3px hsl(var(--shadow-ink) / 0.35); }
+.instrument-range:active::-webkit-slider-thumb {
+  transform: scale(1.12);
+  box-shadow: 0 0 0 7px hsl(var(--primary) / 0.2), 0 0 16px hsl(var(--primary) / 0.55);
+}
+.instrument-range::-moz-range-track { height: 4px; border-radius: 9999px; background: var(--range-track); }
+.instrument-range::-moz-range-progress { height: 4px; border-radius: 9999px; background: hsl(var(--primary)); }
+.instrument-range::-moz-range-thumb { width: 14px; height: 14px; border-radius: 9999px; background: hsl(var(--surface)); border: 2px solid hsl(var(--primary)); }
+.instrument-range:focus-visible { outline-offset: 4px; border-radius: 4px; }
+/* A signed range marks where zero sits, so "spend less" and "spend more" read as two sides. */
+.instrument-range[data-signed] {
+  background: linear-gradient(hsl(var(--muted-foreground) / 0.6), hsl(var(--muted-foreground) / 0.6)) var(--zero, 0%) 50% / 1px 12px no-repeat;
+}
+
+/* ── Plan (#123) ────────────────────────────────────────────────────────────── */
+.plan-heading-tools { display: flex; flex-direction: column; align-items: flex-end; }
+.plan-customize > summary { list-style: none; cursor: pointer; }
+.plan-customize > summary::-webkit-details-marker { display: none; }
+.plan-customize[open] > summary { color: hsl(var(--gold-ink)); border-color: hsl(var(--primary) / 0.6); }
+.plan-customize-menu { width: 270px; padding: 10px 12px; display: grid; gap: 2px; top: 40px; }
+.plan-customize-menu label { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 6px 4px; border-radius: 4px; cursor: pointer; }
+.plan-customize-menu label:hover { background: hsl(var(--muted)); }
+.plan-customize-title { font-size: 11px; font-weight: 600; color: hsl(var(--muted-foreground)); margin-top: 6px; }
+.plan-customize-title:first-child { margin-top: 0; }
+.plan-customize-note { font-size: 11px; color: hsl(var(--muted-foreground)); border-top: 1px solid hsl(var(--border)); padding-top: 8px; margin-top: 6px; }
+.plan-view-bar { display: flex; justify-content: flex-end; margin-bottom: 14px; }
+.plan-range-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.plan-range .instrument-range { margin-top: 8px; }
+.plan-range-scale { display: flex; justify-content: space-between; margin-top: 2px; font-size: 10px; color: hsl(var(--muted-foreground)); font-variant-numeric: tabular-nums; }
+.plan-range-cap { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; font-size: 11px; color: hsl(var(--gold-ink)); }
+.plan-view-note { min-height: 18px; margin-top: 10px; font-size: 12px; color: hsl(var(--muted-foreground)); }
+/* The headline's top rule carries the verdict as a lit line: gold when covered, amber when the
+   cushion is at risk, red on a shortfall. */
+.plan-summary { position: relative; }
+.plan-summary::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -1px;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--verdict) 18%, var(--verdict) 82%, transparent);
+  box-shadow: 0 0 10px var(--verdict);
+  opacity: 0.75;
+  transition: opacity 0.4s ease;
+  --verdict: hsl(var(--primary) / 0.65);
+}
+.plan-summary[data-state="risk"]::before { --verdict: hsl(var(--warning) / 0.8); }
+.plan-summary[data-state="short"]::before { --verdict: hsl(var(--error) / 0.85); }
+.plan-map .flow-map { margin-top: 4px; }
+/* The line chart draws itself in from today when it mounts (window or view change). */
+@keyframes horizon-draw {
+  from { clip-path: inset(0 100% 0 0); }
+  to   { clip-path: inset(0 0 0 0); }
+}
+.horizon-plot .recharts-surface { animation: horizon-draw 0.9s var(--ease-out-expo) both; }
+
+.plan-cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.plan-cal-weekday { padding-bottom: 2px; font-size: 11px; text-align: center; color: hsl(var(--muted-foreground)); }
+.plan-cal-pad { min-height: 66px; }
+.plan-cal-day {
+  --level: 0.5;
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  min-height: 66px;
+  padding: 6px 8px;
+  text-align: left;
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border) / 0.7);
+  transition: transform 0.18s var(--ease-out-expo), border-color 0.2s ease, box-shadow 0.2s ease;
+}
+/* Shade from the balance: brighter sea on fuller days; amber and red take over below the
+   cushion and below zero. Opacity, not a color function, so every WebView renders it. */
+.plan-cal-day::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: hsl(var(--sea));
+  opacity: calc(0.04 + var(--level) * 0.16);
+}
+.plan-cal-day[data-tone="below"] { border-color: hsl(var(--warning) / 0.5); }
+.plan-cal-day[data-tone="below"]::before { background: hsl(var(--warning)); opacity: 0.14; }
+.plan-cal-day[data-tone="short"] { border-color: hsl(var(--error) / 0.55); }
+.plan-cal-day[data-tone="short"]::before { background: hsl(var(--error)); opacity: 0.16; }
+.plan-cal-day:hover { border-color: hsl(var(--primary) / 0.6); transform: translateY(-1px); }
+.plan-cal-day[aria-pressed="true"] { border-color: hsl(var(--primary)); box-shadow: 0 0 0 1px hsl(var(--primary) / 0.55), 0 0 16px -4px hsl(var(--primary) / 0.55); }
+.plan-cal-date { font-size: 11px; color: hsl(var(--muted-foreground)); }
+.plan-cal-day strong { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.plan-cal-pips { display: flex; gap: 3px; margin-top: auto; }
+.plan-cal-pips i { width: 6px; height: 6px; border-radius: 9999px; }
+.plan-cal-pips i[data-kind="in"] { background: hsl(var(--success)); }
+.plan-cal-pips i[data-kind="out"] { background: hsl(var(--error)); }
+.plan-cal-pips i[data-kind="whatif"] { background: var(--gold); }
+.plan-cal-detail { margin-top: 14px; padding-top: 10px; border-top: 1px solid hsl(var(--border)); }
+@container (max-width: 719px) {
+  .plan-cal { gap: 3px; }
+  .plan-cal-day { min-height: 52px; padding: 4px 5px; }
+  .plan-cal-day strong { font-size: 11px; }
+  .plan-cal-pad { min-height: 52px; }
+}
+
+/* ── 1.3.13 polish: atmosphere, navigation, loading ─────────────────────────────
+   The backdrop (AppBackdrop.tsx) adds a faint aurora and a bearing dial behind the workspace.
+   Nothing runs continuously: the dial turns to a new heading when you change page, then rests,
+   so an idle window costs no frames. Fixed and clipped, so it never adds scroll width. */
+.app-backdrop { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.backdrop-aurora {
+  position: absolute;
+  inset: -12%;
+  background:
+    radial-gradient(52vmax 40vmax at 88% 104%,
+      hsl(var(--sea) / 0.14) 0%, hsl(var(--sea) / 0.134) 12.5%, hsl(var(--sea) / 0.118) 25%, hsl(var(--sea) / 0.096) 37.5%,
+      hsl(var(--sea) / 0.07) 50%, hsl(var(--sea) / 0.044) 62.5%, hsl(var(--sea) / 0.022) 75%, hsl(var(--sea) / 0.006) 87.5%, hsl(var(--sea) / 0) 100%),
+    radial-gradient(44vmax 32vmax at 18% -6%,
+      hsl(var(--primary) / 0.07) 0%, hsl(var(--primary) / 0.067) 12.5%, hsl(var(--primary) / 0.059) 25%, hsl(var(--primary) / 0.048) 37.5%,
+      hsl(var(--primary) / 0.035) 50%, hsl(var(--primary) / 0.022) 62.5%, hsl(var(--primary) / 0.011) 75%, hsl(var(--primary) / 0.003) 87.5%, hsl(var(--primary) / 0) 100%);
+  transform: translate3d(var(--aurora-shift, 0px), 0, 0);
+  transition: transform 1.8s var(--ease-out-expo);
+}
+.backdrop-bearing {
+  position: absolute;
+  width: 132vmin;
+  height: 132vmin;
+  right: -46vmin;
+  bottom: -58vmin;
+}
+.bearing-dial {
+  position: absolute;
+  inset: 0;
+  background: var(--bearing-ring) center / contain no-repeat;
+  opacity: 0.075;
+  transform: rotate(var(--heading, 0deg));
+  transition: transform 1.6s var(--ease-out-expo);
+}
+.dark .bearing-dial { opacity: 0.06; }
+/* The lubber line: a fixed gold notch the dial turns under, like a ship's compass. */
+.bearing-lubber {
+  position: absolute;
+  left: 50%;
+  top: 0.4%;
+  width: 2px;
+  height: 4.5%;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: linear-gradient(hsl(var(--primary) / 0.55), hsl(var(--primary) / 0));
+}
+/* A page change sweeps one gold line across the top of the workspace and fades: the
+   instrument confirming its new heading. Zero height, so layout never moves. */
+.route-glint { position: sticky; top: 0; z-index: 5; display: block; height: 0; pointer-events: none; }
+.route-glint::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, hsl(var(--primary) / 0.85) 45%, hsl(var(--primary) / 0.85) 55%, transparent);
+  box-shadow: 0 0 8px hsl(var(--primary) / 0.5);
+  transform-origin: left center;
+  animation: route-glint 0.9s var(--ease-out-expo) both;
+}
+@keyframes route-glint {
+  0%   { transform: scaleX(0); opacity: 0; }
+  20%  { opacity: 1; }
+  60%  { transform: scaleX(1); opacity: 0.8; }
+  100% { transform: scaleX(1); opacity: 0; }
+}
+.reduce-motion .bearing-dial, .reduce-motion .backdrop-aurora { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .bearing-dial, .backdrop-aurora { transition: none; }
+}
+/* Skeletons get a slow scanning light on top of their pulse. */
+.skeleton-scan { position: relative; overflow: hidden; }
+.skeleton-scan::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, hsl(var(--primary) / 0.12), transparent);
+  animation: skeleton-scan 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+@keyframes skeleton-scan { to { transform: translateX(100%); } }
+
+/* ── 1.3.13 polish: browser surfaces in the palette ─────────────────────────────── */
+::selection { background: hsl(var(--primary) / 0.3); }
+input, textarea { caret-color: hsl(var(--primary)); }
+html { scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent; }
+* { scrollbar-width: thin; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 9999px; background: hsl(var(--muted-foreground) / 0.32) content-box; }
+::-webkit-scrollbar-thumb:hover { background-color: hsl(var(--primary) / 0.6); }

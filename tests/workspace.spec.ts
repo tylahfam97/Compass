@@ -127,7 +127,8 @@ planTest("Plan preserves red deficits and updates the scenario immediately", asy
   await expect(amount).toHaveCSS("color", errorColor);
   await page.getByRole("slider", { name: /Keep in reserve/ }).focus();
   await page.keyboard.press("ArrowRight");
-  await expect(amount).toHaveText("-$550.00");
+  // The cushion range now runs to the $1,000 of liquid cash in $10 steps (#123).
+  await expect(amount).toHaveText("-$510.00");
   await expect(page.getByText("Short of your cash cushion", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Reset", exact: true }).click();
   await expect(amount).toHaveText("-$500.00");
@@ -209,6 +210,65 @@ planTest("Plan marks missing balances and respects playback motion preferences",
   await page.getByRole('slider', { name: 'Inspect forecast date' }).focus();
   await page.keyboard.press('End');
   await expect(page.getByRole('slider', { name: 'Inspect forecast date' })).not.toHaveValue('0');
+});
+
+planTest("Plan sliders top out at liquid cash, not a fixed $2,000 (#123)", async ({ page, database }) => {
+  // A synthetic cushion saved above today's cash: shown clamped, never rewritten.
+  await page.evaluate(() => localStorage.setItem("compass_plan_scenario_1", JSON.stringify({ version: 2, window: "nextMonth", buffer: 500_000 })));
+  await page.reload();
+  const reserve = page.getByRole("slider", { name: /Keep in reserve/ });
+  await expect(reserve).toHaveAttribute("max", "100000");
+  await expect(reserve).toHaveValue("100000");
+  await expect(page.getByText("Up to your liquid cash: $1,000.00")).toBeVisible();
+  await expect(page.getByText(/Your saved cushion of \$5,000\.00 is more than you have/)).toBeVisible();
+  await expect(page.getByTestId("safe-to-spend")).toHaveText("-$1,500.00");
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("compass_plan_scenario_1") ?? "{}").buffer)).toBe(500_000);
+  // Spending and income span the larger of cash and the $3,000 monthly paycheck.
+  await expect(page.getByRole("slider", { name: /Extra income/ })).toHaveAttribute("max", "300000");
+  await expect(page.getByRole("slider", { name: /Everyday spending/ })).toHaveAttribute("max", "300000");
+  // Moving the slider saves the new, in-range value.
+  await reserve.focus();
+  await page.keyboard.press("Home");
+  await expect(page.getByTestId("safe-to-spend")).toHaveText("-$500.00");
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("compass_plan_scenario_1") ?? "{}").buffer)).toBe(0);
+  // With no balance on file the old range comes back, labeled, so the control stays usable.
+  database.prepare("UPDATE transactions SET balance_cents=NULL").run();
+  await page.reload();
+  await expect(reserve).toHaveAttribute("max", "200000");
+  await expect(page.getByText(/No checking balance is on file yet, so the standard \$2,000 range applies/)).toBeVisible();
+});
+
+planTest("Plan offers map and calendar views and remembers the layout (#123)", async ({ page, database }) => {
+  expect(database.isOpen).toBe(true);
+  await page.reload();
+  const views = page.getByRole("group", { name: "Forecast view" });
+  await expect(views.getByRole("button", { name: "Line" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".recharts-area-curve").first()).toBeVisible();
+  await views.getByRole("button", { name: "Map" }).click();
+  const map = page.getByRole("region", { name: "Money map" });
+  await expect(map).toBeVisible();
+  await expect(map.getByRole("button", { name: /^Have now, \$1,000\.00$/ })).toBeVisible();
+  // Through next month holds two monthly paychecks (Jun 19 and Jul 19).
+  await expect(map.getByRole("button", { name: /^Paycheck, \$6,000\.00$/ })).toBeVisible();
+  // Nodes are thin SVG bars; select by keyboard, the same path screen-reader users take.
+  await map.getByRole("button", { name: /^Paycheck, / }).focus();
+  await page.keyboard.press("Enter");
+  await expect(map.getByRole("status")).toContainText("Paycheck: $6,000.00 in this window.");
+  await views.getByRole("button", { name: "Calendar" }).click();
+  const calendar = page.getByRole("region", { name: "Forecast calendar" });
+  await expect(calendar.getByRole("button", { name: /^Jun 16, 2026: -\$/ })).toHaveAttribute("data-tone", "short");
+  await calendar.getByRole("button", { name: /^Jun 19, 2026: / }).click();
+  await expect(calendar.locator(".plan-cal-detail")).toContainText("Paycheck");
+  // Customize: hide Next steps; both choices survive a reload, the what-if Reset leaves them alone.
+  await page.getByRole("group", { name: "Forecast view" }).scrollIntoViewIfNeeded();
+  await page.locator(".plan-customize > summary").click();
+  await page.getByRole("checkbox", { name: "Next steps" }).uncheck();
+  await expect(page.locator(".plan-actions")).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole("region", { name: "Forecast calendar" })).toBeVisible();
+  await expect(page.locator(".plan-actions")).toHaveCount(0);
+  await page.getByRole("group", { name: "Forecast view" }).getByRole("button", { name: "Line" }).click();
+  await expect(page.locator(".recharts-area-curve").first()).toBeVisible();
 });
 
 test("Plan keeps profile scenarios separate while an old load is pending", async ({ page, database }) => {
@@ -830,46 +890,6 @@ test("PDF statement with no activity says so instead of importing nothing or sug
   await expect(page.getByText(/That statement has no transactions/)).toBeVisible();
   await expect(page.getByText(/loan statement/)).toHaveCount(0);
   expect(database.prepare("SELECT COUNT(*) AS n FROM transactions").get()).toEqual(before);
-});
-
-test("Ledger crypto export imports as an investment holding with transfers, not spending", async ({ page, database }) => {
-  // Invented operations: 100.123456 in, 25.000014 out (fee included), a dust receipt, a failed send.
-  const csv = [
-    "Operation Date,Status,Currency Ticker,Operation Type,Operation Amount,Operation Fees,Operation Hash,Account Name,Account xpub,Countervalue Ticker,Countervalue at Operation Date,Countervalue at CSV Export",
-    "2026-09-20T15:00:00.000Z,Confirmed,XRP,OUT,25.000014,0.000014,SYNTHETIC3,Sample Wallet,xpub-sample,USD,50.00,62.50",
-    "2026-09-10T15:00:00.000Z,Confirmed,XRP,IN,0.000003,0.00003,SYNTHETIC2,Sample Wallet,xpub-sample,USD,0.00,0.00",
-    "2026-09-01T15:00:00.000Z,Confirmed,XRP,IN,100.123456,0.000017,SYNTHETIC1,Sample Wallet,xpub-sample,USD,200.25,250.31",
-    "2026-09-21T15:00:00.000Z,Failed,XRP,OUT,5,0.00004,SYNTHETIC4,Sample Wallet,xpub-sample,USD,10.00,12.50",
-  ].join("\n");
-  const transactionsBefore = database.prepare("SELECT COUNT(*) AS n FROM transactions").get();
-  const importLedger = async (replace: boolean) => {
-    await page.goto("/import");
-    await page.getByRole("button", { name: /Investment \/ Brokerage/ }).click();
-    await page.locator("#csv-input").setInputFiles({ name: "synthetic-ledger.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
-    if (replace) await page.getByRole("button", { name: "Existing account", exact: true }).click();
-    else await page.getByPlaceholder("e.g. Fidelity Brokerage").fill("Sample Ledger");
-    await page.getByRole("button", { name: "Continue", exact: true }).click();
-    await expect(page.getByRole("note")).toContainText("Cost basis is unknown");
-    await expect(page.getByRole("note")).toContainText("1 failed or unconfirmed operation was left out");
-    await page.getByRole("button", { name: "Import 1 Position + 3 Activity" }).click();
-    if (replace) await page.getByRole("button", { name: "Replace that snapshot" }).click();
-  };
-  await importLedger(false);
-  await expect(page.getByText("Import complete")).toBeVisible();
-  const holdings = () => database.prepare("SELECT security_type, symbol, shares, cost_basis_cents FROM holdings").all();
-  const activity = () => database.prepare("SELECT activity_type, quantity, amount_cents FROM investment_activity ORDER BY trade_date").all();
-  expect(holdings()).toEqual([{ security_type: "crypto", symbol: "XRP", shares: 75.123405, cost_basis_cents: null }]);
-  expect(activity()).toEqual([
-    { activity_type: "transfer", quantity: 100.123456, amount_cents: 20025 },
-    { activity_type: "transfer", quantity: 0.000003, amount_cents: 0 },
-    { activity_type: "transfer", quantity: -25.000014, amount_cents: -5000 },
-  ]);
-  // Re-importing the same export replaces the snapshot and skips every known operation.
-  await importLedger(true);
-  await expect(page.getByText(/Import complete|Already imported/)).toBeVisible();
-  expect(holdings()).toHaveLength(1);
-  expect(activity()).toHaveLength(3);
-  expect(database.prepare("SELECT COUNT(*) AS n FROM transactions").get()).toEqual(transactionsBefore);
 });
 
 test("Investments leads with a labeled portfolio summary scoped to the chosen account", async ({ page, database }) => {

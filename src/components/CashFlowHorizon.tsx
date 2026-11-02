@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type CSSProperties } from "react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, ReferenceLine, ReferenceDot, Tooltip } from "recharts";
 import { PlayIcon, PauseIcon, ArrowCounterClockwiseIcon, ArrowDownRightIcon, ArrowUpRightIcon, CrosshairIcon } from "@phosphor-icons/react";
 import { toISODate, type ForecastResult } from "@/lib/forecast";
@@ -22,11 +22,13 @@ interface Props {
   balanceStale: boolean;
   incomplete: boolean;
   monthToDate: MonthToDate;
+  /** Dots on each day with a scheduled bill or deposit (Plan's Customize menu, #123). */
+  showMarkers?: boolean;
 }
 
 const signed = (cents: number) => `${cents > 0 ? "+" : ""}${formatCurrency(cents)}`;
 
-export default function CashFlowHorizon({ current, scenario, bufferCents, typicalDailyCents, holdScale = false, startingBalanceCents, balanceAsOf, balanceStale, incomplete, monthToDate }: Props) {
+export default function CashFlowHorizon({ current, scenario, bufferCents, typicalDailyCents, holdScale = false, startingBalanceCents, balanceAsOf, balanceStale, incomplete, monthToDate, showMarkers = true }: Props) {
   const reduced = useAppReducedMotion();
   const fillId = useId();
   const [selected, setSelected] = useState(0);
@@ -159,7 +161,7 @@ export default function CashFlowHorizon({ current, scenario, bufferCents, typica
           {hasChanges && <Area type="stepAfter" dataKey="difference" stroke="none" fill={`url(#${fillId})`} isAnimationActive={false} />}
           <Area type="stepAfter" dataKey="current" stroke="hsl(var(--sea))" strokeWidth={2} fill="none" isAnimationActive={false} />
           {hasChanges && <Area type="stepAfter" dataKey="changed" stroke="var(--gold)" strokeWidth={2.5} strokeDasharray="7 3" fill="none" isAnimationActive={false} />}
-          {scenario.days.filter((value) => value.events.length > 0 && value.date !== day.date).map((value) => <ReferenceDot key={value.date} x={value.date} y={Math.max(domain[0], Math.min(domain[1], value.balanceCents))} r={3} fill="hsl(var(--sea))" stroke="hsl(var(--background))" />)}
+          {showMarkers && scenario.days.filter((value) => value.events.length > 0 && value.date !== day.date).map((value) => <ReferenceDot key={value.date} x={value.date} y={Math.max(domain[0], Math.min(domain[1], value.balanceCents))} r={3} fill="hsl(var(--sea))" stroke="hsl(var(--background))" />)}
           <ReferenceLine x={day.date} stroke="hsl(var(--foreground))" strokeOpacity={0.4} />
           <ReferenceDot x={day.date} y={Math.max(domain[0], Math.min(domain[1], day.balanceCents))} r={5} stroke="hsl(var(--background))" strokeWidth={2} fill={day.balanceCents < 0 ? "hsl(var(--error))" : "var(--gold)"} />
         </AreaChart>
@@ -169,7 +171,7 @@ export default function CashFlowHorizon({ current, scenario, bufferCents, typica
     <div className="horizon-transport">
       {!reduced && <button className="workspace-icon" title={playing ? "Pause forecast" : "Play forecast"} aria-label={playing ? "Pause forecast" : "Play forecast"} onClick={() => { if (selectedIndex >= data.length - 1) setSelected(0); setPlaying(!playing); }}>{playing ? <PauseIcon size={17} /> : <PlayIcon size={17} />}</button>}
       <button className="workspace-icon" title="Reset forecast playback" aria-label="Reset forecast playback" onClick={() => choose(0)}><ArrowCounterClockwiseIcon size={16} /></button>
-      <input type="range" aria-label="Inspect forecast date" aria-valuetext={formatDate(day.date)} min={0} max={Math.max(0, data.length - 1)} step={1} value={selectedIndex} onChange={(event) => choose(Number(event.target.value))} />
+      <input type="range" className="instrument-range" style={{ "--fill": `${data.length > 1 ? (selectedIndex / (data.length - 1)) * 100 : 100}%` } as CSSProperties} aria-label="Inspect forecast date" aria-valuetext={formatDate(day.date)} min={0} max={Math.max(0, data.length - 1)} step={1} value={selectedIndex} onChange={(event) => choose(Number(event.target.value))} />
       <time dateTime={day.date}>{formatDate(day.date)}</time>
     </div>
     <div className="horizon-inspector" aria-label="Selected forecast day">
