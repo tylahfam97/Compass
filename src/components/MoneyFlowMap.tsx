@@ -24,6 +24,10 @@ interface MoneyFlowMapProps {
   /** Bumped by the parent whenever the user moves the day, so bursts fire on scrubbing only. */
   burstKey: number;
   height?: number;
+  /** Screen-reader summary of the whole map; defaults to the month's totals. */
+  summary?: string;
+  /** Column captions, when the default came-from/through/went-to wording doesn't fit. */
+  captions?: Partial<Record<number, string>>;
 }
 
 const KIND_COLOR: Partial<Record<FlowNodeKind, string>> = {
@@ -50,6 +54,8 @@ const CAPTION_HEIGHT = 22;
 
 export function flowColor(kind: FlowNodeKind, stored: string | null, mode: "dark" | "light"): string {
   if (kind === "category" && stored) return harmonizeColor(stored, mode);
+  // Only categories carry a stored hex; any other explicit color is a theme token (Plan's map).
+  if (stored) return stored;
   return KIND_COLOR[kind] ?? "hsl(var(--neutral))";
 }
 
@@ -63,7 +69,7 @@ function ribbonAlpha(thickness: number): number {
   return Math.max(0.2, Math.min(0.5, 0.52 - thickness / 1100));
 }
 
-export default function MoneyFlowMap({ flow, day, selected, onSelect, mode, reduced, burstKey, height = 520 }: MoneyFlowMapProps) {
+export default function MoneyFlowMap({ flow, day, selected, onSelect, mode, reduced, burstKey, height = 520, summary: summaryText, captions = CAPTIONS }: MoneyFlowMapProps) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
 
@@ -118,7 +124,7 @@ export default function MoneyFlowMap({ flow, day, selected, onSelect, mode, redu
 
   if (!layout) return <div ref={wrapRef} className="flow-map" style={{ height: totalHeight }} />;
 
-  const summary = `${flow.nodes.length} places and ${flow.edges.length} currents. ${formatCurrencyWhole(flow.totals.incomeCents)} came in, ${formatCurrencyWhole(flow.totals.spentCents)} was spent, ${formatCurrencyWhole(flow.totals.putAwayCents)} reached savings, investments or debt.`;
+  const summary = summaryText ?? `${flow.nodes.length} places and ${flow.edges.length} currents. ${formatCurrencyWhole(flow.totals.incomeCents)} came in, ${formatCurrencyWhole(flow.totals.spentCents)} was spent, ${formatCurrencyWhole(flow.totals.putAwayCents)} reached savings, investments or debt.`;
   const presentColumns = [0, 1, 2, 3].filter((c) => layout.nodes.some((n) => n.column === c));
   const lastColumn = presentColumns[presentColumns.length - 1];
 
@@ -130,7 +136,7 @@ export default function MoneyFlowMap({ flow, day, selected, onSelect, mode, redu
           const leftAligned = c !== 0;
           return (
             <span key={c} style={leftAligned ? { left: x + 10 + 8 } : { right: width - (x - 8) }}>
-              {CAPTIONS[c]}
+              {captions[c] ?? CAPTIONS[c]}
             </span>
           );
         })}
@@ -166,7 +172,7 @@ export default function MoneyFlowMap({ flow, day, selected, onSelect, mode, redu
                   role="button"
                   tabIndex={0}
                   aria-pressed={isSel}
-                  aria-label={`${source} to ${target}, ${formatCurrency(e.cents)}, ${e.txnIds.length} ${e.txnIds.length === 1 ? "transaction" : "transactions"}`}
+                  aria-label={`${source} to ${target}, ${formatCurrency(e.cents)}${e.txnIds.length > 0 ? `, ${e.txnIds.length} ${e.txnIds.length === 1 ? "transaction" : "transactions"}` : ""}`}
                   onClick={() => toggle(sel)}
                   onKeyDown={keyActivate(sel)}
                 >

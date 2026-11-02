@@ -12,6 +12,11 @@
 // On upgrade from an unencrypted build, the existing plaintext DB is silently
 // migrated to an encrypted copy before the app opens.
 
+mod backup_validation;
+use backup_validation::BACKUP_MAGIC;
+#[cfg(test)]
+use backup_validation::parse_backup; // key_safety_tests (and its v1.3.4 red baseline) call it via super::*
+
 use std::sync::Mutex;
 use rusqlite::{Connection, Error as RusqliteError, ErrorCode};
 use serde::Serialize;
@@ -829,8 +834,6 @@ fn open_db(app: &AppHandle) -> Result<Connection, String> {
 // `relaunch()` immediately after success - the actual swap happens in `run()`'s `.setup()`,
 // via `apply_pending_restore_if_any()`, BEFORE any connection is opened on the next launch.
 
-const BACKUP_MAGIC: &[u8] = b"COMPASSBAK1";
-
 #[tauri::command]
 fn export_backup_bytes(app: AppHandle, state: State<'_, DbState>) -> Result<String, String> {
     let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
@@ -884,29 +887,13 @@ fn backup_bytes(data_dir: &std::path::Path, conn: &Connection) -> Result<Vec<u8>
     Ok(out)
 }
 
-fn parse_backup(bytes: &[u8]) -> Result<(&[u8], &[u8]), String> {
-    if bytes.len() < BACKUP_MAGIC.len() || &bytes[..BACKUP_MAGIC.len()] != BACKUP_MAGIC {
-        return Err("this file doesn't look like a Compass backup".to_string());
-    }
-    let read_u64 = |off: usize| -> Result<usize, String> {
-        bytes
-            .get(off..off + 8)
-            .map(|s| u64::from_le_bytes(s.try_into().unwrap()) as usize)
-            .ok_or_else(|| "backup file is truncated or corrupt".to_string())
-    };
-    let mut offset = BACKUP_MAGIC.len();
-    let key_len = read_u64(offset)?;
-    offset += 8;
-    let key_bytes = bytes
-        .get(offset..offset + key_len)
-        .ok_or_else(|| "backup file is truncated or corrupt".to_string())?;
-    offset += key_len;
-    let db_len = read_u64(offset)?;
-    offset += 8;
-    let db_bytes = bytes
-        .get(offset..offset + db_len)
-        .ok_or_else(|| "backup file is truncated or corrupt".to_string())?;
-    Ok((key_bytes, db_bytes))
+/// Preview uses the same checks as staging, but never creates pending restore files.
+#[tauri::command]
+async fn validate_backup(app: AppHandle, hex: String) -> Result<(), String> {
+    let bytes = hex::decode(hex.trim()).map_err(|_| "invalid backup data".to_string())?;
+    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    backup_validation::validate_backup(&bytes, &data_dir)?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -917,35 +904,14 @@ fn stage_backup_restore(app: AppHandle, hex: String) -> Result<(), String> {
 }
 
 fn stage_restore_in(data_dir: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
-    let (key_bytes, db_bytes) = parse_backup(bytes)?;
-    let key_str = std::str::from_utf8(key_bytes)
-        .map_err(|_| "backup's encryption key is not valid text".to_string())?
-        .trim();
-    if key_str.len() != 64 || !key_str.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err("backup's encryption key is not in the expected format".to_string());
-    }
-
     std::fs::create_dir_all(data_dir).map_err(|e| e.to_string())?;
+    // Revalidate the exact snapshot submitted for restore (it must open with its own key in a
+    // throwaway probe); a preview never authorizes a different payload to bypass this boundary.
+    let validated = backup_validation::validate_backup(bytes, data_dir)?;
 
-    // Validate the backup actually opens with its own key BEFORE staging anything, using a
-    // throwaway probe file (never the pending path itself) so a bad backup can't leave a
-    // half-staged restore behind.
-    let probe_path = data_dir.join("compass.db.restoreprobe");
-    std::fs::write(&probe_path, db_bytes).map_err(|e| format!("write probe db: {e}"))?;
-    let probe_result: Result<(), String> = (|| {
-        let conn = Connection::open(&probe_path).map_err(|e| e.to_string())?;
-        apply_key(&conn, key_str).map_err(|_| {
-            "the backup's key could not open its database - the backup file may be corrupt or \
-             from a different install"
-                .to_string()
-        })
-    })();
-    let _ = std::fs::remove_file(&probe_path);
-    probe_result?;
-
-    write_key_file_atomic(&data_dir.join("compass.key.pending"), key_str)
+    write_key_file_atomic(&data_dir.join("compass.key.pending"), validated.key)
         .map_err(|e| format!("stage key: {e}"))?;
-    std::fs::write(data_dir.join("compass.db.pending"), db_bytes)
+    std::fs::write(data_dir.join("compass.db.pending"), validated.database)
         .map_err(|e| format!("stage db: {e}"))?;
 
     Ok(())
@@ -1081,6 +1047,7 @@ pub fn run() {
             db_execute_batch,
             import_transactions_batch,
             export_backup_bytes,
+            validate_backup,
             stage_backup_restore,
             key_recovered_from_backup
         ])

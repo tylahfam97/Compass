@@ -9,6 +9,7 @@ import { getDb } from "@/lib/db";
 import { incomeSumSql, expenseSumSql } from "@/lib/reportingSql";
 import { merchantKey } from "@/lib/merchants";
 import { formatCurrency, formatCurrencyWhole, formatMonthLabel, formatAxisCurrency } from "@/lib/utils";
+import { toISODate } from "@/lib/forecast";
 import { handleLoadFailure } from "@/stores/toastStore";
 import { useAppReducedMotion } from "@/hooks/useAppReducedMotion";
 import CountUp from "@/components/CountUp";
@@ -153,7 +154,7 @@ export default function ReportBuilder({ profileId }: { profileId: number }) {
       let dateClause = "";
       if (cfg.months > 0) {
         dateClause = "AND t.date>=?";
-        params.push(new Date(now.getFullYear(), now.getMonth() - (cfg.months - 1), 1).toISOString().split("T")[0]);
+        params.push(toISODate(new Date(now.getFullYear(), now.getMonth() - (cfg.months - 1), 1)));
       }
       let searchClause = "";
       if (cfg.search.trim()) {

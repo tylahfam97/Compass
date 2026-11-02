@@ -2,6 +2,115 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.13 — Clear Horizon 🧭
+
+Plan stops guessing how much money you have to play with, and it can now show your forecast three
+ways. Imports gain a category review and stop counting crypto portfolio deposits as spending. And the
+whole app has a new finish: smoother page changes, a calmer, sharper glow on clickable cards and a
+quiet instrument-panel backdrop, without changing its colors or the sign-in screen. This release
+brings together the 1.3.11 and 1.3.12 development builds (#120, #121, #122) and the Plan work in #123.
+
+### Plan: limits that follow your money (#123)
+- **The sliders now top out at the money you actually have.** "Keep in reserve" used to stop at a
+  fixed $2,000. It now runs from $0 up to your liquid cash: the latest balances of your bank
+  accounts (checking or savings statements imported as Bank), added together, which is the same cash
+  the forecast starts from. Credit cards, investments, crypto and loans are never counted.
+  The top of the range is printed under the slider.
+- **Spending and income changes scale too.** The everyday-spending and extra-income sliders run up to
+  the larger of your liquid cash and your scheduled monthly income, so a raise or a big month can still
+  be modeled when checking is low. A spending cut reaches down to your typical spending.
+- **Steps that fit the range.** Each slider moves in round steps sized to its range ($10 steps on
+  $1,000, $250 steps on $25,000), by mouse or arrow keys.
+- **Your saved choices are kept.** If a saved cushion is more than you have today, it is shown and used
+  at your current maximum, with a note, but the saved value is not overwritten; it comes back once the
+  balance does. Move the slider and the new value is saved.
+- **No balance on file, a zero balance or an overdraft** keep the previous ranges, labeled as such, so
+  every control stays usable.
+
+### Plan: three ways to read the forecast (#123)
+- **Line** (still the default) is the Cash-flow horizon you know, and it now draws itself in from today.
+- **Map** shows this window's money as currents, the same map the Chart page uses: what you have now,
+  paychecks and any what-if income on the left, through checking, to bills by category, everyday
+  spending, your what-ifs (in gold) and what is left at the end, split into your reserve and the rest.
+  If the window runs short, the gap shows as a red Shortfall. Scrub or play the window to watch it fill.
+- **Calendar** lays the window out as weeks. Each day shows its end-of-day balance, shaded brighter as
+  it holds more, amber below your cushion and red below zero, with dots for money in, money out and a
+  one-off. Pick a day to see what lands on it.
+- **Customize** (the sliders icon next to the window picker) hides sections you don't use (Next steps,
+  Upcoming cash flow, Put your spare money to work) and turns the bill and payday markers on the line
+  chart on or off. The view and these choices are saved per profile; Reset still clears only your
+  what-ifs.
+- Safe to spend and Lowest point count smoothly to their new values as you drag, the window and unit
+  switches glide between settings, and the headline's top edge lights amber or red when the forecast is
+  at risk or short.
+  All of it respects the reduced-motion setting.
+
+### A smoother, sharper finish (#123)
+- **Card glow, rebuilt.** The gold glow on clickable cards used to be a blurred blob with visible rings
+  in its fade. It is now a soft light that follows your pointer, fading in an even curve with a faint
+  grain so no rings show, plus a clean lit edge. It only redraws the card under the pointer. Insight card icons got
+  the same smooth falloff.
+- **Page changes.** Pages fade and rise a little more gently, a thin gold line sweeps across the top as
+  a page arrives, and the gold marker in the sidebar glides to the page you picked instead of jumping.
+- **Backdrop.** Behind the workspace there is now a faint aurora and a bearing dial. The dial turns to a
+  new heading when you change page and then rests, so an idle window does no animation work. It sits
+  behind the opaque sign-in screen, which is unchanged.
+- **Instrument controls.** Sliders across Plan and the Chart page show a gold fill from zero to the value
+  and a ringed thumb that lights while held; signed sliders mark where zero is. Loading placeholders
+  get a slow scanning light. Text selection and the text cursor use the app's colors, and so do scrollbars on
+  Windows.
+- The color palette, the Chart page's map, the graticule, the sign-in particles and the gold borders
+  that mark clickable boxes are all kept.
+
+### Review categories before you import (#103, #120)
+- The import Preview has a new **Review categories before importing** panel, closed by default, so
+  importing without it works exactly as before.
+- Rows are grouped by merchant, each with its count, total and the category your saved rules would
+  give it. Pick a category for a whole group, or open it to change single rows.
+- Nothing is saved until you click Import; Cancel, a new file or a mapping change throws the choices
+  away. Amounts, signs and duplicate detection are unchanged. Files imported automatically after it in
+  a batch use your saved rules, as before.
+
+### Crypto purchases matched to your crypto portfolio (#107, partial; #120, #121)
+- A bank or card purchase categorized **Crypto** moves to **Transfers** when it matches a deposit into a
+  crypto portfolio you track: exactly the same amount to the cent, within five days either side, and
+  nothing else that could also match. It works in either import order. Amounts and dates are never
+  changed, and nothing is created or deleted automatically.
+- Matches are re-checked whenever the data changes: later imports, category changes, deleted or edited
+  rows and re-run rules. A match that has become ambiguous is undone. Re-categorizing a matched
+  purchase yourself is remembered per account, and that purchase is never auto-matched again.
+- Matched rows are labelled "Auto-matched crypto deposit" or "Confirmed crypto deposit".
+- You can confirm a deposit yourself, including unequal amounts once you confirm the difference is fees
+  or price movement, or split a purchase into the invested part and the part that stays spending. The
+  two parts always add up to the original amount, and "Undo split" restores the row exactly.
+- **Partial:** #107 stays open. There is no Coinbase import, wallet sends are not matched,
+  and no cost basis is inferred. Ledger Live's dollar figure is the coins' value when they arrived, so
+  most real purchases differ by fees or spreads and stay Crypto spending.
+
+### Ledger Live crypto (#109)
+- The Ledger Live import that shipped in 1.3.7 has one correction: a send that is still pending no
+  longer has its network fee subtracted.
+
+### Cash-flow horizon (#110, #112, #120)
+- Have now, Expected and Your scenario sit above the chart, with this month so far beneath them; a stale
+  or missing balance is called out, and a Month end marker shows where the month closes.
+- The lines are named, hovering a day shows both balances, and the Balance breakdown keeps scheduled
+  money and what-if money in separate sums.
+- What-ifs: everyday spending per day or per month (a cut never goes below zero spending), extra income,
+  skipping the next paycheck, and a one-off money out or in. Nothing here writes a transaction. The
+  forecast covers checking accounts only and is not a guarantee.
+
+### Under the hood
+- **Ready for main.** This release brings main's 1.3.2 to 1.3.10 work and the development builds
+  together, so the development branch merges into main without conflicts. One end-to-end test was
+  present twice after that merge, which stopped the whole browser suite from loading; the duplicate is
+  removed.
+- **Release tags point at the right commit (#120).** The Windows release publisher tags the exact commit
+  it built (`GITHUB_SHA` as `target_commitish`) and stops before deleting or creating anything if that
+  commit is missing or doesn't match the checkout. The earlier `v1.3.9-dev` tag still points at main.
+- **Builds restored on dev (#122).** Fixed the two type errors that stopped the 1.3.11 dev build (a local
+  name shadowing `crypto`, and `Array.at` under the ES2020 library).
+
 ## Compass 1.3.10 — Clear Readings 🧭
 
 Trends is easier to read, the download statistics count only verified complete website

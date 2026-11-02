@@ -1,11 +1,18 @@
 import { useState, useEffect } from "react";
 import { motion } from "motion/react";
-import { getDb, recomputeCalculatedBalances, shiftBalanceAnchorForTransactionChange } from "@/lib/db";
+import {
+  getDb, reconcileCryptoTransfers, recomputeCalculatedBalances, shiftBalanceAnchorForTransactionChange,
+  getCryptoMatchState, confirmCryptoTransfer, undoCryptoTransfer, keepCryptoAsSpending, allowCryptoMatching,
+  splitCryptoTransfer, undoCryptoSplit,
+} from "@/lib/db";
+import type { CryptoMatchState } from "@/lib/db";
+import { formatCurrency, formatDate } from "@/lib/utils";
+import { toISODate } from "@/lib/forecast";
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import CategoryOptions from "@/components/CategoryOptions";
 import { InfoIcon } from "@phosphor-icons/react";
-import type { Transaction } from "@/lib/types";
+import { TRANSFER_CATEGORY_ID, type Transaction } from "@/lib/types";
 
 interface Props {
   /** Existing transaction to edit, or undefined to add a new one. */
@@ -34,7 +41,7 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
   const isAdd = !transaction;
   const { onBackdropClick, containerRef } = useModalDismiss(onClose);
 
-  const [date, setDate]         = useState(transaction?.date ?? new Date().toISOString().split("T")[0]);
+  const [date, setDate]         = useState(transaction?.date ?? toISODate(new Date()));
   const [desc, setDesc]         = useState(transaction?.description ?? "");
   const [amount, setAmount]     = useState(transaction ? centsToDisplay(transaction.amount_cents) : "");
   const [catId, setCatId]       = useState<number>(transaction?.category_id ?? 15);
@@ -44,6 +51,38 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
   const [error, setError]       = useState<string | null>(null);
   const [accounts, setAccounts] = useState<{ id: number; name: string; account_type: string }[]>([]);
   const [accountId, setAccountId] = useState<number | "">("");
+  const [crypto, setCrypto] = useState<CryptoMatchState | null>(null);
+  const [depositId, setDepositId] = useState<number | "">("");
+  const [feeOk, setFeeOk] = useState(false);
+  const [investInput, setInvestInput] = useState("");
+  const [spendCatId, setSpendCatId] = useState<number | "">("");
+
+  // Crypto portfolio reconciliation for a saved bank outflow (#107): review the matched deposit
+  // and undo, or pick a deposit and confirm (unequal amounts need an explicit acknowledgement).
+  useEffect(() => {
+    if (!transaction || transaction.amount_cents >= 0) return;
+    let cancelled = false;
+    getCryptoMatchState(transaction.id).then((s) => { if (!cancelled) setCrypto(s); }).catch(console.error);
+    return () => { cancelled = true; };
+  }, [transaction]);
+
+  // Each action closes the editor: its form still holds the pre-action category, and saving it
+  // would overwrite the decision just made.
+  const cryptoAction = async (run: () => Promise<unknown>) => {
+    setSaving(true);
+    setError(null);
+    try { await run(); onSaved(); onClose(); } catch (e) { setError(String(e)); setSaving(false); }
+  };
+  const chosenDeposit = crypto?.candidates.find((d) => d.id === depositId);
+  const depositDiff = chosenDeposit && transaction ? chosenDeposit.amountCents + transaction.amount_cents : 0;
+  // Explicit split (#107): the user types the invested part; nothing is inferred from the deposit.
+  const investCents = parseDollar(investInput);
+  const spendRemainder = transaction ? -transaction.amount_cents - investCents : 0;
+  const splitValid = !!chosenDeposit && Number.isSafeInteger(investCents) && investCents > 0 && spendRemainder > 0
+    && spendCatId !== "" && spendCatId !== TRANSFER_CATEGORY_ID;
+  const seenOutflow = transaction && crypto ? {
+    transactionId: transaction.id, categoryId: transaction.category_id ?? null, amountCents: transaction.amount_cents, ...crypto.seen,
+  } : null;
 
   // Which account a manually-added transaction posts against - required, since silently
   // defaulting to "whichever account happens to be first" produced wrong balances/insights
@@ -76,7 +115,7 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
       const db = await getDb();
       if (isAdd) {
         // Generate a unique hash for manually-added transactions
-        const hash = "manual_" + crypto.randomUUID();
+        const hash = "manual_" + globalThis.crypto.randomUUID();
         await db.execute(
           `INSERT INTO transactions
              (account_id, date, amount_cents, description, category_id, notes, import_hash, profile_id)
@@ -101,6 +140,9 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
         );
         await recomputeCalculatedBalances(transaction!.account_id);
       }
+      // A new/edited Crypto or Transfers row (or a changed amount/date) can change portfolio
+      // matches (#107). Best effort: the save itself already succeeded.
+      await reconcileCryptoTransfers().catch(() => 0);
       onSaved();
       onClose();
     } catch (e) { setError(String(e)); }
@@ -119,6 +161,7 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
         null
       );
       await recomputeCalculatedBalances(transaction.account_id);
+      await reconcileCryptoTransfers().catch(() => 0);
       onSaved();
       onClose();
     } catch (e) { setError(String(e)); setSaving(false); }
@@ -195,6 +238,96 @@ export default function EditTransactionModal({ transaction, onClose, onSaved, pr
               </div>
             )}
           </div>
+
+          {transaction && crypto && (crypto.link || crypto.split || crypto.candidates.length > 0 || crypto.rejected) && (
+            <div className="rounded-lg border p-3 text-xs space-y-2">
+              <div className="font-medium">Crypto portfolio</div>
+              {crypto.split && (
+                <p>
+                  You split the original {formatCurrency(-crypto.split.originalCents)}: {formatCurrency(-crypto.split.investCents)} invested
+                  (this row, Transfers) and {formatCurrency(-crypto.split.spendCents)} spending
+                  ({categories.find((c) => c.id === crypto.split!.spendCategoryId)?.name ?? "category"}, a separate row with the same date).{" "}
+                  <button type="button" disabled={saving} onClick={() => cryptoAction(() => undoCryptoSplit(transaction.id))}
+                    className="underline disabled:opacity-50">Undo split</button>
+                </p>
+              )}
+              {crypto.link ? (
+                <>
+                  <p>
+                    {crypto.link.confirmed ? "You confirmed" : "Automatically matched (exact same amount):"} this
+                    funded {crypto.link.symbol} {formatCurrency(crypto.link.amountCents)} received {formatDate(crypto.link.date)} in {crypto.link.accountName}
+                    {crypto.link.description ? ` (${crypto.link.description})` : ""}.{" "}
+                    {crypto.split ? null : <>The full {formatCurrency(transaction.amount_cents)} counts as a transfer, not spending; the amount and balance are unchanged.</>}
+                  </p>
+                  {!crypto.split && (
+                    <button type="button" disabled={saving} onClick={() => cryptoAction(() => undoCryptoTransfer(transaction.id))}
+                      className="underline disabled:opacity-50">Undo - not a portfolio deposit</button>
+                  )}
+                </>
+              ) : (
+                <>
+                  {crypto.rejected && (
+                    <p>
+                      Kept as spending: never matched automatically.{" "}
+                      <button type="button" disabled={saving} onClick={() => cryptoAction(() => allowCryptoMatching(transaction.id))}
+                        className="underline disabled:opacity-50">Allow automatic matching</button>
+                    </p>
+                  )}
+                  {crypto.candidates.length > 0 && (
+                    <>
+                      <label className="block text-[hsl(var(--muted-foreground))]">Did this fund one of these deposits?</label>
+                      <select value={depositId} onChange={(e) => { setDepositId(e.target.value ? Number(e.target.value) : ""); setFeeOk(false); }}
+                        className="w-full border rounded-lg px-2 py-1.5 bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
+                        <option value="">Choose a deposit...</option>
+                        {crypto.candidates.map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {formatDate(d.date)} - {d.symbol} {formatCurrency(d.amountCents)} - {d.accountName}{d.description ? ` - ${d.description}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                      {chosenDeposit && depositDiff !== 0 && (
+                        <label className="flex items-start gap-1.5">
+                          <input type="checkbox" checked={feeOk} onChange={(e) => setFeeOk(e.target.checked)} className="mt-0.5" />
+                          <span>
+                            The amounts differ by {formatCurrency(Math.abs(depositDiff))}. I confirm the difference is fees or
+                            price movement, and the whole {formatCurrency(-transaction.amount_cents)} went to this portfolio.
+                          </span>
+                        </label>
+                      )}
+                      <div className="flex gap-3">
+                        <button type="button" disabled={saving || !chosenDeposit || (depositDiff !== 0 && !feeOk)}
+                          onClick={() => cryptoAction(() => confirmCryptoTransfer(seenOutflow!, chosenDeposit!))}
+                          className="underline disabled:opacity-50">Confirm: investment transfer</button>
+                        {!crypto.rejected && (
+                          <button type="button" disabled={saving} onClick={() => cryptoAction(() => keepCryptoAsSpending(transaction.id))}
+                            className="underline disabled:opacity-50">Keep as spending</button>
+                        )}
+                      </div>
+                      {chosenDeposit && (
+                        <div className="space-y-1.5 border-t pt-2">
+                          <div>Or split it: part invested, the rest spending.</div>
+                          <div>Original total: {formatCurrency(-transaction.amount_cents)}</div>
+                          <label className="flex items-center gap-1.5">Invested
+                            <input type="text" inputMode="decimal" value={investInput} onChange={(e) => setInvestInput(e.target.value)}
+                              placeholder="0.00" aria-label="Invested amount" className="w-24 border rounded px-1.5 py-1 bg-[hsl(var(--background))]" />
+                          </label>
+                          <div>Spending (remainder): {spendRemainder > 0 ? formatCurrency(spendRemainder) : "-"}</div>
+                          <select value={spendCatId} onChange={(e) => setSpendCatId(e.target.value ? Number(e.target.value) : "")}
+                            aria-label="Spending category" className="w-full border rounded-lg px-2 py-1.5 bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
+                            <option value="">Spending category...</option>
+                            <CategoryOptions categories={categories.filter((c) => c.id !== TRANSFER_CATEGORY_ID)} />
+                          </select>
+                          <button type="button" disabled={saving || !splitValid}
+                            onClick={() => cryptoAction(() => splitCryptoTransfer(seenOutflow!, chosenDeposit!, investCents, Number(spendCatId)))}
+                            className="underline disabled:opacity-50">Confirm split</button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          )}
 
           <div>
             <label className="text-xs font-medium text-[hsl(var(--muted-foreground))] ">

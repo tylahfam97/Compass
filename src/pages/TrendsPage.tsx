@@ -8,7 +8,9 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { TrendUpIcon, TrendDownIcon } from "@phosphor-icons/react";
 import { getDb } from "@/lib/db";
+import { monthBounds } from "@/lib/goals";
 import { incomeSumSql, expenseSumSql, categorySpendSql } from "@/lib/reportingSql";
+import { toISODate } from "@/lib/forecast";
 import { formatCurrency, formatMonthLabel, formatAxisCurrency, combineAccountBalances, separateAccountBalances, accountChartColor } from "@/lib/utils";
 import { series, chartTooltipStyle, harmonizeColor } from "@/lib/chartTheme";
 import { summarizeCategories, type CategoryMonthRow, type CategoryMonths, type RankedCategory } from "@/lib/trends";
@@ -135,9 +137,7 @@ function ProfileTrends() {
     setExpandedMonth(month);
     setExpandedMonthCats(null);
     const db = await getDb();
-    const [y, m] = month.split("-").map(Number);
-    const start = `${y}-${String(m).padStart(2, "0")}-01`;
-    const end = new Date(y, m, 1).toISOString().split("T")[0];
+    const [start, end] = monthBounds(month);
     const rows = await db.select<{ name: string; color: string; total: number }[]>(
       `SELECT c.name, c.color, ${categorySpendSql()} as total
        FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
@@ -169,7 +169,7 @@ function ProfileTrends() {
       const d = new Date();
       d.setDate(1);
       d.setMonth(d.getMonth() - (range - 1));
-      const start = d.toISOString().split("T")[0];
+      const start = toISODate(d);
 
       const [incExpRows, catRows, allTimeRow, cumRows, balanceRows, balanceAcctRows] = await Promise.all([
         db.select<{ month: string; income: number; expenses: number }[]>(

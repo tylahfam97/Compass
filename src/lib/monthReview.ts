@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { monthBounds } from "./goals";
 import { incomeSumSql, expenseSumSql, categorySpendSql } from "./reportingSql";
 
 /**
@@ -20,11 +21,6 @@ export interface MonthInReview {
   spendChangeCents: number | null;
   budgetsHeld: number;
   budgetsTotal: number;
-}
-
-function monthBounds(ym: string): [string, string] {
-  const [y, m] = ym.split("-").map(Number);
-  return [`${y}-${String(m).padStart(2, "0")}-01`, new Date(y, m, 1).toISOString().split("T")[0]];
 }
 
 function prevYM(ym: string): string {

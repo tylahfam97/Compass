@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { goalIsOnTrack, goalPct, projectGoalCompletion, monthlyPaceFromBalances, monthBounds, daysElapsed, currentWeekBounds } from "./goals";
+import { goalIsOnTrack, goalPct, projectGoalCompletion, monthlyPaceFromBalances, monthBounds, daysElapsed, currentWeekBounds, recentMonths } from "./goals";
 
 const base = { target_months: null, streak: 0, noBalanceData: false };
 
@@ -56,5 +56,6 @@ describe("date helpers", () => {
     expect(daysElapsed("2026-09", today)).toBe(10);
     expect(daysElapsed("2026-08", today)).toBe(31);
     expect(currentWeekBounds(today)).toEqual(["2026-09-07", "2026-09-14"]);
+    expect(recentMonths(3, new Date(2026, 2, 31))).toEqual(["2026-03", "2026-02", "2026-01"]);
   });
 });

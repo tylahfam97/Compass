@@ -113,6 +113,35 @@ describe("parseAmount", () => {
   });
 });
 
+describe("parseSplitAmount", () => {
+  it("uses a nonzero credit when the debit is zero", () => {
+    expect(parseSplitAmount("0.00", "123.45")).toBe(123.45);
+  });
+
+  it("uses a nonzero credit when the debit is blank", () => {
+    expect(parseSplitAmount("", "123.45")).toBe(123.45);
+  });
+
+  it("returns a nonzero debit as negative when the credit is zero or blank", () => {
+    expect(parseSplitAmount("123.45", "0.00")).toBe(-123.45);
+    expect(parseSplitAmount("123.45", "")).toBe(-123.45);
+  });
+
+  it("preserves debit precedence when both amounts are nonzero", () => {
+    expect(parseSplitAmount("123.45", "67.89")).toBe(-123.45);
+  });
+
+  it("returns zero when neither amount parses nonzero", () => {
+    expect(parseSplitAmount("0.00", "0.00")).toBe(0);
+    expect(parseSplitAmount("", "")).toBe(0);
+    expect(parseSplitAmount("n/a", "-")).toBe(0);
+  });
+
+  it("uses a nonzero credit when the debit is unparseable", () => {
+    expect(parseSplitAmount("n/a", "123.45")).toBe(123.45);
+  });
+});
+
 describe("dedupeRowHash", () => {
   it("leaves the first occurrence of a row unchanged from hashRow", async () => {
     const row = ["2024-01-01", "Coffee", "5.00"];

@@ -1,6 +1,6 @@
 import { getDb, getLoanAccountsForProfile, getCreditAccountsForProfile } from "./db";
 import { computeDebtPayoffPlan } from "./agent";
-import { latestBalancePerAccountSql } from "./reportingSql";
+import { latestBalancePerAccountSql, incomeSumSql, expenseSumSql } from "./reportingSql";
 import {
   chargeMatchesRule, computeSpendingBaseline, toISODate, BASELINE_WEEKS,
   type ForecastRule, type SpendingBaseline,
@@ -29,6 +29,46 @@ export interface ForecastInputs {
   /** Typical everyday spending derived from history, with scheduled bills excluded. Null when
    *  there's no usable history. */
   baseline: SpendingBaseline | null;
+  /** What already happened in checking this calendar month (local dates, 1st through today).
+   *  Already inside the balance, so it is shown beside the projection, never added to it. */
+  monthToDate: MonthToDate;
+}
+
+export interface MonthToDate {
+  /** YYYY-MM-01 of the current local month. */
+  monthStart: string;
+  incomeCents: number;
+  spentCents: number;
+  txCount: number;
+  /** Newest checking transaction on file, any month - shows how current the import is. */
+  lastImportedDate: string | null;
+}
+
+type Select = Pick<Awaited<ReturnType<typeof getDb>>, "select">;
+
+/** Checking income and spending from the 1st of the current local month through today. Uses
+ *  the same definitions as every report: transfers and card payments (categories 20, 29) move
+ *  money between the user's own accounts, so they are neither income nor spending. */
+export async function getMonthToDate(db: Select, profileId: number, today: Date = new Date()): Promise<MonthToDate> {
+  const todayIso = toISODate(today);
+  const monthStart = `${todayIso.slice(0, 7)}-01`;
+  const [row] = await db.select<{ income: number | null; spent: number | null; tx_count: number; last_date: string | null }[]>(
+    `SELECT ${incomeSumSql("t", "a")} as income, ${expenseSumSql("t")} as spent, COUNT(t.id) as tx_count,
+       (SELECT MAX(t2.date) FROM transactions t2 JOIN accounts a2 ON a2.id=t2.account_id
+        WHERE t2.profile_id=? AND a2.account_type='checking' AND a2.excluded_from_insights=0) as last_date
+     FROM transactions t
+     JOIN accounts a ON a.id=t.account_id
+     WHERE t.profile_id=? AND a.account_type='checking' AND a.excluded_from_insights=0
+       AND t.date>=? AND t.date<=?`,
+    [profileId, profileId, monthStart, todayIso]
+  );
+  return {
+    monthStart,
+    incomeCents: row?.income ?? 0,
+    spentCents: row?.spent ?? 0,
+    txCount: row?.tx_count ?? 0,
+    lastImportedDate: row?.last_date ?? null,
+  };
 }
 
 export async function getForecastInputs(profileId: number): Promise<ForecastInputs> {
@@ -40,7 +80,7 @@ export async function getForecastInputs(profileId: number): Promise<ForecastInpu
     return toISODate(d);
   })();
 
-  const [balanceRows, planned, spendRows] = await Promise.all([
+  const [balanceRows, planned, spendRows, monthToDate] = await Promise.all([
     db.select<{ id: number; name: string; balance: number | null; date: string | null }[]>(
       `SELECT a.id, a.name, ${latestBalancePerAccountSql("a")} as balance,
        (SELECT t.date FROM transactions t WHERE t.account_id=a.id AND t.balance_cents IS NOT NULL ORDER BY t.date DESC,t.id DESC LIMIT 1) as date
@@ -58,6 +98,7 @@ export async function getForecastInputs(profileId: number): Promise<ForecastInpu
          AND (t.category_id IS NULL OR t.category_id NOT IN (20,29))`,
       [profileId, baselineStart]
     ),
+    getMonthToDate(db, profileId),
   ]);
 
   const { rules, detected, activeRules, detectedCharges } = planned;
@@ -81,6 +122,7 @@ export async function getForecastInputs(profileId: number): Promise<ForecastInpu
     detected,
     hasIncomeRule: planned.hasIncomeRule,
     baseline: computeSpendingBaseline(discretionary),
+    monthToDate,
   };
 }
 

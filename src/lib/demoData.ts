@@ -1,4 +1,5 @@
 import { getDb, resolveAccountId, recomputeCalculatedBalances } from "./db";
+import { toISODate } from "./forecast";
 
 /** System category IDs used by the demo dataset (matches the hardcoded IDs seeded in
  *  db.ts's category migrations - see MAINTAINER NOTE there for the full list). */
@@ -114,7 +115,7 @@ export async function seedDemoData(profileId: number): Promise<void> {
   for (const t of txns) {
     const date = new Date(today);
     date.setDate(date.getDate() - t.daysAgo);
-    const dateStr = date.toISOString().split("T")[0];
+    const dateStr = toISODate(date);
     const accountId = t.account === "checking" ? checkingId : creditId;
     const hash = "demo_" + crypto.randomUUID();
     await db.execute(

@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, NavLink, useLocation } from "react-router-dom";
-import { useState, useEffect, Suspense, lazy } from "react";
+import { useState, useEffect, Suspense, lazy, type CSSProperties } from "react";
 import {
   SquaresFourIcon, ArrowsLeftRightIcon, UploadSimpleIcon, TrendUpIcon, ChartLineIcon,
   WalletIcon, TargetIcon, ChartBarIcon, LightbulbIcon, GlobeIcon, CaretLeftIcon, CaretRightIcon, ChatCircleIcon, SparkleIcon, CalendarCheckIcon, GearSixIcon, LockKeyIcon,
@@ -28,6 +28,7 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 import ToastHost from "@/components/ToastHost";
 import { useToastStore } from "@/stores/toastStore";
 import { CardListSkeleton } from "@/components/Skeleton";
+import { installPointerGlow } from "@/lib/pointerGlow";
 
 // Lazy-loaded: these 3 pages pull in the heaviest deps (xlsx, pdfjs-dist,
 // recharts, papaparse), code-splitting them keeps the initial bundle/first
@@ -61,13 +62,15 @@ function RoutedContent() {
   return (
     <ErrorBoundary key={location.pathname}>
       {/* Keyed remount gives an entrance-only fade/rise; no AnimatePresence so navigation is never
-          delayed by an exit animation. MotionConfig suppresses it under reduced motion. */}
+          delayed by an exit animation. MotionConfig suppresses the movement under reduced motion.
+          The glint is a one-shot gold sweep across the top: the instrument settling on the page. */}
       <motion.div
         key={location.pathname}
-        initial={{ opacity: 0, y: 6 }}
+        initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.16, ease: [0.25, 0.1, 0.25, 1] }}
+        transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
       >
+        <span className="route-glint" aria-hidden="true" />
         <Routes>
         <Route path="/overview" element={<div className="py-6"><OverviewPage /></div>} />
         <Route path="/" element={<DashboardPage />} />
@@ -87,6 +90,29 @@ function RoutedContent() {
     </ErrorBoundary>
   );
 }
+
+/**
+ * The workspace backdrop: a faint aurora and a bearing dial, behind everything and fixed to the
+ * window. Each page has its own heading (its place in the sidebar), so changing page turns the
+ * dial and drifts the aurora a little, then everything rests - no continuous animation. Hidden behind the opaque launch screen, so the login is unchanged.
+ */
+function AppBackdrop() {
+  const { pathname } = useLocation();
+  const index = Math.max(0, NAV_ITEMS.findIndex((item) => (item.to === "/" ? pathname === "/" : pathname.startsWith(item.to))));
+  const style = {
+    "--heading": `${-index * (360 / NAV_ITEMS.length)}deg`,
+    "--aurora-shift": `${(index - NAV_ITEMS.length / 2) * 0.5}vw`,
+  } as CSSProperties;
+  return (
+    <div className="app-backdrop" aria-hidden="true" style={style}>
+      <div className="backdrop-aurora" />
+      <div className="backdrop-bearing">
+        <div className="bearing-dial" />
+      </div>
+    </div>
+  );
+}
+
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useProfileStore } from "@/stores/profileStore";
 import { useOnboardingStore } from "@/stores/onboardingStore";
@@ -140,6 +166,9 @@ function App() {
   useEffect(() => {
     document.documentElement.classList.toggle("reduce-motion", motionPref === "reduced");
   }, [motionPref]);
+
+  // Card hover light follows the pointer (see lib/pointerGlow.ts).
+  useEffect(() => installPointerGlow(), []);
 
   // Launch picker state
   const [launchReady, setLaunchReady] = useState(false);
@@ -274,6 +303,7 @@ function App() {
       )}
       {profileSelected && <MonthRolloverModal />}
       <ToastHost />
+      <AppBackdrop />
       <div className="flex h-screen overflow-hidden">
         {/* Sidebar */}
         {/* The instrument panel: always night navy, in both themes, so the brand is present
@@ -342,6 +372,7 @@ function App() {
               >
                 {({ isActive }) => (
                   <>
+                    {isActive && <motion.span layoutId="nav-bearing" className="nav-bearing" transition={{ type: "spring", stiffness: 420, damping: 36 }} />}
                     <Icon size={18} weight={isActive ? "fill" : "regular"} className="shrink-0" />
                     {sidebarOpen && (
                       <span className="flex-1 flex items-center justify-between">

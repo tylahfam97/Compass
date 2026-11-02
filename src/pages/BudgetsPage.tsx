@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { WarningIcon, CheckCircleIcon, CaretLeftIcon, CaretRightIcon, PlusIcon, PencilSimpleIcon, TrashIcon, ArrowCounterClockwiseIcon, GlobeIcon, WalletIcon } from "@phosphor-icons/react";
 import { getDb } from "@/lib/db";
+import { monthBounds } from "@/lib/goals";
 import { categorySpendSql, categoryNetSql } from "@/lib/reportingSql";
 import { budgetCarryCents, evaluateBudgetPeriod, type BudgetDefinition } from "@/lib/budgetMetrics";
 import { formatCurrency, formatMonthLabel, formatDate } from "@/lib/utils";
@@ -41,14 +42,6 @@ interface BudgetRow {
 
 function viewModeKey(profileId: number) {
   return `compass_budget_view_${profileId}`;
-}
-
-function monthBounds(ym: string): [string, string] {
-  const [y, m] = ym.split("-").map(Number);
-  return [
-    `${y}-${String(m).padStart(2, "0")}-01`,
-    new Date(y, m, 1).toISOString().split("T")[0],
-  ];
 }
 
 /** The most recent month that has actually finished - the only period a "you held your budget"

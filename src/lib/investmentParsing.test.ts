@@ -404,4 +404,15 @@ describe("parseLedgerLiveCSV", () => {
     expect(r.summary).toBeNull();
     expect(r.notes!.join(" ")).toMatch(/Cost basis is unknown.*1 failed or unconfirmed operation was left out; the network fee of 1 failed send was still subtracted.*1 operation of an unsupported type.*1 unreadable row was skipped/);
   });
+
+  it("debits a network fee only for an explicitly Failed send, never a pending or unknown one", () => {
+    const r = parseInvestmentWorkbook([
+      ...data,
+      op("2026-09-23T15:00:00.000Z", "Pending", "OUT", "7", "0.5", "H7", "14.00", "17.50"),
+      op("2026-09-24T15:00:00.000Z", "Mystery", "OUT", "8", "0.25", "H8", "16.00", "20.00"),
+    ])!;
+    expect(r.sections[0].rows[0].shares).toBe(75.123405); // same as without them: no fee assumed
+    expect(r.activity).toHaveLength(3);
+    expect(r.notes!.join(" ")).toMatch(/3 failed or unconfirmed operations were left out; the network fee of 1 failed send was still subtracted/);
+  });
 });

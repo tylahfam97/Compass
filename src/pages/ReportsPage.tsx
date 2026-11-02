@@ -4,10 +4,13 @@ import {
 } from "recharts";
 import { RepeatIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { getDb } from "@/lib/db";
+import { monthBounds } from "@/lib/goals";
 import { incomeSumSql, expenseSumSql, categorySpendSql } from "@/lib/reportingSql";
 import { detectRecurringCharges } from "@/lib/agent";
 import { formatCurrency, formatDate, formatMonthLabel, formatAxisCurrency, combineAccountBalances } from "@/lib/utils";
 import type { Transaction, RecurringCharge } from "@/lib/types";
+import { toISODate } from "@/lib/forecast";
+import { addDaysIso } from "@/lib/payCycle";
 import { useAutoMonth } from "@/hooks/useAutoMonth";
 import { useProfileStore } from "@/stores/profileStore";
 import { handleLoadFailure } from "@/stores/toastStore";
@@ -43,14 +46,6 @@ interface RecurringItem {
   category_color: string;
 }
 
-function monthBounds(ym: string): [string, string] {
-  const [y, m] = ym.split("-").map(Number);
-  return [
-    `${y}-${String(m).padStart(2, "0")}-01`,
-    new Date(y, m, 1).toISOString().split("T")[0],
-  ];
-}
-
 function prevYM(ym: string): string {
   const [y, m] = ym.split("-").map(Number);
   const d = new Date(y, m - 2, 1);
@@ -75,10 +70,10 @@ function ProfileReports({ profileId }: { profileId: number }) {
   const [rangeMode, setRangeMode] = useState<"month" | "custom">(saved.mode === "custom" ? "custom" : "month");
   const [customStart, setCustomStart] = useState(() => {
     if (typeof saved.start === "string" && /^\d{4}-\d{2}-\d{2}$/.test(saved.start) && Number.isFinite(Date.parse(saved.start))) return saved.start;
-    const d = new Date(); d.setMonth(d.getMonth() - 2); d.setDate(1);
-    return d.toISOString().split("T")[0];
+    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 2);
+    return toISODate(d);
   });
-  const [customEnd, setCustomEnd] = useState(() => typeof saved.end === "string" && /^\d{4}-\d{2}-\d{2}$/.test(saved.end) && Number.isFinite(Date.parse(saved.end)) ? saved.end : new Date().toISOString().split("T")[0]);
+  const [customEnd, setCustomEnd] = useState(() => typeof saved.end === "string" && /^\d{4}-\d{2}-\d{2}$/.test(saved.end) && Number.isFinite(Date.parse(saved.end)) ? saved.end : toISODate(new Date()));
   useEffect(() => {
     try { sessionStorage.setItem(`compass_reports_view_${profileId}`, JSON.stringify({ mode: rangeMode, start: customStart, end: customEnd })); } catch { return; }
   }, [profileId, rangeMode, customStart, customEnd]);
@@ -99,9 +94,7 @@ function ProfileReports({ profileId }: { profileId: number }) {
   const effectiveRange = (): [string, string] => {
     if (rangeMode === "month") return monthBounds(month);
     // end is exclusive: advance customEnd by one day
-    const e = new Date(customEnd);
-    e.setDate(e.getDate() + 1);
-    return [customStart, e.toISOString().split("T")[0]];
+    return [customStart, addDaysIso(customEnd, 1)];
   };
 
   const applyPreset = (preset: "thisQ" | "lastQ" | "ytd" | "12m") => {
@@ -124,8 +117,8 @@ function ProfileReports({ profileId }: { profileId: number }) {
       s = new Date(y, m - 11, 1);
       e = now;
     }
-    setCustomStart(s.toISOString().split("T")[0]);
-    setCustomEnd(e.toISOString().split("T")[0]);
+    setCustomStart(toISODate(s));
+    setCustomEnd(toISODate(e));
     setRangeMode("custom");
   };
 

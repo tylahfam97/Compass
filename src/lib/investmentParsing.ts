@@ -4,6 +4,7 @@
 // `extractPdfRows()` all normalize to, and returns a `ParsedInvestment`.
 
 import { parseAmount, parseDate } from "./importParsing";
+import { toISODate } from "./forecast";
 import type { ActivityType, SecurityType } from "./types";
 
 export interface InvestmentRow {
@@ -91,7 +92,7 @@ function positionsOnly(asOfDate: string, sections: InvestmentSection[]): ParsedI
 }
 
 function todayIso(): string {
-  return new Date().toISOString().split("T")[0];
+  return toISODate(new Date());
 }
 
 /** Maps a section title (as printed in the export) to a broad security type. */
@@ -1123,10 +1124,12 @@ export function parseLedgerLiveCSV(data: string[][]): ParsedInvestment | null {
     const units = coinUnits(cell(row, amountI));
     const date = localDateOf(cell(row, dateI));
     if (!ticker || units === null || !date) { malformed++; continue; }
-    if (cell(row, statusI).toLowerCase() !== "confirmed") {
+    const status = cell(row, statusI).toLowerCase();
+    if (status !== "confirmed") {
       // A failed send still spent its network fee (Ledger keeps it in history for that reason).
+      // Any other non-confirmed status (pending, unknown) is left out with no fee assumed.
       const fee = coinUnits(cell(row, feeI));
-      if (type === "OUT" && fee) {
+      if (status === "failed" && type === "OUT" && fee) {
         const account = cell(row, accountI) || "Ledger";
         const key = `${account}\u0000${ticker}`;
         const h = holdings.get(key) ?? { ticker, account, units: 0n, cvExport: 0, cvUnits: 0n };

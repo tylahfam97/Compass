@@ -80,6 +80,7 @@ export function currentWeekBounds(today: Date = new Date()): [string, string] {
 export function recentMonths(n: number, today: Date = new Date()): string[] {
   const out: string[] = [];
   const d = new Date(today);
+  d.setDate(1);
   for (let i = 0; i < n; i++) {
     out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
     d.setMonth(d.getMonth() - 1);

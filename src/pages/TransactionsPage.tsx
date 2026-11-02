@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useRef, type CSSProperties } from "re
 import { motion, AnimatePresence } from "motion/react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowsDownUpIcon, ArrowUpIcon, ArrowDownIcon, PlusIcon, SparkleIcon, DownloadSimpleIcon, TagIcon, GearSixIcon, SlidersHorizontalIcon, CaretDownIcon, CaretUpIcon, UploadSimpleIcon, PencilSimpleIcon, NoteIcon, TrashIcon, ListIcon, TableIcon, DotsThreeIcon, ArrowDownLeftIcon, ArrowUpRightIcon, ArrowsLeftRightIcon, XIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
-import { getDb, reapplyCategorizationRules } from "@/lib/db";
+import { getDb, reapplyCategorizationRules, reconcileCryptoTransfers } from "@/lib/db";
+import { monthBounds } from "@/lib/goals";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
 import type { Transaction } from "@/lib/types";
@@ -18,6 +19,7 @@ import { setPendingImportFiles } from "@/lib/pendingImport";
 import InfoTooltip from "@/components/InfoTooltip";
 import { TableSkeleton } from "@/components/Skeleton";
 import { loadTransactionView, saveTransactionView } from "@/lib/transactionView";
+import { CRYPTO_CATEGORY_ID } from "@/lib/cryptoTransfers";
 
 const MAX_ROWS = 500;
 const ALL_TIME_LIMIT = 10000;
@@ -42,14 +44,6 @@ function SortIndicator({ col, sortCol, sortDir }: { col: SortCol; sortCol: SortC
   return sortDir === "asc"
     ? <ArrowUpIcon size={13} className="text-[hsl(var(--gold-ink))] shrink-0" />
     : <ArrowDownIcon size={13} className="text-[hsl(var(--gold-ink))] shrink-0" />;
-}
-
-function monthBounds(ym: string): [string, string] {
-  const [y, m] = ym.split("-").map(Number);
-  return [
-    `${y}-${String(m).padStart(2, "0")}-01`,
-    new Date(y, m, 1).toISOString().split("T")[0],
-  ];
 }
 
 /** Build the WHERE clause + params array shared by loadRows and exportCsv. */
@@ -254,7 +248,8 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
       ? `${SORT_EXPR[sortCol]} ${sortDir.toUpperCase()}, t.id ${sortDir.toUpperCase()}`
       : "t.date DESC, t.id DESC";
     const data = await db.select<Transaction[]>(
-      `SELECT t.*, c.name as category_name, c.color as category_color, a.account_type as account_type, a.name as account_name
+      `SELECT t.*, c.name as category_name, c.color as category_color, a.account_type as account_type, a.name as account_name,
+              (SELECT 1 + l.confirmed FROM crypto_transfer_links l WHERE l.transaction_id=t.id) as crypto_matched
        FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
        LEFT JOIN accounts a ON a.id=t.account_id
        WHERE ${where}
@@ -276,6 +271,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
   const deleteTransaction = async (id: number) => {
     const db = await getDb();
     await db.execute("DELETE FROM transactions WHERE id=?", [id]);
+    await reconcileCryptoTransfers().catch(() => 0); // a deleted row may have been a match or its competitor (#107)
     setConfirmDeleteId((cur) => (cur === id ? null : cur));
     await loadRows();
   };
@@ -306,6 +302,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
     const ids = [...selectedIds];
     const placeholders = ids.map(() => "?").join(",");
     await db.execute(`DELETE FROM transactions WHERE id IN (${placeholders})`, ids);
+    await reconcileCryptoTransfers().catch(() => 0); // a deleted row may have been a match or its competitor (#107)
     clearSelection();
     await loadRows();
   };
@@ -315,6 +312,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
     const ids = [...selectedIds];
     const placeholders = ids.map(() => "?").join(",");
     await db.execute(`UPDATE transactions SET category_id=? WHERE id IN (${placeholders})`, [categoryId, ...ids]);
+    await reconcileCryptoTransfers().catch(() => 0); // re-check portfolio matches (#107)
     clearSelection();
     await loadRows();
   };
@@ -349,6 +347,14 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
       txn.id,
     ]);
     setEditingId(null);
+    // Only Crypto/Transfers rows take part in portfolio matching (#107). Re-checking can move this
+    // or another row's category, so reload instead of patching this row in place.
+    if ([categoryId, txn.category_id].some((c) => c === CRYPTO_CATEGORY_ID || c === TRANSFER_CATEGORY_ID)) {
+      await reconcileCryptoTransfers().catch(() => 0);
+      await loadRows();
+      setRulePrompt({ txn, newCatId: categoryId });
+      return;
+    }
     // Update the row in-place so scroll position is preserved (no full reload)
     const cat = categories.find((c) => c.id === categoryId);
     setRows((prev) =>
@@ -884,7 +890,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
                 <span className="activity-direction" aria-hidden="true">{transaction.amount_cents < 0 ? <ArrowUpRightIcon size={18} /> : <ArrowDownLeftIcon size={18} />}</span>
                 <button className="activity-description" onClick={() => setViewTxn(transaction)}>
                   <span className="font-medium">{transaction.description}</span>
-                  <span className="text-xs text-[hsl(var(--muted-foreground))]">{transaction.account_name ?? formatDate(transaction.date)}{sortCol && sortCol !== "date" ? `, ${formatDate(transaction.date)}` : ""}{transaction.notes ? `, ${transaction.notes}` : ""}</span>
+                  <span className="text-xs text-[hsl(var(--muted-foreground))]">{transaction.account_name ?? formatDate(transaction.date)}{sortCol && sortCol !== "date" ? `, ${formatDate(transaction.date)}` : ""}{transaction.notes ? `, ${transaction.notes}` : ""}{transaction.crypto_matched ? (transaction.crypto_matched === 2 ? ", you confirmed: crypto portfolio deposit" : ", auto-matched (exact amount) to a crypto portfolio deposit") : ""}</span>
                 </button>
                 {editingId === transaction.id ? <select autoFocus onBlur={() => setEditingId(null)} aria-label={`Category for ${transaction.description}`} value={transaction.category_id ?? 15} onChange={(event) => recategorize(transaction, Number(event.target.value))} className="activity-category">
                   <CategoryOptions categories={categories} />
@@ -973,6 +979,11 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
                       >
                         {t.category_name ?? "Uncategorized"}
                       </button>
+                    )}
+                    {!!t.crypto_matched && (
+                      <span className="block text-[10px] text-[hsl(var(--muted-foreground))]" title={t.crypto_matched === 2 ? "You confirmed this funded a deposit in your crypto portfolio. Open the transaction to review or undo." : "Automatically matched to a deposit of exactly the same amount in your crypto portfolio. Open the transaction to review or undo; it won't be matched again."}>
+                        {t.crypto_matched === 2 ? "Confirmed crypto deposit" : "Auto-matched crypto deposit"}
+                      </span>
                     )}
                   </td>
                   <td className={`px-4 py-3 text-right ${t.amount_cents < 0 ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>

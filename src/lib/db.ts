@@ -1,5 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { CategorizationRule, Account, RecurringRule, RecurringCadence } from "./types";
+import { TRANSFER_CATEGORY_ID } from "./types";
+import { CRYPTO_CATEGORY_ID, matchCryptoTransfers, planCryptoLinkChanges, toCryptoOutflow } from "./cryptoTransfers";
+import type { CryptoTransferLink, PortfolioDeposit } from "./cryptoTransfers";
 
 // ─── Invoke-based DB wrapper ──────────────────────────────────────────────────
 // Mirrors the tauri-plugin-sql Database API (select / execute) so all call
@@ -76,6 +79,7 @@ const ALLOWED_MIGRATION_TABLES = new Set([
   "investment_activity",
   "investment_summaries",
   "recurring_rules",
+  "crypto_transfer_links",
 ]);
 
 const SAFE_COLUMN_NAME_RE = /^[a-z_][a-z0-9_]*$/i;
@@ -1301,6 +1305,439 @@ async function runMigrations(db: CompassDb): Promise<void> {
     }
     await db.execute("PRAGMA user_version = 31");
   }
+  // Crypto purchases matched to a tracked portfolio deposit (#107). Idempotent and deliberately
+  // NOT version-gated, so it can't collide with a numbered migration on another branch.
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS crypto_transfer_links (
+      transaction_id       INTEGER NOT NULL UNIQUE,
+      activity_id          INTEGER NOT NULL UNIQUE,
+      previous_category_id INTEGER,
+      created_at           TEXT    NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  // Outflows whose automatic match the user undid by re-categorizing them. Keyed by import hash
+  // so the correction survives an undone-and-reimported statement (the row id changes, the hash
+  // doesn't). Scoped by account like the transactions UNIQUE(account_id, import_hash), so it
+  // never touches another account's or profile's rows; erased with the account/profile.
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS crypto_transfer_rejections (
+      account_id  INTEGER NOT NULL,
+      import_hash TEXT    NOT NULL,
+      created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (account_id, import_hash)
+    )
+  `);
+  // A link the user confirmed by hand (unequal amount/fees allowed) instead of an automatic
+  // exact-cent match. The amounts both sides had when confirmed guard against a stale source:
+  // if either changes (edited row, re-imported deposit) the link is reverted.
+  for (const [col, def] of [["confirmed", "INTEGER NOT NULL DEFAULT 0"], ["confirmed_txn_cents", "INTEGER"], ["confirmed_deposit_cents", "INTEGER"]]) {
+    if (!(await colExists(db, "crypto_transfer_links", col))) {
+      await db.execute(`ALTER TABLE crypto_transfer_links ADD COLUMN ${col} ${def}`);
+    }
+  }
+  // A user-confirmed split of one bank outflow into an investment part (the original row, which
+  // keeps its id, import hash and session) and a spending part (a child row with import_hash
+  // 'split:<parent id>'). Snapshots of both parts guard undo against later edits (#107).
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS transaction_splits (
+      parent_id            INTEGER PRIMARY KEY,
+      account_id           INTEGER NOT NULL,
+      date                 TEXT    NOT NULL,
+      original_cents       INTEGER NOT NULL,
+      invest_cents         INTEGER NOT NULL,
+      spend_cents          INTEGER NOT NULL,
+      previous_category_id INTEGER,
+      spend_category_id    INTEGER NOT NULL,
+      activity_id          INTEGER NOT NULL,
+      deposit_cents        INTEGER NOT NULL,
+      apply_token          TEXT    NOT NULL,
+      undo_token           TEXT,
+      created_at           TEXT    NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+}
+
+/** A crypto portfolio deposit a bank outflow can be confirmed against (#107). */
+export interface CryptoDepositCandidate {
+  id: number; date: string; amountCents: number; symbol: string; accountId: number; accountName: string; description: string;
+}
+
+/** A confirmed split's snapshot (all amounts are row amounts, i.e. negative). */
+export interface CryptoSplit {
+  originalCents: number; investCents: number; spendCents: number; spendCategoryId: number;
+}
+
+/** The portfolio match state of one bank outflow, for the transaction editor. */
+export interface CryptoMatchState {
+  link: (CryptoDepositCandidate & { confirmed: number }) | null;
+  rejected: boolean;
+  split: CryptoSplit | null;
+  /** What the editor showed, re-checked by confirm/split so a stale dialog can't apply. */
+  seen: { accountId: number; profileId: number; date: string };
+  candidates: CryptoDepositCandidate[];
+}
+
+const CRYPTO_DEPOSIT_SQL = `investment_activity ia JOIN accounts a ON a.id = ia.account_id
+      WHERE a.account_type = 'investment' AND ia.activity_type IN ('deposit','transfer') AND ia.amount_cents > 0
+        AND EXISTS (SELECT 1 FROM holdings h WHERE h.account_id = a.id AND h.security_type = 'crypto'
+                    AND h.symbol = ia.symbol)`;
+const CANDIDATE_COLS = "ia.id, ia.trade_date AS date, ia.amount_cents AS amountCents, ia.symbol, a.id AS accountId, a.name AS accountName, ia.description";
+
+/**
+ * Match state for one non-investment outflow: its link (automatic or confirmed), whether
+ * automatic matching was turned off for it, and - if unlinked - the still-unlinked crypto
+ * deposits in the same profile within 10 days, closest amount first. Amounts may differ (fees):
+ * the user decides, nothing is inferred.
+ */
+export async function getCryptoMatchState(transactionId: number): Promise<CryptoMatchState | null> {
+  const db = await getDb();
+  const [txn] = await db.select<{ accountId: number; profileId: number; date: string; amountCents: number; categoryId: number | null; rejected: number }[]>(
+    `SELECT t.account_id AS accountId, COALESCE(t.profile_id, 1) AS profileId, t.date, t.amount_cents AS amountCents, t.category_id AS categoryId,
+            EXISTS (SELECT 1 FROM crypto_transfer_rejections r WHERE r.account_id = t.account_id AND r.import_hash = t.import_hash) AS rejected
+       FROM transactions t JOIN accounts a ON a.id = t.account_id
+      WHERE t.id = ? AND t.amount_cents < 0 AND a.account_type <> 'investment' AND t.import_hash NOT LIKE 'split:%'`,
+    [transactionId]
+  );
+  // A split's spending part has no portfolio state of its own: it is reviewed from its original.
+  if (!txn) return null;
+  const [split] = await db.select<CryptoSplit[]>(
+    `SELECT original_cents AS originalCents, invest_cents AS investCents, spend_cents AS spendCents, spend_category_id AS spendCategoryId
+       FROM transaction_splits WHERE parent_id = ?`,
+    [transactionId]
+  );
+  const [link] = await db.select<(CryptoDepositCandidate & { confirmed: number })[]>(
+    `SELECT ${CANDIDATE_COLS}, l.confirmed FROM crypto_transfer_links l
+       JOIN investment_activity ia ON ia.id = l.activity_id JOIN accounts a ON a.id = ia.account_id
+      WHERE l.transaction_id = ?`,
+    [transactionId]
+  );
+  // A plain Transfers row is already not spending; only other categories can be confirmed.
+  const candidates = link || split || txn.categoryId === TRANSFER_CATEGORY_ID ? [] : await db.select<CryptoDepositCandidate[]>(
+    `SELECT ${CANDIDATE_COLS} FROM ${CRYPTO_DEPOSIT_SQL}
+        AND ia.profile_id = ? AND ABS(julianday(ia.trade_date) - julianday(?)) <= 10
+        AND ia.id NOT IN (SELECT activity_id FROM crypto_transfer_links)
+      ORDER BY ABS(ia.amount_cents + ?), ia.trade_date`,
+    [txn.profileId, txn.date, txn.amountCents]
+  );
+  return {
+    link: link ?? null, rejected: !!txn.rejected, candidates, split: split ?? null,
+    seen: { accountId: txn.accountId, profileId: txn.profileId, date: txn.date },
+  };
+}
+
+/**
+ * The user confirms a bank outflow funded a crypto portfolio deposit (#107), even when the
+ * amounts differ (fees, rounding): the whole outflow moves to Transfers so it isn't counted as
+ * spending; amount, date, balance and the deposit are untouched. Guarded against a stale source:
+ * nothing changes unless the row still has the category, amount, account, profile and date, and
+ * the deposit the amount, date, coin, account and free state, the user saw. Undo with
+ * `undoCryptoTransfer`.
+ */
+export interface SeenOutflow {
+  transactionId: number; categoryId: number | null; amountCents: number; accountId: number; profileId: number; date: string;
+}
+export type SeenDeposit = Pick<CryptoDepositCandidate, "id" | "amountCents" | "date" | "symbol" | "accountId">;
+
+/** WHERE guards: the outflow (t) and deposit (ia) are exactly what the dialog showed. */
+const SEEN_GUARD = `ia.id = ? AND ia.amount_cents = ? AND ia.trade_date = ? AND ia.symbol = ? AND ia.account_id = ?
+               AND ia.profile_id = COALESCE(t.profile_id, 1)
+               AND t.id = ? AND t.amount_cents = ? AND t.account_id = ? AND COALESCE(t.profile_id, 1) = ? AND t.date = ?
+               AND t.amount_cents < 0 AND ta.account_type <> 'investment' AND t.import_hash NOT LIKE 'split:%'
+               AND COALESCE(t.category_id, 0) = COALESCE(?, 0) AND COALESCE(t.category_id, 0) <> ${TRANSFER_CATEGORY_ID}
+               AND ia.id NOT IN (SELECT activity_id FROM crypto_transfer_links)
+               AND t.id NOT IN (SELECT transaction_id FROM crypto_transfer_links)
+               AND t.id NOT IN (SELECT parent_id FROM transaction_splits)`;
+const seenParams = (seen: SeenOutflow, d: SeenDeposit) => [
+  d.id, d.amountCents, d.date, d.symbol, d.accountId,
+  seen.transactionId, seen.amountCents, seen.accountId, seen.profileId, seen.date, seen.categoryId,
+];
+
+export async function confirmCryptoTransfer(seen: SeenOutflow, deposit: SeenDeposit): Promise<void> {
+  const db = await getDb();
+  await db.executeBatch([
+    {
+      sql: `INSERT INTO crypto_transfer_links (transaction_id, activity_id, previous_category_id, confirmed, confirmed_txn_cents, confirmed_deposit_cents)
+            SELECT t.id, ia.id, t.category_id, 1, t.amount_cents, ia.amount_cents
+              FROM transactions t JOIN accounts ta ON ta.id = t.account_id JOIN ${CRYPTO_DEPOSIT_SQL}
+               AND ${SEEN_GUARD}`,
+      params: seenParams(seen, deposit),
+    },
+    {
+      // Only the link this batch inserted, and only if the row still has the category the dialog saw.
+      sql: `UPDATE transactions SET category_id = ${TRANSFER_CATEGORY_ID}
+             WHERE id = ? AND COALESCE(category_id, 0) = COALESCE(?, 0)
+               AND id IN (SELECT transaction_id FROM crypto_transfer_links WHERE confirmed = 1 AND activity_id = ?)`,
+      params: [seen.transactionId, seen.categoryId, deposit.id],
+    },
+  ]);
+  const [ok] = await db.select<{ n: number }[]>(
+    `SELECT COUNT(*) AS n FROM crypto_transfer_links l JOIN transactions t ON t.id = l.transaction_id
+      WHERE l.transaction_id = ? AND l.activity_id = ? AND l.confirmed = 1 AND t.category_id = ${TRANSFER_CATEGORY_ID}`,
+    [seen.transactionId, deposit.id]
+  );
+  if (!ok?.n) throw new Error("This transaction or deposit changed since you opened it - reopen it and try again.");
+}
+
+/**
+ * Undoes a match (automatic or confirmed): the outflow goes back to the category it had, unless
+ * the user has changed it since, and is never matched automatically again (it stays available
+ * for confirmation and `allowCryptoMatching`).
+ */
+export async function undoCryptoTransfer(transactionId: number): Promise<void> {
+  const db = await getDb();
+  // A split's original is undone with undoCryptoSplit (its amount must be restored too).
+  const notSplit = "AND ? NOT IN (SELECT parent_id FROM transaction_splits)";
+  await db.executeBatch([
+    {
+      sql: `INSERT OR IGNORE INTO crypto_transfer_rejections (account_id, import_hash)
+            SELECT account_id, import_hash FROM transactions WHERE id = ? ${notSplit}`,
+      params: [transactionId, transactionId],
+    },
+    {
+      sql: `UPDATE transactions SET category_id = (SELECT l.previous_category_id FROM crypto_transfer_links l WHERE l.transaction_id = transactions.id)
+             WHERE id = ? AND category_id = ${TRANSFER_CATEGORY_ID} AND id IN (SELECT transaction_id FROM crypto_transfer_links) ${notSplit}`,
+      params: [transactionId, transactionId],
+    },
+    { sql: `DELETE FROM crypto_transfer_links WHERE transaction_id = ? ${notSplit}`, params: [transactionId, transactionId] },
+  ]);
+}
+
+/** Marks the rows one batch touched; only needs to differ from any earlier batch's token. */
+const batchToken = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+
+const STALE_MSG = "This transaction or deposit changed since you opened it - reopen it and try again.";
+
+/**
+ * The user splits one bank outflow (#107): `investCents` (positive) funded the chosen crypto
+ * deposit, the rest is spending in `spendCategoryId`. The original row keeps its id, import hash
+ * (so re-importing the statement still dedups), session (so undoing the import removes both parts),
+ * date and account; its amount becomes the investment part and it moves to Transfers with a
+ * confirmed link. A child row (import_hash 'split:<id>', same account/date/session/balance) holds
+ * the spending part. Parts sum exactly to the original. Nothing is inferred: both amounts come
+ * from the user. One atomic batch; it applies only if everything still matches what the dialog
+ * showed (each later statement keys off the snapshot row the first one inserted).
+ */
+export async function splitCryptoTransfer(
+  seen: SeenOutflow, deposit: SeenDeposit, investCents: number, spendCategoryId: number,
+): Promise<void> {
+  const original = seen.amountCents;
+  const spendCents = original + investCents; // negative remainder
+  if (![original, investCents, spendCategoryId, deposit.amountCents].every(Number.isSafeInteger)
+      || original >= 0 || investCents <= 0 || spendCents >= 0
+      || spendCategoryId === TRANSFER_CATEGORY_ID) {
+    throw new Error("Enter an investment amount above $0 and below the transaction total, and a spending category.");
+  }
+  const db = await getDb();
+  const token = batchToken();
+  const mine = "SELECT 1 FROM transaction_splits s WHERE s.parent_id = ? AND s.apply_token = ?";
+  await db.executeBatch([
+    {
+      sql: `INSERT INTO transaction_splits (parent_id, account_id, date, original_cents, invest_cents, spend_cents,
+                                            previous_category_id, spend_category_id, activity_id, deposit_cents, apply_token)
+            SELECT t.id, t.account_id, t.date, t.amount_cents, ?, ?, t.category_id, ?, ia.id, ia.amount_cents, ?
+              FROM transactions t JOIN accounts ta ON ta.id = t.account_id JOIN ${CRYPTO_DEPOSIT_SQL}
+               AND ${SEEN_GUARD} AND t.amount_cents = ? - ?`,
+      params: [-investCents, spendCents, spendCategoryId, token, ...seenParams(seen, deposit), spendCents, investCents],
+    },
+    {
+      sql: `INSERT INTO transactions (account_id, date, amount_cents, description, category_id, import_hash, balance_cents, profile_id, import_session_id)
+            SELECT t.account_id, t.date, s.spend_cents, t.description, s.spend_category_id, 'split:' || t.id, t.balance_cents, t.profile_id, t.import_session_id
+              FROM transaction_splits s JOIN transactions t ON t.id = s.parent_id AND t.amount_cents = s.original_cents
+             WHERE s.parent_id = ? AND s.apply_token = ?`,
+      params: [seen.transactionId, token],
+    },
+    {
+      sql: `INSERT INTO crypto_transfer_links (transaction_id, activity_id, previous_category_id, confirmed, confirmed_txn_cents, confirmed_deposit_cents)
+            SELECT s.parent_id, s.activity_id, s.previous_category_id, 1, s.invest_cents, s.deposit_cents
+              FROM transaction_splits s WHERE s.parent_id = ? AND s.apply_token = ?`,
+      params: [seen.transactionId, token],
+    },
+    {
+      sql: `UPDATE transactions SET category_id = ${TRANSFER_CATEGORY_ID},
+                   amount_cents = (SELECT s.invest_cents FROM transaction_splits s WHERE s.parent_id = transactions.id)
+             WHERE id = ? AND amount_cents = ? AND EXISTS (${mine})`,
+      params: [seen.transactionId, original, seen.transactionId, token],
+    },
+  ]);
+  const [ok] = await db.select<{ n: number }[]>(
+    `SELECT COUNT(*) AS n FROM transaction_splits s
+       JOIN transactions p ON p.id = s.parent_id AND p.amount_cents = s.invest_cents
+       JOIN transactions c ON c.account_id = s.account_id AND c.import_hash = 'split:' || s.parent_id AND c.amount_cents = s.spend_cents
+      WHERE s.parent_id = ? AND s.apply_token = ?`,
+    [seen.transactionId, token]
+  );
+  if (!ok?.n) throw new Error(STALE_MSG);
+  await recomputeCalculatedBalances(seen.accountId); // same total, but the row-level balances move
+}
+
+/**
+ * Reverses a split exactly: deletes the spending part and restores the original's amount and
+ * category. Refused (nothing changes) unless both parts still match the snapshot - same account,
+ * date, amounts, spending category, and the original still Transfers with its confirmed link (or
+ * back in its previous category with no link, after its deposit went away) - so later human
+ * edits are never overwritten. Like undoCryptoTransfer it stops automatic matching for the row.
+ */
+export async function undoCryptoSplit(parentId: number): Promise<void> {
+  if (!Number.isSafeInteger(parentId)) throw new Error("Invalid transaction.");
+  const db = await getDb();
+  const token = batchToken();
+  const S = "transaction_splits";
+  const marked = `EXISTS (SELECT 1 FROM ${S} WHERE parent_id = ? AND undo_token = ?)`;
+  const [acct] = await db.select<{ accountId: number }[]>(`SELECT account_id AS accountId FROM ${S} WHERE parent_id = ?`, [parentId]);
+  await db.executeBatch([
+    {
+      sql: `UPDATE ${S} SET undo_token = ? WHERE parent_id = ?
+              AND EXISTS (SELECT 1 FROM transactions p WHERE p.id = ${S}.parent_id AND p.account_id = ${S}.account_id
+                    AND p.date = ${S}.date AND p.amount_cents = ${S}.invest_cents
+                    AND ((p.category_id = ${TRANSFER_CATEGORY_ID} AND EXISTS (SELECT 1 FROM crypto_transfer_links l
+                            WHERE l.transaction_id = p.id AND l.activity_id = ${S}.activity_id AND l.confirmed = 1))
+                      OR (COALESCE(p.category_id, 0) = COALESCE(${S}.previous_category_id, 0)
+                          AND NOT EXISTS (SELECT 1 FROM crypto_transfer_links l WHERE l.transaction_id = p.id))))
+              AND EXISTS (SELECT 1 FROM transactions c WHERE c.account_id = ${S}.account_id AND c.import_hash = 'split:' || ${S}.parent_id
+                    AND c.date = ${S}.date AND c.amount_cents = ${S}.spend_cents AND COALESCE(c.category_id, 0) = ${S}.spend_category_id)`,
+      params: [token, parentId],
+    },
+    {
+      sql: `DELETE FROM transactions WHERE import_hash = 'split:' || ? AND account_id = (SELECT account_id FROM ${S} WHERE parent_id = ? AND undo_token = ?)`,
+      params: [parentId, parentId, token],
+    },
+    { sql: `DELETE FROM crypto_transfer_links WHERE transaction_id = ? AND ${marked}`, params: [parentId, parentId, token] },
+    {
+      sql: `INSERT OR IGNORE INTO crypto_transfer_rejections (account_id, import_hash)
+            SELECT account_id, import_hash FROM transactions WHERE id = ? AND ${marked}`,
+      params: [parentId, parentId, token],
+    },
+    {
+      sql: `UPDATE transactions SET amount_cents = (SELECT original_cents FROM ${S} WHERE parent_id = transactions.id),
+                   category_id = (SELECT previous_category_id FROM ${S} WHERE parent_id = transactions.id)
+             WHERE id = ? AND ${marked}`,
+      params: [parentId, parentId, token],
+    },
+    { sql: `DELETE FROM ${S} WHERE parent_id = ? AND undo_token = ?`, params: [parentId, token] },
+  ]);
+  const [left] = await db.select<{ n: number }[]>(`SELECT COUNT(*) AS n FROM ${S} WHERE parent_id = ?`, [parentId]);
+  if (left?.n) throw new Error("This split was edited since it was made, so it can't be undone automatically - nothing was changed.");
+  if (acct) await recomputeCalculatedBalances(acct.accountId);
+}
+
+/** Keeps an unlinked outflow as spending: it is never matched automatically. */
+export async function keepCryptoAsSpending(transactionId: number): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `INSERT OR IGNORE INTO crypto_transfer_rejections (account_id, import_hash)
+     SELECT account_id, import_hash FROM transactions WHERE id = ? AND id NOT IN (SELECT transaction_id FROM crypto_transfer_links)`,
+    [transactionId]
+  );
+}
+
+/** Lets automatic exact-cent matching consider this outflow again, then re-checks matches. */
+export async function allowCryptoMatching(transactionId: number): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `DELETE FROM crypto_transfer_rejections WHERE EXISTS (SELECT 1 FROM transactions t WHERE t.id = ?
+       AND t.account_id = crypto_transfer_rejections.account_id AND t.import_hash = crypto_transfer_rejections.import_hash)`,
+    [transactionId]
+  );
+  await reconcileCryptoTransfers().catch(() => 0); // re-checked after the next change
+}
+
+/**
+ * Moves Crypto-categorized outflows that unambiguously match a deposit in a tracked crypto
+ * portfolio (a deposit of a coin its investment account holds as crypto) into Transfers, so the
+ * same money isn't counted as both spending and an investment
+ * (#107). Safe to run any time and in either import order, and after any category change: every
+ * automatic match is re-checked against ALL current evidence, so a later competing purchase,
+ * deposit or same-amount Transfers outflow makes it ambiguous and reverts it, exactly as if that
+ * evidence had been there first. A match whose deposit or amount no longer fits (an undone
+ * import, a deleted account, an edited row) is reverted too - the outflow goes back to its
+ * previous category. A matched outflow the user re-categorized is a deliberate correction: it is
+ * remembered and never auto-matched again (see crypto_transfer_rejections). Amounts, dates and
+ * rows are never changed, created or deleted. Returns new matches made.
+ */
+const STALE_CONFIRMED = `l.confirmed = 1 AND (
+  NOT EXISTS (SELECT 1 FROM investment_activity ia WHERE ia.id = l.activity_id AND ia.amount_cents = l.confirmed_deposit_cents)
+  OR NOT EXISTS (SELECT 1 FROM transactions t WHERE t.id = l.transaction_id AND t.amount_cents = l.confirmed_txn_cents))`;
+
+export async function reconcileCryptoTransfers(): Promise<number> {
+  const db = await getDb();
+  await db.executeBatch([
+    // A split whose original or spending part was deleted (or moved account) can no longer be
+    // undone; the remaining row(s) are kept as they are - rows are never deleted here.
+    {
+      sql: `DELETE FROM transaction_splits WHERE NOT EXISTS (SELECT 1 FROM transactions p WHERE p.id = transaction_splits.parent_id)
+               OR NOT EXISTS (SELECT 1 FROM transactions c WHERE c.account_id = transaction_splits.account_id
+                              AND c.import_hash = 'split:' || transaction_splits.parent_id)`,
+      params: [],
+    },
+    {
+      sql: `INSERT OR IGNORE INTO crypto_transfer_rejections (account_id, import_hash)
+            SELECT t.account_id, t.import_hash FROM crypto_transfer_links l JOIN transactions t ON t.id = l.transaction_id
+             WHERE COALESCE(t.category_id, 0) <> ${TRANSFER_CATEGORY_ID}`,
+      params: [],
+    },
+    {
+      sql: `DELETE FROM crypto_transfer_links WHERE NOT EXISTS (
+              SELECT 1 FROM transactions t WHERE t.id = crypto_transfer_links.transaction_id AND t.category_id = ${TRANSFER_CATEGORY_ID})`,
+      params: [],
+    },
+    // A confirmed link whose deposit is gone or either amount changed since confirmation is
+    // stale: the row (still Transfers, per the delete above) goes back to its previous category.
+    {
+      sql: `UPDATE transactions SET category_id = (SELECT l.previous_category_id FROM crypto_transfer_links l WHERE l.transaction_id = transactions.id)
+             WHERE category_id = ${TRANSFER_CATEGORY_ID} AND id IN (SELECT l.transaction_id FROM crypto_transfer_links l WHERE ${STALE_CONFIRMED})`,
+      params: [],
+    },
+    { sql: `DELETE FROM crypto_transfer_links WHERE transaction_id IN (SELECT l.transaction_id FROM crypto_transfer_links l WHERE ${STALE_CONFIRMED})`, params: [] },
+  ]);
+  const links = await db.select<CryptoTransferLink[]>(
+    "SELECT transaction_id AS transactionId, activity_id AS activityId, previous_category_id AS previousCategoryId FROM crypto_transfer_links WHERE confirmed = 0"
+  );
+  // Linked rows are re-evaluated as the Crypto purchases they were. Unlinked Transfers outflows
+  // may be a deposit's real funding, and corrected rows still exist, so both make a same-amount
+  // purchase ambiguous without ever being matched themselves.
+  const outflowRows = await db.select<{ id: number; profileId: number; date: string; amountCents: number; categoryId: number; linked: number; rejected: number }[]>(
+    `SELECT t.id, COALESCE(t.profile_id, 1) AS profileId, t.date, t.amount_cents AS amountCents, t.category_id AS categoryId,
+            EXISTS (SELECT 1 FROM crypto_transfer_links l WHERE l.transaction_id = t.id) AS linked,
+            EXISTS (SELECT 1 FROM crypto_transfer_rejections r WHERE r.account_id = t.account_id AND r.import_hash = t.import_hash) AS rejected
+       FROM transactions t JOIN accounts a ON a.id = t.account_id
+      WHERE t.category_id IN (?, ?) AND t.amount_cents < 0 AND a.account_type <> 'investment'
+        AND t.id NOT IN (SELECT transaction_id FROM crypto_transfer_links WHERE confirmed = 1)
+        AND t.id NOT IN (SELECT parent_id FROM transaction_splits) AND t.import_hash NOT LIKE 'split:%'`,
+    [CRYPTO_CATEGORY_ID, TRANSFER_CATEGORY_ID]
+  );
+  const outflows = outflowRows.map(toCryptoOutflow);
+  // Only a deposit of a coin the account holds as crypto counts (checked per activity, not per
+  // account) - a brokerage cash deposit (no symbol) or stock transfer in the same account is
+  // unrelated money, and statement sweeps are cash moves, not deposits.
+  const deposits = await db.select<PortfolioDeposit[]>(
+    // A user-confirmed deposit is spoken for and takes no part in automatic matching.
+    `SELECT ia.id, ia.profile_id AS profileId, ia.trade_date AS date, ia.amount_cents AS amountCents
+       FROM ${CRYPTO_DEPOSIT_SQL}
+        AND ia.id NOT IN (SELECT activity_id FROM crypto_transfer_links WHERE confirmed = 1)`
+  );
+  const { revoke, add } = planCryptoLinkChanges(links, matchCryptoTransfers(outflows, deposits));
+  if (revoke.length === 0 && add.length === 0) return 0;
+  // Every revocation runs before any new link, so a deposit or row can move to a new partner.
+  await db.executeBatch([
+    ...revoke.flatMap((l) => [
+      {
+        sql: `UPDATE transactions SET category_id=? WHERE id=? AND category_id=${TRANSFER_CATEGORY_ID}`,
+        params: [l.previousCategoryId, l.transactionId],
+      },
+      { sql: "DELETE FROM crypto_transfer_links WHERE transaction_id=?", params: [l.transactionId] },
+    ]),
+    ...add.flatMap((m) => [
+      {
+        sql: "INSERT INTO crypto_transfer_links (transaction_id, activity_id, previous_category_id) VALUES (?, ?, ?)",
+        params: [m.transactionId, m.activityId, CRYPTO_CATEGORY_ID],
+      },
+      {
+        sql: "UPDATE transactions SET category_id=? WHERE id=? AND category_id=?",
+        params: [TRANSFER_CATEGORY_ID, m.transactionId, CRYPTO_CATEGORY_ID],
+      },
+    ]),
+  ]);
+  return add.length;
 }
 
 // ─── Account helpers ──────────────────────────────────────────────────────────
@@ -1552,6 +1989,8 @@ export async function deleteAccountWithData(accountId: number): Promise<void> {
   await db.execute("DELETE FROM holdings WHERE account_id=?", [accountId]);
   await db.execute("DELETE FROM investment_activity WHERE account_id=?", [accountId]);
   await db.execute("DELETE FROM investment_summaries WHERE account_id=?", [accountId]);
+  await db.execute("DELETE FROM crypto_transfer_rejections WHERE account_id=?", [accountId]);
+  await db.execute("DELETE FROM transaction_splits WHERE account_id=?", [accountId]);
   if (sessions.length > 0) {
     // One statement instead of a COUNT-per-session loop; scoped to this account's session ids
     // so holdings-only sessions from other imports are never swept up.
@@ -1563,6 +2002,9 @@ export async function deleteAccountWithData(accountId: number): Promise<void> {
     );
   }
   await db.execute("DELETE FROM accounts WHERE id=?", [accountId]);
+  // Its deposits may have been matched to Crypto purchases elsewhere - put those back. The
+  // account is already gone, so a failure here must not report the delete itself as failed.
+  try { await reconcileCryptoTransfers(); } catch { /* retried after the next import */ }
 }
 
 /**
@@ -1580,6 +2022,8 @@ export async function deleteAllProfileData(profileId: number): Promise<void> {
     { sql: "DELETE FROM holdings WHERE profile_id=?", params: [profileId] },
     { sql: "DELETE FROM investment_activity WHERE profile_id=?", params: [profileId] },
     { sql: "DELETE FROM investment_summaries WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM crypto_transfer_rejections WHERE account_id IN (SELECT id FROM accounts WHERE profile_id=?)", params: [profileId] },
+    { sql: "DELETE FROM transaction_splits WHERE account_id IN (SELECT id FROM accounts WHERE profile_id=?)", params: [profileId] },
     { sql: "DELETE FROM transactions WHERE profile_id=?", params: [profileId] },
     { sql: "DELETE FROM import_sessions WHERE profile_id=?", params: [profileId] },
     { sql: "DELETE FROM accounts WHERE profile_id=?", params: [profileId] },
@@ -1650,6 +2094,10 @@ export async function mergeDuplicateAccounts(profileId: number): Promise<number>
       );
       await db.execute("UPDATE transactions SET account_id=? WHERE account_id=?", [primary.id, dupe.id]);
       await db.execute("UPDATE holdings SET account_id=? WHERE account_id=?", [primary.id, dupe.id]);
+      // Corrections follow their rows to the merged account (#107).
+      await db.execute("UPDATE OR IGNORE crypto_transfer_rejections SET account_id=? WHERE account_id=?", [primary.id, dupe.id]);
+      await db.execute("DELETE FROM crypto_transfer_rejections WHERE account_id=?", [dupe.id]);
+      await db.execute("UPDATE transaction_splits SET account_id=? WHERE account_id=?", [primary.id, dupe.id]);
       // Same primary-wins rule for the investment tables' UNIQUE(account_id, import_hash) /
       // UNIQUE(account_id, period_end): OR IGNORE moves every row that fits, then the DELETE
       // drops the duplicate's leftover copies of rows the primary already has.
@@ -2112,7 +2560,11 @@ export async function reapplyCategorizationRules(
 
   // Fetch ALL transactions for this profile so user rules can override anything.
   const transactions = await db.select<{ id: number; description: string; amount_cents: number; category_id: number | null }[]>(
-    `SELECT id, description, amount_cents, category_id FROM transactions WHERE profile_id=? ORDER BY id`,
+    // Crypto purchases matched to a portfolio deposit stay Transfers (see reconcileCryptoTransfers).
+    `SELECT id, description, amount_cents, category_id FROM transactions
+     WHERE profile_id=? AND NOT (COALESCE(category_id, 0) = ${TRANSFER_CATEGORY_ID} AND id IN (SELECT transaction_id FROM crypto_transfer_links))
+       AND import_hash NOT LIKE 'split:%'
+     ORDER BY id`,
     [profileId]
   );
   debugLog(`[autoCat] ${transactions.length} transactions to evaluate (mode=${mode})`);
@@ -2169,6 +2621,8 @@ export async function reapplyCategorizationRules(
       );
     }
   }
+  // A rule may have made a row Crypto (or Transfers funding) - re-check portfolio matches (#107).
+  try { await reconcileCryptoTransfers(); } catch { /* retried after the next change */ }
 
   return matched;
 }

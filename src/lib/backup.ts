@@ -80,12 +80,17 @@ export async function exportBackup(): Promise<BackupResult> {
   }
 }
 
-/**
- * Lets the user pick a `.compassbackup` file, stages it for restore (validated on the Rust
- * side before anything touches the live database), then relaunches the app so the actual swap
- * - which happens at startup, before any DB connection is open - takes effect.
- */
-export async function restoreBackup(): Promise<BackupResult> {
+// Kept only in memory until confirmation/cancellation; never persist or log backup bytes.
+export interface BackupPreview {
+  filename: string;
+  sizeBytes: number;
+  hex: string;
+}
+
+type BackupPreviewResult = { ok: true; preview: BackupPreview } | { ok: false; error: string };
+
+/** Select and validate a snapshot without staging a restore or changing live data. */
+export async function previewBackup(): Promise<BackupPreviewResult> {
   try {
     const picker = (window as unknown as { showOpenFilePicker?: ShowOpenFilePicker }).showOpenFilePicker;
     let file: File;
@@ -99,17 +104,31 @@ export async function restoreBackup(): Promise<BackupResult> {
         const input = document.createElement("input");
         input.type = "file";
         input.accept = ".compassbackup";
-        input.onchange = () => (input.files?.[0] ? resolve(input.files[0]) : reject(new Error("no file selected")));
+        const cancel = () => reject(new DOMException("No file selected", "AbortError"));
+        input.onchange = () => (input.files?.[0] ? resolve(input.files[0]) : cancel());
+        input.oncancel = cancel;
         input.click();
       });
     }
     const buf = await file.arrayBuffer();
     const hex = bytesToHex(new Uint8Array(buf));
-    await invoke("stage_backup_restore", { hex });
-    await relaunch();
-    return { ok: true };
+    await invoke("validate_backup", { hex });
+    return { ok: true, preview: { filename: file.name, sizeBytes: file.size, hex } };
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") return { ok: false, error: "cancelled" };
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Stage the previewed snapshot (revalidated by Rust), then relaunch for the startup swap. */
+export async function restoreBackup(preview: BackupPreview): Promise<{ ok: true } | { ok: false; error: string; staged: boolean }> {
+  let staged = false;
+  try {
+    await invoke("stage_backup_restore", { hex: preview.hex });
+    staged = true;
+    await relaunch();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e), staged };
   }
 }
