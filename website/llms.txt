@@ -5,10 +5,7 @@
 > bank login, has no cloud account, and stores everything in a SQLCipher AES-256
 > encrypted database on the user's own machine.
 
-Compass is a desktop application built with Tauri, React and Rust. The user exports a
-CSV or spreadsheet from their own bank and imports it through a guided wizard.
-Categorisation, budgeting, forecasting, net worth and investment tracking all run
-locally. There is no server, no telemetry, and no subscription.
+Compass is a desktop application built with Tauri, React and Rust. The user downloads a CSV file or Excel (.xlsx) workbook of transactions from their own bank or card issuer and imports it through a guided wizard with column mapping, a preview, saved layouts and duplicate detection. Categorisation, budgeting, forecasting, net worth and investment tracking all run locally. There is no Compass account or cloud service holding the data, no telemetry, and no subscription.
 
 ## What it costs
 
@@ -24,17 +21,18 @@ nothing, and unlock no features: there is one build and one source tree.
 - macOS 10.15 or later, Intel and Apple Silicon, universal `.dmg`. Currently beta and not yet notarised.
 - No mobile app. No supported Linux build.
 
-## How it differs from other finance apps
+## How it compares
 
-- No bank credentials. Other apps connect to accounts through an aggregator; Compass reads files the user already has.
-- No cloud. There is no server that holds the data, so there is no account to breach and nothing to cancel.
-- No subscription. Monarch and Simplifi charge roughly $10 to $20 a month.
-- Simpler than self-hosted options like Firefly III, which need a server and a database.
-- Less budgeting-dogmatic than Actual Budget, which is built around envelope budgeting.
+- Compass has no live bank connections. It reads statement files the user downloads, so it never asks for a bank login.
+- Data is stored in a local SQLCipher-encrypted database. There is no cloud sync and no Compass account.
+- No subscription and no paid tier.
+- Other apps also import files. Actual Budget imports CSV, QIF, OFX, QFX and CAMT files and offers optional bank sync. Quicken Simplifi supports manual accounts and CSV import in its web app. The Firefly III Data Importer reads CSV and CAMT files for the self-hosted Firefly III.
+- Actual Budget is built around envelope budgeting. Its documentation says optional end-to-end encryption protects synced data and that data on the local device is still unencrypted.
+- Comparison with sources, checked 2026-10-25: https://privatecompass.app/#compare
 
 ## Main features
 
-- Guided CSV and spreadsheet import with column auto-detection, bank presets, batch import and duplicate detection
+- Guided CSV and Excel (.xlsx) import with column auto-detection, bank presets, saved layouts, batch import and duplicate detection, including separate Debit and Credit columns
 - Automatic categorisation from built-in rules plus user rules with a live match preview
 - Overview: net worth drawn as depth above and below a zero waterline, with a projected month it clears zero
 - Dashboard: monthly income, spending, bills still due, and pay-cycle pace
@@ -47,18 +45,18 @@ nothing, and unlock no features: there is one build and one source tree.
 ## Data and security
 
 - Storage: SQLCipher AES-256 encrypted SQLite database
-- Key storage: Windows Credential Manager or macOS Keychain, with a key file fallback in the app data directory
+- Key storage: Windows Credential Manager or macOS Keychain, with a key file (compass.key) fallback in the app data directory. The key file can decrypt the database, so protect both files and any backup.
 - Location: `%APPDATA%\com.compass.app\` on Windows, `~/Library/Application Support/com.compass.app/` on macOS
-- Network: the only outbound request is an optional update check against the GitHub Releases API
-- Export: full backup file, or CSV export per profile
+- Export: full backup file (.compassbackup, which contains the database and its key), or CSV export per profile
 
 ## Limits
 
-No live bank connections, no cloud sync, no shared access, single currency only, no OFX or QIF import, and no arbitrary PDF bank statements. Forecasts need at least two months of history. Compass is not financial advice.
+No live bank connections, no cloud sync, no shared access, single currency only, no OFX or QIF import, and no arbitrary PDF bank statements. Forecasts need at least two months of history. Compass is not financial advice. Excel import covers .xlsx statement workbooks, not general spreadsheet editing.
 
 ## Links
 
 - Website: https://privatecompass.app
+- Import guide: https://privatecompass.app/import-guide.html
 - Source code: https://github.com/tylahfam97/Compass
 - Releases and downloads: https://github.com/tylahfam97/Compass/releases
 - Release notes: https://github.com/tylahfam97/Compass/blob/main/RELEASE_NOTES.md

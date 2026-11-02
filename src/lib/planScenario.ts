@@ -2,6 +2,14 @@ import type { ForecastWindowMode } from "./forecast";
 
 export type SpendPer = "day" | "month";
 
+/** How the projection is drawn. The line chart stays the default. */
+export type PlanView = "line" | "map" | "calendar";
+export const PLAN_VIEWS: readonly PlanView[] = ["line", "map", "calendar"];
+
+/** Optional Plan sections the user can tuck away (the forecast itself always stays). */
+export type PlanPanel = "actions" | "payoff" | "upcoming";
+export const PLAN_PANELS: readonly PlanPanel[] = ["actions", "upcoming", "payoff"];
+
 export interface PlanScenario {
   version: 2;
   window: ForecastWindowMode;
@@ -17,16 +25,102 @@ export interface PlanScenario {
   skipPay: string;
   /** One-off money out ("out", a purchase) or in ("in") on a date. */
   purchase: { date: string; amountCents: number; kind: "out" | "in" };
+  /** Layout preferences (#123). Not part of the what-if, so Reset leaves them alone. */
+  view: PlanView;
+  hidden: PlanPanel[];
+  /** Dots on the line chart for each day with a scheduled bill or deposit. */
+  markers: boolean;
 }
 
-/** Slider limits per unit, shared by the controls and validation. */
+/** The ranges the sliders used before #123. They now apply only when no liquid cash is on
+ *  file (no checking balance recorded, or the balance is zero or overdrawn), so a slider is
+ *  never left with an empty or inverted range. */
 export const SPEND_LIMIT: Record<SpendPer, { max: number; step: number }> = {
   day: { max: 20_000, step: 500 },
   month: { max: 200_000, step: 5_000 },
 };
 export const INCOME_LIMIT = { max: 500_000, step: 5_000 };
+export const BUFFER_LIMIT = { max: 200_000, step: 5_000 };
 
-function cents(value: unknown, max = 100_000_000): number {
+/** Largest amount a saved scenario may hold ($1,000,000). A sanity bound against corrupt
+ *  storage only: the live ranges come from `scenarioLimits`, and a saved value above today's
+ *  range is clamped for display without being rewritten. */
+export const SCENARIO_MAX_CENTS = 100_000_000;
+
+export interface SliderLimit { min: number; max: number; step: number }
+
+export interface ScenarioLimits {
+  /** Liquid cash the ranges come from: the checking/savings balances the forecast starts
+   *  from. Null when no balance is on file. */
+  liquidCents: number | null;
+  /** True when there is no positive liquid cash, so the pre-#123 ranges apply. */
+  fallback: boolean;
+  /** Keep in reserve: 0 up to the liquid cash. */
+  buffer: SliderLimit;
+  /** Spending change: cuts down to typical spending, increases up to the flow scale. */
+  spend: Record<SpendPer, SliderLimit>;
+  /** Extra income per month: up to the flow scale. */
+  income: SliderLimit;
+  /** What the spending/income ranges are measured against: the larger of liquid cash and
+   *  scheduled monthly income. */
+  flowScaleCents: number;
+}
+
+const NICE_STEPS = [100, 200, 500, 1_000, 2_500, 5_000, 10_000, 25_000, 50_000, 100_000, 250_000, 500_000, 1_000_000];
+
+/** A round step giving at most ~100 positions across `range`, so a drag or arrow key moves a
+ *  sensible amount whether the range is $40 or $40,000. */
+export function niceStep(range: number): number {
+  const target = range / 100;
+  return NICE_STEPS.find((s) => s >= target) ?? NICE_STEPS[NICE_STEPS.length - 1];
+}
+
+function upTo(cents: number): SliderLimit {
+  const step = niceStep(cents);
+  // Floored to the step so the thumb can reach the top; never less than one step.
+  return { min: 0, max: Math.max(step, Math.floor(cents / step) * step), step };
+}
+
+/** Rounds a cut bound away from zero so the whole of typical spending can be cut. */
+function cutFloor(typicalCents: number, step: number): number {
+  return typicalCents > 0 ? -Math.ceil(typicalCents / step) * step : 0;
+}
+
+/**
+ * Slider ranges tied to the money actually on hand (#123): the cushion tops out at the liquid
+ * cash the forecast starts from (checking and savings only - never credit, investments or
+ * loans); spending and income changes are monthly flows, so they span the larger of that cash
+ * and the scheduled monthly income. With no positive liquid cash on file the pre-#123 ranges
+ * apply instead, so every control stays usable and the page says why.
+ */
+export function scenarioLimits(input: { liquidCents: number | null; monthlyIncomeCents?: number; typicalDailyCents?: number }): ScenarioLimits {
+  const liquid = input.liquidCents;
+  const typicalDaily = Math.max(0, Math.round(input.typicalDailyCents ?? 0));
+  const usable = liquid !== null && liquid >= 100;
+  // validateScenario resets saved values past SCENARIO_MAX_CENTS, so no range may reach past it
+  // (every step divides it, so rounding to a step can't overshoot either).
+  const cap = (c: number) => Math.min(c, SCENARIO_MAX_CENTS);
+  const flowScale = cap(Math.max(usable ? liquid : 0, Math.max(0, Math.round(input.monthlyIncomeCents ?? 0))));
+
+  const buffer = usable ? upTo(cap(liquid)) : { min: 0, ...BUFFER_LIMIT };
+  const flows = flowScale >= 100;
+  const month = flows ? upTo(flowScale) : { min: 0, ...SPEND_LIMIT.month };
+  const day = flows ? upTo(Math.max(100, Math.round(flowScale / 30))) : { min: 0, ...SPEND_LIMIT.day };
+  // Typical spending is per day; a month of it is the most a monthly cut can remove.
+  month.min = cutFloor(cap(typicalDaily * 31), month.step);
+  day.min = cutFloor(cap(typicalDaily), day.step);
+  const income = flows ? upTo(flowScale) : { min: 0, ...INCOME_LIMIT };
+
+  return { liquidCents: liquid, fallback: !usable, buffer, spend: { day, month }, income, flowScaleCents: flowScale };
+}
+
+/** Keeps a saved value inside today's range for display and projection, without rewriting
+ *  what was saved (a balance that dips for a day shouldn't erase the user's choice). */
+export function clampToLimit(value: number, limit: SliderLimit): number {
+  return Math.min(limit.max, Math.max(limit.min, value));
+}
+
+function cents(value: unknown, max = SCENARIO_MAX_CENTS): number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= max ? value : 0;
 }
 
@@ -36,12 +130,13 @@ function validDate(date: unknown): date is string {
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date;
 }
 
-type StoredScenario = Partial<Omit<PlanScenario, "version" | "spend" | "purchase">> & {
+type StoredScenario = Partial<Omit<PlanScenario, "version" | "spend" | "purchase" | "hidden">> & {
   version?: number;
   /** v1: extra spending stored as one total spread over the window. */
   extra?: number;
   spend?: Partial<PlanScenario["spend"]>;
   purchase?: Partial<PlanScenario["purchase"]>;
+  hidden?: unknown;
 };
 
 export function validateScenario(value: StoredScenario): PlanScenario {
@@ -50,17 +145,21 @@ export function validateScenario(value: StoredScenario): PlanScenario {
   const spendCents = value.spend?.cents;
   // v1 kept extra spending as one total for the window; its nearest v2 meaning is per month.
   const spend = value.spend
-    ? (typeof spendCents === "number" && Number.isSafeInteger(spendCents) && Math.abs(spendCents) <= SPEND_LIMIT[per].max ? spendCents : 0)
+    ? (typeof spendCents === "number" && Number.isSafeInteger(spendCents) && Math.abs(spendCents) <= SCENARIO_MAX_CENTS ? spendCents : 0)
     : Math.min(SPEND_LIMIT.month.max, cents(value.extra));
+  const storedHidden = Array.isArray(value.hidden) ? value.hidden : [];
   return {
     version: 2,
     window: ["month", "paycheck", "nextMonth"].includes(value.window ?? "") ? value.window! : "month",
-    buffer: Math.min(200_000, cents(value.buffer)),
+    buffer: cents(value.buffer),
     detected: value.detected !== false, typical: value.typical === true,
     spend: { cents: spend, per },
-    income: cents(value.income, INCOME_LIMIT.max),
+    income: cents(value.income),
     skipPay: validDate(value.skipPay) ? value.skipPay : "",
     purchase: { date: validDate(date) ? date : "", amountCents: cents(value.purchase?.amountCents), kind: value.purchase?.kind === "in" ? "in" : "out" },
+    view: value.view && PLAN_VIEWS.includes(value.view) ? value.view : "line",
+    hidden: PLAN_PANELS.filter((panel) => storedHidden.includes(panel)),
+    markers: value.markers !== false,
   };
 }
 

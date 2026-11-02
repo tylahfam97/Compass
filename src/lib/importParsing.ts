@@ -14,7 +14,7 @@ function isRealCalendarDate(y: number, m: number, d: number): boolean {
  *  use: MM/DD/YYYY and MM-DD-YYYY (2- or 4-digit years), ISO, compact YYYYMMDD, month names
  *  ("Jan 5, 2026", "05-Jan-2026"), and any of these with a trailing time ("09/05/2026 14:32").
  *  Unambiguous DD/MM/YYYY (day > 12) is recognized too. Unrecognized formats fall back to JS's
- *  native Date parser. */
+ *  native Date parser; anything that still doesn't parse (e.g. "Pending", "N/A") returns "". */
 export function parseDate(s: string): string {
   // Strip a trailing time-of-day ("14:32", "14:32:15", "2:32 PM") - several banks export
   // datetimes; the extra token otherwise pushes the whole cell to the native-Date fallback.
@@ -46,7 +46,7 @@ export function parseDate(s: string): string {
     return isRealCalendarDate(year, month, day) ? `${compact[1]}-${compact[2]}-${compact[3]}` : "";
   }
   const d = new Date(cleaned);
-  if (isNaN(d.getTime())) return s;
+  if (isNaN(d.getTime())) return "";
   // Local date parts, NOT toISOString() - native parsing lands on local midnight, which
   // toISOString would roll back a day for anyone east of UTC.
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -84,11 +84,44 @@ export function parseAmount(s: string): number {
   return isNaN(n) ? 0 : neg ? -Math.abs(n) : Math.abs(n);
 }
 
-/** Uses a nonzero parsed debit first (negative), otherwise credit (positive), or 0. */
+/** Uses a nonzero parsed debit first (negative), otherwise credit (positive), or 0.
+ *  From dev PR #92 (fedbf94): zero-filled "0.00" debits no longer hide the credit. */
 export function parseSplitAmount(debitRaw: string, creditRaw: string): number {
   const debit = parseAmount(debitRaw);
   if (debit !== 0) return -Math.abs(debit);
   return Math.abs(parseAmount(creditRaw));
+}
+
+/** Finds separate Debit and Credit amount columns by header ("Debit"/"Credit", "Debit Amount",
+ *  "Amount Credit", "Debits ($)"). Only plain monetary headers match - a combined "Debit/Credit"
+ *  header or an identifier like "Credit Card No." doesn't count. Returns null unless both exist,
+ *  so single-amount-column files keep their existing mapping. */
+export function detectSplitAmountColumns(headers: string[]): { debitCol: number; creditCol: number } | null {
+  const h = headers.map((s) => (s ?? "").toLowerCase().replace(/[^a-z]+/g, " ").trim());
+  const col = (side: string) => h.findIndex((s) => new RegExp(`^(amount )?${side}s?( amount)?$`).test(s));
+  const debitCol = col("debit");
+  const creditCol = col("credit");
+  return debitCol >= 0 && creditCol >= 0 ? { debitCol, creditCol } : null;
+}
+
+/** Rows whose `amountCol` cell reads as zero/blank while `otherCol` holds a nonzero amount -
+ *  concrete evidence that a populated second amount column (e.g. card payments in "Credit")
+ *  would be silently dropped as unreadable rows. */
+export function countAmountsOnlyIn(rows: string[][], amountCol: number, otherCol: number): number {
+  return rows.filter((r) => parseAmount(r[amountCol] ?? "") === 0 && parseAmount(r[otherCol] ?? "") !== 0).length;
+}
+
+/** For a single-amount-column mapping that reads one half of a detected Debit/Credit pair (no type
+ *  column, no split mapping), the unread partner column and how many rows only it would supply. */
+export function countOmittedSplitRows(
+  headers: string[], rows: string[][],
+  map: { amountCol: number; typeCol: number; debitCol: number; creditCol: number },
+): { partnerCol: number; count: number } {
+  const split = detectSplitAmountColumns(headers);
+  const partnerCol = !split || map.debitCol >= 0 || map.creditCol >= 0 || map.typeCol >= 0 ? -1
+    : map.amountCol === split.debitCol ? split.creditCol
+    : map.amountCol === split.creditCol ? split.debitCol : -1;
+  return { partnerCol, count: partnerCol >= 0 ? countAmountsOnlyIn(rows, map.amountCol, partnerCol) : 0 };
 }
 
 /** SHA-256 hex hash of a raw CSV row, used for import dedup. */

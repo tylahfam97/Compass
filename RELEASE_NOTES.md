@@ -2,164 +2,500 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
-## Compass 1.3.12 — crypto matching corrections (development build for `dev`, unreleased)
+## Compass 1.3.13 — Clear Horizon 🧭
 
-> **Technical draft for the `dev` branch.** 1.3.12 follows the 1.3.11 dev prerelease, which is
-> kept as published. It is a prerelease for testing, not a stable release; main is still 1.3.10.
-> The final version and notes are set again when `dev` is promoted to main.
+Plan stops guessing how much money you have to play with, and it can now show your forecast three
+ways. Imports gain a category review and stop counting crypto portfolio deposits as spending. And the
+whole app has a new finish: smoother page changes, a calmer, sharper glow on clickable cards and a
+quiet instrument-panel backdrop, without changing its colors or the sign-in screen. This release
+brings together the 1.3.11 and 1.3.12 development builds (#120, #121, #122) and the Plan work in #123.
 
-Corrections to the Crypto-to-portfolio matching added in 1.3.11 (#107), from the post-merge audit.
+### Plan: limits that follow your money (#123)
+- **The sliders now top out at the money you actually have.** "Keep in reserve" used to stop at a
+  fixed $2,000. It now runs from $0 up to your liquid cash: the latest balances of your bank
+  accounts (checking or savings statements imported as Bank), added together, which is the same cash
+  the forecast starts from. Credit cards, investments, crypto and loans are never counted.
+  The top of the range is printed under the slider.
+- **Spending and income changes scale too.** The everyday-spending and extra-income sliders run up to
+  the larger of your liquid cash and your scheduled monthly income, so a raise or a big month can still
+  be modeled when checking is low. A spending cut reaches down to your typical spending.
+- **Steps that fit the range.** Each slider moves in round steps sized to its range ($10 steps on
+  $1,000, $250 steps on $25,000), by mouse or arrow keys.
+- **Your saved choices are kept.** If a saved cushion is more than you have today, it is shown and used
+  at your current maximum, with a note, but the saved value is not overwritten; it comes back once the
+  balance does. Move the slider and the new value is saved.
+- **No balance on file, a zero balance or an overdraft** keep the previous ranges, labeled as such, so
+  every control stays usable.
 
-- **Later imports can now undo a match that has become ambiguous (audit F1).** Every automatic
-  match is re-checked against all current data each time matching runs. If a later import adds
-  another same-amount Crypto purchase, another same-amount crypto deposit, or a same-amount
-  Transfers outflow that could be the real funding, the match is reverted and the purchase goes
-  back to Crypto, just as if that data had been there first. A match whose deposit is gone or
-  whose amount or date was edited out of range is reverted the same way. Amounts, dates and IDs
-  are never changed.
-- **Changing categories now runs matching (audit F2).** Changing one row's category, bulk
-  re-categorizing, deleting rows, adding or editing a transaction by hand, re-running
-  categorization rules (including saving a rule with "apply") and deleting a custom category all
-  re-check matches. Previously only imports, undo and account deletion did.
-- **Your corrections stick.** Re-categorizing a matched purchase is remembered as a correction:
-  that purchase is never auto-matched again, including after undoing and re-importing the same
-  statement. It still counts as a same-amount competitor, so it cannot cause a different purchase
-  to be matched in its place. To treat it as a transfer, set it to Transfers yourself.
-- **Matched rows are marked (audit F3).** Transactions labels each row "Auto-matched crypto
-  deposit" (automatic exact-amount match) or "Confirmed crypto deposit" (your decision).
-- **Confirm a deposit yourself, including unequal amounts.** Opening a bank outflow shows nearby
-  unmatched crypto deposits (same profile, within 10 days). Choose one and confirm it as an
-  investment transfer; if the amounts differ you must first confirm the difference is fees or
-  price movement. The whole outflow then counts as a transfer, not spending; its amount, the
-  account balance and the deposit are unchanged. "Keep as spending" stops automatic matching for
-  that row, and "Undo" reverts any match. A confirmed match is reverted if either amount later
-  changes or the deposit is removed. Corrections are now remembered per account.
-- **Split a purchase yourself.** Instead of confirming the whole outflow, you can type how much
-  of it was invested; the rest stays spending in a category you choose. The original row keeps
-  its import identity and becomes the invested part (Transfers, linked to the deposit); a second
-  row with the same date and account holds the spending part. The two always add up to the
-  original amount to the cent. "Undo split" restores the original row exactly, and refuses
-  (changing nothing) if either part was edited since. Undoing the import removes both parts.
-- **Still not supported:** Coinbase exports (no Coinbase parser exists in Compass and none was
-  added; no current Coinbase export format with its fee/total semantics was verified), and
-  treating wallet sends as spending. Nothing is created, re-amounted or split automatically -
-  only by your explicit split - and no cost basis is inferred.
+### Plan: three ways to read the forecast (#123)
+- **Line** (still the default) is the Cash-flow horizon you know, and it now draws itself in from today.
+- **Map** shows this window's money as currents, the same map the Chart page uses: what you have now,
+  paychecks and any what-if income on the left, through checking, to bills by category, everyday
+  spending, your what-ifs (in gold) and what is left at the end, split into your reserve and the rest.
+  If the window runs short, the gap shows as a red Shortfall. Scrub or play the window to watch it fill.
+- **Calendar** lays the window out as weeks. Each day shows its end-of-day balance, shaded brighter as
+  it holds more, amber below your cushion and red below zero, with dots for money in, money out and a
+  one-off. Pick a day to see what lands on it.
+- **Customize** (the sliders icon next to the window picker) hides sections you don't use (Next steps,
+  Upcoming cash flow, Put your spare money to work) and turns the bill and payday markers on the line
+  chart on or off. The view and these choices are saved per profile; Reset still clears only your
+  what-ifs.
+- Safe to spend and Lowest point count smoothly to their new values as you drag, the window and unit
+  switches glide between settings, and the headline's top edge lights amber or red when the forecast is
+  at risk or short.
+  All of it respects the reduced-motion setting.
 
-## Compass 1.3.11 — Clear Horizon 🧭 (development build for `dev`, unreleased)
+### A smoother, sharper finish (#123)
+- **Card glow, rebuilt.** The gold glow on clickable cards used to be a blurred blob with visible rings
+  in its fade. It is now a soft light that follows your pointer, fading in an even curve with a faint
+  grain so no rings show, plus a clean lit edge. It only redraws the card under the pointer. Insight card icons got
+  the same smooth falloff.
+- **Page changes.** Pages fade and rise a little more gently, a thin gold line sweeps across the top as
+  a page arrives, and the gold marker in the sidebar glides to the page you picked instead of jumping.
+- **Backdrop.** Behind the workspace there is now a faint aurora and a bearing dial. The dial turns to a
+  new heading when you change page and then rests, so an idle window does no animation work. It sits
+  behind the opaque sign-in screen, which is unchanged.
+- **Instrument controls.** Sliders across Plan and the Chart page show a gold fill from zero to the value
+  and a ringed thumb that lights while held; signed sliders mark where zero is. Loading placeholders
+  get a slow scanning light. Text selection and the text cursor use the app's colors, and so do scrollbars on
+  Windows.
+- The color palette, the Chart page's map, the graticule, the sign-in particles and the gold borders
+  that mark clickable boxes are all kept.
 
-> **Draft for the `dev` branch.** 1.3.11 is the development version one step after the released
-> 1.3.10 on main; it replaces the earlier placeholder 1.3.9 used for this dev work. It is a
-> prerelease for testing, not a stable release. The final version and these notes are set again
-> when `dev` is promoted to main, against whatever main is at that point.
+### Review categories before you import (#103, #120)
+- The import Preview has a new **Review categories before importing** panel, closed by default, so
+  importing without it works exactly as before.
+- Rows are grouped by merchant, each with its count, total and the category your saved rules would
+  give it. Pick a category for a whole group, or open it to change single rows.
+- Nothing is saved until you click Import; Cancel, a new file or a mapping change throws the choices
+  away. Amounts, signs and duplicate detection are unchanged. Files imported automatically after it in
+  a batch use your saved rules, as before.
 
-This build carries the Cash-flow horizon rework below (#110, #112), plus import changes: an
-optional category review before an import is saved (#103), Crypto purchases that are really
-deposits into a crypto portfolio you track are no longer counted as spending (#107), and the
-Ledger Live crypto import from main 1.3.7 (#109), so that matching has a portfolio to match against.
+### Crypto purchases matched to your crypto portfolio (#107, partial; #120, #121)
+- A bank or card purchase categorized **Crypto** moves to **Transfers** when it matches a deposit into a
+  crypto portfolio you track: exactly the same amount to the cent, within five days either side, and
+  nothing else that could also match. It works in either import order. Amounts and dates are never
+  changed, and nothing is created or deleted automatically.
+- Matches are re-checked whenever the data changes: later imports, category changes, deleted or edited
+  rows and re-run rules. A match that has become ambiguous is undone. Re-categorizing a matched
+  purchase yourself is remembered per account, and that purchase is never auto-matched again.
+- Matched rows are labelled "Auto-matched crypto deposit" or "Confirmed crypto deposit".
+- You can confirm a deposit yourself, including unequal amounts once you confirm the difference is fees
+  or price movement, or split a purchase into the invested part and the part that stays spending. The
+  two parts always add up to the original amount, and "Undo split" restores the row exactly.
+- **Partial:** #107 stays open. There is no Coinbase import, wallet sends are not matched,
+  and no cost basis is inferred. Ledger Live's dollar figure is the coins' value when they arrived, so
+  most real purchases differ by fees or spreads and stay Crypto spending.
 
-### Review categories before you import (#103)
-- The import Preview has a new **Review categories before importing** panel. It is closed by
-  default, so importing without it works exactly as before.
-- Rows are grouped by merchant, each group showing its row count, total and the category your
-  saved rules would give it. Pick a category for the whole group, or open the group to give
-  single rows a different one, such as a pharmacy purchase at a grocery store.
-- Nothing is saved until you click Import. Cancel, picking a new file or changing the column
-  mapping throws the choices away. Every row is still imported with its original amount and sign, and duplicate detection
-  works the same way. You can still change categories afterwards under Transactions.
-- The review applies to the file you are looking at. Files imported automatically after it in a
-  batch use your saved rules, as before.
+### Ledger Live crypto (#109)
+- The Ledger Live import that shipped in 1.3.7 has one correction: a send that is still pending no
+  longer has its network fee subtracted.
 
-### Crypto purchases matched to your crypto portfolio (#107)
-- A bank or card purchase categorized **Crypto** now moves to **Transfers** when it matches a
-  deposit into a crypto portfolio you track (an investment account that holds crypto): exactly
-  the same amount to the cent, within five days either side, and with nothing else that could
-  also match. The money is then counted once, as an investment, instead of also as spending.
-- It works in either order: import the bank statement first or the portfolio first.
-- Amounts and dates are never changed, and no transaction is created or deleted. If two
-  purchases or two deposits could match, if a same-amount transfer could be the deposit's real
-  funding, or if the amounts differ by even a cent (exchange fees, spreads), nothing is matched
-  and the purchase stays Crypto spending.
-- Undoing the portfolio import, or deleting that account, puts the purchase back to Crypto. If
-  you re-categorize a matched purchase yourself, Compass leaves your choice alone. Re-running
-  categorization rules does not undo a match that is still in place.
-- The deposit side is a Ledger Live receive (see below). Its dollar amount is Ledger's
-  "Countervalue at Operation Date": what the coins were worth when they arrived, not what you
-  paid. Exchange fees, spreads, network fees and price moves usually make the two differ, so most
-  real purchases will not match exactly and stay Crypto spending. An exact match is a strong hint,
-  not proof, that the purchase paid for that receive; re-categorize it if it didn't.
-- Sends out of the wallet are never matched or counted as spending, and a purchase is never split
-  between spending and investment.
-- **Limits on this build:** there is no Coinbase import. Deposits into a brokerage account such as
-  E*TRADE are never treated as crypto.
+### Cash-flow horizon (#110, #112, #120)
+- Have now, Expected and Your scenario sit above the chart, with this month so far beneath them; a stale
+  or missing balance is called out, and a Month end marker shows where the month closes.
+- The lines are named, hovering a day shows both balances, and the Balance breakdown keeps scheduled
+  money and what-if money in separate sums.
+- What-ifs: everyday spending per day or per month (a cut never goes below zero spending), extra income,
+  skipping the next paycheck, and a one-off money out or in. Nothing here writes a transaction. The
+  forecast covers checking accounts only and is not a guarantee.
 
-### Ledger Live crypto in Investments (#109, from main 1.3.7)
-- Import a Ledger Live operations CSV with the Investment / Brokerage option. Each coin becomes a
-  Crypto holding, and every receive and send is recorded as a transfer, not as income, spending, a
-  buy or a sell. Balances follow Ledger's own rule: a send already includes its network fee, so
-  fees are not subtracted twice. Amounts are summed exactly, so very small balances are kept. Cost
-  basis is shown as unknown, since the export doesn't include what you paid. The holding is valued
-  at the price in the export, not a live price, and dated the day you import it. Failed,
-  unconfirmed or unsupported operations are left out and listed. The network fee a failed send
-  still cost is subtracted from the balance; a send that is only pending is left out with no fee
-  taken. Importing the same export again doesn't duplicate anything.
-- This is the import that main shipped in 1.3.7, brought to `dev` without the rest of main, with
-  one change: a pending send no longer has its network fee subtracted;
-  main's other 1.3.7 to 1.3.10 changes are not in this build.
+### Under the hood
+- **Ready for main.** This release brings main's 1.3.2 to 1.3.10 work and the development builds
+  together, so the development branch merges into main without conflicts. One end-to-end test was
+  present twice after that merge, which stopped the whole browser suite from loading; the duplicate is
+  removed.
+- **Release tags point at the right commit (#120).** The Windows release publisher tags the exact commit
+  it built (`GITHUB_SHA` as `target_commitish`) and stops before deleting or creating anything if that
+  commit is missing or doesn't match the checkout. The earlier `v1.3.9-dev` tag still points at main.
+- **Builds restored on dev (#122).** Fixed the two type errors that stopped the 1.3.11 dev build (a local
+  name shadowing `crypto`, and `Array.at` under the ES2020 library).
 
-### Cash-flow horizon (#110, #112)
+## Compass 1.3.10 — Clear Readings 🧭
 
-The Cash-flow horizon on Plan had the right idea but asked you to decode it. You had to work
-out which line was which, the chart had no hover read-out, and the only thing you could change
-was one lump of extra spending. It now answers three questions in order: what you have, what
-you will have, and what you could have if things change. (#110)
+Trends is easier to read, the download statistics count only verified complete website
+transfers, and two date-dependent UI tests no longer fail on certain days of the month.
 
-### Have, will have, could have
-- Three figures sit above the chart. **Have now** is your checking balance and the date it was
-  last recorded. **Expected** is that balance plus the income and bills you scheduled, plus
-  typical spending if you turned it on. **Your scenario** is Expected with your what-if changes
-  applied, and shows how far it is from Expected.
-- A line under them shows this month so far: money in and money spent from checking since the
-  1st. That money is already in Have now, so it is never projected a second time. Transfers and
-  card payments are not counted as spending, the same rule every report uses.
-- A balance that has not been updated for more than a week, or an account with no balance on
-  file, is called out next to Have now instead of being passed off as current.
-- When the window runs past this month, a Month end marker and line show where Expected and
-  your scenario stand on the last day of the month.
+### Trends
+- **Theme colors.** Trends charts use the app's shared chart colors: income in sea blue,
+  expenses in gold, and category and card colors adjusted to the light or dark theme, instead of
+  bright stored colors and red/green bars. (#106)
+- **Income and expenses for the range.** The monthly chart's legend shows the total income and
+  expenses for the selected 3, 6 or 12 months next to each label. (#106)
+- **Spending ranked by category.** The stacked monthly category chart is replaced by a ranked list
+  of the range's top categories, each with its amount and share of spending, and the remainder
+  grouped as Other. Selecting a category still shows its month-by-month amounts and a link to its
+  transactions. Totals use the same spending rules as before. (#106)
 
-### A chart you can read
-- The lines are named Expected and Your scenario. The scenario line appears only when it
-  actually differs from Expected.
-- Hovering a day shows both balances. The day inspector names each what-if item and marks it
-  as hypothetical.
-- Balance breakdown adds up Expected on its own line. Your what-if changes follow on a
-  separate line, so scheduled money and hypothetical money never share one sum.
+### Download statistics
+- **Website columns show verified complete transfers only.** On the download statistics page,
+  the BY VERSION Site .exe, .msi and .dmg columns and their total now show the verified complete
+  bucket (a GET answered 200 whose logged bytes equal that version's installer size). Requests
+  classified as automation, such as release-verification checks, are excluded from these
+  columns. Versions without full verification coverage show "unknown" or note that earlier
+  requests are unknown. (#118)
+- **Raw request counts kept as diagnostics.** The raw website request totals (all time, last 30
+  days, last 7 days) move to a section labelled diagnostic and including automation, and the
+  per-day table header now reads "Installer requests (raw)". The per-version verified table,
+  including its Automation column, is unchanged. (#118)
+- **GitHub and updater figures unchanged.** GitHub installer counts are GitHub's own
+  download_count and cannot be filtered to exclude automation; they and the in-app update
+  package counts are reported exactly as before. (#118)
 
-### Change the conditions
-- **Everyday spending**, per day or per month. A monthly figure is spread over each calendar
-  month's own days, to the exact cent. Once typical spending is included you can also cut it,
-  down to zero spending for the day and no further, so a cut can never create money.
-- **Extra income** per month, for a raise or side income. It is only counted when you add it.
-- **Skip my next paycheck**, for a paycheck that is late or doesn't arrive. The skip stays tied
-  to that one paycheck and never moves on to the next one.
-- **One-off** money out (a purchase) or money in (a refund or gift) on a date.
-- **Reset** clears every what-if change and the reserve. Scenarios saved by earlier versions
-  carry over: the old extra-spending amount becomes a per-month change.
+### Tests
+- **Plan tests use a fixed date.** The Plan UI tests pin the browser and fixture to a mid-month
+  date, so they no longer fail when the 1st of the month falls before payday. (#116)
+- **Reports fixture stays in the current month.** The UI test fixture keeps its recent rows on or
+  after the 1st, so the Reports month totals hold on the first days of a month. (#117)
 
-Nothing here writes a transaction, and nothing is sent anywhere. The forecast still covers
-checking accounts only, and it assumes your scheduled income arrives. It is not a guarantee.
+## Compass 1.3.9 — Open Water 🧭
 
-### Release tag provenance (technical, PR120)
-- The Windows release publisher (`scripts/publish-release.ps1`) now creates the tag at the exact
-  commit the workflow checked out (`GITHUB_SHA`, sent as `target_commitish`). Before, it sent no
-  target, so GitHub tagged the default branch (main): the earlier `v1.3.9-dev` tag points at main,
-  not at the dev build it ships.
-- The publisher stops before deleting or creating anything if `GITHUB_SHA` is missing, not a full
-  40-character SHA, or different from the checkout's `HEAD`, or if it is not run from that
-  checkout's root. It stops before creating the release unless GitHub answers HTTP 404 for the old
-  tag after deletion; a network, auth or other error also stops it. Manual runs must set
-  `GITHUB_SHA` to the built commit.
-- This binds the tag to the checked-out source commit. It does not prove the uploaded installers
-  were built from that commit; in CI they are built in the same job after checkout.
+Wide windows no longer leave a field of empty space beside the content. Several sections had a
+fixed width cap while the page around them spans the whole workspace, so on a large screen they
+stopped short of the right edge while the sections above and below them did not.
+
+### Layout
+- **Overview uses the whole width.** The Accounts table fills its column instead of stopping at
+  880px under the full-width net worth chart. It still scrolls sideways inside its own box on a
+  narrow window, and the Profiles rail beside it on very wide windows is unchanged. (#108, #115)
+- **The same fix on Dashboard and Insights.** The month bar and the pay-cycle Watch on Dashboard,
+  and the Fixed and flexible and Cost of money sections on Insights, now span the page like the
+  sections above and below them instead of stopping at 1040px. (#108, #115)
+
+### Download statistics
+- **Set to refresh after each release.** The download statistics are now configured to
+  regenerate after every successful release-hosting run, so a new version can appear without
+  waiting for the nightly run, which remains as the fallback. (#113)
+- **Website transfers are verified.** A website download counts as complete only when the origin
+  logged a full GET response (status 200) with a positive byte count equal to that version's
+  installer size. Partial (206) responses never count as complete, known automated probes are
+  reported separately, and aborted or unverifiable requests have their own buckets. These are
+  request counts, not people, saved files or installs. (#114)
+
+## Compass 1.3.8 — True Bearing 🧭
+
+Investments now opens with what your portfolio is worth and which account each figure comes
+from. The Insights scores were checked line by line: several calculation bugs are fixed, and
+parts of a score that have nothing to measure yet now say so. One new insight compares spare
+cash with the card interest it could stop.
+
+### Investments
+- **Portfolio value comes first.** A summary bar under the page title shows portfolio value,
+  unrealized gain or loss, estimated annual income and the date values are priced as of. When
+  accounts were last priced on different dates it says "Mixed" and shows the range, instead of
+  implying one common date. (#111)
+- **One account or all of them.** An Account menu scopes the summary, holdings, activity, income
+  and gains, the value chart and the statements to a single account. Clicking an account's name in
+  the Accounts table does the same. (#111)
+- **Every statement names its account.** Each account's latest statement now has its own card with
+  the account name and that account's own period. Before, only the most recent statement across
+  all accounts was shown, under a generic "Latest Statement Period" title. Realized gain (YTD) now
+  adds up every account's own figure from this year's statements instead of showing one
+  account's. (#111)
+- **No invented gains.** Unrealized gain is measured only on holdings with a known cost basis.
+  Holdings without one, such as a Ledger crypto export or a balance-only 401(k) line, used to count
+  their whole value as gain. The summary shows what share of the portfolio has a known cost basis.
+  (#111)
+
+### Insights scores
+- **Being overdrawn no longer outscores a thin cushion.** A zero or negative checking balance got
+  the neutral 10 of 20 runway points, more than a small positive balance earned. It now scores the
+  lowest band. (#111)
+- **A card in credit isn't debt.** Credit Card Health added every card's balance together and took
+  the absolute value, so a refund or overpayment on one card counted as debt, or hid what another
+  card owed. Each card's amount owed is now counted on its own, and a card with no balance on file
+  is treated as no data rather than a perfect score. (#111)
+- **Deposits aren't investment returns.** For holdings without a cost basis, Investment Health
+  compared today's value with the first snapshot, so money you added counted as growth: a fund that
+  doubled from deposits looked up 100%. It now measures price change only, using the number of
+  shares or coins, and leaves out holdings that don't report units. Where a cost basis is known,
+  it is compared only with the value of the lots it belongs to. (#111)
+- **"No data yet" instead of a made-up result.** A part of the health score with nothing to measure
+  (no budgets, no checking balance, no income history) still counts at its neutral midpoint, but now
+  says "No data yet" rather than showing that midpoint as a result, and a score with nothing
+  measured at all shows no grade. A savings window with no transactions at all counted as 0 of 40;
+  it now gets the same neutral midpoint as the other parts. The score explainer also states that
+  investments and debt are scored on their own cards. Realized gains year to date count only this
+  year's statements. (#111)
+
+### New insight
+- **Spare cash vs. card interest.** When checking holds more than a month of your average spending
+  and a card charged interest last month, Insights estimates how much interest a year you would
+  stop by paying part of that card from the spare cash, costliest card first. The estimate uses the
+  interest your statements actually show, not an assumed rate. (#111)
+
+## Compass 1.3.7 — Paper Trail 🧭
+
+Two import fixes. PDF card and bank statements now import their real rows, or say clearly why they
+can't. Ledger Live crypto exports can now be imported into Investments.
+
+### Fixed
+- **PDF statements no longer lose rows to small layout differences.** Many statements print the
+  amount a point or so above or below the description. Compass read that as two lines with half a
+  row each and dropped both. Lines are now grouped with a tolerance based on the font size, and
+  sideways margin text is ignored. (#109)
+- **Dates printed without a year get the right year.** Statements that print `12/28` used to import
+  as 2001. The year now comes from the statement period, so a December charge on a
+  December–January statement keeps the earlier year. The posting date column is no longer added
+  to the description. (#109)
+- **Signs and columns are read the way the statement prints them.** A separate `-` or `+` before an
+  amount, `CR` amounts, and Debit/Credit/Balance or Withdrawals/Deposits columns (in any order) are
+  now read correctly, including a month where only one of the two columns has entries. Merchant
+  names that wrap onto a second line are joined. On a card statement,
+  charges import as spending and payments as payments, based on the statement's own previous and
+  new balance. (#109)
+- **Missing rows are reported.** If the rows Compass finds don't add up to the change between the
+  statement's previous and new balance, or a dated line has no readable amount, the preview lists
+  it before you import. A statement that prints no balances to check against gets a review
+  warning too. Dated balance lines (beginning/ending or daily balances) are not read as
+  transactions. Auto-Import All stops at that file and opens it in the wizard instead of
+  importing part of it. It does the same for a file whose columns differ from the first file's.
+  (#109)
+- **Statements imported by an earlier version aren't duplicated.** Rows this version reads differ
+  in shape from the ones 1.3.6 and earlier stored, so re-importing such a statement, by hand or with
+  Auto-Import All, would have added every row again. Compass now recognizes rows an earlier version
+  already imported from the same statement and skips them. A charge that really does repeat on the
+  statement is still kept. (#109)
+- **Clearer messages when there is nothing to import.** A statement with no transactions in the
+  period now says so. Card statements are no longer called loan statements because they mention a
+  "minimum payment due". Scanned PDFs without text get their own message. (#109)
+
+### Added
+- **Ledger Live crypto in Investments.** Import a Ledger Live operations CSV with the
+  Investment / Brokerage option. Each coin becomes a Crypto holding, and every receive and send is
+  recorded as a transfer, not as income, spending, a buy or a sell. Balances follow Ledger's own
+  rule: a send already includes its network fee, so fees are not subtracted twice. Amounts are summed
+  exactly, so very small balances are kept. Cost basis is shown as unknown, since the export
+  doesn't include what you paid. The holding is valued at the price in the export, not a live price,
+  and dated the day you import it. Failed or unsupported operations are left out and listed. The
+  network fee a failed send still cost is subtracted from the balance. Importing the same export again doesn't
+  duplicate anything. (#109)
+
+### Tests
+- New tests check positioned-text statement layouts: offset amounts, two date columns, wrapped
+  names, a December–January statement, reordered bank columns over two pages, `CR` amounts, an
+  unreadable amount, a missing row, a statement with no activity, one-sided Debit/Credit months and
+  daily balance tables. Further tests cover Ledger
+  balance precision, fees and skipped operations.
+- New browser tests build small invented PDFs and CSVs in the test and run them through the real
+  import wizard and database layer. They check the exact saved rows, signs and years, that
+  importing the same statement again adds nothing, the no-activity message, and Ledger holdings
+  and transfers with no new transactions. Re-importing a statement that 1.3.6 already imported adds
+  only rows that weren't imported before, both by hand and with Auto-Import All, and keeps genuine
+  repeated charges.
+
+## Compass 1.3.6 — Honest Counts 🧭
+
+A maintenance release for the private download-statistics page. The app itself is unchanged.
+
+### Fixed
+- **Website downloads are counted again.** The nightly stats job read the server's general
+  `access.log`, while Compass's site logs to its own `compass.access.log`, so no website download
+  was recorded after the logs were split. It now reads `compass.access.log*`, including rotated
+  `.gz` files, and only that site's log. (#105)
+- **Recorded history never shrinks.** A day seen again replaces the stored day only if its count is
+  not smaller, so a day partly rotated out of the logs, or an empty read, cannot lower it.
+  Re-running on the same logs gives the same result. A corrupt state file stops the job instead of
+  being overwritten, and the state is saved atomically with a copy kept before each run. (#105)
+- **GitHub figures are never silently wrong.** All pages of releases are read, not just the first
+  100. If the GitHub API fails, the page keeps the last good figures and says they are stale,
+  instead of showing zero. (#105)
+- **Stable-link downloads go to the right version.** Requests for `Compass.exe/.msi/.dmg` are matched
+  to the hosted version by the hosted file's timestamp instead of only its date, so a day with two
+  releases is split. The 7- and 30-day windows now cover exactly 7 and 30 days. (#105)
+
+### Changed
+- In-app update packages (`.nsis.zip`) are shown in their own column and never added to installer
+  totals. Signatures and `latest.json` are not counted anywhere.
+- The page states what each number is: GitHub counts include automated fetches (the hosting job
+  fetches each installer once per release) and are shown unadjusted; website counts are requests
+  that reached the server (200/206), not people or completed installs. Origin 304 revalidations are
+  listed separately and not counted.
+- Downloads that Cloudflare serves from its cache never reach the server log. The edge-proxy change
+  that marks `/downloads/` as `no-store` (separate ReverseProxy PR) tells Cloudflare not to cache
+  installers, so requests reach the server unless a Cloudflare cache rule overrides it or a copy
+  cached before the change is still held; browser revalidations show up as 304s and are not counted.
+  Until it is deployed, the website figures are a lower bound.
+
+### Tests
+- New `scripts/test_download_stats.py` (Python standard library only) checks rotation, range
+  dedupe, 304/HEAD exclusion, reprocessing, partial days, API failure and pagination against
+  synthetic logs and a fake API. (#105)
+
+## Compass 1.3.5 — Plain Answers 🧭
+
+A data-protection fix plus website and documentation updates. Compass no longer creates an
+unencrypted database, or uses an encryption key it has not saved, when the OS credential store
+fails on first launch, and it no longer lets a stale keyring entry overwrite the key that opens
+your database.
+
+### Fixed
+- **No unencrypted database when the keyring fails.** On a fresh install where Windows Credential
+  Manager / macOS Keychain could not be opened or read, and no `compass.key` existed yet, 1.3.4
+  opened `compass.db` without a key - an unencrypted database - and the next launch then refused to
+  open it. Compass now creates or converts a database only after `compass.key` has been saved
+  (flushed to disk, read back; created 0600 on macOS/Linux, inheriting the per-user app data folder
+  permissions on Windows). If it cannot be saved, Compass stops with an error naming the folder to
+  fix and creates nothing. (#104)
+- **A new key is never used unless it was saved.** 1.3.4 ignored key-file write failures, so a key
+  that reached only the keyring, or nowhere, could encrypt a database that Export Backup or a later
+  launch could not use. (#104)
+- **The key that opens your database wins, and no key is thrown away.** 1.3.4 copied the keyring's
+  key over `compass.key` on every launch, and overwrote an unreadable or invalid key file with a new
+  key. Compass now tries each saved key against the database and keeps the one that opens it. Any
+  different key in the credential store or `compass.key` is first saved as a new
+  `compass.key.unmatched-<n>` (never overwriting an earlier one); if that copy cannot be made, the
+  old key is left in place. Leftover key temp files are never overwritten or deleted. (#104)
+- **Unencrypted databases from earlier versions are converted safely.** A plaintext `compass.db`
+  (including one created by the bug above) is now encrypted on launch instead of blocking startup.
+  The encrypted copy is checked with the key before the original is moved. If conversion fails,
+  Compass attempts to restore the original; if that rollback also fails, startup stops and the
+  error identifies the preserved original for manual recovery.
+  A leftover `compass.db.bak` or `compass.enc.db` is no longer deleted or
+  reused: it stops the conversion with a message saying what to move. (#104)
+- **Never an empty start next to your data.** If `compass.db` is missing while an interrupted upgrade
+  or restore left `compass.db.bak`, `compass.enc.db`, `compass.db.pending` or
+  `compass.db.beforerestore*` behind, Compass stops instead of creating an empty database.
+  (#104)
+- **Backup and restore.** Export Backup now confirms the key file opens the database snapshot. A
+  restore that cannot stage its key reports an error instead of claiming success. Applying a restore
+  no longer overwrites an earlier `.beforerestore` copy (it uses `.beforerestore-<n>`), and if a
+  failed restore cannot be fully undone, Compass stops at startup naming the files instead of
+  opening an empty database. (#104)
+
+### Unchanged
+- An existing encrypted database is still never re-keyed, replaced, renamed or opened as empty: with
+  a missing or wrong key Compass stops and leaves every file as it was.
+- No new encryption scheme, key format or file format. Copies of `compass.db` made outside Compass
+  before upgrading are not changed by this release.
+
+### Tests
+- New Rust tests run real SQLCipher databases in temp folders with a stand-in credential store,
+  including a backup -> restore round trip. A new test-only `Rust Tests` pull-request workflow runs
+  them on the exact PR commit, then runs the same tests against the 1.3.4 code and requires exactly
+  the expected ones to fail. (#104)
+
+### Website and docs
+- **New import guide.** `privatecompass.app/import-guide.html` walks through importing a bank or
+  card statement from CSV or Excel (.xlsx): choosing the statement type, checking the column
+  mapping, the three amount layouts and sign labels, the preview and import summary, saved
+  layouts versus category rules, and keeping backups private. It reuses the existing import
+  poster plus a labelled field-mapping illustration with no real data, and is linked from the
+  homepage, README and llms.txt and listed in the sitemap. (#104)
+- **Security answers say where things live.** The homepage security section now states that the
+  `compass.key` fallback can decrypt the database, that a `.compassbackup` contains the database
+  and its key, where the app data folder is, and that the app checks GitHub for updates, replacing
+  the earlier "only you can open it" and "only outbound request" wording. The visible questions
+  and the FAQPage structured data use the same text. (#104)
+- **Comparison table rebuilt from vendor documentation.** `#compare` now covers Actual Budget,
+  Quicken Simplifi and Firefly III with dated source links, and drops the unsupported price,
+  Monarch and HomeBank cells. (#104)
+- **Homepage, README and llms.txt name Excel (.xlsx) import** alongside CSV, and the trust row
+  reads "Signed Windows installer" and "No paid tier" instead of "Signed installer" and "Free
+  forever". The import showcase caption no longer gives a step count. (#104)
+
+### Notes
+- No dependency or data-format changes.
+- The macOS first-launch instructions on the download card are unchanged in this release.
+
+## Compass 1.3.4 — Both Columns 🧭
+
+A maintenance release. Card and bank statements that split money out and money in
+across separate Debit and Credit columns now import both sides - whether the unused side is
+left blank or filled with "0.00" - so card payments and refunds stop disappearing from the import.
+
+### Fixed
+- **Import: separate Debit and Credit columns are both read.** When no saved column profile or
+  bank preset applied, the import wizard mapped a single amount column - the first header
+  containing "amount", "debit" or "credit". Rows with a value only in the other column - on a
+  card statement, usually payments and refunds - parsed as $0 and were left out as unreadable
+  rows, and Debit values were read as positive. The wizard now detects distinct Debit and
+  Credit headers and maps both, so debits import as charges (negative) and credits as payments
+  or refunds (positive). (#102)
+- **Import: warning before a populated partner column is dropped.** A column profile saved by
+  an earlier import (or a manual "One amount column" choice) can still map only one of the two
+  columns. When the file has rows with an amount only in the unmapped Debit/Credit column, the
+  Amount and Preview steps now say how many rows would be left out and offer a one-click switch
+  to read both columns. The import itself is not blocked. (#102)
+- **Import: zero-filled Debit/Credit rows keep their amount.** A "0.00" in the unused column no
+  longer hides the value in the other one, so a payment listed as Debit "0.00" / Credit "150.00"
+  imports as +$150.00 instead of being left out. This includes the existing dev-branch fix from
+  #92 (credits beside zero debits), which the both-columns default above depends on.
+- **Import: Auto-Import All stops before dropping a later file's payments.** When the mapping
+  approved for the first file reads only one of a later file's Debit/Credit columns and that file
+  has amounts only in the other one, automatic mode pauses and opens that file in the normal
+  wizard with the warning, before anything from it is imported. Files already imported stay
+  imported, and the rest of the batch continues from "Next File". (#102)
+
+### Notes
+- Detection is header-based: it needs plain amount headers such as "Debit"/"Credit",
+  "Debit Amount"/"Credit Amount" or "Debits ($)"/"Credits ($)". Headers like "Credit Card No." or
+  "Credit Limit" are not read as amounts. Paired columns named any other way (for example
+  "Purchases" and "Payments") are not detected and still need the "Two columns: Debit and Credit"
+  choice.
+- Purchase-only statements are unchanged: a single Amount column keeps its existing mapping, and
+  an empty Credit column raises no warning. Compass does not invent payments that aren't in the
+  file.
+- Transactions imported by earlier versions are not retroactively repaired. Re-importing the
+  same file adds the rows that were previously left out, but rows already imported are still
+  recognized as duplicates and keep their original amounts and signs. If payments were entered
+  by hand as a workaround, re-importing can create a second copy that may need to be removed.
+- No schema migrations, no new dependencies.
+
+## Compass 1.3.3 — Rafting Up 🧭
+
+A one-fix maintenance release. Merging duplicate accounts now brings everything attached to
+the duplicate along with it, not just its transactions and holdings.
+
+### Fixed
+- **Accounts: merging duplicates keeps investment data, goals and scheduled rules.** Merging
+  duplicate accounts (same type and name) kept the oldest account and moved only transactions
+  and holdings onto it before deleting the rest. Investment activity, investment statement
+  summaries, goal links and recurring/scheduled-rule links on a duplicate were left pointing
+  at an account that no longer existed. The merge now moves all of them onto the surviving
+  account before the duplicate is deleted. (#101)
+
+### Notes
+- The oldest account in each duplicate group survives the merge, as before.
+- When both accounts hold the same record, the surviving account's copy wins. Investment
+  activity with the same import fingerprint, and statement summaries for the same period end,
+  are kept from the surviving account and the duplicate's copy is discarded, even if the
+  duplicate's summary is newer or corrected. This matches how duplicate transactions were
+  already handled.
+- The merge is still a series of individual database steps, not one atomic operation.
+- Investment rows, goal links and scheduled-rule links already detached by merges in earlier
+  versions are not retroactively repaired.
+- No schema migrations, no new dependencies.
+
+## Compass 1.3.2 — Dead Reckoning 🧭
+
+A maintenance release. Five fixes, no new instruments: imports that refuse bad dates instead
+of swallowing them, profile deletion that actually deletes everything, investment returns that
+only count what you still hold, and a website that says what the app says.
+
+### Fixed
+- **Import: unparseable dates are rejected, not imported.** Statement cells like "Pending",
+  "N/A" or "Total" used to slip through as raw text in the date column. The parser now returns
+  nothing for anything it cannot turn into a real date, and the import skips those rows. (#99)
+- **Import: the first-five-rows preview no longer crashes on a bad date.** A blank, "Pending"
+  or impossible date (02/30/2026) in the preview threw a formatting error before you could see
+  the table. It now shows "Couldn't parse" for that cell, same as the column-mapping card. (#100)
+- **Profiles: deleting a profile erases all of its data.** The old deletion path covered seven
+  tables and left orphaned rows behind — holdings, investment activity and summaries, recurring
+  rules and categorization rules survived the profile that owned them. Deletion now uses the
+  same complete-erasure path as Settings, covering all twelve profile-owned tables. Other
+  profiles and shared categories are untouched. (#97)
+- **Investments: returns are measured against what each account currently holds.** The return
+  calculation grouped securities across accounts and could keep counting positions you had
+  already sold, or let one account's newer statement hide another account's holding. It now
+  follows each account's own latest snapshot, the same way net worth already did. Displayed
+  returns and Investment Health grades can change — intentionally. (#98)
+- **Website: the FAQ schema and the Actual Budget comparison now match reality.** Drifted
+  structured data was removed and two comparison cells corrected. (#96)
+
+### Notes
+- No schema migrations, no new dependencies. Previously imported invalid-date rows are not
+  retroactively cleaned up.
 
 ## Compass 1.3.1 — Soundings 🧭
 

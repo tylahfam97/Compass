@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "motion/react";
 import { ArrowCounterClockwiseIcon, PauseIcon, PlayIcon, XIcon } from "@phosphor-icons/react";
@@ -252,6 +252,8 @@ export default function ChartPage() {
           </button>
           <input
             type="range"
+            className="instrument-range"
+            style={{ "--fill": `${flow.days > 1 ? (day / (flow.days - 1)) * 100 : 100}%` } as CSSProperties}
             min={0}
             max={flow.days - 1}
             step={1}

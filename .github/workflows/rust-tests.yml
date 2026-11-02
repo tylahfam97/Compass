@@ -1,0 +1,56 @@
+name: Rust Tests
+
+# Runs the src-tauri unit tests (real SQLCipher, temp dirs, an in-process keyring stand-in) on the
+# exact PR head commit, then proves the key-safety tests catch the v1.3.4 bugs: the same test module
+# is run against the released v1.3.4 lib.rs (plus a pure-move seam) and must fail with exactly the
+# tests listed in .github/red-baseline/expected-red.txt. Test-only: no artifacts, releases or deploys.
+on:
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'src-tauri/**'
+      - '.github/workflows/rust-tests.yml'
+      - '.github/red-baseline/**'
+
+permissions:
+  contents: read
+
+jobs:
+  cargo-test:
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    env:
+      RED_BASE: 5be84de263af3cc87e42f6511be4d43eb69f469d # v1.3.4 release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Install Tauri Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
+      # tauri::generate_context! needs frontendDist (../dist) to exist; the tests never load it.
+      - name: Placeholder frontend dist
+        run: mkdir -p dist && echo '<!doctype html><title>test</title>' > dist/index.html
+      - name: cargo test (PR head)
+        working-directory: src-tauri
+        run: |
+          git log -1 --format='testing %H'
+          cargo test --lib --locked
+      - name: Red baseline (same tests against v1.3.4)
+        run: |
+          # Default shell is bash -eo pipefail; only the expected-red cargo test may fail.
+          git show "$RED_BASE:src-tauri/src/lib.rs" > src-tauri/src/lib.rs
+          git apply .github/red-baseline/seam.patch
+          { echo; git show HEAD:src-tauri/src/lib.rs | sed -n '/^\/\/\/ Regression tests for the key\/open path/,$p'; } >> src-tauri/src/lib.rs
+          (cd src-tauri && cargo test --lib --locked key_safety_tests 2>&1) | tee baseline.log || true
+          git checkout -- src-tauri/src/lib.rs
+          if grep -qE '^error\[E[0-9]+\]|could not compile' baseline.log; then echo "::error::baseline did not compile"; exit 1; fi
+          total=$(grep -oP '^running \K[0-9]+(?= tests)' baseline.log | head -1)
+          want_total=$(git show HEAD:src-tauri/src/lib.rs | sed -n '/^mod key_safety_tests/,$p' | grep -c '#\[test\]')
+          [ "$total" = "$want_total" ] || { echo "::error::ran $total tests, expected $want_total"; exit 1; }
+          grep -oP '^test key_safety_tests::\K\w+(?= \.\.\. FAILED$)' baseline.log | sort > actual-red.txt
+          grep -v '^#' .github/red-baseline/expected-red.txt | sed '/^$/d' | sort > expected-red.txt
+          diff -u expected-red.txt actual-red.txt || { echo "::error::baseline red set differs from expected-red.txt"; exit 1; }
+          echo "baseline: $(wc -l < actual-red.txt) of $total key_safety_tests failed on v1.3.4, as expected"

@@ -1,8 +1,12 @@
 import { test as base, expect } from "@playwright/test";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import { createHash } from "node:crypto";
 
-const test = base.extend<{ database: DatabaseSync }>({
-  database: async ({ page }, use) => {
+const test = base.extend<{ database: DatabaseSync; today: Date | undefined }>({
+  // Seeds dates from this day and, when set, pins the browser's Date to it too (timers keep running).
+  today: [undefined, { option: true }],
+  database: async ({ page, today }, use) => {
+    if (today) await page.clock.setFixedTime(today);
     const database = new DatabaseSync(":memory:");
     await page.exposeBinding("compassTestInvoke", async (_source, command: string, args: { sql?: string; params?: SQLInputValue[]; statements?: { sql: string; params?: SQLInputValue[] }[] } = {}) => {
       if (command === "db_select") return database.prepare(args.sql!).all(...(args.params ?? []));
@@ -20,6 +24,22 @@ const test = base.extend<{ database: DatabaseSync }>({
           throw error;
         }
         return;
+      }
+      if (command === "import_transactions_batch") {
+        // Mirrors insert_import_batch_tx: UNIQUE violations are duplicates, anything else an error.
+        const duplicateIndices: number[] = [];
+        const errors: { index: number; message: string }[] = [];
+        database.exec("BEGIN");
+        (args.statements ?? []).forEach((statement, index) => {
+          try { database.prepare(statement.sql).run(...(statement.params ?? [])); }
+          catch (error) {
+            const message = String((error as Error).message);
+            if (message.includes("UNIQUE constraint failed")) duplicateIndices.push(index);
+            else errors.push({ index, message });
+          }
+        });
+        database.exec("COMMIT");
+        return { duplicateIndices, errors };
       }
       if (command === "plugin:app|version") return "1.0.2";
       if (command === "plugin:event|listen") return 1;
@@ -46,7 +66,7 @@ const test = base.extend<{ database: DatabaseSync }>({
     await page.goto("/plan");
     await expect(page.getByText("No checking account yet", { exact: true })).toBeVisible();
     const date = (offset: number) => {
-      const value = new Date();
+      const value = new Date(today ?? Date.now());
       value.setDate(value.getDate() + offset);
       return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
     };
@@ -55,14 +75,22 @@ const test = base.extend<{ database: DatabaseSync }>({
     const category = (name: string) => Number(database.prepare("SELECT id FROM categories WHERE name=? LIMIT 1").get(name)?.id ?? 15);
     const categoryIds = ["Groceries", "Food & Dining", "Transportation", "Shopping"].map(category);
     const insertTransaction = database.prepare("INSERT INTO transactions (account_id,profile_id,date,description,amount_cents,balance_cents,category_id,import_hash) VALUES (1,1,?,?,?,?,?,?)");
+    // Recent activity spans up to three days back but never before the 1st, so month-scoped views
+    // (Reports' $459.00, Transactions' three Green Market rows) hold all 12 rows on the 1st-3rd too.
+    const daysIntoMonth = Number(date(0).slice(-2)) - 1;
     for (let index = 0; index < 12; index++) {
-      insertTransaction.run(date(-Math.floor(index / 3)), ["Green Market Groceries", "Neighborhood Coffee", "City Transit", "Bookshop & Stationery"][index % 4], -[8450, 650, 2400, 3800][index % 4], 100_000, categoryIds[index % 4], `preview-${index}`);
+      insertTransaction.run(date(-Math.min(Math.floor(index / 3), daysIntoMonth)), ["Green Market Groceries", "Neighborhood Coffee", "City Transit", "Bookshop & Stationery"][index % 4], -[8450, 650, 2400, 3800][index % 4], 100_000, categoryIds[index % 4], `preview-${index}`);
     }
+    // Plan projects this as a detected monthly charge on the day it was last seen. Tie that day to
+    // today so its next occurrence is always 11-14 days out, after the payday below: a fixed day
+    // such as the 1st falls before payday near every month end and moves the Plan low point.
+    // Capped at 28 so every month has the day.
+    const groceryDay = String(Math.min(Number(date(14).slice(-2)), 28)).padStart(2, "0");
     for (const monthsAgo of [1, 2]) {
-      const historical = new Date();
+      const historical = new Date(today ?? Date.now());
       historical.setDate(1);
       historical.setMonth(historical.getMonth() - monthsAgo);
-      const historicalDate = `${historical.getFullYear()}-${String(historical.getMonth() + 1).padStart(2, "0")}-01`;
+      const historicalDate = `${historical.getFullYear()}-${String(historical.getMonth() + 1).padStart(2, "0")}-${groceryDay}`;
       insertTransaction.run(historicalDate, "Prior month groceries", -40_000 - monthsAgo * 5_000, 100_000, categoryIds[0], `historical-${monthsAgo}`);
     }
     const insertRule = database.prepare("INSERT INTO recurring_rules (profile_id,account_id,description,amount_cents,category_id,cadence,day_of_month,start_date) VALUES (1,1,?,?,?,'monthly',?,?)");
@@ -78,7 +106,12 @@ const test = base.extend<{ database: DatabaseSync }>({
   },
 });
 
-test("Plan preserves red deficits and updates the scenario immediately", async ({ page, database }) => {
+// The Plan forecast runs from the browser's today, so these figures need a fixed one: a mid-month
+// noon puts Rent (day+1) and Paycheck (day+4) before the 1st-of-month grocery estimate, away from
+// month ends and DST changes. Real-date runs fail whenever the 1st falls before payday.
+const planTest = test.extend({ today: new Date(2026, 5, 15, 12) });
+
+planTest("Plan preserves red deficits and updates the scenario immediately", async ({ page, database }) => {
   expect(database.isOpen).toBe(true);
   await page.reload();
   const amount = page.getByTestId("safe-to-spend");
@@ -94,7 +127,8 @@ test("Plan preserves red deficits and updates the scenario immediately", async (
   await expect(amount).toHaveCSS("color", errorColor);
   await page.getByRole("slider", { name: /Keep in reserve/ }).focus();
   await page.keyboard.press("ArrowRight");
-  await expect(amount).toHaveText("-$550.00");
+  // The cushion range now runs to the $1,000 of liquid cash in $10 steps (#123).
+  await expect(amount).toHaveText("-$510.00");
   await expect(page.getByText("Short of your cash cushion", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Reset", exact: true }).click();
   await expect(amount).toHaveText("-$500.00");
@@ -102,7 +136,7 @@ test("Plan preserves red deficits and updates the scenario immediately", async (
   await expect(page.locator(".plan-rules")).toHaveAttribute("open", "");
 });
 
-test("Plan separates have-now, expected and scenario figures", async ({ page, database }) => {
+planTest("Plan separates have-now, expected and scenario figures", async ({ page, database }) => {
   expect(database.isOpen).toBe(true);
   await page.reload();
   await expect(page.getByTestId("horizon-now")).toContainText("$1,000.00");
@@ -114,7 +148,7 @@ test("Plan separates have-now, expected and scenario figures", async ({ page, da
   await expect(page.getByTestId("horizon-scenario")).toContainText("Same as expected");
 });
 
-test("Plan purchase preview is inspectable and never writes transactions", async ({ page, database }, testInfo) => {
+planTest("Plan purchase preview is inspectable and never writes transactions", async ({ page, database }, testInfo) => {
   const before = database.prepare('SELECT COUNT(*) AS total FROM transactions').get()?.total;
   await page.reload();
   await page.getByLabel('Hypothetical purchase amount').fill('250.01');
@@ -159,7 +193,7 @@ test("Plan purchase preview is inspectable and never writes transactions", async
   expect(database.prepare('SELECT COUNT(*) AS total FROM transactions').get()?.total).toBe(before);
 });
 
-test("Plan marks missing balances and respects playback motion preferences", async ({ page, database }) => {
+planTest("Plan marks missing balances and respects playback motion preferences", async ({ page, database }) => {
   database.prepare("INSERT INTO accounts (name,account_type,profile_id) VALUES ('Unrecorded checking','checking',1)").run();
   await page.reload();
   await expect(page.getByTestId('safe-to-spend')).toHaveText('Unavailable');
@@ -176,6 +210,65 @@ test("Plan marks missing balances and respects playback motion preferences", asy
   await page.getByRole('slider', { name: 'Inspect forecast date' }).focus();
   await page.keyboard.press('End');
   await expect(page.getByRole('slider', { name: 'Inspect forecast date' })).not.toHaveValue('0');
+});
+
+planTest("Plan sliders top out at liquid cash, not a fixed $2,000 (#123)", async ({ page, database }) => {
+  // A synthetic cushion saved above today's cash: shown clamped, never rewritten.
+  await page.evaluate(() => localStorage.setItem("compass_plan_scenario_1", JSON.stringify({ version: 2, window: "nextMonth", buffer: 500_000 })));
+  await page.reload();
+  const reserve = page.getByRole("slider", { name: /Keep in reserve/ });
+  await expect(reserve).toHaveAttribute("max", "100000");
+  await expect(reserve).toHaveValue("100000");
+  await expect(page.getByText("Up to your liquid cash: $1,000.00")).toBeVisible();
+  await expect(page.getByText(/Your saved cushion of \$5,000\.00 is more than you have/)).toBeVisible();
+  await expect(page.getByTestId("safe-to-spend")).toHaveText("-$1,500.00");
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("compass_plan_scenario_1") ?? "{}").buffer)).toBe(500_000);
+  // Spending and income span the larger of cash and the $3,000 monthly paycheck.
+  await expect(page.getByRole("slider", { name: /Extra income/ })).toHaveAttribute("max", "300000");
+  await expect(page.getByRole("slider", { name: /Everyday spending/ })).toHaveAttribute("max", "300000");
+  // Moving the slider saves the new, in-range value.
+  await reserve.focus();
+  await page.keyboard.press("Home");
+  await expect(page.getByTestId("safe-to-spend")).toHaveText("-$500.00");
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("compass_plan_scenario_1") ?? "{}").buffer)).toBe(0);
+  // With no balance on file the old range comes back, labeled, so the control stays usable.
+  database.prepare("UPDATE transactions SET balance_cents=NULL").run();
+  await page.reload();
+  await expect(reserve).toHaveAttribute("max", "200000");
+  await expect(page.getByText(/No checking balance is on file yet, so the standard \$2,000 range applies/)).toBeVisible();
+});
+
+planTest("Plan offers map and calendar views and remembers the layout (#123)", async ({ page, database }) => {
+  expect(database.isOpen).toBe(true);
+  await page.reload();
+  const views = page.getByRole("group", { name: "Forecast view" });
+  await expect(views.getByRole("button", { name: "Line" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".recharts-area-curve").first()).toBeVisible();
+  await views.getByRole("button", { name: "Map" }).click();
+  const map = page.getByRole("region", { name: "Money map" });
+  await expect(map).toBeVisible();
+  await expect(map.getByRole("button", { name: /^Have now, \$1,000\.00$/ })).toBeVisible();
+  // Through next month holds two monthly paychecks (Jun 19 and Jul 19).
+  await expect(map.getByRole("button", { name: /^Paycheck, \$6,000\.00$/ })).toBeVisible();
+  // Nodes are thin SVG bars; select by keyboard, the same path screen-reader users take.
+  await map.getByRole("button", { name: /^Paycheck, / }).focus();
+  await page.keyboard.press("Enter");
+  await expect(map.getByRole("status")).toContainText("Paycheck: $6,000.00 in this window.");
+  await views.getByRole("button", { name: "Calendar" }).click();
+  const calendar = page.getByRole("region", { name: "Forecast calendar" });
+  await expect(calendar.getByRole("button", { name: /^Jun 16, 2026: -\$/ })).toHaveAttribute("data-tone", "short");
+  await calendar.getByRole("button", { name: /^Jun 19, 2026: / }).click();
+  await expect(calendar.locator(".plan-cal-detail")).toContainText("Paycheck");
+  // Customize: hide Next steps; both choices survive a reload, the what-if Reset leaves them alone.
+  await page.getByRole("group", { name: "Forecast view" }).scrollIntoViewIfNeeded();
+  await page.locator(".plan-customize > summary").click();
+  await page.getByRole("checkbox", { name: "Next steps" }).uncheck();
+  await expect(page.locator(".plan-actions")).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole("region", { name: "Forecast calendar" })).toBeVisible();
+  await expect(page.locator(".plan-actions")).toHaveCount(0);
+  await page.getByRole("group", { name: "Forecast view" }).getByRole("button", { name: "Line" }).click();
+  await expect(page.locator(".recharts-area-curve").first()).toBeVisible();
 });
 
 test("Plan keeps profile scenarios separate while an old load is pending", async ({ page, database }) => {
@@ -361,6 +454,26 @@ test("Insights leads with full-width financial context above review", async ({ p
   }
 });
 
+// #108: on a wide window these sections used to stop at a fixed cap and leave the right empty.
+test("wide sections span their column on a wide window", async ({ page, database }) => {
+  // A fortnightly payroll in the past drives the Watch (detected cycle) and Fixed and flexible
+  // (complete months with income); the base fixture has neither.
+  const deposit = database.prepare("INSERT INTO transactions (account_id,profile_id,date,description,amount_cents,balance_cents,category_id,import_hash) VALUES (1,1,date('now','localtime',?),'Payroll deposit',300000,100000,(SELECT id FROM categories WHERE name='Income'),?)");
+  for (const days of [1, 15, 29, 43]) deposit.run(`-${days} days`, `payroll-${days}`);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.setViewportSize({ width: 2560, height: 1000 });
+  for (const [route, selector] of [['/overview', '.overview-roster table'], ['/', '.bearing, .pay-watch'], ['/agent', '.fixed-flex, .cost-of-money']]) {
+    await page.goto(route);
+    for (const part of selector.split(', ')) await expect(page.locator(part).first()).toBeVisible();
+    await expect.poll(() => page.evaluate((sel) => [...document.querySelectorAll(sel)].filter((element) => {
+      const parent = element.parentElement!;
+      const style = getComputedStyle(parent);
+      const available = parent.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      return Math.abs(element.getBoundingClientRect().width - available) > 1;
+    }).map((element) => element.className), selector), { message: route }).toEqual([]);
+  }
+});
+
 test("Insights retains available sections with limited history", async ({ page, database }) => {
   database.exec("DELETE FROM transactions WHERE date < date('now','start of month')");
   await page.goto('/agent');
@@ -516,6 +629,37 @@ test("Budgets shows negative net usage without rolling over net credits", async 
   await expect(budget).not.toContainText('Daily allowance');
 });
 
+test("Trends ranks range spending by category and keeps profiles apart", async ({ page, database }) => {
+  // The fixture's spending: Groceries $253.50 recent + $450 and $500 in the two prior months,
+  // Shopping $114, Transportation $72, Food & Dining $19.50; all inside the 3-month range.
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  database.prepare("INSERT INTO profiles(id,name,avatar_color) VALUES (2,'Second profile','#0284c7')").run();
+  database.prepare("INSERT INTO accounts (id,name,account_type,profile_id) VALUES (2,'Second checking','checking',2)").run();
+  database.prepare("INSERT INTO transactions (account_id,profile_id,date,description,amount_cents,category_id,import_hash) VALUES (2,2,?,'Second profile shopping',-99900,(SELECT id FROM categories WHERE name='Shopping' LIMIT 1),'second-profile')").run(today);
+  await page.goto("/trends");
+  await page.getByRole("button", { name: /Preview profile/ }).click();
+  const section = page.locator(".trend-section").filter({ hasText: "Where it went" });
+  const rows = section.locator(".ranked-bars > button");
+  await expect(page.locator(".trend-legend")).toContainText("Expenses $1,409.00");
+  await expect(rows.locator("span.truncate")).toHaveText(["Groceries", "Shopping", "Transportation", "Food & Dining"]);
+  await expect(section.getByRole("img", { name: "Groceries: $1,203.50, 85% of spending over 6 months" })).toBeVisible();
+  await expect(section.getByRole("img", { name: "Food & Dining: $19.50, 1% of spending over 6 months" })).toBeVisible();
+
+  await rows.filter({ hasText: "Shopping" }).click();
+  await expect(rows.filter({ hasText: "Shopping" })).toHaveAttribute("aria-pressed", "true");
+  await expect(section.getByText("Shopping trend")).toBeVisible();
+  await expect(section.getByRole("link", { name: "View all" })).toBeVisible();
+
+  await page.getByRole("group", { name: "Range" }).getByRole("button", { name: "3mo" }).click();
+  await expect(section.getByRole("img", { name: "Groceries: $1,203.50, 85% of spending over 3 months" })).toBeVisible();
+
+  await page.getByRole("switch").click();
+  await expect(page.locator(".trend-legend")).toContainText("Expenses $2,408.00");
+  await expect(rows.locator("span.truncate")).toHaveText(["Groceries", "Shopping", "Transportation", "Food & Dining"]);
+  await expect(section.getByRole("img", { name: "Shopping: $1,113.00, 46% of spending over 3 months" })).toBeVisible();
+});
+
 test("Reports uses exact selected dates and opens expense details", async ({ page, database }) => {
   expect(database.isOpen).toBe(true);
   await page.goto("/reports");
@@ -529,6 +673,376 @@ test("Reports uses exact selected dates and opens expense details", async ({ pag
   await expect(page.locator(".report-summary")).toContainText((expected / 100).toLocaleString("en-US", { style: "currency", currency: "USD" }));
   await page.getByRole("button", { name: /Green Market Groceries/ }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
+});
+
+test("credit card import keeps payments from a separate Credit column", async ({ page, database }) => {
+  // Synthetic statement: purchases in Debit, the card payment only in Credit.
+  const csv = "Date,Description,Debit,Credit\n2026-10-02,Synthetic Grocer,120.00,\n2026-10-05,Synthetic Fuel,80.00,\n2026-10-10,PAYMENT THANK YOU,,150.00\n";
+  await page.goto("/import");
+  await page.getByRole("button", { name: /Credit Card Statement/ }).click();
+  await page.locator("#csv-input").setInputFiles({ name: "synthetic-card.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
+  await page.getByPlaceholder("e.g. Chase Sapphire").fill("Synthetic Card");
+  for (let i = 0; i < 5; i++) await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Continue to Preview" }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("button", { name: /^Import \d+ Transactions$/ }).click();
+  await expect(page.getByText("Import complete")).toBeVisible();
+  const rows = database.prepare(
+    "SELECT t.description, t.amount_cents FROM transactions t JOIN accounts a ON a.id=t.account_id WHERE a.account_type='credit' ORDER BY t.date"
+  ).all();
+  expect(rows).toEqual([
+    { description: "Synthetic Grocer", amount_cents: -12000 },
+    { description: "Synthetic Fuel", amount_cents: -8000 },
+    { description: "PAYMENT THANK YOU", amount_cents: 15000 },
+  ]);
+});
+
+const cardRows = (database: DatabaseSync) => database.prepare(
+  "SELECT t.description, t.amount_cents, t.category_id, t.balance_cents FROM transactions t JOIN accounts a ON a.id=t.account_id WHERE a.account_type='credit' ORDER BY t.date"
+).all();
+// A column profile saved by an older import: only Debit mapped as one amount column, signs flipped by hand.
+const saveSingleColumnCardProfile = (database: DatabaseSync) => database.prepare(
+  "INSERT INTO column_profiles (header_sig,date_col,desc_col,amount_col,type_col,balance_col,profile_id,invert_amounts,debit_col,credit_col) VALUES ('credit|date|debit|description',0,1,2,-1,-1,1,1,-1,-1)"
+).run();
+
+test("zero-filled Credit-before-Debit card import keeps the payment as a transfer", async ({ page, database }) => {
+  const csv = "Date,Description,Credit,Debit\n2026-10-02,Synthetic Grocer,0.00,120.00\n2026-10-05,Synthetic Fuel,0.00,80.00\n2026-10-10,PAYMENT THANK YOU,150.00,0.00\n";
+  await page.goto("/import");
+  await page.getByRole("button", { name: /Credit Card Statement/ }).click();
+  await page.locator("#csv-input").setInputFiles({ name: "synthetic-card.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
+  await page.getByPlaceholder("e.g. Chase Sapphire").fill("Synthetic Card");
+  for (let i = 0; i < 5; i++) await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Continue to Preview" }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("button", { name: /^Import \d+ Transactions$/ }).click();
+  await expect(page.getByText("Import complete")).toBeVisible();
+  await expect(page.getByText(/1 of those\s+was recognized as a transfer/)).toBeVisible();
+  expect(cardRows(database)).toEqual([
+    { description: "Synthetic Grocer", amount_cents: -12000, category_id: expect.anything(), balance_cents: -12000 },
+    { description: "Synthetic Fuel", amount_cents: -8000, category_id: expect.anything(), balance_cents: -20000 },
+    { description: "PAYMENT THANK YOU", amount_cents: 15000, category_id: 20, balance_cents: -5000 },
+  ]);
+});
+
+test("single signed Amount card import is unchanged and shows no Debit/Credit warning", async ({ page, database }) => {
+  const csv = "Date,Description,Amount\n2026-10-02,Synthetic Grocer,-120.00\n2026-10-10,PAYMENT THANK YOU,150.00\n";
+  await page.goto("/import");
+  await page.getByRole("button", { name: /Credit Card Statement/ }).click();
+  await page.locator("#csv-input").setInputFiles({ name: "synthetic-signed.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
+  await page.getByPlaceholder("e.g. Chase Sapphire").fill("Synthetic Card");
+  for (let i = 0; i < 5; i++) await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Continue to Preview" }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("button", { name: /^Import \d+ Transactions$/ }).click();
+  await expect(page.getByText("Import complete")).toBeVisible();
+  expect(cardRows(database).map(({ description, amount_cents }) => ({ description, amount_cents }))).toEqual([
+    { description: "Synthetic Grocer", amount_cents: -12000 },
+    { description: "PAYMENT THANK YOU", amount_cents: 15000 },
+  ]);
+});
+
+test("saved single-column card mapping warns, then reimport adds only the missing payments", async ({ page, database }) => {
+  saveSingleColumnCardProfile(database);
+  // Payment leaves Debit blank; refund zero-fills it. Both live only in Credit.
+  const csv = "Date,Description,Debit,Credit\n2026-10-02,Synthetic Grocer,120.00,\n2026-10-10,PAYMENT THANK YOU,,100.00\n2026-10-12,Synthetic Refund,0.00,5.00\n";
+  const importCard = async (readBoth: boolean, existingAccount = true) => {
+    await page.goto("/import");
+    await page.getByRole("button", { name: /Credit Card Statement/ }).click();
+    await page.locator("#csv-input").setInputFiles({ name: "synthetic-card.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
+    if (existingAccount) await page.getByRole("button", { name: "Existing account", exact: true }).click();
+    else await page.getByPlaceholder("e.g. Chase Sapphire").fill("Synthetic Card");
+    for (let i = 0; i < 5; i++) await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await page.getByRole("button", { name: "Continue to Preview" }).click();
+    if (readBoth) {
+      await expect(page.getByRole("alert")).toContainText('2 rows have an amount only in the "Credit" column');
+      await page.getByRole("button", { name: "Read both Debit and Credit columns" }).click();
+    }
+    await page.getByRole("button", { name: /^Import \d+ Transactions$/ }).click();
+  };
+
+  // 1st import keeps the stale mapping (warning ignored): only the purchase lands.
+  await importCard(false, false);
+  await expect(page.getByText("Import complete")).toBeVisible();
+  expect(cardRows(database).map((r) => r.description)).toEqual(["Synthetic Grocer"]);
+
+  // 2nd import reads both columns: purchase is a duplicate, the two Credit rows are added once.
+  await importCard(true);
+  await expect(page.getByText(/2 transactions\s+imported, 1 duplicates skipped/)).toBeVisible();
+  expect(cardRows(database)).toEqual([
+    { description: "Synthetic Grocer", amount_cents: -12000, category_id: expect.anything(), balance_cents: -12000 },
+    { description: "PAYMENT THANK YOU", amount_cents: 10000, category_id: 20, balance_cents: -2000 },
+    { description: "Synthetic Refund", amount_cents: 500, category_id: expect.anything(), balance_cents: -1500 },
+  ]);
+  expect(database.prepare("SELECT debit_col, credit_col FROM column_profiles WHERE header_sig='credit|date|debit|description'").get())
+    .toEqual({ debit_col: 2, credit_col: 3 });
+
+  // 3rd import: nothing new, no warning (the saved profile now reads both columns).
+  await importCard(false);
+  await expect(page.getByText("Already imported")).toBeVisible();
+  expect(cardRows(database)).toHaveLength(3);
+});
+
+test("Auto-Import All pauses on a later file whose payments the first file's mapping would drop", async ({ page, database }) => {
+  saveSingleColumnCardProfile(database);
+  const file = (name: string, body: string) => ({ name, mimeType: "text/csv", buffer: Buffer.from(`Date,Description,Debit,Credit\n${body}`) });
+  await page.goto("/import");
+  await page.getByRole("button", { name: /Credit Card Statement/ }).click();
+  await page.locator("#csv-input").setInputFiles([
+    file("synthetic-sep.csv", "2026-09-02,Synthetic Grocer,120.00,\n"),
+    file("synthetic-oct.csv", "2026-10-05,Synthetic Fuel,80.00,\n2026-10-10,PAYMENT THANK YOU,,150.00\n"),
+  ]);
+  await page.getByPlaceholder("e.g. Chase Sapphire").fill("Synthetic Card");
+  for (let i = 0; i < 5; i++) await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Continue to Preview" }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("button", { name: "Auto-Import All (2 Files)" }).click();
+
+  // File 2 is handed back to the wizard instead of being imported silently without its payment.
+  await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeVisible();
+  for (let i = 0; i < 4; i++) await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText('1 row has an amount only in the "Credit" column');
+  expect(cardRows(database).map((r) => r.description)).toEqual(["Synthetic Grocer"]);
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Continue to Preview" }).click();
+  await page.getByRole("button", { name: "Read both Debit and Credit columns" }).click();
+  await page.getByRole("button", { name: /^Import \d+ Transactions$/ }).click();
+  await expect(page.getByText("Import complete")).toBeVisible();
+  expect(cardRows(database).map(({ description, amount_cents }) => ({ description, amount_cents }))).toEqual([
+    { description: "Synthetic Grocer", amount_cents: -12000 },
+    { description: "Synthetic Fuel", amount_cents: -8000 },
+    { description: "PAYMENT THANK YOU", amount_cents: 15000 },
+  ]);
+  expect(database.prepare("SELECT COUNT(*) AS n FROM accounts WHERE account_type='credit'").get()).toEqual({ n: 1 });
+  expect(database.prepare("SELECT COUNT(*) AS n FROM import_sessions").get()).toEqual({ n: 2 });
+});
+
+// A minimal text-only PDF (Helvetica, one Tm per item) so the import runs real pdf.js extraction.
+// Every name, date and amount below is invented; only the layout mirrors real card statements.
+function syntheticPdf(pages: [number, number, string][][]): Buffer {
+  const objects = ["<< /Type /Catalog /Pages 2 0 R >>", "", "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"];
+  const kids: string[] = [];
+  for (const items of pages) {
+    const stream = items.map(([x, y, s]) => `BT /F1 8 Tf 1 0 0 1 ${x} ${y} Tm (${s.replace(/[\\()]/g, "\\$&")}) Tj ET`).join("\n");
+    objects.push(`<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`);
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${objects.length} 0 R >>`);
+    kids.push(`${objects.length} 0 R`);
+  }
+  objects[1] = `<< /Type /Pages /Kids [${kids.join(" ")}] /Count ${kids.length} >>`;
+  let pdf = "%PDF-1.4\n";
+  const offsets = objects.map((body, i) => { const at = Buffer.byteLength(pdf); pdf += `${i + 1} 0 obj\n${body}\nendobj\n`; return at; });
+  const xref = Buffer.byteLength(pdf);
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, "0")} 00000 n \n`).join("")}`;
+  return Buffer.from(`${pdf}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+}
+
+// Trans./Post date columns, amounts ~1pt off the description baseline, a detached "-" sign, a
+// wrapped merchant name, year-less dates across New Year, and a summary that must not import.
+const cardStatementPdf = (rows = true) => syntheticPdf([[
+  [34, 700, "Billing Period: 12/06/25-01/05/26"],
+  [317, 660, "Previous balance"], [553, 660, rows ? "$1,000.00" : "$0.00"],
+  [317, 646, "Payments"], [549, 646, "-"], [553, 646, rows ? "$500.00" : "$0.00"],
+  [317, 632, "Purchases"], [548, 632, rows ? "+$145.20" : "+$0.00"],
+  [317, 618, "New balance"], [553, 618, rows ? "$645.20" : "$0.00"],
+  [34, 600, "Minimum payment due: $41.00"],
+  [37, 560, "Trans."], [100, 560, "Post"],
+  [37, 550, "date"], [100, 550, "date"], [163, 550, "Description"], [548, 550, "Amount"],
+  ...(rows ? [
+    [37, 530, "12/28"], [100, 530, "12/29"], [163, 530, "SAMPLE GROCERY MARKET"], [551, 528.9, "$120.00"],
+    [37, 516, "12/30"], [100, 516, "12/30"], [163, 516, "ONLINE PAYMENT THANK YOU"], [549, 514.8, "-"], [553, 514.8, "$500.00"],
+    [37, 502, "01/02"], [100, 502, "01/03"], [163, 502, "EXAMPLE COFFEE ROASTERS"], [551, 500.7, "$25.20"],
+    [163, 492, "PORTLAND OR"],
+  ] as [number, number, string][] : []),
+  [41, 450, "Total fees charged in this billing period"], [551, 449, "$0.00"],
+]]);
+
+test("credit card PDF statement imports every row with the right sign and year, once", async ({ page, database }) => {
+  const importPdf = async (existing: boolean) => {
+    await page.goto("/import");
+    await page.getByRole("button", { name: /Credit Card Statement/ }).click();
+    await page.locator("#csv-input").setInputFiles({ name: "synthetic-statement.pdf", mimeType: "application/pdf", buffer: cardStatementPdf() });
+    if (existing) await page.getByRole("button", { name: "Existing account", exact: true }).click();
+    else await page.getByPlaceholder("e.g. Chase Sapphire").fill("Synthetic Card");
+    for (let i = 0; i < 5; i++) await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await page.getByRole("button", { name: "Continue to Preview" }).click();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await page.getByRole("button", { name: "Import 3 Transactions" }).click();
+  };
+  await importPdf(false);
+  await expect(page.getByText("Import complete")).toBeVisible();
+  const rows = () => database.prepare(
+    "SELECT t.date, t.description, t.amount_cents, t.category_id FROM transactions t JOIN accounts a ON a.id=t.account_id WHERE a.account_type='credit' ORDER BY t.date"
+  ).all();
+  expect(rows()).toEqual([
+    { date: "2025-12-28", description: "SAMPLE GROCERY MARKET", amount_cents: -12000, category_id: expect.anything() },
+    { date: "2025-12-30", description: "ONLINE PAYMENT THANK YOU", amount_cents: 50000, category_id: 20 },
+    { date: "2026-01-02", description: "EXAMPLE COFFEE ROASTERS PORTLAND OR", amount_cents: -2520, category_id: expect.anything() },
+  ]);
+  await importPdf(true);
+  await expect(page.getByText("Already imported")).toBeVisible();
+  expect(rows()).toHaveLength(3);
+});
+
+test("PDF statement with no activity says so instead of importing nothing or suggesting a loan", async ({ page, database }) => {
+  const before = database.prepare("SELECT COUNT(*) AS n FROM transactions").get();
+  await page.goto("/import");
+  await page.getByRole("button", { name: /Credit Card Statement/ }).click();
+  await page.locator("#csv-input").setInputFiles({ name: "synthetic-quiet.pdf", mimeType: "application/pdf", buffer: cardStatementPdf(false) });
+  await expect(page.getByText(/That statement has no transactions/)).toBeVisible();
+  await expect(page.getByText(/loan statement/)).toHaveCount(0);
+  expect(database.prepare("SELECT COUNT(*) AS n FROM transactions").get()).toEqual(before);
+});
+
+test("Investments leads with a labeled portfolio summary scoped to the chosen account", async ({ page, database }) => {
+  // Invented accounts: a brokerage priced in September with a known cost basis, and a retirement
+  // fund last priced in June with none.
+  database.prepare("INSERT INTO accounts (id,name,account_type,institution,profile_id) VALUES (10,'Sample Brokerage','investment','Example Securities',1), (11,'Sample Retirement','investment','',1)").run();
+  const holding = database.prepare("INSERT INTO holdings (account_id,profile_id,as_of_date,security_type,symbol,description,shares,market_value_cents,cost_basis_cents) VALUES (?,1,?,?,?,?,?,?,?)");
+  holding.run(10, "2026-09-30", "stock", "SMPL", "Sample Corp", 10, 100_000, 80_000);
+  holding.run(11, "2026-06-30", "mutual_fund", null, "Sample Target Fund", null, 500_000, null);
+  const summary = database.prepare("INSERT INTO investment_summaries (account_id,profile_id,period_start,period_end,beginning_value_cents,ending_value_cents) VALUES (?,1,?,?,?,?)");
+  summary.run(10, "2026-09-01", "2026-09-30", 90_000, 100_000);
+  summary.run(11, "2026-04-01", "2026-06-30", 450_000, 500_000);
+
+  await page.setViewportSize({ width: 768, height: 1000 });
+  await page.goto("/investments");
+  const hero = page.getByRole("group", { name: "Portfolio summary, All 2 accounts" });
+  await expect(hero).toContainText("Portfolio value");
+  await expect(hero).toContainText("$6,000.00");
+  await expect(hero).toContainText("Mixed");
+  await expect(hero).toContainText("Jun 30, 2026 to Sep 30, 2026");
+  // The unknown-cost fund adds no gain: $1,000 - $800, on the 17% of value with a cost basis.
+  await expect(hero).toContainText("$200.00");
+  await expect(hero).toContainText("17% of value");
+  const heroBox = (await hero.boundingBox())!;
+  const tabBox = (await page.getByRole("button", { name: /^Holdings/ }).boundingBox())!;
+  expect(heroBox.y + heroBox.height).toBeLessThanOrEqual(tabBox.y);
+  // The value leads, centered across the summary, with the supporting figures below it.
+  const value = hero.locator(".stat-row-item[data-hero]");
+  const valueBox = (await value.locator("strong").boundingBox())!;
+  expect(Math.abs(valueBox.x + valueBox.width / 2 - (heroBox.x + heroBox.width / 2))).toBeLessThanOrEqual(2);
+  await expect(value).toHaveCSS("text-align", "center");
+  const firstSupport = (await hero.locator(".stat-row-item:not([data-hero])").first().boundingBox())!;
+  expect(firstSupport.y).toBeGreaterThanOrEqual((await value.boundingBox())!.y + (await value.boundingBox())!.height);
+  // Each account keeps its own statement period - never one merged "latest" period.
+  await expect(page.getByRole("region", { name: "Latest statement, Sample Brokerage" })).toContainText("Sep 1, 2026 – Sep 30, 2026");
+  await expect(page.getByRole("region", { name: "Latest statement, Sample Retirement" })).toContainText("Apr 1, 2026 – Jun 30, 2026");
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  // Keyboard, not a programmatic select: End moves to the last account (sorted by name).
+  await page.getByRole("combobox", { name: /^Account/ }).focus();
+  await page.keyboard.press("End");
+  const scoped = page.getByRole("group", { name: "Portfolio summary, Sample Retirement" });
+  await expect(scoped).toContainText("Account value");
+  await expect(scoped).toContainText("$5,000.00");
+  await expect(scoped).toContainText("Unknown");
+  await expect(scoped).toContainText("Jun 30, 2026");
+  await expect(page.getByRole("region", { name: /^Latest statement/ })).toHaveCount(1);
+  await expect(page.getByText("Sample Target Fund")).toBeVisible();
+  await expect(page.getByText("Sample Corp")).toHaveCount(0);
+});
+
+test("card PDF with a Charges column but no credits this cycle still imports charges as spending", async ({ page, database }) => {
+  const pdf = syntheticPdf([[
+    [40, 760, "Billing Period: 08/01/26-08/31/26"], [40, 740, "Previous balance $0.00"], [40, 726, "New balance $50.00"],
+    [40, 700, "Date"], [110, 700, "Description"], [420, 700, "Charges"], [500, 700, "Credits"],
+    [40, 680, "08/10"], [110, 680, "SAMPLE SHOP"], [420, 680, "50.00"],
+  ]]);
+  await page.goto("/import");
+  await page.getByRole("button", { name: /Credit Card Statement/ }).click();
+  await page.locator("#csv-input").setInputFiles({ name: "synthetic-charges.pdf", mimeType: "application/pdf", buffer: pdf });
+  await page.getByPlaceholder("e.g. Chase Sapphire").fill("Synthetic Card");
+  for (let i = 0; i < 5; i++) await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Continue to Preview" }).click();
+  await page.getByRole("button", { name: "Import 1 Transactions" }).click();
+  await expect(page.getByText("Import complete")).toBeVisible();
+  expect(database.prepare("SELECT t.date, t.amount_cents FROM transactions t JOIN accounts a ON a.id=t.account_id WHERE a.account_type='credit'").all())
+    .toEqual([{ date: "2026-08-10", amount_cents: -5000 }]);
+});
+
+// Rows as Compass 1.3.6 hashed them: the printed date, the rest of the line and the last amount,
+// with a per-file ordinal for repeats (dedupeRowHash).
+const legacyHash = (row: string[], ordinal = 0) =>
+  createHash("sha256").update((ordinal ? [...row, `__dupe_ordinal_${ordinal}`] : row).join("||")).digest("hex");
+const sameBaselineCardPdf = (rows: [string, string, string][]) => {
+  const owed = rows.reduce((sum, [, , amount]) => sum + Number(amount), 0);
+  return syntheticPdf([[
+    [34, 700, "Billing Period: 08/01/2026-08/31/2026"],
+    [317, 660, "Previous balance"], [553, 660, "$0.00"], [317, 646, "New balance"], [553, 646, `$${owed.toFixed(2)}`],
+    [37, 550, "Date"], [163, 550, "Description"], [548, 550, "Amount"],
+    ...rows.flatMap(([date, description, amount], i) => [[37, 530 - i * 14, date], [163, 530 - i * 14, description], [551, 530 - i * 14, `$${amount}`]] as [number, number, string][]),
+  ]]);
+};
+const seedLegacyCard = (database: DatabaseSync, rows: { date: string; row: string[]; ordinal?: number }[]) => {
+  const accountId = Number(database.prepare("INSERT INTO accounts (name,account_type,profile_id) VALUES ('Synthetic Card','credit',1)").run().lastInsertRowid);
+  for (const { date, row, ordinal } of rows) {
+    database.prepare("INSERT INTO transactions (account_id,profile_id,date,description,amount_cents,import_hash) VALUES (?,1,?,?,?,?)")
+      .run(accountId, date, row[1], -Math.round(Number(row[2]) * 100), legacyHash(row, ordinal));
+  }
+};
+const coffee = ["08/03/2026", "SAMPLE COFFEE", "4.50"];
+const grocer = ["08/05/2026", "SAMPLE GROCER", "62.10"];
+
+test("re-importing a PDF that 1.3.6 imported skips its rows but keeps a genuinely repeated charge", async ({ page, database }) => {
+  // 1.3.6 imported the grocer and the first of two identical coffees; the second coffee is new.
+  seedLegacyCard(database, [{ date: "2026-08-05", row: grocer }, { date: "2026-08-03", row: coffee }]);
+  await page.goto("/import");
+  await page.getByRole("button", { name: /Credit Card Statement/ }).click();
+  await page.locator("#csv-input").setInputFiles({ name: "synthetic-aug.pdf", mimeType: "application/pdf",
+    buffer: sameBaselineCardPdf([[coffee[0], coffee[1], coffee[2]], [coffee[0], coffee[1], coffee[2]], [grocer[0], grocer[1], grocer[2]]]) });
+  await page.getByRole("button", { name: "Existing account", exact: true }).click();
+  for (let i = 0; i < 5; i++) await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Continue to Preview" }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("button", { name: "Import 3 Transactions" }).click();
+  await expect(page.getByText(/1 transactions?\s+imported, 2 duplicates skipped/)).toBeVisible();
+  expect(database.prepare("SELECT date, description, amount_cents FROM transactions WHERE account_id=(SELECT id FROM accounts WHERE name='Synthetic Card') ORDER BY date, id").all()).toEqual([
+    { date: "2026-08-03", description: "SAMPLE COFFEE", amount_cents: -450 },
+    { date: "2026-08-03", description: "SAMPLE COFFEE", amount_cents: -450 },
+    { date: "2026-08-05", description: "SAMPLE GROCER", amount_cents: -6210 },
+  ]);
+});
+
+test("a year-less charge from last year's 1.3.6 import doesn't hide the same charge this year", async ({ page, database }) => {
+  // 1.3.6 stored a year-less "07/15" as 2001 under the old row hash; this year's identical line is new.
+  seedLegacyCard(database, [{ date: "2001-07-15", row: ["07/15", "SAMPLE ANNUAL FEE", "95.00"] }]);
+  const pdf = syntheticPdf([[
+    [34, 700, "Billing Period: 07/01/2026-07/31/2026"],
+    [317, 660, "Previous balance"], [553, 660, "$0.00"], [317, 646, "New balance"], [553, 646, "$95.00"],
+    [37, 550, "Date"], [163, 550, "Description"], [548, 550, "Amount"],
+    [37, 530, "07/15"], [163, 530, "SAMPLE ANNUAL FEE"], [551, 530, "$95.00"],
+  ]]);
+  await page.goto("/import");
+  await page.getByRole("button", { name: /Credit Card Statement/ }).click();
+  await page.locator("#csv-input").setInputFiles({ name: "synthetic-annual.pdf", mimeType: "application/pdf", buffer: pdf });
+  await page.getByRole("button", { name: "Existing account", exact: true }).click();
+  for (let i = 0; i < 5; i++) await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Continue to Preview" }).click();
+  await page.getByRole("button", { name: "Import 1 Transactions" }).click();
+  await expect(page.getByText("Import complete")).toBeVisible();
+  expect(database.prepare("SELECT date, amount_cents FROM transactions WHERE account_id=(SELECT id FROM accounts WHERE name='Synthetic Card') ORDER BY date").all())
+    .toEqual([{ date: "2001-07-15", amount_cents: -9500 }, { date: "2026-07-15", amount_cents: -9500 }]);
+});
+
+test("Auto-Import All skips rows a 1.3.6 import already holds", async ({ page, database }) => {
+  seedLegacyCard(database, [{ date: "2026-08-05", row: grocer }, { date: "2026-08-03", row: coffee }, { date: "2026-08-03", row: coffee, ordinal: 1 }]);
+  await page.goto("/import");
+  await page.getByRole("button", { name: /Credit Card Statement/ }).click();
+  await page.locator("#csv-input").setInputFiles([
+    { name: "synthetic-jul.pdf", mimeType: "application/pdf", buffer: sameBaselineCardPdf([["07/20/2026", "SAMPLE BOOKS", "18.00"]]) },
+    { name: "synthetic-aug.pdf", mimeType: "application/pdf", buffer: sameBaselineCardPdf([[coffee[0], coffee[1], coffee[2]], [coffee[0], coffee[1], coffee[2]], [grocer[0], grocer[1], grocer[2]]]) },
+  ]);
+  await page.getByRole("button", { name: "Existing account", exact: true }).click();
+  for (let i = 0; i < 5; i++) await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Continue to Preview" }).click();
+  await page.getByRole("button", { name: "Auto-Import All (2 Files)" }).click();
+  await expect.poll(() => database.prepare("SELECT COUNT(*) AS n FROM import_sessions").get()).toEqual({ n: 1 });
+  await expect(page.getByText(/Already imported|Import complete/)).toBeVisible();
+  expect(database.prepare("SELECT date, description, amount_cents FROM transactions WHERE account_id=(SELECT id FROM accounts WHERE name='Synthetic Card') ORDER BY date, id").all()).toEqual([
+    { date: "2026-07-20", description: "SAMPLE BOOKS", amount_cents: -1800 },
+    { date: "2026-08-03", description: "SAMPLE COFFEE", amount_cents: -450 },
+    { date: "2026-08-03", description: "SAMPLE COFFEE", amount_cents: -450 },
+    { date: "2026-08-05", description: "SAMPLE GROCER", amount_cents: -6210 },
+  ]);
 });
 
 test("workspace follows restored and maximized widths", async ({ page, database }) => {

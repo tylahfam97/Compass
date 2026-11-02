@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 560" width="1200" height="560" role="img" aria-labelledby="t">
+  <title id="t">Illustration with no real data: four example column headers, Transaction Date, Description, Debit and Credit, each joined by an arrow to the field Compass records: Date, Description, Amount (money out) and Amount (money in).</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#C08A1C"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="560" fill="#0A1124"/>
+  <g font-family="system-ui, -apple-system, &quot;Segoe UI&quot;, Roboto, sans-serif" fill="#E8EDF7" text-anchor="middle">
+    <rect x="40" y="28" width="300" height="38" rx="19" fill="none" stroke="#F0D068" stroke-width="2"/>
+    <text x="190" y="53" font-size="17" fill="#F0D068">Illustration, not a screenshot</text>
+
+    <text x="270" y="136" font-size="22" font-weight="600">Column headers in your file (example)</text>
+    <text x="930" y="136" font-size="22" font-weight="600">What Compass records</text>
+
+    <g font-size="24">
+      <rect x="80" y="162" width="380" height="56" rx="10" fill="#1C2E54"/>
+      <text x="270" y="198">Transaction Date</text>
+      <rect x="740" y="162" width="380" height="56" rx="10" fill="#1C2E54"/>
+      <text x="930" y="198">Date</text>
+
+      <rect x="80" y="242" width="380" height="56" rx="10" fill="#1C2E54"/>
+      <text x="270" y="278">Description</text>
+      <rect x="740" y="242" width="380" height="56" rx="10" fill="#1C2E54"/>
+      <text x="930" y="278">Description</text>
+
+      <rect x="80" y="322" width="380" height="56" rx="10" fill="#1C2E54"/>
+      <text x="270" y="358">Debit</text>
+      <rect x="740" y="322" width="380" height="56" rx="10" fill="#1C2E54"/>
+      <text x="930" y="358">Amount (money out)</text>
+
+      <rect x="80" y="402" width="380" height="56" rx="10" fill="#1C2E54"/>
+      <text x="270" y="438">Credit</text>
+      <rect x="740" y="402" width="380" height="56" rx="10" fill="#1C2E54"/>
+      <text x="930" y="438">Amount (money in)</text>
+    </g>
+
+    <g stroke="#C08A1C" stroke-width="3" marker-end="url(#arrow)">
+      <line x1="476" y1="190" x2="724" y2="190"/>
+      <line x1="476" y1="270" x2="724" y2="270"/>
+      <line x1="476" y1="350" x2="724" y2="350"/>
+      <line x1="476" y1="430" x2="724" y2="430"/>
+    </g>
+
+    <text x="600" y="518" font-size="17" fill="#97A6C4">Example header names. Your bank's may differ.</text>
+  </g>
+</svg>
