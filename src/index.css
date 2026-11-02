@@ -1271,8 +1271,8 @@ body::after {
 .plan-range-scale { display: flex; justify-content: space-between; margin-top: 2px; font-size: 10px; color: hsl(var(--muted-foreground)); font-variant-numeric: tabular-nums; }
 .plan-range-cap { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; font-size: 11px; color: hsl(var(--gold-ink)); }
 .plan-view-note { min-height: 18px; margin-top: 10px; font-size: 12px; color: hsl(var(--muted-foreground)); }
-/* The headline's top rule carries the verdict as a lit line: gold when covered, amber when the
-   cushion is at risk, red on a shortfall. */
+/* The headline's top rule lights up only when something needs attention: amber at risk, red on
+   a shortfall. All-good stays quiet, so the warning states keep their salience by scarcity. */
 .plan-summary { position: relative; }
 .plan-summary::before {
   content: "";
@@ -1284,12 +1284,12 @@ body::after {
   pointer-events: none;
   background: linear-gradient(90deg, transparent, var(--verdict) 18%, var(--verdict) 82%, transparent);
   box-shadow: 0 0 10px var(--verdict);
-  opacity: 0.75;
+  opacity: 0;
   transition: opacity 0.4s ease;
-  --verdict: hsl(var(--primary) / 0.65);
+  --verdict: transparent;
 }
-.plan-summary[data-state="risk"]::before { --verdict: hsl(var(--warning) / 0.8); }
-.plan-summary[data-state="short"]::before { --verdict: hsl(var(--error) / 0.85); }
+.plan-summary[data-state="risk"]::before { --verdict: hsl(var(--warning) / 0.8); opacity: 0.75; }
+.plan-summary[data-state="short"]::before { --verdict: hsl(var(--error) / 0.85); opacity: 0.75; }
 .plan-map .flow-map { margin-top: 4px; }
 /* The line chart draws itself in from today when it mounts (window or view change). */
 @keyframes horizon-draw {

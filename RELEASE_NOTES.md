@@ -41,7 +41,8 @@ brings together the 1.3.11 and 1.3.12 development builds (#120, #121, #122) and 
   chart on or off. The view and these choices are saved per profile; Reset still clears only your
   what-ifs.
 - Safe to spend and Lowest point count smoothly to their new values as you drag, the window and unit
-  switches glide between settings, and the headline's top edge glows gold, amber or red with the verdict.
+  switches glide between settings, and the headline's top edge lights amber or red when the forecast is
+  at risk or short.
   All of it respects the reduced-motion setting.
 
 ### A smoother, sharper finish (#123)
