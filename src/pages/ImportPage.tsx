@@ -21,6 +21,7 @@ import {
 import type { DuplicateCandidate } from "@/lib/importParsing";
 import {
   parseInvestmentWorkbook, buildInvestmentRow, columnFillCount, sectionHasNoValueData,
+  defaultSourceAccountName, sourceRoutingProblem, workbookSheetRows,
   HOLDING_FIELDS, SUPPORTED_INVESTMENT_FORMATS,
 } from "@/lib/investmentParsing";
 import type { InvestmentRow, ParsedInvestment } from "@/lib/investmentParsing";
@@ -523,6 +524,8 @@ export default function ImportPage() {
   const [colMapOverrides, setColMapOverrides] = useState<Record<string, Record<string, number>>>({});
   const [fixColumnsOpen, setFixColumnsOpen] = useState<Set<string>>(new Set());
   const [accountChoice, setAccountChoice] = useState<AccountChoice | null>(null);
+  // Multi-account files (Vanguard): one explicit destination per source account number.
+  const [sourceAccountChoices, setSourceAccountChoices] = useState<Record<string, AccountChoice>>({});
   const [existingAccountsForType, setExistingAccountsForType] = useState<Account[]>([]);
   // Optional APR/minimum payment entered/edited on the "which account" step for credit imports
   // only - purely informational (same as a loan's rate/payment), lets credit cards join
@@ -647,6 +650,19 @@ export default function ImportPage() {
       try {
         const accounts = await listAccountsForProfile(profileId, accountType);
         setExistingAccountsForType(accounts);
+        const sourceAccounts = importKind === "investment" ? invParsed?.accountNumbers ?? [] : [];
+        if (sourceAccounts.length > 0) {
+          // Suggest an existing account only on an exact name match with what a previous import
+          // created; everything else defaults to its own new account, never one shared account.
+          setSourceAccountChoices((prev) => Object.fromEntries(sourceAccounts.map((n) => {
+            if (prev[n]) return [n, prev[n]];
+            const name = defaultSourceAccountName(n);
+            const matches = accounts.filter((a) => a.name.toLowerCase() === name.toLowerCase() && a.institution === "Vanguard");
+            const match = matches.length === 1 ? matches[0] : undefined;
+            return [n, match ? { mode: "existing", accountId: match.id, name: match.name } : { mode: "new", name, institution: "Vanguard" }];
+          })));
+          return;
+        }
         if (accountChoice) return;
         if (lastResolvedAccountRef.current?.accountType === accountType) {
           const prior = accounts.find((a) => a.id === lastResolvedAccountRef.current!.accountId);
@@ -752,6 +768,9 @@ export default function ImportPage() {
     return { marketValue, estAnnualIncome, count };
   }, [derivedSections]);
 
+  const multiSourceAccounts = importKind === "investment" ? invParsed?.accountNumbers ?? [] : [];
+  const sourceRoutingError = multiSourceAccounts.length > 0 ? sourceRoutingProblem(multiSourceAccounts, sourceAccountChoices) : null;
+
   const loadHistory = useCallback(async () => {
     const db = await getDb();
     const rows = await db.select<ImportSession[]>(
@@ -854,35 +873,69 @@ export default function ImportPage() {
    */
   const handleInvestmentImport = async (profileIdOverride?: number, replaceExisting = false) => {
     if (!invParsed) return;
+    if (!invParsed.asOfDate || (invParsed.accountNumbers?.length && sourceRoutingProblem(invParsed.accountNumbers, sourceAccountChoices))) {
+      setError("Enter the valuation date and choose a separate destination for each account.");
+      return;
+    }
     const targetProfileId = profileIdOverride ?? profileId;
     setStep("importing");
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     try {
       const db = await getDb();
-      const accountId = await resolveAccountId(
-        targetProfileId,
-        "investment",
-        accountChoice ?? { mode: "new", name: "Investment Account", institution: "Imported" }
-      );
-      // Once a new account is actually created, lock the choice onto that concrete row -
-      // otherwise a batch of files would each independently create ANOTHER "new" account
-      // instead of sharing the one just created.
-      setAccountChoice((prev) => (prev?.mode === "existing" && prev.accountId === accountId ? prev : { mode: "existing", accountId, name: prev?.name ?? "Investment Account" }));
-      lastResolvedAccountRef.current = { accountType: "investment", accountId };
+      // One destination per source account (multi-account files), else the single wizard choice.
+      const sourceAccounts = invParsed.accountNumbers ?? [];
+      const accountIds = new Map<string | undefined, number>();
+      if (sourceAccounts.length > 0) {
+        const locked: Record<string, AccountChoice> = {};
+        for (const n of sourceAccounts) {
+          const choice = sourceAccountChoices[n];
+          const id = await resolveAccountId(targetProfileId, "investment", choice);
+          accountIds.set(n, id);
+          locked[n] = { mode: "existing", accountId: id, name: choice.name };
+        }
+        setSourceAccountChoices(locked); // a retry/replace reuses the accounts just created
+      } else {
+        const accountId = await resolveAccountId(
+          targetProfileId,
+          "investment",
+          accountChoice ?? { mode: "new", name: "Investment Account", institution: "Imported" }
+        );
+        accountIds.set(undefined, accountId);
+        // Once a new account is actually created, lock the choice onto that concrete row -
+        // otherwise a batch of files would each independently create ANOTHER "new" account
+        // instead of sharing the one just created.
+        setAccountChoice((prev) => (prev?.mode === "existing" && prev.accountId === accountId ? prev : { mode: "existing", accountId, name: prev?.name ?? "Investment Account" }));
+        lastResolvedAccountRef.current = { accountType: "investment", accountId };
+      }
+      const accountFor = (sourceAccount: string | undefined) => accountIds.get(sourceAccount)!;
+      // The multi-account download replaces all affected snapshots atomically: a failed insert
+      // must not erase the previous snapshot or leave only one account saved.
+      const pending: Parameters<typeof db.executeBatch>[0] = [];
+      const write = async (sql: string, params: unknown[] = []) => {
+        if (sourceAccounts.length) pending.push({ sql, params });
+        else await db.execute(sql, params);
+      };
 
       // A holdings snapshot has no content hash to dedup on (unlike transactions), so a repeat
       // import of the same statement would silently double every position. Ask, don't guess.
-      const [existing] = await db.select<{ n: number }[]>(
-        "SELECT COUNT(*) as n FROM holdings WHERE account_id=? AND as_of_date=?",
-        [accountId, invParsed.asOfDate]
-      );
-      if ((existing?.n ?? 0) > 0) {
+      const snapshotAccounts = [...new Set(derivedSections.filter((s) => s.rows.length > 0).map((s) => accountFor(s.accountNumber)))];
+      let existingCount = 0;
+      for (const id of snapshotAccounts) {
+        const [existing] = await db.select<{ n: number }[]>(
+          "SELECT COUNT(*) as n FROM holdings WHERE account_id=? AND as_of_date=?",
+          [id, invParsed.asOfDate]
+        );
+        existingCount += existing?.n ?? 0;
+      }
+      if (existingCount > 0) {
         if (!replaceExisting) {
-          setDuplicateSnapshot({ accountId, count: existing.n, profileIdOverride });
+          setDuplicateSnapshot({ accountId: snapshotAccounts[0], count: existingCount, profileIdOverride });
           setStep("wizard:investment-preview");
           return;
         }
-        await db.execute("DELETE FROM holdings WHERE account_id=? AND as_of_date=?", [accountId, invParsed.asOfDate]);
+        for (const id of snapshotAccounts) {
+          await write("DELETE FROM holdings WHERE account_id=? AND as_of_date=?", [id, invParsed.asOfDate]);
+        }
       }
       setDuplicateSnapshot(null);
 
@@ -895,14 +948,14 @@ export default function ImportPage() {
       let imported = 0;
       for (const section of derivedSections) {
         for (const row of section.rows) {
-          await db.execute(
+          await write(
             `INSERT INTO holdings
                (account_id, profile_id, import_session_id, as_of_date, security_type, symbol, description,
                 shares, price_cents, market_value_cents, cost_basis_cents, trade_date,
                 dividend_per_share_cents, est_annual_income_cents)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
-              accountId, targetProfileId, sessionId, invParsed.asOfDate, row.securityType, row.symbol, row.description,
+              accountFor(section.accountNumber), targetProfileId, sessionId, invParsed.asOfDate, row.securityType, row.symbol, row.description,
               row.shares,
               row.price !== null ? Math.round(row.price * 100) : null,
               row.marketValue !== null ? Math.round(row.marketValue * 100) : null,
@@ -926,24 +979,33 @@ export default function ImportPage() {
           String(act.quantity ?? ""), String(act.amount),
         ]);
         try {
-          await db.execute(
+          if (sourceAccounts.length) {
+            const existing = await db.select<{ id: number }[]>(
+              "SELECT id FROM investment_activity WHERE account_id=? AND import_hash=?",
+              [accountFor(act.accountNumber), importHash]
+            );
+            if (existing.length) { activitySkipped++; continue; }
+          }
+          await write(
             `INSERT INTO investment_activity
                (account_id, profile_id, import_session_id, trade_date, settle_date, activity_type,
                 raw_activity_type, symbol, description, quantity, price_cents, amount_cents,
-                cost_basis_cents, realized_gain_cents, acquired_date, term, import_hash)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                cost_basis_cents, realized_gain_cents, acquired_date, term, import_hash, source_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
-              accountId, targetProfileId, sessionId, act.date, act.settleDate, act.activityType,
+              accountFor(act.accountNumber), targetProfileId, sessionId, act.date, act.settleDate, act.activityType,
               act.rawActivityType, act.symbol, act.description, act.quantity,
               act.price !== null ? Math.round(act.price * 100) : null,
               Math.round(act.amount * 100),
               act.costBasis !== null ? Math.round(act.costBasis * 100) : null,
               act.realizedGain !== null ? Math.round(act.realizedGain * 100) : null,
               act.acquiredDate, act.term, importHash,
+              act.sourceFields ? JSON.stringify(act.sourceFields) : null,
             ]
           );
           activityImported++;
-        } catch {
+        } catch (err) {
+          if (!String(err).includes("UNIQUE constraint failed")) throw err;
           activitySkipped++; // UNIQUE(account_id, import_hash) - already imported
         }
       }
@@ -977,7 +1039,7 @@ export default function ImportPage() {
              realized_gain_ytd_cents=excluded.realized_gain_ytd_cents,
              unrealized_gain_cents=excluded.unrealized_gain_cents`,
           [
-            accountId, targetProfileId, sessionId, s.periodStart, s.periodEnd,
+            accountFor(undefined), targetProfileId, sessionId, s.periodStart, s.periodEnd,
             cents(s.beginningValue), cents(s.endingValue), cents(s.changeInValue), cents(s.cashBalance),
             cents(s.deposits), cents(s.withdrawals), cents(s.transfers), cents(s.income),
             cents(s.dividends), cents(s.interest), cents(s.fees),
@@ -986,8 +1048,16 @@ export default function ImportPage() {
         );
       }
 
-      await db.execute("UPDATE import_sessions SET row_count=?, skipped_count=? WHERE id=?",
+      await write("UPDATE import_sessions SET row_count=?, skipped_count=? WHERE id=?",
         [imported + activityImported, activitySkipped, sessionId]);
+      if (pending.length) {
+        try { await db.executeBatch(pending); }
+        catch (err) {
+          // The batch rolled back its rows; do not leave an empty successful-looking session.
+          await db.execute("DELETE FROM import_sessions WHERE id=? AND profile_id=?", [sessionId, targetProfileId]);
+          throw err;
+        }
+      }
       const cryptoMatched = await reconcileCryptoAfterImport();
       setSummary({ imported, skipped: activitySkipped, activityImported, cryptoMatched });
       await loadHistory();
@@ -1057,14 +1127,7 @@ export default function ImportPage() {
       file.arrayBuffer().then((buf) => {
         try {
           const wb = XLSX.read(buf, { type: "array", cellDates: false });
-          // raw:false returns each cell's formatted display text (e.g. "$1,234.56", "07/15/2026")
-          // instead of the underlying number/date serial, matching what our string-based
-          // parsers (parseAmount/parseDate) expect. Every cell is also defensively coerced to
-          // a string so a stray number/Date object can never crash downstream .trim() calls.
-          const sheetToRows = (name: string): string[][] => {
-            const raw = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: "", raw: false }) as unknown[][];
-            return raw.map((row) => row.map((c) => (c === null || c === undefined ? "" : String(c))));
-          };
+          const sheetToRows = (name: string) => workbookSheetRows(wb, name);
 
           let data: string[][];
           if (importKind === "investment" && wb.SheetNames.length > 1) {
@@ -1122,7 +1185,13 @@ export default function ImportPage() {
       setStep("upload");
       return;
     }
+    if (result.asOfDateUnknown && result.sections.length === 0 && result.activity.length === 0) {
+      setError(`This looks like a Vanguard download, but it has no complete rows to import. ${(result.notes ?? []).slice(2).join(" ")}`);
+      setStep("upload");
+      return;
+    }
     setInvParsed(result);
+    setSourceAccountChoices({});
     setColMapOverrides({});
     setFixColumnsOpen(new Set());
     setAccountChoice(null);
@@ -1840,6 +1909,56 @@ export default function ImportPage() {
             </div>
           </div>
 
+          {multiSourceAccounts.length > 0 ? (
+          <div className="border rounded-xl p-5 space-y-4">
+            <p className="text-sm">
+              This file has <strong>{multiSourceAccounts.length}</strong> account{multiSourceAccounts.length === 1 ? "" : "s"}. Choose where each one goes - each keeps its own holdings and activity.
+            </p>
+            {multiSourceAccounts.map((n, i) => {
+              const choice = sourceAccountChoices[n];
+              const sections = invParsed?.sections.filter((s) => s.accountNumber === n) ?? [];
+              const positions = sections.reduce((c, s) => c + s.rows.length, 0);
+              const value = sections.reduce((v, s) => v + s.totalMarketValue, 0);
+              const acts = invParsed?.activity.filter((a) => a.accountNumber === n).length ?? 0;
+              const setChoice = (c: AccountChoice) => setSourceAccountChoices((prev) => ({ ...prev, [n]: c }));
+              return (
+                <div key={n} className="border rounded-lg p-3 space-y-2">
+                  <label htmlFor={`source-account-${i}`} className="text-sm font-medium block">
+                    Account {n}
+                    <span className="font-normal text-xs text-[hsl(var(--muted-foreground))]">
+                      {" "}· {positions} position{positions === 1 ? "" : "s"}, {formatCurrency(Math.round(value * 100))} · {acts} activit{acts === 1 ? "y" : "ies"}
+                    </span>
+                  </label>
+                  <select
+                    id={`source-account-${i}`}
+                    value={choice?.mode === "existing" ? String(choice.accountId) : "new"}
+                    onChange={(e) => {
+                      const acct = existingAccountsForType.find((a) => a.id === parseInt(e.target.value));
+                      setChoice(acct ? { mode: "existing", accountId: acct.id, name: acct.name } : { mode: "new", name: defaultSourceAccountName(n), institution: "Vanguard" });
+                    }}
+                    className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
+                    <option value="new">Create a new account</option>
+                    {existingAccountsForType.map((a) => (
+                      <option key={a.id} value={a.id}>Add to {a.name}{a.institution && a.institution !== "Imported" ? ` (${a.institution})` : ""}</option>
+                    ))}
+                  </select>
+                  {choice?.mode === "new" && (
+                    <input
+                      type="text"
+                      aria-label={`New account name for ${n}`}
+                      value={choice.name}
+                      onChange={(e) => setChoice({ mode: "new", name: e.target.value, institution: "Vanguard" })}
+                      className="w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
+                    />
+                  )}
+                </div>
+              );
+            })}
+            {sourceRoutingError && (
+              <p role="alert" className="text-xs text-[hsl(var(--error))] flex items-start gap-1.5"><WarningIcon size={13} className="shrink-0 mt-0.5" />{sourceRoutingError}</p>
+            )}
+          </div>
+          ) : (
           <div className="border rounded-xl p-5 space-y-4">
             {accountChoice?.mode === "existing" && (
               <div className="px-3 py-2.5 rounded-lg text-sm border border-[hsl(var(--success)/0.4)] bg-[hsl(var(--success)/0.08)]
@@ -1954,6 +2073,7 @@ export default function ImportPage() {
               </div>
             )}
           </div>
+          )}
 
           <div className="flex gap-3">
             <button onClick={() => wizardGo("upload", "back")}
@@ -1962,7 +2082,7 @@ export default function ImportPage() {
             </button>
             <button
               onClick={() => wizardGo(importKind === "investment" ? "wizard:investment-preview" : "wizard:data", "forward")}
-              disabled={!accountChoice || (accountChoice.mode === "new" && !accountChoice.name.trim())}
+              disabled={multiSourceAccounts.length > 0 ? sourceRoutingError !== null : !accountChoice || (accountChoice.mode === "new" && !accountChoice.name.trim())}
               className="px-5 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed">
               Continue
             </button>
@@ -2453,7 +2573,8 @@ export default function ImportPage() {
                 {invParsed.summary ? "Statement Review" : "Portfolio Positions"}
               </h2>
               <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">
-                {invParsed.accountLabel ? `${invParsed.accountLabel}, ` : ""}Priced as of {formatDate(invParsed.asOfDate)}
+                {invParsed.accountLabel ? `${invParsed.accountLabel}, ` : ""}
+                {invParsed.asOfDate ? <>Priced as of {formatDate(invParsed.asOfDate)}{invParsed.asOfDateUnknown && " (date you entered)"}</> : "Valuation date not in the file"}
               </p>
             </div>
           </div>
@@ -2466,7 +2587,38 @@ export default function ImportPage() {
             </ul>
           )}
 
-          {accountChoice && (
+          {invParsed.asOfDateUnknown && (
+            <div className="space-y-1">
+              <label htmlFor="inv-as-of-date" className="text-xs font-medium text-[hsl(var(--muted-foreground))] block">
+                Valuation date (required - the file doesn't include one)
+              </label>
+              <input
+                id="inv-as-of-date"
+                type="date"
+                value={invParsed.asOfDate}
+                max={toISODate(new Date())}
+                onChange={(e) => { setDuplicateSnapshot(null); setInvParsed({ ...invParsed, asOfDate: e.target.value }); }}
+                className="border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
+              />
+              <p className="text-[11px] text-[hsl(var(--muted-foreground))]">Use the day you downloaded the file. Compass labels the holdings with this date, not the import time.</p>
+            </div>
+          )}
+
+          {multiSourceAccounts.length > 0 && (
+            <ul className="text-xs text-[hsl(var(--success))] space-y-0.5">
+              {multiSourceAccounts.map((n) => {
+                const c = sourceAccountChoices[n];
+                return (
+                  <li key={n} className="flex items-center gap-1">
+                    <CheckCircleIcon size={12} />
+                    Account {n} → {c?.mode === "existing" ? <>your existing <strong>{c.name}</strong> account</> : <>new account <strong>{c?.name}</strong></>}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          {accountChoice && multiSourceAccounts.length === 0 && (
             <p className="text-xs text-[hsl(var(--success))] flex items-center gap-1">
               <CheckCircleIcon size={12} />
               {accountChoice.mode === "existing"
@@ -2624,7 +2776,7 @@ export default function ImportPage() {
                   {invParsed.activity.slice(0, 8).map((act, i) => (
                     <tr key={i} className="border-t">
                       <td className="px-4 py-2 text-xs whitespace-nowrap">{formatDate(act.date)}</td>
-                      <td className="px-4 py-2 text-xs">{ACTIVITY_TYPE_LABELS[act.activityType]}</td>
+                      <td className="px-4 py-2 text-xs">{ACTIVITY_TYPE_LABELS[act.activityType]}{act.sourceFields && act.activityType === "other" ? ` - review (${act.rawActivityType})` : ""}</td>
                       <td className="px-4 py-2 max-w-xs truncate text-xs">{act.description}</td>
                       <td className="px-4 py-2 text-right text-xs">{act.quantity ?? "-"}</td>
                       <td className={`px-4 py-2 text-right text-xs ${act.amount < 0 ? "text-[hsl(var(--error))]" : ""}`}>
@@ -2644,7 +2796,7 @@ export default function ImportPage() {
             <div className="p-3 border border-[hsl(var(--warning)/0.4)] rounded-lg bg-[hsl(var(--warning)/0.06)] space-y-2">
               <p className="text-xs text-[hsl(var(--warning))] flex items-start gap-1.5">
                 <WarningIcon size={13} className="shrink-0 mt-0.5" />
-                This account already has <strong>{duplicateSnapshot.count}</strong> position{duplicateSnapshot.count === 1 ? "" : "s"} recorded
+                {multiSourceAccounts.length > 1 ? "These accounts already have" : "This account already has"} <strong>{duplicateSnapshot.count}</strong> position{duplicateSnapshot.count === 1 ? "" : "s"} recorded
                 for {formatDate(invParsed.asOfDate)}. Importing again would double-count them.
               </p>
               <button
@@ -2661,7 +2813,8 @@ export default function ImportPage() {
               Back
             </button>
             <button onClick={() => handleInvestmentImport()}
-              className="px-6 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg font-medium hover:opacity-90 transition-opacity">
+              disabled={!invParsed.asOfDate || (multiSourceAccounts.length > 0 && sourceRoutingError !== null)}
+              className="px-6 py-2 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed">
               Import {invTotals.count} Position{invTotals.count === 1 ? "" : "s"}
               {invParsed.activity.length > 0 && ` + ${invParsed.activity.length} Activity`}
             </button>

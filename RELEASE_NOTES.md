@@ -2,6 +2,27 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.15 — Vanguard import and asset allocation
+
+Prepared for the next stable release; not merged or released.
+
+### Vanguard Excel import
+- Detect Vanguard's holdings and activity tables by column headers, including reordered columns and multi-account downloads.
+- Preview every source account and require separate account destinations plus an explicit holdings valuation date. Use source market values for snapshots, not cost basis or realized gains.
+- Preserve original activity cells locally, including signed net amount, fees, principal, accrued interest, account type and both dates. Repeated-file imports are idempotent without collapsing legitimate repeated rows.
+- Keep distributions and corporate actions under review instead of inventing income, basis or lot adjustments. Warn about incomplete rows, numeric account identifiers and assumed currency/date conventions.
+
+### Editable asset classes
+- Add optional Cash, Equity and Bond labels, with equity region/size and free-text bond details. Preserve the source security type and leave unlabeled values Unclassified.
+- Show a separate asset-class breakdown using the latest holdings snapshots and selected account scope. No automatic fund look-through or estimated regional exposure is added.
+- Persist labels within the active profile across reloads and replacement snapshots; account/profile deletion cleans up their labels.
+
+### Import safeguards
+- Apply a multi-account snapshot replacement atomically and surface save failures. Preserve legacy import paths.
+- Add synthetic XLSX, allocation, migration and browser regression coverage. No private brokerage workbook or financial records are included.
+
+Implementation: Vanguard import and editable asset allocation (PR reference added on publication).
+
 ## Compass 1.3.14 — Fresh Count 🧭
 
 A small maintenance release: nothing changes inside the app, but the public download numbers now

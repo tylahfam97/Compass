@@ -1,6 +1,7 @@
 import { test as base, expect } from "@playwright/test";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { createHash } from "node:crypto";
+import * as XLSX from "xlsx";
 
 const test = base.extend<{ database: DatabaseSync; today: Date | undefined }>({
   // Seeds dates from this day and, when set, pins the browser's Date to it too (timers keep running).
@@ -9,7 +10,12 @@ const test = base.extend<{ database: DatabaseSync; today: Date | undefined }>({
     if (today) await page.clock.setFixedTime(today);
     const database = new DatabaseSync(":memory:");
     await page.exposeBinding("compassTestInvoke", async (_source, command: string, args: { sql?: string; params?: SQLInputValue[]; statements?: { sql: string; params?: SQLInputValue[] }[] } = {}) => {
-      if (command === "db_select") return database.prepare(args.sql!).all(...(args.params ?? []));
+      if (command === "db_select") {
+        // Keep the native SELECT comment/stacked-statement guard in this bridge too: otherwise
+        // browser tests can pass a query that src-tauri/src/lib.rs rejects at runtime.
+        if (args.sql!.includes("--") || args.sql!.includes(";")) throw new Error("db_select: multiple statements or comments not permitted");
+        return database.prepare(args.sql!).all(...(args.params ?? []));
+      }
       if (command === "db_execute") {
         const result = database.prepare(args.sql!).run(...(args.params ?? []));
         return { lastInsertId: Number(result.lastInsertRowid), rowsAffected: Number(result.changes) };
@@ -1162,4 +1168,175 @@ test("Ledger crypto export imports as an investment holding with transfers, not 
   expect(purchases()).toEqual(matched);
   expect(database.prepare("SELECT COUNT(*) AS n FROM crypto_transfer_links").get()).toEqual({ n: 1 });
   expect(database.prepare("SELECT COUNT(*) AS n FROM transactions").get()).toEqual(transactionsBefore);
+});
+
+test("Vanguard schema upgrades existing SQLite data and keeps classifications profile-scoped", async ({ page, database }) => {
+  database.exec("INSERT INTO accounts (id,name,account_type,profile_id) VALUES (2,'Synthetic legacy','investment',1)");
+  database.exec("INSERT INTO holdings (account_id,profile_id,as_of_date,security_type,symbol,description,market_value_cents) VALUES (2,1,'2026-01-31','mutual_fund','ZZMIG','Synthetic legacy fund',25000)");
+  database.exec("INSERT INTO investment_activity (account_id,profile_id,trade_date,activity_type,amount_cents,import_hash) VALUES (2,1,'2026-01-15','dividend',123,'synthetic-legacy')");
+  database.exec("DROP TABLE holding_classes; ALTER TABLE investment_activity DROP COLUMN source_json");
+  const before = database.prepare("SELECT * FROM transactions ORDER BY id").all();
+  await page.goto("/investments");
+  await expect(page.getByLabel("Asset class for ZZMIG")).toHaveValue("");
+  expect(database.prepare("SELECT amount_cents,source_json FROM investment_activity WHERE import_hash='synthetic-legacy'").get()).toEqual({ amount_cents: 123, source_json: null });
+  expect(database.prepare("SELECT * FROM transactions ORDER BY id").all()).toEqual(before);
+  database.exec("INSERT INTO profiles (id,name) VALUES (2,'Synthetic other profile')");
+  database.exec("INSERT INTO holding_classes (profile_id,identity,asset_class) VALUES (2,'symbol:ZZMIG','equity')");
+  await page.reload();
+  await expect(page.getByLabel("Asset class for ZZMIG")).toHaveValue("");
+  await page.getByLabel("Asset class for ZZMIG").selectOption("bond");
+  await expect(page.getByLabel("Bond details for ZZMIG")).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel("Asset class for ZZMIG")).toHaveValue("bond");
+  expect(database.prepare("SELECT profile_id,asset_class FROM holding_classes ORDER BY profile_id").all()).toEqual([{ profile_id: 1, asset_class: "bond" }, { profile_id: 2, asset_class: "equity" }]);
+  expect(database.prepare("SELECT COUNT(*) AS n FROM holdings").get()).toEqual({ n: 1 });
+});
+
+test("Vanguard holdings + activity workbook routes each account, dedupes re-imports and feeds the asset-class view", async ({ page, database }) => {
+  // Invented accounts, funds and amounts in Vanguard's one-sheet, two-table layout.
+  const holdingsHeader = ["Account Number", "Investment Name", "Symbol", "Shares", "Share Price", "Total Value"];
+  const activityHeader = ["Account Number", "Trade Date", "Settlement Date", "Transaction Type", "Transaction Description", "Investment Name", "Symbol", "Shares", "Share Price", "Principal Amount", "Commissions and Fees", "Net Amount", "Accrued Interest", "Account Type"];
+  const row = (acct: string, date: string, type: string, desc: string, sym: string, net: string, fees = "") => [acct, date, date, type, desc, `SYNTHETIC ${sym} FUND`, sym, "", "", "", fees, net, "0", "CASH"];
+  const aoa = [
+    holdingsHeader,
+    ["000123456789", "SYNTHETIC TOTAL MARKET FUND", "ZZTMX", "10", "100", "1,000.00"],
+    ["000123456789", "SYNTHETIC BOND FUND", "ZZBDX", "5", "22", "110.00"],
+    [],
+    ["88880001", "SYNTHETIC TOTAL MARKET FUND", "ZZTMX", "2", "100", "200.00"],
+    ["88880001", "SYNTHETIC MONEY MARKET FUND", "ZZMMX", "50.25", "1", "50.25"],
+    [], ["space"], ["space"],
+    activityHeader,
+    row("000123456789", "2026-01-15", "Dividend", "Dividend Received", "ZZTMX", "12.34"),
+    row("000123456789", "2026-01-15", "Reinvestment", "Dividend Reinvestment", "ZZTMX", "-12.34"),
+    row("000123456789", "2026-01-16", "Sell", "Sell", "ZZBDX", "10.00", "2.00"),
+    row("88880001", "2026-01-20", "Sweep in", "Sweep into settlement account", "ZZMMX", "50.00"),
+    row("88880001", "2026-01-25", "Dividend", "Dividend Received", "ZZTMX", "3.00"),
+    row("88880001", "2026-01-25", "Dividend", "Dividend Received", "ZZTMX", "3.00"),
+    row("88880001", "2026-01-26", "Corp Action (Cusip Change)", "Cusip change", "ZZTMX", "0"),
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), "Synthetic");
+  const file = { name: "synthetic-vanguard.xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" })) };
+
+  const upload = async () => {
+    await page.goto("/import");
+    await page.getByRole("button", { name: /Investment \/ Brokerage/ }).click();
+    await page.locator("#csv-input").setInputFiles(file);
+    await expect(page.getByText("This file has 2 accounts")).toBeVisible();
+  };
+  await upload();
+  const first = page.locator("#source-account-0");
+  await expect(first).toHaveValue("new");
+  const firstName = page.getByLabel("New account name for 000123456789");
+  await expect(firstName).toHaveValue("Vanguard ••6789");
+  // Two source accounts can't be sent to one destination.
+  await firstName.fill("Vanguard ••0001");
+  await expect(page.getByRole("alert")).toContainText("same Compass account");
+  await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
+  await firstName.fill("Synthetic Brokerage");
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  // Back keeps the routing.
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(page.getByLabel("New account name for 000123456789")).toHaveValue("Synthetic Brokerage");
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+
+  await expect(page.getByRole("note")).toContainText("no valuation date or currency");
+  await expect(page.getByRole("note")).toContainText("1 corporate action (CUSIP change, spinoff...) was saved for reference");
+  const importButton = page.getByRole("button", { name: /^Import 4 Positions \+ 7 Activity/ });
+  await expect(importButton).toBeDisabled(); // no valuation date yet
+  await page.getByLabel(/Valuation date/).fill("2026-01-31");
+  await importButton.click();
+  await expect(page.getByText("Import complete")).toBeVisible();
+
+  const accounts = () => database.prepare("SELECT id, name, institution FROM accounts WHERE account_type='investment' ORDER BY name").all() as { id: number; name: string }[];
+  expect(accounts().map((a) => a.name)).toEqual(["Synthetic Brokerage", "Vanguard ••0001"]);
+  const perAccount = () => database.prepare("SELECT a.name, h.as_of_date, COUNT(*) AS n, SUM(h.market_value_cents) AS value, MAX(h.cost_basis_cents) AS basis FROM holdings h JOIN accounts a ON a.id=h.account_id GROUP BY a.id ORDER BY a.name").all();
+  const expected = [
+    { name: "Synthetic Brokerage", as_of_date: "2026-01-31", n: 2, value: 111_000, basis: null },
+    { name: "Vanguard ••0001", as_of_date: "2026-01-31", n: 2, value: 25_025, basis: null },
+  ];
+  expect(perAccount()).toEqual(expected);
+  const activity = () => database.prepare("SELECT a.name, ia.activity_type, ia.amount_cents, ia.source_json FROM investment_activity ia JOIN accounts a ON a.id=ia.account_id ORDER BY ia.id").all() as { name: string; activity_type: string; amount_cents: number; source_json: string }[];
+  expect(activity().map((r) => [r.name, r.activity_type, r.amount_cents])).toEqual([
+    ["Synthetic Brokerage", "dividend", 1234], ["Synthetic Brokerage", "reinvest", -1234], ["Synthetic Brokerage", "sell", 1000],
+    ["Vanguard ••0001", "transfer", 5000], ["Vanguard ••0001", "dividend", 300], ["Vanguard ••0001", "dividend", 300], ["Vanguard ••0001", "other", 0],
+  ]);
+  expect(JSON.parse(activity()[2].source_json)).toMatchObject({ "Commissions and Fees": "2.00", "Net Amount": "10.00", "Settlement Date": "2026-01-16", "Account Type": "CASH" });
+  expect(database.prepare("SELECT COUNT(*) AS n FROM transactions WHERE description LIKE '%SYNTHETIC%' OR description LIKE '%Dividend%'").get()).toEqual({ n: 0 });
+
+  // Re-importing the same file: routed to the same two accounts, the snapshot is replaced (not
+  // doubled) and every activity row is recognized as already imported.
+  await upload();
+  await page.locator("#source-account-0").selectOption({ label: "Add to Synthetic Brokerage (Vanguard)" });
+  await expect(page.locator("#source-account-1")).toHaveValue(String(accounts()[1].id));
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByLabel(/Valuation date/).fill("2026-01-31");
+  await page.getByRole("button", { name: /^Import 4 Positions/ }).click();
+  await expect(page.getByText("These accounts already have")).toBeVisible();
+  await page.getByRole("button", { name: "Replace that snapshot" }).click();
+  await expect(page.getByText("Import complete")).toBeVisible();
+  expect(accounts()).toHaveLength(2);
+  expect(perAccount()).toEqual(expected);
+  expect(activity()).toHaveLength(7);
+
+  // Asset classes: unset by default, saved per security, kept across reloads, scoped like the page.
+  await page.goto("/investments");
+  const assetCard = page.getByRole("region", { name: "Asset class" });
+  await expect(assetCard).toContainText("Unclassified$1,360.25, 100%");
+  await page.getByLabel("Asset class for ZZTMX").selectOption("equity");
+  await page.getByLabel("Region for ZZTMX").selectOption("us");
+  await page.getByLabel("Size for ZZTMX").selectOption("large");
+  await page.getByLabel("Asset class for ZZBDX").selectOption("bond");
+  await page.getByLabel("Bond details for ZZBDX").fill("Synthetic short-term government");
+  await page.getByLabel("Bond details for ZZBDX").blur();
+  await expect(assetCard).toContainText("Equity$1,200.00, 88%");
+  await expect(assetCard).toContainText("US$1,200.00, 100%");
+  await expect(assetCard).toContainText("Large cap$1,200.00, 100%");
+  await expect.poll(() => database.prepare("SELECT identity, asset_class, equity_region, equity_size, bond_detail FROM holding_classes ORDER BY identity").all()).toEqual([
+    { identity: "symbol:ZZBDX", asset_class: "bond", equity_region: null, equity_size: null, bond_detail: "Synthetic short-term government" },
+    { identity: "symbol:ZZTMX", asset_class: "equity", equity_region: "us", equity_size: "large", bond_detail: null },
+  ]);
+  await page.reload();
+  await expect(page.getByLabel("Asset class for ZZTMX")).toHaveValue("equity");
+  await expect(assetCard).toContainText("Bond$110.00, 8%");
+  await expect(assetCard).toContainText("Unclassified$50.25, 4%");
+  await page.getByRole("combobox", { name: /^Account/ }).selectOption(String(accounts()[0].id));
+  await expect(assetCard).toContainText("Equity$1,000.00, 90%");
+  // Income counts the reinvested dividend once: 12.34 + 3.00 + 3.00.
+  await page.getByRole("combobox", { name: /^Account/ }).selectOption("all");
+  await page.getByRole("button", { name: /^Income/ }).click();
+  await expect(page.getByText("$18.34")).toBeVisible();
+
+  // Replacement is all-or-nothing across accounts, not DELETE followed by partial inserts.
+  database.exec("CREATE TRIGGER fail_synthetic BEFORE INSERT ON holdings WHEN NEW.symbol='ZZBDX' BEGIN SELECT RAISE(ABORT, 'synthetic insertion failure'); END");
+  await upload();
+  await page.locator("#source-account-0").selectOption(String(accounts()[0].id));
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByLabel(/Valuation date/).fill("2026-01-31");
+  await page.getByRole("button", { name: /^Import 4 Positions/ }).click();
+  await page.getByRole("button", { name: "Replace that snapshot" }).click();
+  await expect(page.getByText(/synthetic insertion failure/)).toBeVisible();
+  expect(perAccount()).toEqual(expected);
+  expect(activity()).toHaveLength(7);
+  database.exec("DROP TRIGGER fail_synthetic");
+  await page.getByRole("button", { name: /^Import 4 Positions/ }).click();
+  await page.getByRole("button", { name: "Replace that snapshot" }).click();
+  await expect(page.getByText("Import complete")).toBeVisible();
+
+  // Manual classes survive replacement and a new snapshot; the latest value is counted once.
+  await upload();
+  await page.locator("#source-account-0").selectOption(String(accounts()[0].id));
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByLabel(/Valuation date/).fill("2026-02-01");
+  await page.getByRole("button", { name: /^Import 4 Positions/ }).click();
+  await expect(page.getByText("Import complete")).toBeVisible();
+  await page.goto("/investments");
+  await expect(page.getByLabel("Asset class for ZZTMX")).toHaveValue("equity");
+  await expect(page.getByLabel("Bond details for ZZBDX")).toHaveValue("Synthetic short-term government");
+  await expect(assetCard).toContainText("Equity$1,200.00, 88%");
+  expect(database.prepare("SELECT COUNT(*) AS n FROM holdings").get()).toEqual({ n: 8 });
+  expect(activity()).toHaveLength(7);
+  await page.screenshot({ path: test.info().outputPath("vanguard-allocation-light.png"), fullPage: true });
+  await page.evaluate(() => document.documentElement.classList.add("dark"));
+  await page.screenshot({ path: test.info().outputPath("vanguard-allocation-dark.png"), fullPage: true });
 });

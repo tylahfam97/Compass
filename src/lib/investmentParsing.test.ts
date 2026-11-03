@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import * as XLSX from "xlsx";
+import { workbookSheetRows, parseVanguardExport, sourceRoutingProblem, defaultSourceAccountName } from "./investmentParsing";
 import {
   detectInvestmentFormat, parseInvestmentWorkbook, parseEtradeStatement,
   classifyEtradeActivity, inferSecurityType, buildHoldingHeaderMap,
@@ -414,5 +416,227 @@ describe("parseLedgerLiveCSV", () => {
     expect(r.sections[0].rows[0].shares).toBe(75.123405); // same as without them: no fee assumed
     expect(r.activity).toHaveLength(3);
     expect(r.notes!.join(" ")).toMatch(/3 failed or unconfirmed operations were left out; the network fee of 1 failed send was still subtracted/);
+  });
+});
+
+// ─── Vanguard holdings + activity download ─────────────────────────────────────
+// Every account, security and amount below is invented. Workbooks go through the real xlsx
+// library (write, then read back with the app's own options) rather than hand-built rows.
+
+/** Builds a one-sheet .xlsx from rows (strings stay text cells, numbers become numeric cells)
+ *  and reads it back exactly as the import page does. */
+function viaXlsx(aoa: (string | number)[][]): string[][] {
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), "Sheet1");
+  const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" });
+  const read = XLSX.read(buf, { type: "array", cellDates: false });
+  return workbookSheetRows(read, read.SheetNames[0]);
+}
+
+const VG_HOLDINGS_HEADER = ["Account Number", "Investment Name", "Symbol", "Shares", "Share Price", "Total Value"];
+const VG_ACTIVITY_HEADER = ["Account Number", "Trade Date", "Settlement Date", "Transaction Type", "Transaction Description",
+  "Investment Name", "Symbol", "Shares", "Share Price", "Principal Amount", "Commissions and Fees", "Net Amount", "Accrued Interest", "Account Type"];
+const act = (acct: string, trade: string | number, settle: string | number, type: string, desc: string, sym: string, net: string | number, extra: Partial<Record<"shares" | "price" | "principal" | "fees" | "accrued", string | number>> = {}) =>
+  [acct, trade, settle, type, desc, sym ? `SYNTHETIC ${sym} FUND` : "", sym, extra.shares ?? "", extra.price ?? "", extra.principal ?? "", extra.fees ?? "", net, extra.accrued ?? 0, "CASH"];
+
+const vgWorkbook = (): (string | number)[][] => [
+  ["Synthetic brokerage download - invented data"],
+  [],
+  VG_HOLDINGS_HEADER,
+  ["000123456789", "SYNTHETIC TOTAL MARKET FUND", "ZZTMX", "10", "100.00", "1,000.00"],
+  ["000123456789", "SYNTHETIC BOND FUND", "ZZBDX", "5", "20", "110.00"],
+  [],
+  ["88880001", "SYNTHETIC TOTAL MARKET FUND", "ZZTMX", 2, 100, 200],
+  ["88880001", "SYNTHETIC MONEY MARKET SETTLEMENT FUND", "ZZMMX", "", "", "50.25"],
+  ["88880001", "", "", "", "", ""],
+  [],
+  ["space"],
+  ["space"],
+  VG_ACTIVITY_HEADER,
+  act("000123456789", "01/15/2026", "01/15/2026", "Dividend", "Dividend Received", "ZZTMX", "12.34"),
+  act("000123456789", "01/15/2026", "01/15/2026", "Reinvestment", "Dividend Reinvestment", "ZZTMX", "-12.34", { shares: "0.1234", price: "100" }),
+  act("000123456789", 46037, 46038, "Sell", "Sell", "ZZBDX", "10.00", { shares: "-1", price: "12", principal: "12.00", fees: "2.00" }),
+  act("000123456789", "2026-01-20", "2026-01-20", "Sweep out", "Sweep into settlement account", "ZZMMX", "-50.00"),
+  act("88880001", "2026-01-20", "2026-01-20", "Sweep in", "Sweep into settlement account", "ZZMMX", "50.00"),
+  act("88880001", "2026-01-21", "2026-01-22", "Withdrawal", "Withdrawal", "", "25.00"),
+  act("88880001", "2026-01-22", "2026-01-22", "Distribution", "Non roth ira distribution", "", "-30.00"),
+  act("88880001", "2026-01-23", "", "Corp Action (Cusip Change)", "Cusip change", "ZZTMX", ""),
+  act("88880001", "2026-01-23", "", "Corp Action(Spinoff)", "Spinoff", "ZZTMX", "0"),
+  act("88880001", "2026-01-24", "2026-01-24", "Margin Thing", "Unknown activity", "", "1.00"),
+  act("88880001", "2026-01-25", "2026-01-25", "Dividend", "Dividend Received", "ZZTMX", "3.00"),
+  act("88880001", "2026-01-25", "2026-01-25", "Dividend", "Dividend Received", "ZZTMX", "3.00"),
+  act("88880001", "not a date", "", "Dividend", "Dividend Received", "ZZTMX", "1.00"),
+  act("88880001", "2026-01-26", "", "Dividend", "positive or negative amounts", "ZZTMX", "positive or negative amounts"),
+];
+
+describe("Vanguard holdings + activity workbook", () => {
+  it("is detected and parsed through the real xlsx reader (was unsupported before)", () => {
+    const rows = viaXlsx(vgWorkbook());
+    expect(detectInvestmentFormat(rows)).toBe("vanguard");
+    const parsed = parseInvestmentWorkbook(rows);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.sections.map((s) => s.rows.length)).toEqual([2, 2]);
+  });
+
+  it("matches the import page's own sheet reader", () => {
+    const wb = XLSX.read(XLSX.write((() => { const b = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(b, XLSX.utils.aoa_to_sheet(vgWorkbook()), "S"); return b; })(), { type: "array", bookType: "xlsx" }), { type: "array" });
+    expect(workbookSheetRows(wb, "S")).toEqual(viaXlsx(vgWorkbook()));
+  });
+
+  it("groups holdings by account, keeps account numbers as text and values at Total Value", () => {
+    const p = parseVanguardExport(viaXlsx(vgWorkbook()))!;
+    expect(p.accountNumbers).toEqual(["000123456789", "88880001"]);
+    expect(p.asOfDate).toBe("");
+    expect(p.asOfDateUnknown).toBe(true);
+    const [a, b] = p.sections;
+    expect(a.accountNumber).toBe("000123456789");
+    expect(a.rows.map((r) => [r.symbol, r.marketValue, r.costBasis])).toEqual([["ZZTMX", 1000, null], ["ZZBDX", 110, null]]);
+    expect(a.totalMarketValue).toBe(1110);
+    expect(b.rows.map((r) => [r.symbol, r.marketValue, r.securityType])).toEqual([["ZZTMX", 200, "mutual_fund"], ["ZZMMX", 50.25, "cash"]]);
+    // Same symbol in two accounts stays two holdings, one per account.
+    expect(p.sections.flatMap((s) => s.rows).filter((r) => r.symbol === "ZZTMX")).toHaveLength(2);
+    const notes = p.notes!.join("\n");
+    expect(notes).toContain("1 holdings row was left out");
+    expect(notes).toContain("1 holding's Shares x Share Price differs from Total Value");
+    expect(notes).toContain("1 row above the first table was ignored");
+    expect(notes).toContain("no valuation date or currency");
+  });
+
+  it("keeps activity signed as in the file, both dates and every source cell, without guessing", () => {
+    const p = parseVanguardExport(viaXlsx(vgWorkbook()))!;
+    const byDesc = (d: string) => p.activity.filter((a) => a.description === d);
+    expect(p.activity.map((a) => [a.activityType, a.amount, a.accountNumber])).toEqual([
+      ["dividend", 12.34, "000123456789"],
+      ["reinvest", -12.34, "000123456789"],
+      ["sell", 10, "000123456789"],
+      ["transfer", -50, "000123456789"],
+      ["transfer", 50, "88880001"],
+      ["withdrawal", 25, "88880001"],
+      ["other", -30, "88880001"],
+      ["other", 0, "88880001"],
+      ["other", 0, "88880001"],
+      ["other", 1, "88880001"],
+      ["dividend", 3, "88880001"],
+      ["dividend", 3, "88880001"],
+    ]);
+    const sell = byDesc("Sell")[0];
+    // Excel serial dates, settlement kept apart from trade; fees preserved, never subtracted again.
+    expect([sell.date, sell.settleDate, sell.realizedGain, sell.costBasis]).toEqual(["2026-01-15", "2026-01-16", null, null]);
+    expect(sell.sourceFields).toMatchObject({ "Principal Amount": "12.00", "Commissions and Fees": "2.00", "Net Amount": "10.00", "Accrued Interest": "0", "Account Type": "CASH" });
+    expect(byDesc("Cusip change")[0].sourceFields!["Net Amount"]).toBeUndefined();
+    const notes = p.notes!.join("\n");
+    expect(notes).toContain("2 activity rows were left out");
+    expect(notes).toContain("1 activity row has a Net Amount sign that doesn't match");
+    expect(notes).toContain("1 distribution was saved as Other");
+    expect(notes).toContain("2 corporate actions (CUSIP change, spinoff...) were saved for reference as Other, with no cash, gain or cost basis applied (1 with no Net Amount");
+    expect(notes).toContain("1 activity row has a transaction type Compass doesn't recognize");
+    // Holdings are never marked cash just because the activity's Account Type says CASH.
+    expect(p.sections[0].rows.every((r) => r.securityType !== "cash")).toBe(true);
+  });
+
+  it("gives identical legitimate rows distinct keys and a reformatted re-download the same keys", () => {
+    const p = parseVanguardExport(viaXlsx(vgWorkbook()))!;
+    const keys = p.activity.map((a) => a.importKey!);
+    expect(new Set(keys).size).toBe(keys.length);
+    const twins = p.activity.filter((a) => a.date === "2026-01-25").map((a) => a.importKey!);
+    expect(twins[1]).toBe(`${twins[0]}#1`);
+    // Reformatted: reordered columns, other date/money formatting and case - same rows.
+    const order = [3, 0, 2, 1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
+    const reformatted = vgWorkbook().map((row) => {
+      if (row[0] === "Account Number" && row.length === 14) return order.map((i) => row[i]);
+      if (row.length !== 14) return row;
+      const r = [...row];
+      r[3] = String(r[3]).toUpperCase();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(String(r[1]))) { const [y, m, d] = String(r[1]).split("-"); r[1] = `${m}/${d}/${y}`; }
+      if (/^-?\d+(\.\d+)?$/.test(String(r[11]))) r[11] = Number(r[11]);
+      return order.map((i) => r[i]);
+    });
+    const again = parseVanguardExport(viaXlsx(reformatted))!;
+    expect(again.activity.map((a) => a.importKey)).toEqual(keys);
+    // An overlapping later download (a subset of the same rows) maps onto existing keys only.
+    const overlap = vgWorkbook().filter((row, i) => i < 13 || String(row[1]) === "2026-01-25");
+    const subset = parseVanguardExport(viaXlsx(overlap))!.activity.map((a) => a.importKey);
+    expect(subset.every((k) => keys.includes(k!))).toBe(true);
+    expect(subset).toHaveLength(2);
+  });
+
+  it("flags account numbers Excel stored as numbers and rounded, without inventing digits", () => {
+    const rows = viaXlsx([VG_HOLDINGS_HEADER, [123456789012345678, "SYNTHETIC FUND", "ZZTMX", 1, 1, 1]]);
+    const p = parseVanguardExport(rows)!;
+    expect(p.accountNumbers![0]).not.toBe("123456789012345678");
+    expect(p.notes!.join("\n")).toContain("1 account number needs review");
+  });
+
+  it("recognizes a placeholder-only template but imports nothing from it", () => {
+    const rows = viaXlsx([
+      VG_HOLDINGS_HEADER,
+      ["account 1"], ["account 1"], [], ["account 2"],
+      ["space"], ["space"],
+      VG_ACTIVITY_HEADER,
+      ["account 1", "", "", "dividend", "dividend received", "", "", "", "", "positive or negative amounts", "", "positive or negative amounts", 0, "cash"],
+      ["account 2", "", "", "sweep out", "sweep into settlement account", "", "", "", "", "negative", "", "negative", 0, "cash"],
+    ]);
+    expect(detectInvestmentFormat(rows)).toBe("vanguard");
+    const p = parseVanguardExport(rows)!;
+    expect([p.sections.length, p.activity.length, p.accountNumbers]).toEqual([0, 0, []]);
+    expect(p.notes!.join("\n")).toMatch(/3 holdings rows were left out[\s\S]*2 activity rows were left out/);
+  });
+
+  it("keeps long text IDs, flags numeric IDs and rejects malformed money/yearless dates", () => {
+    const p = parseVanguardExport(viaXlsx([
+      ["Total Value", "Symbol", "Shares", "Investment Name", "Account Number", "Share Price"],
+      ["10.00", "ZZONE", 1, "SYNTHETIC ONE", "00012345678901234567890", 10],
+      ["20.00", "ZZTWO", 2, "SYNTHETIC TWO", 12345, 10],
+      ["1.2.3", "BAD", 1, "Malformed", "001", 1],
+      ["1,23", "BAD", 1, "Ambiguous decimal comma", "001", 1],
+      [".", "BAD", 1, "Missing digits", "001", 1],
+      VG_ACTIVITY_HEADER,
+      act("001", "1", "", "dividend", "Yearless", "ZZONE", 1),
+      act("001", "02/31/2026", "", "dividend", "Invalid", "ZZONE", 1),
+      act("001", "01/02/2026", "01/03/2026", "dividend", "Review month first", "ZZONE", "(2.00)"),
+    ]))!;
+    expect(p.accountNumbers).toContain("00012345678901234567890");
+    expect(p.sections.map((s) => s.totalMarketValue)).toEqual([10, 20]);
+    expect(p.activity.map((a) => [a.date, a.amount])).toEqual([["2026-01-02", -2]]);
+    expect(p.notes!.join(" ")).toContain("1 account number needs review");
+    expect(p.notes!.join(" ")).toContain("3 holdings rows were left out");
+    expect(p.notes!.join(" ")).toContain("2 activity rows were left out");
+    expect(p.notes!.join(" ")).toContain("month/day/year");
+  });
+
+  it("respects the workbook's 1904 date epoch while preserving the original serial cells", () => {
+    const wb = XLSX.utils.book_new();
+    wb.Workbook = { WBProps: { date1904: true } };
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      VG_ACTIVITY_HEADER, act("001", 44575, 44576, "Dividend", "Synthetic", "ZZONE", 2),
+    ]), "S");
+    const read = XLSX.read(XLSX.write(wb, { type: "array", bookType: "xlsx" }), { type: "array" });
+    const p = parseVanguardExport(workbookSheetRows(read, "S"))!;
+    expect(p.activity[0].date).toBe("2026-01-15");
+    expect(p.activity[0].sourceFields!["Trade Date"]).toBe("44575");
+  });
+
+  it("decodes numeric date cells with short-year formatting and accounting amounts", () => {
+    const wb = XLSX.utils.book_new();
+    const sheet = XLSX.utils.aoa_to_sheet([
+      VG_ACTIVITY_HEADER, act("001", 46037, 46038, "Sell", "Synthetic", "ZZONE", -1234.5),
+    ]);
+    sheet.B2.z = "m/d/yy";
+    sheet.C2.z = "m/d/yy";
+    sheet.L2.z = '_($* #,##0.00_);_($* (#,##0.00);_($* "-"??_);_(@_)';
+    XLSX.utils.book_append_sheet(wb, sheet, "S");
+    const read = XLSX.read(XLSX.write(wb, { type: "array", bookType: "xlsx" }), { type: "array" });
+    const p = parseVanguardExport(workbookSheetRows(read, "S"))!;
+    expect(p.activity).toHaveLength(1);
+    expect([p.activity[0].date, p.activity[0].settleDate, p.activity[0].amount]).toEqual(["2026-01-15", "2026-01-16", -1234.5]);
+  });
+
+  it("requires a separate destination for every source account", () => {
+    expect(defaultSourceAccountName("000123456789")).toBe("Vanguard ••6789");
+    const accts = ["1111", "2222"];
+    expect(sourceRoutingProblem(accts, { "1111": { mode: "new", name: "A" }, "2222": { mode: "new", name: "B" } })).toBeNull();
+    expect(sourceRoutingProblem(accts, { "1111": { mode: "existing", accountId: 7 }, "2222": { mode: "existing", accountId: 7 } })).toMatch(/same Compass account/);
+    expect(sourceRoutingProblem(accts, { "1111": { mode: "new", name: "A" }, "2222": { mode: "new", name: " a " } })).toMatch(/same Compass account/);
+    expect(sourceRoutingProblem(accts, { "1111": { mode: "new", name: "A" } })).toMatch(/2222/);
   });
 });
