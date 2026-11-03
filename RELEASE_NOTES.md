@@ -2,6 +2,20 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.14 — Fresh Count 🧭
+
+A small maintenance release: nothing changes inside the app, but the public download numbers now
+keep up with releases on their own.
+
+### Download statistics refresh after each release (follow-up to #113)
+- **The stats page updates right after a release is hosted.** Once a new stable release's installers
+  are placed on privatecompass.app, the download statistics page is refreshed straight away instead
+  of waiting for the nightly update. The automatic refresh added in 1.3.10 never actually started,
+  because GitHub does not chain workflows that its own release automation kicks off; the hosting step
+  now starts the refresh directly. The nightly update still runs as a fallback.
+- The counts themselves are unchanged: they are download requests and transfers, not people or
+  completed installs.
+
 ## Compass 1.3.13 — Clear Horizon 🧭
 
 Plan stops guessing how much money you have to play with, and it can now show your forecast three
