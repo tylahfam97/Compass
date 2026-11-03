@@ -2,9 +2,7 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
-## Compass 1.3.15 — Vanguard import and asset allocation
-
-Prepared for the next stable release; not merged or released.
+## Compass 1.3.15 — Vanguard import and asset allocation 🧭
 
 ### Vanguard Excel import
 - Detect Vanguard's holdings and activity tables by column headers, including reordered columns and multi-account downloads.
@@ -21,7 +19,7 @@ Prepared for the next stable release; not merged or released.
 - Apply a multi-account snapshot replacement atomically and surface save failures. Preserve legacy import paths.
 - Add synthetic XLSX, allocation, migration and browser regression coverage. No private brokerage workbook or financial records are included.
 
-Implementation: Vanguard import and editable asset allocation (PR reference added on publication).
+Implementation PR: #128.
 
 ## Compass 1.3.14 — Fresh Count 🧭
 
