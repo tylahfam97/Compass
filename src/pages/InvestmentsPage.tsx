@@ -12,7 +12,7 @@ import { useProfileStore } from "@/stores/profileStore";
 import InfoTooltip from "@/components/InfoTooltip";
 import StatRow from "@/components/StatRow";
 import { Skeleton, TableSkeleton } from "@/components/Skeleton";
-import type { Holding, SecurityType, ActivityType, InvestmentActivity, InvestmentSummary } from "@/lib/types";
+import type { Holding, SecurityType, ActivityType, InvestmentActivity, InvestmentSummary, AssetClass, HoldingClass } from "@/lib/types";
 
 const SECTION_LABELS: Record<SecurityType, string> = {
   stock: "Stocks",
@@ -35,6 +35,67 @@ const ACTIVITY_LABELS: Record<ActivityType, string> = {
 const INCOME_ACTIVITY_TYPES: ActivityType[] = ["dividend", "interest", "reinvest"];
 
 type InvestmentTab = "holdings" | "activity" | "income";
+
+export const ASSET_CLASS_NAMES: Record<AssetClass, string> = { cash: "Cash", equity: "Equity", bond: "Bond" };
+/** Equity region and size are independent optional labels (a fund can be US and Large cap). */
+export const EQUITY_REGIONS: [string, string][] = [["us", "US"], ["developed", "Developed ex-US"], ["emerging", "Emerging markets"], ["global", "Global / mixed"]];
+export const EQUITY_SIZES: [string, string][] = [["large", "Large cap"], ["mid", "Mid cap"], ["small", "Small cap"], ["mixed", "Mixed / all-cap"]];
+
+/** The key a user's asset-class label is stored under: the symbol when there is one (the same
+ *  security in two accounts is the same asset), else account + description, so two unlabeled
+ *  holdings in different accounts are never merged. */
+export function holdingIdentity(h: Pick<Holding, "symbol" | "account_id" | "description">): string {
+  const symbol = (h.symbol ?? "").trim().toUpperCase();
+  return symbol && !/^(?:N\/?A|UNKNOWN|[—–?\-]+)$/.test(symbol) ? `symbol:${symbol}` : `account:${h.account_id}:${h.description.trim().toLowerCase()}`;
+}
+
+/**
+ * Current market value by user asset class, plus equity value by region and by size. Holdings with
+ * no label count as unclassified (never guessed from the name or vehicle type). Only the latest
+ * snapshot's market values go in, so activity history can't inflate it.
+ */
+export function assetClassAllocation(
+  rows: Pick<Holding, "symbol" | "account_id" | "description" | "market_value_cents">[],
+  classes: Map<string, HoldingClass>
+) {
+  const byClass: Record<AssetClass | "unclassified", number> = { cash: 0, equity: 0, bond: 0, unclassified: 0 };
+  const region = new Map<string, number>();
+  const size = new Map<string, number>();
+  for (const h of rows) {
+    const value = h.market_value_cents ?? 0;
+    const c = classes.get(holdingIdentity(h));
+    const assetClass = c?.asset_class ?? "unclassified";
+    byClass[assetClass] += value;
+    if (assetClass === "equity") {
+      region.set(c?.equity_region ?? "unset", (region.get(c?.equity_region ?? "unset") ?? 0) + value);
+      size.set(c?.equity_size ?? "unset", (size.get(c?.equity_size ?? "unset") ?? 0) + value);
+    }
+  }
+  const incomplete = rows.some((h) => h.market_value_cents === null || h.market_value_cents < 0);
+  return { byClass, region, size, incomplete, total: byClass.cash + byClass.equity + byClass.bond + byClass.unclassified };
+}
+
+/**
+ * Vanguard reinvestment rows that repeat a dividend already in the file (same account, symbol, trade
+ * date and amount). Counting both would report the same payout twice as income. Only rows imported
+ * with their source cells (source_json) are checked; other formats keep their existing treatment.
+ */
+export function pairedReinvestIds(rows: InvestmentActivity[]): Set<number> {
+  const key = (a: InvestmentActivity) => `${a.account_id}|${a.symbol?.trim().toUpperCase()}|${a.trade_date}|${Math.abs(a.amount_cents)}`;
+  const dividends = new Map<string, number>();
+  for (const a of rows) {
+    if (a.activity_type === "dividend" && a.source_json && a.symbol?.trim()) dividends.set(key(a), (dividends.get(key(a)) ?? 0) + 1);
+  }
+  const paired = new Set<number>();
+  for (const a of rows) {
+    const n = dividends.get(key(a)) ?? 0;
+    if (a.activity_type === "reinvest" && a.source_json && a.symbol?.trim() && n > 0) {
+      paired.add(a.id);
+      dividends.set(key(a), n - 1);
+    }
+  }
+  return paired;
+}
 
 interface HoldingGroup {
   key: string;
@@ -182,6 +243,62 @@ function groupHoldings(rows: Holding[]): HoldingGroup[] {
   });
 }
 
+/** Asset-class controls for one holdings row. Disabled when the row merges unlabeled holdings from
+ *  different accounts (no symbol), since one label would then apply to separate securities. */
+function ClassEditor({ group, classes, onSave }: {
+  group: HoldingGroup;
+  classes: Map<string, HoldingClass>;
+  onSave: (identity: string, accountId: number | null, patch: Partial<HoldingClass>) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const identities = [...new Set(group.lots.map(holdingIdentity))];
+  const name = group.symbol ?? group.description;
+  if (identities.length !== 1) {
+    return <span className="text-[hsl(var(--muted-foreground))]">Select one account to label</span>;
+  }
+  const identity = identities[0];
+  const accountId = identity.startsWith("account:") ? group.lots[0].account_id : null;
+  const c = classes.get(identity);
+  const save = async (patch: Partial<HoldingClass>) => {
+    setBusy(true);
+    setSaveError("");
+    try { await onSave(identity, accountId, patch); }
+    catch { setSaveError("Could not save this label. Try again."); }
+    finally { setBusy(false); }
+  };
+  const control = "border rounded-md px-1.5 py-1 text-xs bg-[hsl(var(--background))] text-[hsl(var(--foreground))] max-w-[9rem]";
+  return (
+    <fieldset disabled={busy} className="flex flex-col gap-1 min-w-0">
+      <select aria-label={`Asset class for ${name}`} className={control} value={c?.asset_class ?? ""}
+        onChange={(e) => save({ asset_class: (e.target.value || null) as AssetClass | null })}>
+        <option value="">Unclassified</option>
+        {(Object.keys(ASSET_CLASS_NAMES) as AssetClass[]).map((k) => <option key={k} value={k}>{ASSET_CLASS_NAMES[k]}</option>)}
+      </select>
+      {c?.asset_class === "equity" && (
+        <>
+          <select aria-label={`Region for ${name}`} className={control} value={c.equity_region ?? ""}
+            onChange={(e) => save({ equity_region: e.target.value || null })}>
+            <option value="">Region: not set</option>
+            {EQUITY_REGIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+          <select aria-label={`Size for ${name}`} className={control} value={c.equity_size ?? ""}
+            onChange={(e) => save({ equity_size: e.target.value || null })}>
+            <option value="">Size: not set</option>
+            {EQUITY_SIZES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+        </>
+      )}
+      {c?.asset_class === "bond" && (
+        <input aria-label={`Bond details for ${name}`} className={control} placeholder="e.g. US Treasury, short-term"
+          defaultValue={c.bond_detail ?? ""} maxLength={120}
+          onBlur={(e) => { if (e.target.value.trim() !== (c.bond_detail ?? "")) void save({ bond_detail: e.target.value }); }} />
+      )}
+      {saveError && <span role="alert" className="text-[hsl(var(--error))]">{saveError}</span>}
+    </fieldset>
+  );
+}
+
 export default function InvestmentsPage() {
   const activeProfile = useProfileStore((s) => s.activeProfile);
   const profileId = activeProfile?.id ?? 1;
@@ -198,6 +315,7 @@ export default function InvestmentsPage() {
   const [accountFilter, setAccountFilter] = useState<number | "all">("all");
   const [tab, setTab] = useState<InvestmentTab>("holdings");
   const [activityFilter, setActivityFilter] = useState<ActivityType | "all">("all");
+  const [classes, setClasses] = useState<Map<string, HoldingClass>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
@@ -205,7 +323,7 @@ export default function InvestmentsPage() {
       setLoading(true);
       setAccountFilter("all");
       const db = await getDb();
-      const [history, activityRows, summaryRows, accountRows, rows, accts] = await Promise.all([
+      const [history, activityRows, summaryRows, accountRows, rows, accts, classRows] = await Promise.all([
         db.select<{ account_id: number; as_of_date: string; total: number }[]>(
           `SELECT account_id, as_of_date, SUM(COALESCE(market_value_cents, 0)) as total
            FROM holdings WHERE profile_id=?
@@ -247,6 +365,10 @@ export default function InvestmentsPage() {
            GROUP BY a.id ORDER BY total DESC`,
           [profileId]
         ),
+        db.select<HoldingClass[]>(
+          "SELECT identity, asset_class, equity_region, equity_size, bond_detail FROM holding_classes WHERE profile_id=?",
+          [profileId]
+        ),
       ]);
       if (cancelled) return;
       setHistoryRows(history);
@@ -255,6 +377,7 @@ export default function InvestmentsPage() {
       setAccounts(accountRows);
       setAllHoldings(rows);
       setAllSnapshots(accts);
+      setClasses(new Map(classRows.map((c) => [c.identity, c])));
       setLoading(false);
     })().catch(() => setLoading(false));
     return () => { cancelled = true; };
@@ -305,6 +428,32 @@ export default function InvestmentsPage() {
       }));
   }, [sectionTotals]);
 
+  const classAllocation = useMemo(() => assetClassAllocation(holdings, classes), [holdings, classes]);
+
+  /** Saves one security's label (no row = Unclassified). Switching class clears the other class's
+   *  details so a stale region or bond note can't resurface later. */
+  const saveClass = async (identity: string, accountId: number | null, patch: Partial<HoldingClass>) => {
+    const prev = classes.get(identity);
+    const next: HoldingClass = { identity, asset_class: null, equity_region: null, equity_size: null, bond_detail: null, ...prev, ...patch };
+    if (patch.asset_class !== undefined && patch.asset_class !== prev?.asset_class) {
+      if (next.asset_class !== "equity") { next.equity_region = null; next.equity_size = null; }
+      if (next.asset_class !== "bond") next.bond_detail = null;
+    }
+    const db = await getDb();
+    if (!next.asset_class) {
+      await db.execute("DELETE FROM holding_classes WHERE profile_id=? AND identity=?", [profileId, identity]);
+    } else {
+      await db.execute(
+        `INSERT INTO holding_classes (profile_id, identity, account_id, asset_class, equity_region, equity_size, bond_detail)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(profile_id, identity) DO UPDATE SET asset_class=excluded.asset_class, equity_region=excluded.equity_region,
+           equity_size=excluded.equity_size, bond_detail=excluded.bond_detail, updated_at=datetime('now')`,
+        [profileId, identity, accountId, next.asset_class, next.equity_region, next.equity_size, next.bond_detail?.trim() || null]
+      );
+    }
+    setClasses((m) => { const copy = new Map(m); if (next.asset_class) copy.set(identity, next); else copy.delete(identity); return copy; });
+  };
+
   const toggleExpanded = (key: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -327,25 +476,29 @@ export default function InvestmentsPage() {
 
   /** Income actually received (dividends, interest, reinvested distributions), by month -
    *  the counterpart to the brokerage's forward-looking `est_annual_income_cents` estimate. */
+  const pairedReinvests = useMemo(() => pairedReinvestIds(activity), [activity]);
+  /** Vanguard reinvestments with no matching dividend: counted, but the file can't confirm them. */
+  const unpairedVanguardReinvests = activity.filter((a) => a.activity_type === "reinvest" && a.source_json && !pairedReinvests.has(a.id)).length;
   const incomeByMonth = useMemo(() => {
     const byMonth = new Map<string, number>();
     for (const a of activity) {
-      if (!INCOME_ACTIVITY_TYPES.includes(a.activity_type)) continue;
+      if (!INCOME_ACTIVITY_TYPES.includes(a.activity_type) || pairedReinvests.has(a.id)) continue;
       const month = a.trade_date.slice(0, 7);
       byMonth.set(month, (byMonth.get(month) ?? 0) + Math.abs(a.amount_cents));
     }
     return [...byMonth.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([month, total]) => ({ month, total }));
-  }, [activity]);
+  }, [activity, pairedReinvests]);
 
   const incomeTotals = useMemo(() => {
     let dividends = 0, interest = 0, fees = 0;
     for (const a of activity) {
+      if (pairedReinvests.has(a.id)) continue;
       if (a.activity_type === "dividend" || a.activity_type === "reinvest") dividends += Math.abs(a.amount_cents);
       else if (a.activity_type === "interest") interest += Math.abs(a.amount_cents);
       else if (a.activity_type === "fee" || a.activity_type === "tax") fees += Math.abs(a.amount_cents);
     }
     return { dividends, interest, fees };
-  }, [activity]);
+  }, [activity, pairedReinvests]);
 
   /** Per-lot realized gains, when a statement prints cost basis next to the sale. Most don't -
    *  the account-level YTD figure from the statement summary is the fallback. */
@@ -622,6 +775,16 @@ export default function InvestmentsPage() {
                 <InfoTooltip text="Dividends and reinvested distributions actually paid into this account, taken from imported statement activity - unlike the Est. Annual Income tile, which is the brokerage's forward-looking projection." />
               </p>
               <p className="text-xl font-bold">{formatCurrency(incomeTotals.dividends)}</p>
+              {activity.some((a) => a.source_json) && (
+                <p className="text-[11px] text-[hsl(var(--warning))] mt-1">
+                  Vanguard coverage: {pairedReinvests.size} possible dividend/reinvestment pairs counted once by account, symbol, date and amount; pairing is not confirmed by the source. Distributions and corporate actions remain Other, excluded from income. Review against your statement.
+                </p>
+              )}
+              {unpairedVanguardReinvests > 0 && (
+                <p className="text-[11px] text-[hsl(var(--warning))] mt-1">
+                  Includes {unpairedVanguardReinvests} Vanguard reinvestment{unpairedVanguardReinvests === 1 ? "" : "s"} with no matching dividend row - the file doesn't confirm {unpairedVanguardReinvests === 1 ? "it is" : "they are"} income.
+                </p>
+              )}
             </div>
             <div className="border rounded-xl px-4 py-4 text-center">
               <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1">Interest Received</p>
@@ -748,7 +911,7 @@ export default function InvestmentsPage() {
       )}
 
       {/* Value over time + allocation */}
-      {(chartData.length >= 2 || allocationData.length > 0) && (
+      {(chartData.length >= 2 || allocationData.length > 0 || holdings.length > 0) && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {chartData.length >= 2 && (
             <div className="border rounded-xl p-5">
@@ -765,7 +928,7 @@ export default function InvestmentsPage() {
           )}
           {allocationData.length > 0 && (
             <div className="border rounded-xl p-5">
-              <h2 className="font-semibold mb-4">Allocation</h2>
+              <h2 className="font-semibold mb-4">Allocation by type</h2>
               {/* Ranked bars instead of a donut: shares compare by length, not arc angle. */}
               <div className="space-y-3">
                 {allocationData.map((entry) => {
@@ -795,6 +958,58 @@ export default function InvestmentsPage() {
               </div>
             </div>
           )}
+          {holdings.length > 0 && (
+            <div className="border rounded-xl p-5" role="region" aria-labelledby="asset-class-heading">
+              <h2 id="asset-class-heading" className="font-semibold mb-1">Asset class</h2>
+              <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">
+                From the labels you set on each holding below. Compass doesn't look inside funds, so leave balanced or target-date funds Unclassified.
+              </p>
+              {(() => {
+                const { byClass, region, size, total, incomplete } = classAllocation;
+                const bar = (key: string, name: string, value: number, of: number, color: string) => {
+                  const pct = !incomplete && of > 0 && value > 0 ? (value / of) * 100 : null;
+                  return (
+                    <div key={key}>
+                      <div className="flex items-center justify-between gap-2 text-xs mb-1">
+                        <span className="truncate flex items-center gap-1.5 min-w-0">
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                          <span className="truncate">{name}</span>
+                        </span>
+                        <span className="shrink-0 tabular-nums">
+                          <span className="font-medium">{formatCurrency(value)}</span>
+                          {pct !== null && <span className="text-[hsl(var(--muted-foreground))]">, {Math.round(pct)}%</span>}
+                        </span>
+                      </div>
+                      <div className="h-2 rounded-full bg-[hsl(var(--muted))] overflow-hidden" role="img"
+                        aria-label={`${name}: ${formatCurrency(value)}${pct !== null ? `, ${Math.round(pct)}%` : ""}`}>
+                        <div className="h-full rounded-full" style={{ width: `${pct ?? 0}%`, backgroundColor: color }} />
+                      </div>
+                    </div>
+                  );
+                };
+                const label = (list: [string, string][], key: string) => list.find(([k]) => k === key)?.[1] ?? "Not set";
+                return (
+                  <div className="space-y-3">
+                    {incomplete && <p className="text-xs text-[hsl(var(--muted-foreground))]">Some holdings have missing or negative market values. Known values are shown; percentage coverage is unavailable.</p>}
+                    {(["equity", "bond", "cash"] as AssetClass[]).filter((c) => byClass[c] !== 0).map((c, i) => bar(c, ASSET_CLASS_NAMES[c], byClass[c], total, accountChartColor(i)))}
+                    {bar("unclassified", "Unclassified", byClass.unclassified, total, "hsl(var(--muted-foreground))")}
+                    {byClass.equity > 0 && (
+                      <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium">Equity by region</p>
+                          {[...region.entries()].sort((a, b) => b[1] - a[1]).map(([k, v], i) => bar(`r-${k}`, label(EQUITY_REGIONS, k), v, byClass.equity, accountChartColor(i)))}
+                        </div>
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium">Equity by size</p>
+                          {[...size.entries()].sort((a, b) => b[1] - a[1]).map(([k, v], i) => bar(`s-${k}`, label(EQUITY_SIZES, k), v, byClass.equity, accountChartColor(i)))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
         </div>
       )}
 
@@ -817,6 +1032,7 @@ export default function InvestmentsPage() {
                   <th className="px-4 py-2 font-medium text-right">Market Value</th>
                   <th className="px-4 py-2 font-medium text-right">ROI</th>
                   <th className="px-4 py-2 font-medium text-right">Est. Annual Income</th>
+                  <th className="px-4 py-2 font-medium">Asset class</th>
                 </tr>
               </thead>
               <tbody>
@@ -841,6 +1057,9 @@ export default function InvestmentsPage() {
                         <td className="px-4 py-2 text-right text-xs text-[hsl(var(--muted-foreground))]">
                           {g.estAnnualIncomeCents > 0 ? formatCurrency(g.estAnnualIncomeCents) : "-"}
                         </td>
+                        <td className="px-4 py-2 text-xs" onClick={(e) => e.stopPropagation()}>
+                          <ClassEditor key={`${profileId}:${g.key}`} group={g} classes={classes} onSave={saveClass} />
+                        </td>
                       </tr>
                       {hasLots && isOpen && g.lots.map((lot, i) => (
                         <tr key={`${g.key}-${i}`} className="border-t bg-[hsl(var(--muted))]/20 text-xs text-[hsl(var(--muted-foreground))]">
@@ -858,6 +1077,7 @@ export default function InvestmentsPage() {
                               : "-"}
                           </td>
                           <td className="px-4 py-1.5 text-right">-</td>
+                          <td className="px-4 py-1.5" />
                         </tr>
                       ))}
                     </Fragment>

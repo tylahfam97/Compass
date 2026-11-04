@@ -1305,6 +1305,29 @@ async function runMigrations(db: CompassDb): Promise<void> {
     }
     await db.execute("PRAGMA user_version = 31");
   }
+  // Vanguard activity keeps every source cell (fees, principal, accrued interest, account type...)
+  // as JSON so nothing Compass has no column for is lost. Idempotent and not version-gated, like
+  // the tables below, so it can't collide with a numbered migration on another branch.
+  if (!(await colExists(db, "investment_activity", "source_json"))) {
+    await db.execute("ALTER TABLE investment_activity ADD COLUMN source_json TEXT");
+  }
+  // User-chosen asset class per security (cash | equity | bond; no row = Unclassified), with
+  // optional equity region/size and a free-text bond note. Keyed by `identity`: "symbol:<SYMBOL>"
+  // when the holding has a symbol, else "account:<id>:<description>" so two unlabeled holdings in
+  // different accounts are never merged. Imports never write here, so labels survive re-imports.
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS holding_classes (
+      profile_id    INTEGER NOT NULL,
+      identity      TEXT    NOT NULL,
+      account_id    INTEGER,
+      asset_class   TEXT,
+      equity_region TEXT,
+      equity_size   TEXT,
+      bond_detail   TEXT,
+      updated_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (profile_id, identity)
+    )
+  `);
   // Crypto purchases matched to a tracked portfolio deposit (#107). Idempotent and deliberately
   // NOT version-gated, so it can't collide with a numbered migration on another branch.
   await db.execute(`
@@ -1988,6 +2011,7 @@ export async function deleteAccountWithData(accountId: number): Promise<void> {
   await db.execute("DELETE FROM transactions WHERE account_id=?", [accountId]);
   await db.execute("DELETE FROM holdings WHERE account_id=?", [accountId]);
   await db.execute("DELETE FROM investment_activity WHERE account_id=?", [accountId]);
+  await db.execute("DELETE FROM holding_classes WHERE account_id=?", [accountId]);
   await db.execute("DELETE FROM investment_summaries WHERE account_id=?", [accountId]);
   await db.execute("DELETE FROM crypto_transfer_rejections WHERE account_id=?", [accountId]);
   await db.execute("DELETE FROM transaction_splits WHERE account_id=?", [accountId]);
@@ -2022,6 +2046,7 @@ export async function deleteAllProfileData(profileId: number): Promise<void> {
     { sql: "DELETE FROM holdings WHERE profile_id=?", params: [profileId] },
     { sql: "DELETE FROM investment_activity WHERE profile_id=?", params: [profileId] },
     { sql: "DELETE FROM investment_summaries WHERE profile_id=?", params: [profileId] },
+    { sql: "DELETE FROM holding_classes WHERE profile_id=?", params: [profileId] },
     { sql: "DELETE FROM crypto_transfer_rejections WHERE account_id IN (SELECT id FROM accounts WHERE profile_id=?)", params: [profileId] },
     { sql: "DELETE FROM transaction_splits WHERE account_id IN (SELECT id FROM accounts WHERE profile_id=?)", params: [profileId] },
     { sql: "DELETE FROM transactions WHERE profile_id=?", params: [profileId] },
