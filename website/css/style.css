@@ -1529,7 +1529,7 @@
 @layer components {
   .hero-eyebrow { font-size: 0.875rem; margin-bottom: var(--sp-4); }
 
-  .guides-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
+  .guides-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); }
   .guide-card { display: flex; flex-direction: column; color: inherit; }
   .guide-card:hover { opacity: 1; background: var(--bg-card-hover); }
   .guide-card:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
