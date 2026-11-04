@@ -2,6 +2,8 @@
    Compass Website — style.css
    Colors derived from src/index.css dark-mode HSL tokens.
    No external dependencies. No CDN calls. Fully self-contained.
+   Served with a one-year immutable cache: when this file changes, update the
+   ?v= token on every page's stylesheet link (first 8 hex of its sha256).
    ============================================================================= */
 
 @layer base, layout, components, utilities;
@@ -1527,10 +1529,22 @@
 @layer components {
   .hero-eyebrow { font-size: 0.875rem; margin-bottom: var(--sp-4); }
 
-  .guide-card { display: block; color: inherit; }
-  .guide-card:hover { opacity: 1; }
-  .guide-card h3 { color: var(--primary-ink); }
-  .guides-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }
+  .guides-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
+  .guide-card { display: flex; flex-direction: column; color: inherit; }
+  .guide-card:hover { opacity: 1; background: var(--bg-card-hover); }
+  .guide-card:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+  .guide-card h3 { font-size: 1.1875rem; line-height: 1.35; color: var(--text); text-wrap: balance; }
+  .guide-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-2);
+    align-self: flex-start;
+    margin-top: auto;
+    padding-top: var(--sp-6);
+    font-weight: 600;
+    color: var(--primary-ink);
+  }
+  .guide-card:hover .guide-cta { text-decoration: underline; text-underline-offset: 3px; }
 
   /* Left-aligned CTA row for article pages; .hero-actions is the centred hero row. */
   .landing-actions { display: flex; flex-wrap: wrap; gap: var(--sp-3); margin: var(--sp-6) 0 var(--sp-8); }
