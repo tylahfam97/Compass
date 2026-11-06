@@ -2111,12 +2111,26 @@ export async function mergeDuplicateAccounts(profileId: number): Promise<number>
       // statement row, imported into both duplicate accounts at some point) - discard the
       // duplicate-account's copy instead of moving it, since moving it would violate the
       // (account_id, import_hash) uniqueness constraint on the now-merged account.
-      await db.execute(
-        `DELETE FROM transactions WHERE account_id=? AND import_hash IN (
+      // A discarded copy that was split (#107) takes its spending part ('split:<id>', which the
+      // primary never holds) and its split/link records with it - otherwise that part would be
+      // moved onto the primary next to the primary's full-amount copy and count twice. One
+      // atomic batch: the related deletes all key off the parent rows the last one removes.
+      const discarded = `SELECT id FROM transactions WHERE account_id=? AND import_hash IN (
            SELECT import_hash FROM transactions WHERE account_id=?
-         )`,
-        [dupe.id, primary.id]
-      );
+         )`;
+      await db.executeBatch([
+        {
+          sql: `DELETE FROM crypto_transfer_links WHERE transaction_id IN (${discarded})
+                  AND transaction_id IN (SELECT parent_id FROM transaction_splits)`,
+          params: [dupe.id, primary.id],
+        },
+        { sql: `DELETE FROM transaction_splits WHERE parent_id IN (${discarded})`, params: [dupe.id, primary.id] },
+        {
+          sql: `DELETE FROM transactions WHERE account_id=? AND import_hash IN (SELECT 'split:' || id FROM (${discarded}))`,
+          params: [dupe.id, dupe.id, primary.id],
+        },
+        { sql: `DELETE FROM transactions WHERE id IN (${discarded})`, params: [dupe.id, primary.id] },
+      ]);
       await db.execute("UPDATE transactions SET account_id=? WHERE account_id=?", [primary.id, dupe.id]);
       await db.execute("UPDATE holdings SET account_id=? WHERE account_id=?", [primary.id, dupe.id]);
       // Corrections follow their rows to the merged account (#107).
