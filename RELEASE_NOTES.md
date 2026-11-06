@@ -4,7 +4,7 @@
 
 ## Compass 1.3.16 — Clean Merge 🧭
 
-### Merging duplicate accounts keeps splits counted once (related to #107)
+### Merging duplicate accounts keeps splits counted once (#130; related to #107)
 - When two same-named accounts held the same statement row and the duplicate's copy had been split into an investment part and a spending part, merging kept the primary account's full-amount copy but moved the duplicate's spending part across with it, so that money was counted twice. The merge now removes the spending part together with the discarded copy, along with that copy's split and portfolio-link records, so the deposit can be matched again.
 - Splits on rows that move to the merged account are kept intact and can still be undone. The primary account's own splits and other profiles' accounts are unchanged; the primary account's copy still wins wherever both accounts held the same row.
 - The cleanup runs as one all-or-nothing database step, so a failure partway through cannot leave a split half-removed.
