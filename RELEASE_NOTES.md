@@ -2,6 +2,15 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.17 — Send Feedback 🧭
+
+### Send feedback from inside the app (#131)
+- A new "Send feedback" button sits in the sidebar footer, just above "Report an issue". It opens a short form: your message (up to 4,000 characters) and, only if you want a reply, your email.
+- The email contains exactly that: the message, the email if you typed one, your Compass version and your OS type. No financial data, account names or file contents are included, and nothing is sent until you press Send. As with any web request, the server sees your IP address; it is not put in the email.
+- It goes straight to the maintainer's inbox as a plain-text email. It is not posted anywhere public, unlike a GitHub issue.
+- If sending fails (offline, or too many messages in a short time), you get an error message and your text stays in the form so you can try again. A very long message in a non-Latin script can exceed the size limit before 4,000 characters; the form says so instead of sending.
+- Under the hood: one form POST to privatecompass.app, which is rate-limited and size-capped. The app's content security policy adds only that one address. No account, token or secret is built into the app.
+
 ## Compass 1.3.16 — Clean Merge 🧭
 
 ### Merging duplicate accounts keeps splits counted once (#130; related to #107)
