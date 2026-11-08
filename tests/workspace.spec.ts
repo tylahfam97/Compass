@@ -422,6 +422,33 @@ test("Settings restores theme preference and recovers from account-check failure
   await expect(page.getByText('No accounts match the risk pattern.')).toBeVisible();
 });
 
+test("Send feedback posts only the typed fields, keeps the text on failure and confirms on success", async ({ page, database }) => {
+  expect(database.isOpen).toBe(true);
+  const posts: string[] = [];
+  let status = 500;
+  await page.route("https://privatecompass.app/api/feedback", async (route) => {
+    posts.push(route.request().postData() ?? "");
+    await route.fulfill({ status });
+  });
+  await page.getByTitle("Expand sidebar").click();
+  await page.getByRole("button", { name: "Send feedback" }).click();
+  const dialog = page.getByRole("dialog", { name: "Send feedback" });
+  const send = dialog.getByRole("button", { name: "Send", exact: true });
+  await expect(send).toBeDisabled();
+  await dialog.getByLabel("Message").fill("The Plan tab is great");
+  await send.click();
+  await expect(page.getByText("Couldn't send. Check your connection or try again later.")).toBeVisible();
+  await expect(dialog.getByLabel("Message")).toHaveValue("The Plan tab is great");
+  status = 200;
+  await send.click();
+  await expect(page.getByText("Thanks, sent.")).toBeVisible();
+  await expect(dialog).toHaveCount(0);
+  const sent = new URLSearchParams(posts[1]);
+  expect([...sent.keys()]).toEqual(["message", "version", "os"]);
+  expect(sent.get("message")).toBe("The Plan tab is great");
+  expect(sent.get("version")).toBe("1.0.2");
+});
+
 test("Transactions restores private view context and still changes month", async ({ page, database }) => {
   expect(database.isOpen).toBe(true);
   await page.goto('/transactions');

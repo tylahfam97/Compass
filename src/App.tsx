@@ -2,7 +2,7 @@ import { BrowserRouter, Routes, Route, NavLink, useLocation } from "react-router
 import { useState, useEffect, Suspense, lazy, type CSSProperties } from "react";
 import {
   SquaresFourIcon, ArrowsLeftRightIcon, UploadSimpleIcon, TrendUpIcon, ChartLineIcon,
-  WalletIcon, TargetIcon, ChartBarIcon, LightbulbIcon, GlobeIcon, CaretLeftIcon, CaretRightIcon, ChatCircleIcon, SparkleIcon, CalendarCheckIcon, GearSixIcon, LockKeyIcon,
+  WalletIcon, TargetIcon, ChartBarIcon, LightbulbIcon, GlobeIcon, CaretLeftIcon, CaretRightIcon, ChatCircleIcon, ChatTeardropTextIcon, SparkleIcon, CalendarCheckIcon, GearSixIcon, LockKeyIcon,
   MapTrifoldIcon, IconContext,
 } from "@phosphor-icons/react";
 import CompassMark from "@/components/CompassMark";
@@ -19,6 +19,7 @@ import OverviewPage from "@/pages/OverviewPage";
 import SettingsPage from "@/pages/SettingsPage";
 import ProfileSwitcher from "@/components/ProfileSwitcher";
 import UpdateChecker from "@/components/UpdateChecker";
+import FeedbackModal from "@/components/FeedbackModal";
 import PinModal from "@/components/PinModal";
 import MonthRolloverModal from "@/components/MonthRolloverModal";
 import GoldParticleField from "@/components/GoldParticleField";
@@ -178,6 +179,7 @@ function App() {
     () => localStorage.getItem("sidebarOpen") !== "false"
   );
   const [appVersion, setAppVersion] = useState("");
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   useEffect(() => {
     import("@tauri-apps/api/app").then(({ getVersion }) => {
@@ -412,6 +414,15 @@ function App() {
                 Replay tour
               </button>
               <button
+                onClick={() => setFeedbackOpen(true)}
+                className="w-full text-xs px-3 py-1.5 rounded-md text-[hsl(var(--muted-foreground))]
+                           hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--border))]
+                           transition-colors flex items-center justify-center gap-1.5"
+              >
+                <ChatTeardropTextIcon size={12} />
+                Send feedback
+              </button>
+              <button
                 onClick={() => openUrl("https://github.com/tylahfam97/Compass/issues/new").catch(() => {})}
                 className="w-full text-xs px-3 py-1.5 rounded-md text-[hsl(var(--muted-foreground))]
                            hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--border))]
@@ -436,6 +447,7 @@ function App() {
           </div>
         </main>
       </div>
+      {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} version={appVersion} />}
       {profileSelected && (
         <>
           <Spotlight />
