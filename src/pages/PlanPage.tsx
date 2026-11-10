@@ -510,7 +510,7 @@ function ProfilePlan({ profileId }: { profileId: number }) {
         <div className="plan-metrics">
           <div className="plan-primary-metric">
             <p className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Safe to spend</p>
-            <p className="plan-available tabular-nums" data-testid="safe-to-spend" style={{ color: result.safeToSpendCents < 0 ? "hsl(var(--error))" : undefined }}>
+            <p className="plan-available tabular-nums" data-testid="safe-to-spend" data-page-reading="Safe to spend" style={{ color: result.safeToSpendCents < 0 ? "hsl(var(--error))" : undefined }}>
               {incomplete ? "Unavailable" : <CountUp value={result.safeToSpendCents} format={countCurrency} />}
             </p>
             <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">

@@ -42,9 +42,10 @@ export function formatAxisCurrency(cents: number): string {
   if (abs >= 1000) {
     const thousands = dollars / 1000;
     const rounded = Math.abs(thousands) < 10 ? Math.round(thousands * 10) / 10 : Math.round(thousands);
-    return `$${rounded}k`;
+    return `${rounded < 0 ? "-" : ""}$${Math.abs(rounded)}k`;
   }
-  return `$${Math.round(dollars)}`;
+  const whole = Math.round(dollars);
+  return `${whole < 0 ? "-" : ""}$${Math.abs(whole)}`;
 }
 
 /** Lightens a hex color toward white by `amount` (0-1), for chart hover states

@@ -61,7 +61,7 @@ export default function OnboardingChecklistWidget() {
                 startStep(ONBOARDING_STEPS[1].id);
                 setMinimized(false);
               }}
-              className="px-4 py-2 rounded-lg text-sm font-medium text-white hover:opacity-90 transition-opacity"
+              className="px-4 py-2 rounded-lg text-sm font-medium text-[hsl(var(--primary-foreground))] hover:opacity-90 transition-opacity"
               style={{ backgroundColor: "var(--gold)" }}
             >
               Start Tour

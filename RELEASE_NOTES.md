@@ -2,6 +2,29 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.18 — Unreleased DEV (provisional)
+
+Development-only preparation; not a stable release or a deployment. The provisional dev1.3.18 number must be reconciled with current main at a later authorized promotion. Implementation PR number is pending creation.
+
+### Workspace navigation and reading
+- Add a searchable Ctrl/Cmd+K page/action palette with keyboard selection, focus return, native text editing and modal shortcut protection.
+- Add a scroll-following page readout that mirrors the displayed figure and account scope, including settled theme colours; it is visual-only and does not duplicate screen-reader content.
+- Align financial summary and account rows; render flat-balance sparklines as lines, place negative axis-label signs before the currency symbol, and match pay-cycle legend swatches to their lines. Use existing theme tokens for confirmation/status button text and native controls without replacing the colour tokens, login scene or Plan map.
+- Preserve reduced-motion handling alongside route, skeleton and insight accents.
+
+### Website metadata (staged only)
+- Document the provisional DEV workspace features separately from stable v1.3.17 download badges and SoftwareApplication metadata.
+- Reuse the approved feedback/network FAQ corrections from issue #132; that issue remains open for reconciliation in the next authorized production batch.
+- Align llms.txt and crawl exclusions without promising indexing or assistant citations.
+
+### Bounded correctness and regression coverage
+- Keep investment import sessions/holdings when Dashboard clears transactions; Clear all also removes empty non-investment sessions only in the active profile.
+- Prevent overlapping PIN verification, preserve cooldown across Cancel/reopen, and ignore late dialog callbacks after a profile switch or close. This remains a per-launch UI guard, not database encryption.
+- Add browser coverage for palette/modal focus, native editing, readout theme/scope/navigation, reduced motion, bank-data clearing and queued PIN dialogs.
+- Make the real-SQLite duplicate-account test bridge bind integer IDs like Rust rather than node:sqlite REAL values; production money logic is unchanged.
+
+The dev branch's seven-commit catch-up through stable v1.3.17 (eed18c529c14ce90f2d71c6d5b6165d138768db6) was already released separately. Its existing history below is retained, not presented as new dev functionality. No publisher changes or publisher dispatch are part of this draft.
+
 ## Compass 1.3.17 — Send Feedback 🧭
 
 ### Send feedback from inside the app (#131)

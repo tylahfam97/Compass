@@ -6,6 +6,38 @@ import type { Profile } from "@/lib/types";
 const COOLDOWN_SECS = 10;
 
 /**
+ * Failed attempts and the running cooldown per profile, for this launch. Held outside the
+ * component because Cancel unmounts the dialog: with the count in component state, closing and
+ * reopening it handed out a fresh three guesses every time, so the limit limited nothing.
+ */
+const lockouts = new Map<number, { attempts: number; until: number }>();
+
+/** Seconds of cooldown still to run for a profile (0 when none). */
+export function lockoutSecondsLeft(profileId: number, now = Date.now()): number {
+  const until = lockouts.get(profileId)?.until ?? 0;
+  return Math.max(0, Math.ceil((until - now) / 1000));
+}
+
+/** Records a wrong PIN; the third starts the cooldown. Returns the attempts used so far. */
+export function recordFailedPin(profileId: number, now = Date.now()): number {
+  const attempts = (lockouts.get(profileId)?.attempts ?? 0) + 1;
+  lockouts.set(profileId, { attempts, until: attempts >= 3 ? now + COOLDOWN_SECS * 1000 : 0 });
+  return attempts;
+}
+
+/** Attempts already used, forgetting a cooldown that has fully run out. */
+export function failedPinAttempts(profileId: number, now = Date.now()): number {
+  const lock = lockouts.get(profileId);
+  if (!lock) return 0;
+  if (lock.attempts >= 3 && lock.until <= now) { lockouts.delete(profileId); return 0; }
+  return lock.attempts;
+}
+
+export function clearPinLockout(profileId: number): void {
+  lockouts.delete(profileId);
+}
+
+/**
  * Hashes a PIN using PBKDF2-SHA-256 (260 000 iterations).
  * The returned string is prefixed with "pbkdf2$" so legacy SHA-256
  * hashes stored in the database can be distinguished.
@@ -58,51 +90,75 @@ interface PinModalProps {
   onCancel: () => void;
 }
 
+/**
+ * Profiles with a verification running. Shared like the lockouts, so neither a second submit
+ * nor closing and reopening the dialog can start another one beside it and spend two attempts
+ * on one entry.
+ */
+const verifying = new Set<number>();
+
 export default function PinModal({ profile, onSuccess, onCancel }: PinModalProps) {
   const { onBackdropClick, containerRef } = useModalDismiss(onCancel);
   const [pin, setPin] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [attempts, setAttempts] = useState(0);
-  const [cooldown, setCooldown] = useState(0);
+  const [cooldown, setCooldown] = useState(() => lockoutSecondsLeft(profile.id));
+  const [error, setError] = useState<string | null>(() => (cooldown > 0 ? "Too many attempts." : null));
   const inputRef = useRef<HTMLInputElement>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // The profile on screen, or null once the dialog has closed. A verification that finishes
+  // late checks it before touching the dialog.
+  const shownRef = useRef<number | null>(null);
 
+  // Per profile, not per mount: the PIN queues (Overview, Insights, Trends, Budgets) hand this
+  // same mounted dialog the next profile, so what it shows is reset and the cooldown re-read.
   useEffect(() => {
+    shownRef.current = profile.id;
+    const left = lockoutSecondsLeft(profile.id);
+    setPin("");
+    setCooldown(left);
+    setError(left > 0 ? "Too many attempts." : null);
     inputRef.current?.focus();
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, []);
+    return () => { shownRef.current = null; };
+  }, [profile.id]);
 
-  const startCooldown = () => {
-    setCooldown(COOLDOWN_SECS);
-    timerRef.current = setInterval(() => {
-      setCooldown((c) => {
-        if (c <= 1) {
-          clearInterval(timerRef.current!);
-          timerRef.current = null;
-          setAttempts(0);
-          return 0;
-        }
-        return c - 1;
-      });
-    }, 1000);
-  };
+  // Counts down from the shared deadline, so a cooldown started before the dialog was closed is
+  // still running when it reopens. The timer only reads: the store forgets an expired cooldown
+  // itself (failedPinAttempts), so a stray tick can never hand attempts back.
+  const locked = cooldown > 0;
+  useEffect(() => {
+    if (!locked) return;
+    const timer = setInterval(() => setCooldown(lockoutSecondsLeft(profile.id)), 1000);
+    return () => clearInterval(timer);
+  }, [locked, profile.id]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (cooldown > 0 || pin.length < 4) return;
-    const match = await verifyPin(pin, profile.created_at, profile.pin_hash!);
-    if (match) {
-      onSuccess();
-    } else {
-      const next = attempts + 1;
-      setAttempts(next);
+    if (verifying.has(profile.id) || pin.length < 4) return;
+    // The shared deadline decides, not the copy of it in state.
+    const left = lockoutSecondsLeft(profile.id);
+    if (left > 0) { setCooldown(left); setError("Too many attempts."); return; }
+    verifying.add(profile.id);
+    try {
+      const match = await verifyPin(pin, profile.created_at, profile.pin_hash!);
+      // The result belongs to the profile it was checked against, so the attempt is counted even
+      // if the dialog has closed or moved to the next profile meanwhile. Only the dialog, and
+      // the unlock itself, are left alone then.
+      const shown = shownRef.current === profile.id;
+      if (match) {
+        clearPinLockout(profile.id);
+        if (shown) onSuccess();
+        return;
+      }
+      failedPinAttempts(profile.id); // drops a cooldown that ran out while the dialog was closed
+      const next = recordFailedPin(profile.id);
+      if (!shown) return;
       setPin("");
       if (next >= 3) {
         setError(`Too many attempts. Wait ${COOLDOWN_SECS}s.`);
-        startCooldown();
+        setCooldown(lockoutSecondsLeft(profile.id));
       } else {
         setError(`Incorrect PIN. ${3 - next} attempt${3 - next === 1 ? "" : "s"} left.`);
       }
+    } finally {
+      verifying.delete(profile.id);
     }
   };
 
@@ -153,6 +209,7 @@ export default function PinModal({ profile, onSuccess, onCancel }: PinModalProps
               setPin(e.target.value.replace(/\D/g, ""));
             }}
             placeholder="••••"
+            aria-label={`PIN for ${profile.name}`}
             disabled={cooldown > 0}
             className="w-full border rounded-xl px-4 py-3 text-center text-xl tracking-[0.5em]
                        bg-[hsl(var(--background))] text-[hsl(var(--foreground))]

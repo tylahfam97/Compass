@@ -342,7 +342,7 @@ function ProfileTrends() {
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">
                     {firstMonthOnRecord ? `The log since ${formatMonthLabel(firstMonthOnRecord)}` : "All time"}, net of everything in and out
                   </p>
-                  <p className="hero-figure" data-size="xl" style={{ color: allTimeNet >= 0 ? "hsl(var(--gold-ink))" : "hsl(var(--error))" }}>
+                  <p className="hero-figure" data-size="xl" data-page-reading="Net on record" style={{ color: allTimeNet >= 0 ? "hsl(var(--gold-ink))" : "hsl(var(--error))" }}>
                     {formatCurrency(allTimeNet)}
                   </p>
                 </div>

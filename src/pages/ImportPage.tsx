@@ -1867,7 +1867,7 @@ export default function ImportPage() {
                       wizardNum(step) === ws.num
                         ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
                         : wizardNum(step) > ws.num
-                        ? "bg-[hsl(var(--success))] text-white cursor-pointer hover:opacity-80"
+                        ? "bg-[hsl(var(--success))] text-[hsl(var(--background))] cursor-pointer hover:opacity-80"
                         : "bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] cursor-not-allowed"
                     }`}>
                     {wizardNum(step) > ws.num ? "✓" : ws.num}
