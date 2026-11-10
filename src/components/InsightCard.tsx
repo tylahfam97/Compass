@@ -54,6 +54,8 @@ const TYPE_ICONS: Record<string, React.ElementType> = {
   fixed_costs_high:       ScalesIcon,
   no_spend_days:          CalendarBlankIcon,
   payday_burst:           CalendarBlankIcon,
+  payday_cushion:         CalendarCheckIcon,
+  small_purchases:        CoinsIcon,
   // Housekeeping
   uncategorized_share:    TagIcon,
   stale_data:             ClockCounterClockwiseIcon,
@@ -109,7 +111,7 @@ const ROW_ICONS: Record<string, React.ElementType> = {
 };
 
 /** One button style for every intent: gold is agency, severity stays on the icon. */
-const ACTION_BUTTON_CLS = "insight-action rounded-md border border-[hsl(var(--border))] px-2.5 py-1 text-xs font-medium text-[hsl(var(--gold-ink))] hover:bg-[hsl(var(--primary)/0.1)] transition-colors";
+export const ACTION_BUTTON_CLS = "insight-action rounded-md border border-[hsl(var(--border))] px-2.5 py-1 text-xs font-medium text-[hsl(var(--gold-ink))] hover:bg-[hsl(var(--primary)/0.1)] transition-colors";
 
 interface InsightCardProps {
   insight: Insight;
@@ -136,7 +138,7 @@ export default function InsightCard({ insight, onApply, compact = false, variant
     const detail = hasDetail(insight);
     const impact = Math.abs(insight.impactCents ?? 0);
     return (
-      <div className="insight-row group">
+      <div className="insight-row group" data-insight-id={insight.id} tabIndex={-1}>
         <Icon size={14} className={`insight-row-icon ${ICON_CLS[insight.severity]}`} />
         <div className="min-w-0">
           <p className="text-sm font-medium text-[hsl(var(--foreground))] leading-snug">{insight.title}</p>

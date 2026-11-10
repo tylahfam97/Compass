@@ -16,6 +16,7 @@ const PROFILE_SCOPED_KEY_PREFIXES = [
   "compass_hidden_charges_",
   "compass_dismissed_",
   "compass_insight_view_",
+  "compass_insight_visits_",
   "compass_budget_view_",
   "compass_overview_view_",
 ];
