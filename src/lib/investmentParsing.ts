@@ -3,6 +3,7 @@
 // importParsing.ts exists). Every parser takes the `string[][]` shape that CSV, XLSX and
 // `extractPdfRows()` all normalize to, and returns a `ParsedInvestment`.
 
+import * as XLSX from "xlsx";
 import { parseAmount, parseDate } from "./importParsing";
 import { toISODate } from "./forecast";
 import type { ActivityType, SecurityType } from "./types";
@@ -28,6 +29,8 @@ export interface InvestmentSection {
   colMap: Record<string, number>;
   rows: InvestmentRow[];
   totalMarketValue: number;
+  /** Source account this section belongs to, for files that carry several accounts (Vanguard). */
+  accountNumber?: string;
 }
 
 /** One line of a statement's transaction/activity table. `amount` is signed dollars (credits
@@ -50,6 +53,11 @@ export interface ParsedActivity {
   /** A source-provided unique id (e.g. a wallet operation hash) - when present it alone
    *  identifies the row for reimport dedup, so two identical-looking movements aren't merged. */
   importKey?: string;
+  /** Source account, for files that carry several accounts (Vanguard). */
+  accountNumber?: string;
+  /** Every non-blank source cell keyed by its column header, persisted as-is (source_json) so
+   *  fields Compass has no column for (fees, principal, accrued interest...) aren't lost. */
+  sourceFields?: Record<string, string>;
 }
 
 /** A statement's period-level totals ("what happened to this account this period"). Every
@@ -83,6 +91,45 @@ export interface ParsedInvestment {
   accountNumber: string | null;
   /** Caveats shown on the review step (e.g. unknown cost basis, rows left out). */
   notes?: string[];
+  /** Every source account in a multi-account file; each must be routed to its own account. */
+  accountNumbers?: string[];
+  /** True when the file has no valuation date: `asOfDate` is "" until the user supplies one. */
+  asOfDateUnknown?: boolean;
+}
+
+/** One worksheet as the `string[][]` the parsers take. raw:false returns each cell's formatted
+ *  display text (e.g. "$1,234.56", "07/15/2026") instead of the underlying number/date serial,
+ *  matching what parseAmount/parseDate expect; every cell is coerced to a string so a stray
+ *  number/Date object can never crash downstream .trim() calls. */
+const numericWorkbookAccounts = new WeakMap<string[][], Set<string>>();
+const workbook1904Dates = new WeakSet<string[][]>();
+const workbookDateCells = new WeakMap<string[], Record<string, string>>();
+export function workbookSheetRows(wb: XLSX.WorkBook, name: string): string[][] {
+  const sheet = wb.Sheets[name];
+  const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false, blankrows: true }) as unknown[][];
+  const rows = raw.map((row) => row.map((c) => (c === null || c === undefined ? "" : String(c))));
+  const numeric = new Set<string>();
+  const startRow = XLSX.utils.decode_range(sheet["!ref"] ?? "A1").s.r;
+  let columns: Record<string, number> | null = null;
+  rows.forEach((row, i) => {
+    const header = headerColumns(row, VANGUARD_HOLDINGS) ?? headerColumns(row, VANGUARD_ACTIVITY);
+    if (header) { columns = header; return; }
+    if (!columns) return;
+    const c = sheet[XLSX.utils.encode_cell({ r: startRow + i, c: columns["account number"] })];
+    if (c?.t === "n") numeric.add(row[columns["account number"]]);
+    // Keep original display text for source_json, but decode numeric dates from their serial,
+    // not a display format that may omit the century or show day before month.
+    const dates: Record<string, string> = {};
+    for (const name of ["trade date", "settlement date"]) {
+      if (columns[name] === undefined) continue;
+      const cell = sheet[XLSX.utils.encode_cell({ r: startRow + i, c: columns[name] })];
+      if (cell?.t === "n" && Number.isFinite(cell.v)) dates[name] = String(Math.floor(cell.v));
+    }
+    workbookDateCells.set(row, dates);
+  });
+  numericWorkbookAccounts.set(rows, numeric);
+  if (wb.Workbook?.WBProps?.date1904) workbook1904Dates.add(rows);
+  return rows;
 }
 
 /** Builds a positions-only result for the formats that are a portfolio export rather than a
@@ -1209,7 +1256,230 @@ export function parseLedgerLiveCSV(data: string[][]): ParsedInvestment | null {
 
 // ─── Format dispatch ───────────────────────────────────────────────────────────
 
-export type InvestmentFormat = "thrivent" | "fidelity" | "principal" | "etrade" | "ledger" | "wells-fargo";
+// ─── Vanguard holdings + activity download (one sheet, two tables) ────────────
+
+const normHeader = (c: string | undefined) => (c ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+const VANGUARD_HOLDINGS = ["account number", "investment name", "symbol", "shares", "share price", "total value"];
+const VANGUARD_ACTIVITY = ["account number", "trade date", "settlement date", "transaction type", "net amount"];
+
+/** Column index by normalized header name, or null unless every `required` header is present. */
+function headerColumns(row: string[], required: string[]): Record<string, number> | null {
+  const norm = row.map(normHeader);
+  if (!required.every((h) => norm.includes(h))) return null;
+  const cols: Record<string, number> = {};
+  norm.forEach((h, i) => { if (h && !(h in cols)) cols[h] = i; });
+  return cols;
+}
+
+/** True when some row is a Vanguard holdings or activity header, wherever it sits on the sheet. */
+export function looksLikeVanguardExport(data: string[][]): boolean {
+  return data.some((row) => headerColumns(row, VANGUARD_HOLDINGS) !== null || headerColumns(row, VANGUARD_ACTIVITY) !== null);
+}
+
+/** A trade/settlement date cell: text dates via parseDate, or an Excel serial day number
+ *  (counted from 1899-12-30, UTC arithmetic only - never local getters on a UTC instant). */
+function vanguardDate(v: string | null, date1904 = false): string | null {
+  if (!v) return null;
+  if (/^\d{5}(\.0+)?$/.test(v)) {
+    const d = new Date(Date.UTC(1899, 11, 30) + (parseInt(v, 10) + (date1904 ? 1462 : 0)) * 86_400_000);
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+  }
+  // A year is required; Date('1') or yearless names must never fabricate a trade date.
+  if (!/\b\d{4}\b/.test(v) && !/^\d{8}$/.test(v)) return null;
+  const iso = parseDate(v);
+  return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null;
+}
+
+/** A money/number cell, or null when blank or not a number (explanatory text never becomes $0). */
+function vanguardNumber(v: string | null): number | null {
+  if (v === null) return null;
+  const text = v.trim().replace(/^\$(?=\()/, "");
+  // Validate the entire US-format token before parseAmount (which otherwise accepts numeric
+  // prefixes and returns zero for malformed text). Do not guess decimal-comma conventions.
+  const number = /^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$|^\.\d+$/;
+  const body = /^\(\$?[^()]+\)$/.test(text) ? text.slice(1, -1).replace(/^\$/, "")
+    : text.replace(/^[+-]?\$?/, "");
+  if (!number.test(body)) return null;
+  const n = parseAmount(text);
+  return Number.isFinite(n) && Number.isSafeInteger(Math.round(n * 100)) ? n : null;
+}
+
+/** Maps a Vanguard transaction type to an activity type. Only types whose meaning is certain are
+ *  mapped; "distribution" (fund payout or retirement withdrawal?) and corporate actions stay
+ *  `other` for review, and anything unrecognized is `other` too. */
+function vanguardActivityType(raw: string): { type: ActivityType; review?: "distribution" | "corporate" | "unknown" } {
+  const t = normHeader(raw);
+  if (/^corp/.test(t) || /cusip|spin ?off|merger|split/.test(t)) return { type: "other", review: "corporate" };
+  if (/^dividend/.test(t)) return { type: "dividend" };
+  if (/reinvest/.test(t)) return { type: "reinvest" };
+  if (/^(sell|sold|redemption)/.test(t)) return { type: "sell" };
+  if (/^(buy|bought|purchase)/.test(t)) return { type: "buy" };
+  if (/sweep/.test(t)) return { type: "transfer" };
+  if (/^withdrawal/.test(t)) return { type: "withdrawal" };
+  if (/^interest/.test(t)) return { type: "interest" };
+  if (/^fee/.test(t)) return { type: "fee" };
+  if (/distribution/.test(t)) return { type: "other", review: "distribution" };
+  return { type: "other", review: "unknown" };
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * Parses Vanguard's holdings + activity download: one sheet carrying a holdings table (Account
+ * Number, Investment Name, Symbol, Shares, Share Price, Total Value) and an activity table (Account
+ * Number, Trade/Settlement Date, Transaction Type/Description, ..., Net Amount, Accrued Interest,
+ * Account Type), separated by blank or filler rows. Tables are found by their header text, not
+ * position, and columns are read by name. Several accounts share one file, so every section and
+ * activity row carries its source account number (kept as text - leading zeros preserved).
+ *
+ * Holdings are a valuation snapshot valued at Total Value; there is no cost basis, valuation date
+ * or currency in the file, so those stay unknown (`asOfDateUnknown` - the wizard asks for the
+ * date). Activity is history: Net Amount is kept exactly as signed and fees are never subtracted
+ * again; every source cell is kept in `sourceFields`. Incomplete or ambiguous rows are counted in
+ * `notes`, never silently dropped or guessed at.
+ */
+export function parseVanguardExport(data: string[][]): ParsedInvestment | null {
+  if (!looksLikeVanguardExport(data)) return null;
+  type Mode = { kind: "holdings" | "activity"; cols: Record<string, number>; header: string[] };
+  let mode: Mode | null = null;
+  const holdingsByAccount = new Map<string, { header: string[]; cols: Record<string, number>; raw: string[][]; rows: InvestmentRow[] }>();
+  const activity: ParsedActivity[] = [];
+  const keyCounts = new Map<string, number>();
+  const accounts = new Set<string>();
+  let outside = 0, incompleteHoldings = 0, incompleteActivity = 0, mismatched = 0, signFlags = 0;
+  let distributions = 0, corporate = 0, unknownTypes = 0, noNet = 0;
+  const precisionAccounts = new Set<string>(numericWorkbookAccounts.get(data));
+
+  for (const row of data) {
+    const holdingsHeader = headerColumns(row, VANGUARD_HOLDINGS);
+    const activityHeader = holdingsHeader ? null : headerColumns(row, VANGUARD_ACTIVITY);
+    if (holdingsHeader || activityHeader) {
+      mode = { kind: holdingsHeader ? "holdings" : "activity", cols: (holdingsHeader ?? activityHeader)!, header: row };
+      continue;
+    }
+    const filled = row.filter((c) => (c ?? "").trim()).length;
+    if (filled === 0) continue; // blank separator
+    if (!mode) { outside++; continue; }
+    const get = (h: string) => cellOrNull(row, mode!.cols[h]);
+    const account = get("account number");
+    // Filler text between the tables ("space", a note) has no digit where the account goes.
+    if (filled === 1 && !/\d/.test(account ?? "")) continue;
+    if (account && /e\+?\d+$/i.test(account)) precisionAccounts.add(account);
+
+    if (mode.kind === "holdings") {
+      const name = get("investment name");
+      const symbol = get("symbol");
+      const total = vanguardNumber(get("total value"));
+      if (!account || !(name || symbol) || total === null) { incompleteHoldings++; continue; }
+      const shares = vanguardNumber(get("shares"));
+      const price = vanguardNumber(get("share price"));
+      // Shares x price is only a reconciliation check (Total Value is the source's own figure).
+      if (shares !== null && price !== null && Math.abs(shares * price - total) > Math.max(1, Math.abs(total) * 0.01)) mismatched++;
+      const description = name ?? symbol!;
+      const g = holdingsByAccount.get(account) ?? { header: mode.header, cols: mode.cols, raw: [], rows: [] };
+      g.raw.push(row);
+      g.rows.push({
+        securityType: inferSecurityType(symbol, description), symbol, description, shares, price,
+        marketValue: total, costBasis: null, tradeDate: null, dividendPerShare: null, estAnnualIncome: null,
+      });
+      holdingsByAccount.set(account, g);
+      accounts.add(account);
+      continue;
+    }
+
+    const rawType = get("transaction type") ?? "";
+    const typedDates = workbookDateCells.get(row);
+    const date = vanguardDate(typedDates?.["trade date"] ?? get("trade date"), workbook1904Dates.has(data));
+    const settleCell = typedDates?.["settlement date"] ?? get("settlement date");
+    const settleDate = vanguardDate(settleCell, workbook1904Dates.has(data));
+    const { type, review } = vanguardActivityType(rawType);
+    const netCell = get("net amount");
+    const net = vanguardNumber(netCell);
+    // A corporate action may carry no cash at all; anything else needs a readable Net Amount.
+    if (!account || !rawType || !date || (settleCell && !settleDate) || (net === null && (netCell !== null || review !== "corporate"))) {
+      incompleteActivity++;
+      continue;
+    }
+    if (net === null) noNet++;
+    if (review === "distribution") distributions++;
+    if (review === "corporate") corporate++;
+    if (review === "unknown") unknownTypes++;
+    const amount = net ?? 0;
+    const outflow = type === "withdrawal" || (type === "transfer" && /out/.test(normHeader(rawType)));
+    const inflow = type === "dividend" || type === "sell" || type === "interest" || (type === "transfer" && /in\b/.test(normHeader(rawType)));
+    if ((outflow && amount > 0) || (inflow && amount < 0)) signFlags++;
+
+    const sourceFields: Record<string, string> = {};
+    mode.header.forEach((h, i) => { const v = (row[i] ?? "").trim(); if (h.trim() && v) sourceFields[h.trim()] = v; });
+    const symbol = get("symbol");
+    const quantity = vanguardNumber(get("shares"));
+    const price = vanguardNumber(get("share price"));
+    const cents = (h: string) => { const n = vanguardNumber(get(h)); return n === null ? "" : String(Math.round(n * 100)); };
+    // Canonical (parsed, not raw-text) values, so a reformatted re-download of the same rows maps
+    // to the same key; the in-file occurrence ordinal keeps legitimate identical rows apart.
+    const canonical = ["vanguard", account, date, settleDate ?? "", normHeader(rawType), normHeader(get("transaction description") ?? ""),
+      normHeader(get("investment name") ?? ""), (symbol ?? "").toUpperCase(), String(quantity ?? ""), String(price ?? ""),
+      cents("principal amount"), cents("commissions and fees"), cents("net amount"), cents("accrued interest"),
+      normHeader(get("account type") ?? "")].join("|");
+    const seen = keyCounts.get(canonical) ?? 0;
+    keyCounts.set(canonical, seen + 1);
+    activity.push({
+      date, settleDate, activityType: type, rawActivityType: rawType, symbol,
+      description: get("transaction description") ?? get("investment name") ?? rawType,
+      quantity, price, amount, costBasis: null, realizedGain: null, acquiredDate: null, term: null,
+      importKey: seen === 0 ? canonical : `${canonical}#${seen}`,
+      accountNumber: account, sourceFields,
+    });
+    accounts.add(account);
+  }
+
+  const sections: InvestmentSection[] = [...holdingsByAccount.entries()].map(([account, g]) => ({
+    title: `Vanguard account ${account}`, securityType: "other", headerRow: g.header, rawRows: g.raw,
+    colMap: { description: g.cols["investment name"], symbol: g.cols["symbol"], shares: g.cols["shares"], price: g.cols["share price"], marketValue: g.cols["total value"] },
+    rows: g.rows, totalMarketValue: g.rows.reduce((s, r) => s + (r.marketValue ?? 0), 0), accountNumber: account,
+  }));
+
+  const notes = [
+    "The download has no valuation date or currency: enter the date you downloaded it below. Amounts are used as shown, with no currency conversion.",
+    "Review date and number conventions: dates with both components at most 12 are interpreted month/day/year; numbers use decimal points and optional comma thousands. Confirm against the export before saving. No currency conversion is performed.",
+    "Holdings are valued at the file's Total Value; cost basis isn't in the file, so no gain or loss is calculated. The activity table is history and never adds to the holdings value.",
+  ];
+  if (incompleteHoldings) notes.push(`${plural(incompleteHoldings, "holdings row was", "holdings rows were")} left out: each needs an account number, an investment name or symbol, and a numeric Total Value.`);
+  if (incompleteActivity) notes.push(`${plural(incompleteActivity, "activity row was", "activity rows were")} left out: each needs an account number, a transaction type, a readable trade date and a numeric Net Amount.`);
+  if (outside) notes.push(`${plural(outside, "row above the first table was", "rows above the first table were")} ignored.`);
+  if (precisionAccounts.size) notes.push(`${plural(precisionAccounts.size, "account number needs review", "account numbers need review")} because it was stored numerically or shown in scientific notation. Leading zeros or precision may already be lost. Compass kept the displayed identifier and cannot recover missing digits - check the accounts below, or re-download with account numbers as text.`);
+  if (mismatched) notes.push(`${plural(mismatched, "holding's", "holdings'")} Shares x Share Price differs from Total Value by more than rounding; Total Value was used.`);
+  if (signFlags) notes.push(`${plural(signFlags, "activity row has", "activity rows have")} a Net Amount sign that doesn't match its type (e.g. a positive withdrawal). Amounts were kept exactly as in the file - check them.`);
+  if (distributions) notes.push(`${plural(distributions, "distribution was", "distributions were")} saved as Other, not income: the file doesn't say whether it's a fund payout or a retirement-account withdrawal.`);
+  if (corporate) notes.push(`${plural(corporate, "corporate action (CUSIP change, spinoff...) was", "corporate actions (CUSIP change, spinoff...) were")} saved for reference as Other, with no cash, gain or cost basis applied${noNet ? ` (${noNet} with no Net Amount, saved as $0)` : ""}. Review the affected positions.`);
+  if (unknownTypes) notes.push(`${plural(unknownTypes, "activity row has a transaction type", "activity rows have transaction types")} Compass doesn't recognize; saved as Other for review.`);
+  if (activity.some((a) => a.activityType === "reinvest")) notes.push("Reinvestments are counted as income only when no matching dividend (same account, symbol, date and amount) is in the file, so a dividend that was reinvested isn't counted twice.");
+  return { asOfDate: "", asOfDateUnknown: true, sections, activity, summary: null, accountLabel: null, accountNumber: null, notes, accountNumbers: [...accounts] };
+}
+
+/** Suggested Compass account name for one source account: institution + last 4 digits. */
+export function defaultSourceAccountName(accountNumber: string): string {
+  return `Vanguard ••${accountNumber.replace(/\s/g, "").slice(-4)}`;
+}
+
+/** Why a per-source-account routing can't be saved yet (null when it can): every source account
+ *  needs a destination, and no two may share one - that would merge separate accounts' holdings. */
+export function sourceRoutingProblem(
+  accountNumbers: string[],
+  choices: Record<string, { mode: "existing"; accountId: number } | { mode: "new"; name: string }>
+): string | null {
+  const seen = new Set<string>();
+  for (const n of accountNumbers) {
+    const c = choices[n];
+    if (!c || (c.mode === "new" && !c.name.trim())) return `Choose or name a Compass account for ${n}.`;
+    const key = c.mode === "existing" ? `id:${c.accountId}` : `new:${c.name.trim().toLowerCase()}`;
+    if (seen.has(key)) return "Two source accounts point to the same Compass account. Give each its own account.";
+    seen.add(key);
+  }
+  return null;
+}
+
+export type InvestmentFormat = "thrivent" | "fidelity" | "principal" | "etrade" | "ledger" | "vanguard" | "wells-fargo";
 
 /**
  * Detects the format of an investment CSV/XLSX/PDF based on distinctive header names or
@@ -1229,12 +1499,13 @@ export function detectInvestmentFormat(data: string[][]): InvestmentFormat {
   if (looksLikePrincipalStatement(data)) return "principal";
   if (looksLikeEtradeStatement(data)) return "etrade";
   if (looksLikeLedgerExport(data)) return "ledger";
+  if (looksLikeVanguardExport(data)) return "vanguard";
   return "wells-fargo";
 }
 
 /** Human-readable list of supported formats, shown when detection fails. */
 export const SUPPORTED_INVESTMENT_FORMATS =
-  "Wells Fargo Advisors (XLSX), Fidelity and Thrivent (CSV), Principal (PDF quarterly statement), E*TRADE / Morgan Stanley (PDF client statement), and Ledger Live crypto operations (CSV)";
+  "Wells Fargo Advisors (XLSX), Vanguard holdings + activity download (XLSX/CSV), Fidelity and Thrivent (CSV), Principal (PDF quarterly statement), E*TRADE / Morgan Stanley (PDF client statement), and Ledger Live crypto operations (CSV)";
 
 /**
  * Dispatcher: detects the brokerage export format and routes to the appropriate parser.
@@ -1247,6 +1518,7 @@ export function parseInvestmentWorkbook(data: string[][]): ParsedInvestment | nu
   if (fmt === "principal") return parsePrincipalStatement(data);
   if (fmt === "etrade")    return parseEtradeStatement(data);
   if (fmt === "ledger")    return parseLedgerLiveCSV(data);
+  if (fmt === "vanguard")  return parseVanguardExport(data);
 
   // Wells Fargo Advisors: sectioned format
   const asOfDate = detectStatementDate(data) ?? todayIso();

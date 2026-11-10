@@ -139,7 +139,7 @@ export default function CategoryModal({ category, onClose, profileId, deleteMode
           <select aria-label="Replacement category" value={replacementId} onChange={(event) => setReplacementId(Number(event.target.value))} className="border rounded-lg px-3 py-2 w-full bg-[hsl(var(--background))] text-sm">
             <CategoryOptions categories={categories.filter((item) => item.id !== category?.id)} />
           </select>
-          <button disabled={saving} onClick={handleDelete} className="text-sm px-3 py-2 rounded-lg bg-[hsl(var(--error))] text-white disabled:opacity-50">Remove category</button>
+          <button disabled={saving} onClick={handleDelete} className="text-sm px-3 py-2 rounded-lg bg-[hsl(var(--error))] text-[hsl(var(--background))] disabled:opacity-50">Remove category</button>
           <button disabled={saving} onClick={() => setConfirmDelete(false)} className="text-sm px-3 py-2">Keep category</button>
         </div>}
 

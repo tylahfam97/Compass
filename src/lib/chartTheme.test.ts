@@ -1,5 +1,21 @@
 import { describe, it, expect } from "vitest";
-import { harmonizeColor, hexToOklch, CATEGORY_HUES } from "./chartTheme";
+import { harmonizeColor, hexToOklch, CATEGORY_HUES, sparkDomain } from "./chartTheme";
+
+describe("sparkDomain", () => {
+  it("puts a level series mid-band instead of on an edge", () => {
+    expect(sparkDomain([100_000, 100_000])).toEqual([90_000, 110_000]);
+    expect(sparkDomain([0, 0])).toEqual([-1, 1]);
+    expect(sparkDomain([-53_144, -53_144])[0]).toBeLessThan(-53_144);
+  });
+
+  it("pads a moving series by a fifth of its range on each side", () => {
+    expect(sparkDomain([100, 200, 150])).toEqual([80, 220]);
+  });
+
+  it("survives an empty series", () => {
+    expect(sparkDomain([])).toEqual([0, 1]);
+  });
+});
 
 const HEX = /^#[0-9a-f]{6}$/;
 

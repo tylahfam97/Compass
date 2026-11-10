@@ -1988,10 +1988,12 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
   // ── INSIGHT: investment_income_received ────────────────────────────────────
   // The counterpart to the projection above: dividends/interest that actually landed in the
   // account this year, from imported statement activity.
+  // Vanguard reinvestments have uncertain coverage; exclude them from this assertion.
   const [incomeRow] = await db.select<{ total: number | null }[]>(
     `SELECT SUM(ABS(amount_cents)) as total FROM investment_activity
      WHERE profile_id=? AND activity_type IN ('dividend','reinvest','interest')
-       AND trade_date >= ?`,
+       AND trade_date >= ?
+       AND NOT (activity_type='reinvest' AND source_json IS NOT NULL)`,
     [profileId, `${thisMonth.slice(0, 4)}-01-01`]
   );
   if ((incomeRow?.total ?? 0) > 0) {
@@ -2000,7 +2002,7 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
       id: `investment_income_received_${thisMonth}`,
       type: "investment_income_received",
       title: `${formatCents(received)} in investment income received this year`,
-      description: `Your imported statements show ${formatCents(received)} of dividends and interest paid into your investment accounts so far this year.`,
+      description: `Your imported statements show ${formatCents(received)} of dividends and interest paid into your investment accounts so far this year. Vanguard reinvestments and ambiguous distributions are excluded here; review their coverage on Investments.`,
       severity: "success",
       impactCents: received,
       period: "this year",

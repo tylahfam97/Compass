@@ -23,6 +23,12 @@
 # Pre-releases (dev/feature branch builds) are ignored — only stable
 # releases (IS_PRERELEASE=false in build.yml) trigger this workflow.
 #
+# After a stable release is hosted, the last step dispatches
+# download-stats.yml so the /stats/ page refreshes right away. It is a direct
+# dispatch (not a `workflow_run` trigger there) because this workflow is
+# itself started by GITHUB_TOKEN, and GitHub creates no `workflow_run` runs
+# for GITHUB_TOKEN-caused events. The nightly stats run stays as a fallback.
+#
 # ── WHY THIS ALSO NEEDS A MANUAL DISPATCH ────────────────────────────────────
 # GitHub does NOT start new workflow runs from `release`/`push`/etc. events that
 # were themselves produced via the API using the default GITHUB_TOKEN (this is
@@ -71,6 +77,10 @@ on:
         description: "Release tag to host (blank = latest stable release)"
         required: false
 
+permissions:
+  contents: read # read the release via the API
+  actions: write # dispatch download-stats.yml after hosting
+
 env:
   DOWNLOADS_DIR: /var/www/compass/downloads
 
@@ -94,6 +104,7 @@ jobs:
           fi
 
       - name: Fetch release assets and host locally
+        id: host
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: tylahfam97/Compass
@@ -177,4 +188,25 @@ jobs:
           if [ -n "$DMG_NAME" ] && [ "$DMG_NAME" != "null" ]; then
             echo "  $DOWNLOADS_DIR/Compass.dmg  ->  $DMG_NAME"
           fi
+
+          # Only reached when a stable release was actually hosted (the
+          # prerelease path exits above), so only then refresh the stats.
+          echo "hosted=true" >> "$GITHUB_OUTPUT"
+
+      - name: Refresh download stats
+        if: ${{ steps.host.outputs.hosted == 'true' }}
+        # Hosting already succeeded; a failed dispatch shows red here but the
+        # nightly 06:17 UTC stats run still picks the release up.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Always the default branch's stats script, even for a release event on a tag.
+          REF: ${{ github.event.repository.default_branch }}
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/download-stats.yml/dispatches" \
+            -d "{\"ref\":\"$REF\"}"
 

@@ -282,6 +282,18 @@ export interface InvestmentActivity {
   term: "short" | "long" | null;
   import_hash: string;
   created_at: string;
+  /** Every source cell of the imported row, as JSON (Vanguard); null for other formats. */
+  source_json?: string | null;
+}
+
+/** A user-chosen asset class for one security (see holding_classes in db.ts). */
+export type AssetClass = "cash" | "equity" | "bond";
+export interface HoldingClass {
+  identity: string;
+  asset_class: AssetClass | null;
+  equity_region: string | null;
+  equity_size: string | null;
+  bond_detail: string | null;
 }
 
 /** A statement period's account-level totals. One row per account per statement period. */

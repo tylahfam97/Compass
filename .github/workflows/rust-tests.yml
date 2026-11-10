@@ -5,12 +5,9 @@ name: Rust Tests
 # is run against the released v1.3.4 lib.rs (plus a pure-move seam) and must fail with exactly the
 # tests listed in .github/red-baseline/expected-red.txt. Test-only: no artifacts, releases or deploys.
 on:
+  # No paths filter: cargo-test is a required check on main, so it must report on every PR.
   pull_request:
     branches: [ main, master ]
-    paths:
-      - 'src-tauri/**'
-      - '.github/workflows/rust-tests.yml'
-      - '.github/red-baseline/**'
 
 permissions:
   contents: read

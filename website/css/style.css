@@ -2,6 +2,8 @@
    Compass Website — style.css
    Colors derived from src/index.css dark-mode HSL tokens.
    No external dependencies. No CDN calls. Fully self-contained.
+   Served with a one-year immutable cache: when this file changes, update the
+   ?v= token on every page's stylesheet link (first 8 hex of its sha256).
    ============================================================================= */
 
 @layer base, layout, components, utilities;
@@ -345,7 +347,6 @@
 
 /* ── Hero ─────────────────────────────────────────────────────────────────── */
 @layer components {
-  }
 
   @keyframes orb-1 {
     0%, 100% { transform: translate(0, 0) scale(1); }
@@ -1522,4 +1523,40 @@
   }
   .guide-next h2 { margin-top: 0; }
   .guide-next p:last-child { margin-bottom: 0; }
+}
+
+/* ── Landing pages, homepage guide cards, footer credit ───────────────────── */
+@layer components {
+  .hero-eyebrow { font-size: 0.875rem; margin-bottom: var(--sp-4); }
+
+  .guides-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); }
+  .guide-card { display: flex; flex-direction: column; color: inherit; }
+  .guide-card:hover { opacity: 1; background: var(--bg-card-hover); }
+  .guide-card:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+  .guide-card h3 { font-size: 1.1875rem; line-height: 1.35; color: var(--text); text-wrap: balance; }
+  .guide-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-2);
+    align-self: flex-start;
+    margin-top: auto;
+    padding-top: var(--sp-6);
+    font-weight: 600;
+    color: var(--primary-ink);
+  }
+  .guide-card:hover .guide-cta { text-decoration: underline; text-underline-offset: 3px; }
+
+  /* Left-aligned CTA row for article pages; .hero-actions is the centred hero row. */
+  .landing-actions { display: flex; flex-wrap: wrap; gap: var(--sp-3); margin: var(--sp-6) 0 var(--sp-8); }
+  @media (max-width: 480px) { .landing-actions { flex-direction: column; } }
+  .guide .btn { text-decoration: none; }
+  .guide code { font-size: 0.875em; overflow-wrap: anywhere; }
+  .guide-steps { margin: 0 0 var(--sp-6) var(--sp-6); color: var(--text-muted); line-height: 1.75; }
+  .guide-steps li { margin-bottom: var(--sp-3); }
+  .guide-steps strong { color: var(--text); }
+  .guide-next .landing-actions { margin-bottom: var(--sp-4); }
+
+  .footer-copy a { color: var(--text-muted); text-decoration: underline; text-underline-offset: 2px; }
+  .footer-links { flex-wrap: wrap; }
+  .footer-guides { flex-basis: 100%; }
 }

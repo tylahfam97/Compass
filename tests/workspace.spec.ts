@@ -1,6 +1,7 @@
 import { test as base, expect } from "@playwright/test";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { createHash } from "node:crypto";
+import * as XLSX from "xlsx";
 
 const test = base.extend<{ database: DatabaseSync; today: Date | undefined }>({
   // Seeds dates from this day and, when set, pins the browser's Date to it too (timers keep running).
@@ -9,7 +10,12 @@ const test = base.extend<{ database: DatabaseSync; today: Date | undefined }>({
     if (today) await page.clock.setFixedTime(today);
     const database = new DatabaseSync(":memory:");
     await page.exposeBinding("compassTestInvoke", async (_source, command: string, args: { sql?: string; params?: SQLInputValue[]; statements?: { sql: string; params?: SQLInputValue[] }[] } = {}) => {
-      if (command === "db_select") return database.prepare(args.sql!).all(...(args.params ?? []));
+      if (command === "db_select") {
+        // Keep the native SELECT comment/stacked-statement guard in this bridge too: otherwise
+        // browser tests can pass a query that src-tauri/src/lib.rs rejects at runtime.
+        if (args.sql!.includes("--") || args.sql!.includes(";")) throw new Error("db_select: multiple statements or comments not permitted");
+        return database.prepare(args.sql!).all(...(args.params ?? []));
+      }
       if (command === "db_execute") {
         const result = database.prepare(args.sql!).run(...(args.params ?? []));
         return { lastInsertId: Number(result.lastInsertRowid), rowsAffected: Number(result.changes) };
@@ -160,7 +166,7 @@ planTest("Plan purchase preview is inspectable and never writes transactions", a
   await expect(page.getByTestId('safe-to-spend')).toHaveText('-$750.01');
   await expect(page.locator('.horizon-inspector')).toContainText('Hypothetical, not recorded');
   await expect(page.locator('.horizon-inspector')).toContainText('-$250.01');
-  await expect(page.locator('aside a[title="Insights"] span')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Insights', exact: true }).locator('span')).toBeVisible();
   await expect(page.locator('.plan-rules').getByTitle('Edit', { exact: true })).toHaveCount(2);
   await page.evaluate(() => {
     const host = window as unknown as { previewQueries: number; __TAURI_INTERNALS__: { invoke: (command: string, args: unknown) => Promise<unknown> } };
@@ -278,7 +284,7 @@ test("Plan keeps profile scenarios separate while an old load is pending", async
   await page.reload();
   await page.getByRole('button', { name: /Preview profile/ }).click();
   await page.getByLabel('Hypothetical purchase amount').fill('125');
-  await page.getByTitle('Transactions', { exact: true }).click();
+  await page.getByRole('link', { name: 'Transactions', exact: true }).click();
   await page.evaluate(() => {
     const host = window as unknown as { releaseForecast?: () => void; __TAURI_INTERNALS__: { invoke: (command: string, args: { sql?: string; params?: unknown[] }) => Promise<unknown> } };
     const original = host.__TAURI_INTERNALS__.invoke;
@@ -288,7 +294,7 @@ test("Plan keeps profile scenarios separate while an old load is pending", async
       return result;
     };
   });
-  await page.getByTitle('Plan', { exact: true }).click();
+  await page.getByRole('link', { name: 'Plan', exact: true }).click();
   await expect.poll(() => page.evaluate(() => typeof (window as unknown as { releaseForecast?: () => void }).releaseForecast)).toBe('function');
   await page.evaluate(async (profile) => {
     const path = '/src/stores/profileStore.ts';
@@ -416,13 +422,40 @@ test("Settings restores theme preference and recovers from account-check failure
   await expect(page.getByText('No accounts match the risk pattern.')).toBeVisible();
 });
 
+test("Send feedback posts only the typed fields, keeps the text on failure and confirms on success", async ({ page, database }) => {
+  expect(database.isOpen).toBe(true);
+  const posts: string[] = [];
+  let status = 500;
+  await page.route("https://privatecompass.app/api/feedback", async (route) => {
+    posts.push(route.request().postData() ?? "");
+    await route.fulfill({ status });
+  });
+  await page.getByTitle("Expand sidebar").click();
+  await page.getByRole("button", { name: "Send feedback" }).click();
+  const dialog = page.getByRole("dialog", { name: "Send feedback" });
+  const send = dialog.getByRole("button", { name: "Send", exact: true });
+  await expect(send).toBeDisabled();
+  await dialog.getByLabel("Message").fill("The Plan tab is great");
+  await send.click();
+  await expect(page.getByText("Couldn't send. Check your connection or try again later.")).toBeVisible();
+  await expect(dialog.getByLabel("Message")).toHaveValue("The Plan tab is great");
+  status = 200;
+  await send.click();
+  await expect(page.getByText("Thanks, sent.")).toBeVisible();
+  await expect(dialog).toHaveCount(0);
+  const sent = new URLSearchParams(posts[1]);
+  expect([...sent.keys()]).toEqual(["message", "version", "os"]);
+  expect(sent.get("message")).toBe("The Plan tab is great");
+  expect(sent.get("version")).toBe("1.0.2");
+});
+
 test("Transactions restores private view context and still changes month", async ({ page, database }) => {
   expect(database.isOpen).toBe(true);
   await page.goto('/transactions');
   await page.getByLabel('Search transactions').fill('Green Market');
   await page.getByRole('button', { name: 'Table', exact: true }).click();
-  await page.getByTitle('Plan', { exact: true }).click();
-  await page.getByTitle('Transactions', { exact: true }).click();
+  await page.getByRole('link', { name: 'Plan', exact: true }).click();
+  await page.getByRole('link', { name: 'Transactions', exact: true }).click();
   await expect(page.getByLabel('Search transactions')).toHaveValue('Green Market');
   await expect(page.getByRole('table')).toBeVisible();
   const before = await page.locator('input[type="month"]').inputValue();
@@ -1056,7 +1089,7 @@ test("workspace follows restored and maximized widths", async ({ page, database 
       return Math.abs(main.clientWidth - workspace.getBoundingClientRect().width);
     })).toBeLessThanOrEqual(1);
   }
-  await page.getByTitle('Plan', { exact: true }).click();
+  await page.getByRole('link', { name: 'Plan', exact: true }).click();
   for (const width of [2560, 1024, 1440]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.getByTitle('Expand sidebar', { exact: true }).click();
@@ -1162,4 +1195,391 @@ test("Ledger crypto export imports as an investment holding with transfers, not 
   expect(purchases()).toEqual(matched);
   expect(database.prepare("SELECT COUNT(*) AS n FROM crypto_transfer_links").get()).toEqual({ n: 1 });
   expect(database.prepare("SELECT COUNT(*) AS n FROM transactions").get()).toEqual(transactionsBefore);
+});
+
+test("Vanguard schema upgrades existing SQLite data and keeps classifications profile-scoped", async ({ page, database }) => {
+  database.exec("INSERT INTO accounts (id,name,account_type,profile_id) VALUES (2,'Synthetic legacy','investment',1)");
+  database.exec("INSERT INTO holdings (account_id,profile_id,as_of_date,security_type,symbol,description,market_value_cents) VALUES (2,1,'2026-01-31','mutual_fund','ZZMIG','Synthetic legacy fund',25000)");
+  database.exec("INSERT INTO investment_activity (account_id,profile_id,trade_date,activity_type,amount_cents,import_hash) VALUES (2,1,'2026-01-15','dividend',123,'synthetic-legacy')");
+  database.exec("DROP TABLE holding_classes; ALTER TABLE investment_activity DROP COLUMN source_json");
+  const before = database.prepare("SELECT * FROM transactions ORDER BY id").all();
+  await page.goto("/investments");
+  await expect(page.getByLabel("Asset class for ZZMIG")).toHaveValue("");
+  expect(database.prepare("SELECT amount_cents,source_json FROM investment_activity WHERE import_hash='synthetic-legacy'").get()).toEqual({ amount_cents: 123, source_json: null });
+  expect(database.prepare("SELECT * FROM transactions ORDER BY id").all()).toEqual(before);
+  database.exec("INSERT INTO profiles (id,name) VALUES (2,'Synthetic other profile')");
+  database.exec("INSERT INTO holding_classes (profile_id,identity,asset_class) VALUES (2,'symbol:ZZMIG','equity')");
+  await page.reload();
+  await expect(page.getByLabel("Asset class for ZZMIG")).toHaveValue("");
+  await page.getByLabel("Asset class for ZZMIG").selectOption("bond");
+  await expect(page.getByLabel("Bond details for ZZMIG")).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel("Asset class for ZZMIG")).toHaveValue("bond");
+  expect(database.prepare("SELECT profile_id,asset_class FROM holding_classes ORDER BY profile_id").all()).toEqual([{ profile_id: 1, asset_class: "bond" }, { profile_id: 2, asset_class: "equity" }]);
+  expect(database.prepare("SELECT COUNT(*) AS n FROM holdings").get()).toEqual({ n: 1 });
+});
+
+test("Vanguard holdings + activity workbook routes each account, dedupes re-imports and feeds the asset-class view", async ({ page, database }) => {
+  // Invented accounts, funds and amounts in Vanguard's one-sheet, two-table layout.
+  const holdingsHeader = ["Account Number", "Investment Name", "Symbol", "Shares", "Share Price", "Total Value"];
+  const activityHeader = ["Account Number", "Trade Date", "Settlement Date", "Transaction Type", "Transaction Description", "Investment Name", "Symbol", "Shares", "Share Price", "Principal Amount", "Commissions and Fees", "Net Amount", "Accrued Interest", "Account Type"];
+  const row = (acct: string, date: string, type: string, desc: string, sym: string, net: string, fees = "") => [acct, date, date, type, desc, `SYNTHETIC ${sym} FUND`, sym, "", "", "", fees, net, "0", "CASH"];
+  const aoa = [
+    holdingsHeader,
+    ["000123456789", "SYNTHETIC TOTAL MARKET FUND", "ZZTMX", "10", "100", "1,000.00"],
+    ["000123456789", "SYNTHETIC BOND FUND", "ZZBDX", "5", "22", "110.00"],
+    [],
+    ["88880001", "SYNTHETIC TOTAL MARKET FUND", "ZZTMX", "2", "100", "200.00"],
+    ["88880001", "SYNTHETIC MONEY MARKET FUND", "ZZMMX", "50.25", "1", "50.25"],
+    [], ["space"], ["space"],
+    activityHeader,
+    row("000123456789", "2026-01-15", "Dividend", "Dividend Received", "ZZTMX", "12.34"),
+    row("000123456789", "2026-01-15", "Reinvestment", "Dividend Reinvestment", "ZZTMX", "-12.34"),
+    row("000123456789", "2026-01-16", "Sell", "Sell", "ZZBDX", "10.00", "2.00"),
+    row("88880001", "2026-01-20", "Sweep in", "Sweep into settlement account", "ZZMMX", "50.00"),
+    row("88880001", "2026-01-25", "Dividend", "Dividend Received", "ZZTMX", "3.00"),
+    row("88880001", "2026-01-25", "Dividend", "Dividend Received", "ZZTMX", "3.00"),
+    row("88880001", "2026-01-26", "Corp Action (Cusip Change)", "Cusip change", "ZZTMX", "0"),
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), "Synthetic");
+  const file = { name: "synthetic-vanguard.xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" })) };
+
+  const upload = async () => {
+    await page.goto("/import");
+    await page.getByRole("button", { name: /Investment \/ Brokerage/ }).click();
+    await page.locator("#csv-input").setInputFiles(file);
+    await expect(page.getByText("This file has 2 accounts")).toBeVisible();
+  };
+  await upload();
+  const first = page.locator("#source-account-0");
+  await expect(first).toHaveValue("new");
+  const firstName = page.getByLabel("New account name for 000123456789");
+  await expect(firstName).toHaveValue("Vanguard ••6789");
+  // Two source accounts can't be sent to one destination.
+  await firstName.fill("Vanguard ••0001");
+  await expect(page.getByRole("alert")).toContainText("same Compass account");
+  await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
+  await firstName.fill("Synthetic Brokerage");
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  // Back keeps the routing.
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(page.getByLabel("New account name for 000123456789")).toHaveValue("Synthetic Brokerage");
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+
+  await expect(page.getByRole("note")).toContainText("no valuation date or currency");
+  await expect(page.getByRole("note")).toContainText("1 corporate action (CUSIP change, spinoff...) was saved for reference");
+  const importButton = page.getByRole("button", { name: /^Import 4 Positions \+ 7 Activity/ });
+  await expect(importButton).toBeDisabled(); // no valuation date yet
+  await page.getByLabel(/Valuation date/).fill("2026-01-31");
+  await importButton.click();
+  await expect(page.getByText("Import complete")).toBeVisible();
+
+  const accounts = () => database.prepare("SELECT id, name, institution FROM accounts WHERE account_type='investment' ORDER BY name").all() as { id: number; name: string }[];
+  expect(accounts().map((a) => a.name)).toEqual(["Synthetic Brokerage", "Vanguard ••0001"]);
+  const perAccount = () => database.prepare("SELECT a.name, h.as_of_date, COUNT(*) AS n, SUM(h.market_value_cents) AS value, MAX(h.cost_basis_cents) AS basis FROM holdings h JOIN accounts a ON a.id=h.account_id GROUP BY a.id ORDER BY a.name").all();
+  const expected = [
+    { name: "Synthetic Brokerage", as_of_date: "2026-01-31", n: 2, value: 111_000, basis: null },
+    { name: "Vanguard ••0001", as_of_date: "2026-01-31", n: 2, value: 25_025, basis: null },
+  ];
+  expect(perAccount()).toEqual(expected);
+  const activity = () => database.prepare("SELECT a.name, ia.activity_type, ia.amount_cents, ia.source_json FROM investment_activity ia JOIN accounts a ON a.id=ia.account_id ORDER BY ia.id").all() as { name: string; activity_type: string; amount_cents: number; source_json: string }[];
+  expect(activity().map((r) => [r.name, r.activity_type, r.amount_cents])).toEqual([
+    ["Synthetic Brokerage", "dividend", 1234], ["Synthetic Brokerage", "reinvest", -1234], ["Synthetic Brokerage", "sell", 1000],
+    ["Vanguard ••0001", "transfer", 5000], ["Vanguard ••0001", "dividend", 300], ["Vanguard ••0001", "dividend", 300], ["Vanguard ••0001", "other", 0],
+  ]);
+  expect(JSON.parse(activity()[2].source_json)).toMatchObject({ "Commissions and Fees": "2.00", "Net Amount": "10.00", "Settlement Date": "2026-01-16", "Account Type": "CASH" });
+  expect(database.prepare("SELECT COUNT(*) AS n FROM transactions WHERE description LIKE '%SYNTHETIC%' OR description LIKE '%Dividend%'").get()).toEqual({ n: 0 });
+
+  // Re-importing the same file: routed to the same two accounts, the snapshot is replaced (not
+  // doubled) and every activity row is recognized as already imported.
+  await upload();
+  await page.locator("#source-account-0").selectOption({ label: "Add to Synthetic Brokerage (Vanguard)" });
+  await expect(page.locator("#source-account-1")).toHaveValue(String(accounts()[1].id));
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByLabel(/Valuation date/).fill("2026-01-31");
+  await page.getByRole("button", { name: /^Import 4 Positions/ }).click();
+  await expect(page.getByText("These accounts already have")).toBeVisible();
+  await page.getByRole("button", { name: "Replace that snapshot" }).click();
+  await expect(page.getByText("Import complete")).toBeVisible();
+  expect(accounts()).toHaveLength(2);
+  expect(perAccount()).toEqual(expected);
+  expect(activity()).toHaveLength(7);
+
+  // Asset classes: unset by default, saved per security, kept across reloads, scoped like the page.
+  await page.goto("/investments");
+  const assetCard = page.getByRole("region", { name: "Asset class" });
+  await expect(assetCard).toContainText("Unclassified$1,360.25, 100%");
+  await page.getByLabel("Asset class for ZZTMX").selectOption("equity");
+  await page.getByLabel("Region for ZZTMX").selectOption("us");
+  await page.getByLabel("Size for ZZTMX").selectOption("large");
+  await page.getByLabel("Asset class for ZZBDX").selectOption("bond");
+  await page.getByLabel("Bond details for ZZBDX").fill("Synthetic short-term government");
+  await page.getByLabel("Bond details for ZZBDX").blur();
+  await expect(assetCard).toContainText("Equity$1,200.00, 88%");
+  await expect(assetCard).toContainText("US$1,200.00, 100%");
+  await expect(assetCard).toContainText("Large cap$1,200.00, 100%");
+  await expect.poll(() => database.prepare("SELECT identity, asset_class, equity_region, equity_size, bond_detail FROM holding_classes ORDER BY identity").all()).toEqual([
+    { identity: "symbol:ZZBDX", asset_class: "bond", equity_region: null, equity_size: null, bond_detail: "Synthetic short-term government" },
+    { identity: "symbol:ZZTMX", asset_class: "equity", equity_region: "us", equity_size: "large", bond_detail: null },
+  ]);
+  await page.reload();
+  await expect(page.getByLabel("Asset class for ZZTMX")).toHaveValue("equity");
+  await expect(assetCard).toContainText("Bond$110.00, 8%");
+  await expect(assetCard).toContainText("Unclassified$50.25, 4%");
+  await page.getByRole("combobox", { name: /^Account/ }).selectOption(String(accounts()[0].id));
+  await expect(assetCard).toContainText("Equity$1,000.00, 90%");
+  // Income counts the reinvested dividend once: 12.34 + 3.00 + 3.00.
+  await page.getByRole("combobox", { name: /^Account/ }).selectOption("all");
+  await page.getByRole("button", { name: /^Income/ }).click();
+  await expect(page.getByText("$18.34")).toBeVisible();
+
+  // Replacement is all-or-nothing across accounts, not DELETE followed by partial inserts.
+  database.exec("CREATE TRIGGER fail_synthetic BEFORE INSERT ON holdings WHEN NEW.symbol='ZZBDX' BEGIN SELECT RAISE(ABORT, 'synthetic insertion failure'); END");
+  await upload();
+  await page.locator("#source-account-0").selectOption(String(accounts()[0].id));
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByLabel(/Valuation date/).fill("2026-01-31");
+  await page.getByRole("button", { name: /^Import 4 Positions/ }).click();
+  await page.getByRole("button", { name: "Replace that snapshot" }).click();
+  await expect(page.getByText(/synthetic insertion failure/)).toBeVisible();
+  expect(perAccount()).toEqual(expected);
+  expect(activity()).toHaveLength(7);
+  database.exec("DROP TRIGGER fail_synthetic");
+  await page.getByRole("button", { name: /^Import 4 Positions/ }).click();
+  await page.getByRole("button", { name: "Replace that snapshot" }).click();
+  await expect(page.getByText("Import complete")).toBeVisible();
+
+  // Manual classes survive replacement and a new snapshot; the latest value is counted once.
+  await upload();
+  await page.locator("#source-account-0").selectOption(String(accounts()[0].id));
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByLabel(/Valuation date/).fill("2026-02-01");
+  await page.getByRole("button", { name: /^Import 4 Positions/ }).click();
+  await expect(page.getByText("Import complete")).toBeVisible();
+  await page.goto("/investments");
+  await expect(page.getByLabel("Asset class for ZZTMX")).toHaveValue("equity");
+  await expect(page.getByLabel("Bond details for ZZBDX")).toHaveValue("Synthetic short-term government");
+  await expect(assetCard).toContainText("Equity$1,200.00, 88%");
+  expect(database.prepare("SELECT COUNT(*) AS n FROM holdings").get()).toEqual({ n: 8 });
+  expect(activity()).toHaveLength(7);
+  await page.screenshot({ path: test.info().outputPath("vanguard-allocation-light.png"), fullPage: true });
+  await page.evaluate(() => document.documentElement.classList.add("dark"));
+  await page.screenshot({ path: test.info().outputPath("vanguard-allocation-dark.png"), fullPage: true });
+});
+
+test("Dashboard Clear month keeps investment imports and their holdings", async ({ page, database }) => {
+  // An investment import stores holdings, never transactions, so its session always looks empty
+  // to the "sessions with no transactions left" sweep that follows a clear.
+  database.prepare("INSERT INTO accounts (id,name,account_type,profile_id) VALUES (2,'Sample brokerage','investment',1)").run();
+  const session = Number(database.prepare("INSERT INTO import_sessions (filename,row_count,skipped_count,profile_id,kind) VALUES ('sample-holdings.csv',0,0,1,'investment')").run().lastInsertRowid);
+  database.prepare("INSERT INTO holdings (account_id,profile_id,import_session_id,as_of_date,security_type,symbol,description,shares,market_value_cents) VALUES (2,1,?,'2026-01-31','etf','SMPL','Sample index fund',10,250000)").run(session);
+  const thisMonth = () => database.prepare("SELECT COUNT(*) AS n FROM transactions WHERE strftime('%Y-%m', date)=strftime('%Y-%m','now','localtime')").get();
+  expect(Number(thisMonth()?.n)).toBeGreaterThan(0);
+
+  await page.goto("/");
+  await page.getByText("Manage data", { exact: true }).click();
+  await page.getByRole("button", { name: /^Clear \d{4}-\d{2}$/ }).click();
+  await page.getByRole("button", { name: "Yes, delete", exact: true }).click();
+
+  await expect.poll(thisMonth).toEqual({ n: 0 });
+  await expect(page.getByRole("button", { name: "Yes, delete", exact: true })).toBeHidden();
+  expect(database.prepare("SELECT kind FROM import_sessions WHERE id=?").get(session)).toEqual({ kind: "investment" });
+  expect(database.prepare("SELECT COUNT(*) AS n FROM holdings WHERE import_session_id=?").get(session)).toEqual({ n: 1 });
+});
+
+test("PIN dialog spends one attempt per entry and keeps its cooldown across Cancel", async ({ page, database }) => {
+  // Hashes from before the PBKDF2 upgrade (SHA-256 of PIN + created_at) are still accepted.
+  const created = String(database.prepare("SELECT created_at FROM profiles WHERE id=1").get()?.created_at);
+  database.prepare("UPDATE profiles SET pin_hash=? WHERE id=1").run(createHash("sha256").update(`4321${created}`).digest("hex"));
+
+  await page.goto("/");
+  const openDialog = () => page.getByRole("button", { name: /PIN protected/ }).click();
+  const dialog = page.getByRole("dialog", { name: "PIN entry" });
+  const pinField = page.getByLabel("PIN for Preview profile");
+  await openDialog();
+
+  // Two submits before the first verification has finished are one entry, so one attempt.
+  await pinField.fill("0000");
+  await dialog.locator("form").evaluate((form: HTMLFormElement) => { form.requestSubmit(); form.requestSubmit(); });
+  await expect(dialog.getByText("Incorrect PIN. 2 attempts left.")).toBeVisible();
+
+  await pinField.fill("0000");
+  await dialog.getByRole("button", { name: "Unlock", exact: true }).click();
+  await expect(dialog.getByText("Incorrect PIN. 1 attempt left.")).toBeVisible();
+
+  await pinField.fill("0000");
+  await dialog.getByRole("button", { name: "Unlock", exact: true }).click();
+  await expect(dialog.getByRole("button", { name: /^Wait \d+s$/ })).toBeDisabled();
+
+  // Cancel unmounts the dialog; the cooldown belongs to the profile, not to the dialog.
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await openDialog();
+  await expect(dialog.getByRole("button", { name: /^Wait \d+s$/ })).toBeDisabled();
+  await expect(pinField).toBeDisabled();
+});
+
+test("Command palette restores focus and preserves native query editing", async ({ page, database }) => {
+  expect(database.isOpen).toBe(true);
+  await page.reload();
+  const launcher = page.getByRole("button", { name: /Jump to a page or action/ });
+  const search = page.getByRole("combobox", { name: "Search pages and actions" });
+  await launcher.click();
+  await expect(search).toBeFocused();
+  await search.fill("forecast");
+  await search.press("Home");
+  expect(await search.evaluate((el: HTMLInputElement) => el.selectionStart)).toBe(0);
+  await search.press("End");
+  expect(await search.evaluate((el: HTMLInputElement) => el.selectionStart)).toBe(8);
+  await search.press("Shift+Home");
+  expect(await search.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd])).toEqual([0, 8]);
+  await search.press("Tab");
+  await expect(search).toBeFocused();
+  await search.press("Escape");
+  await expect(search).toHaveCount(0);
+  await expect(launcher).toBeFocused();
+  await page.keyboard.press("Control+k");
+  await expect(search).toBeFocused();
+  await search.dispatchEvent("keydown", { key: "k", ctrlKey: true, repeat: true });
+  await expect(search).toBeFocused();
+  await page.keyboard.press("Control+k");
+  await expect(search).toHaveCount(0);
+  await expect(launcher).toBeFocused();
+});
+
+test("Command palette hands focus to an action modal and respects its shortcut guard", async ({ page, database }) => {
+  expect(database.isOpen).toBe(true);
+  await page.reload();
+  // Opening the feedback dialog is local; never send or let this regression contact its endpoint.
+  await page.route("https://privatecompass.app/api/feedback", (route) => route.abort());
+  const launcher = page.getByRole("button", { name: /Jump to a page or action/ });
+  await launcher.click();
+  const search = page.getByRole("combobox", { name: "Search pages and actions" });
+  await search.fill("Send feedback");
+  await search.press("Enter");
+  const feedback = page.getByRole("dialog", { name: "Send feedback" });
+  await expect(search).toHaveCount(0);
+  await expect(feedback.getByLabel("Message", { exact: true })).toBeFocused();
+  await page.keyboard.press("Control+k");
+  await expect(search).toHaveCount(0);
+  await expect(feedback.getByLabel("Message", { exact: true })).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(feedback.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(feedback).toHaveCount(0);
+  await expect(launcher).toBeFocused();
+});
+
+test("Page readout follows theme, account scope and navigation under reduced motion", async ({ page, database }) => {
+  database.exec("INSERT INTO accounts (id,name,account_type,profile_id) VALUES (2,'First fund','investment',1),(3,'Second fund','investment',1),(4,'Empty fund','investment',1)");
+  database.exec("INSERT INTO holdings (account_id,profile_id,as_of_date,security_type,symbol,description,shares,market_value_cents) VALUES (2,1,'2026-01-31','etf','ONE','First fund',10,250000),(3,1,'2026-01-31','etf','TWO','Second fund',5,100000)");
+  // Keep every scope long enough to scroll its hero out of view, including a zero-value scope.
+  const holding = database.prepare("INSERT INTO holdings (account_id,profile_id,as_of_date,security_type,symbol,shares,market_value_cents) VALUES (?,1,'2026-01-31','etf',?,0,0)");
+  for (const id of [2, 3, 4]) for (let n = 0; n < 16; n++) holding.run(id, `ZERO${n}`);
+  await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "dark" });
+  await page.setViewportSize({ width: 1100, height: 700 });
+  await page.goto("/investments");
+  const source = page.locator('.stat-row-item[data-hero="true"] > strong');
+  const readout = page.locator('.page-readout[data-shown="true"]');
+  const scrollPast = () => page.locator("main").evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  await expect(source).toHaveText("$3,500.00");
+  await scrollPast();
+  await expect(readout.locator("strong")).toHaveText("$3,500.00");
+  await expect(readout).toHaveAttribute("aria-hidden", "true");
+  const darkColor = await source.evaluate((el) => getComputedStyle(el).color);
+  await expect(readout.locator("strong")).toHaveCSS("color", darkColor);
+  await page.keyboard.press("Control+k");
+  const search = page.getByRole("combobox", { name: "Search pages and actions" });
+  await search.fill("Switch to light mode");
+  await search.press("Enter");
+  await expect(page.locator("html")).not.toHaveClass(/dark/);
+  await expect.poll(() => source.evaluate((el) => getComputedStyle(el).color)).not.toBe(darkColor);
+  await expect.poll(async () => (await readout.locator("strong").evaluate((el) => getComputedStyle(el).color)) === (await source.evaluate((el) => getComputedStyle(el).color))).toBe(true);
+  const account = page.getByRole("combobox", { name: /^Account/ });
+  await account.focus();
+  await account.press("f");
+  await account.press("Enter");
+  await expect(account).toHaveValue("2");
+  await expect(source).toHaveText("$2,500.00");
+  await scrollPast();
+  await expect(readout.locator("strong")).toHaveText("$2,500.00");
+  await account.selectOption("4");
+  await scrollPast();
+  // No stale all-account value survives switching to an empty account.
+  await expect(source).toHaveText("$0.00");
+  await expect(readout.locator("strong")).toHaveText("$0.00");
+  await page.getByRole("link", { name: "Plan", exact: true }).click();
+  await expect(page.getByTestId("safe-to-spend")).toBeVisible();
+  await scrollPast();
+  await expect(readout.locator(".page-readout-title")).toHaveText("Plan");
+  await expect.poll(async () => readout.locator("strong").textContent()).toBe(await page.getByTestId("safe-to-spend").textContent());
+  await expect(page.locator(".route-glint")).toHaveCSS("display", "none");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await scrollPast();
+  await expect(readout).toHaveCount(0);
+});
+
+test("Dashboard Clear all preserves investments and other profiles but sweeps empty bank sessions", async ({ page, database }) => {
+  database.exec("INSERT INTO profiles (id,name) VALUES (2,'Other profile')");
+  database.exec("INSERT INTO accounts (id,name,account_type,profile_id) VALUES (2,'Sample brokerage','investment',1),(3,'Other checking','checking',2)");
+  const session = (profile: number, kind: string) => Number(database.prepare("INSERT INTO import_sessions (filename,row_count,skipped_count,profile_id,kind) VALUES ('sample.csv',0,0,?,?)").run(profile, kind).lastInsertRowid);
+  const investment = session(1, "investment");
+  const bank = session(1, "bank");
+  const emptyBank = session(1, "bank");
+  const otherBank = session(2, "bank");
+  const otherEmptyBank = session(2, "bank");
+  database.prepare("UPDATE transactions SET import_session_id=? WHERE profile_id=1").run(bank);
+  database.prepare("INSERT INTO holdings (account_id,profile_id,import_session_id,as_of_date,security_type,symbol,shares,market_value_cents) VALUES (2,1,?,'2026-01-31','etf','SMPL',10,250000)").run(investment);
+  database.prepare("INSERT INTO transactions (account_id,profile_id,import_session_id,date,description,amount_cents,import_hash) VALUES (3,2,?,'2026-01-31','Other spending',-100,'other')").run(otherBank);
+  const otherBefore = database.prepare("SELECT * FROM transactions WHERE profile_id=2").all();
+  const holdingBefore = database.prepare("SELECT * FROM holdings WHERE import_session_id=?").all(investment);
+  await page.goto("/");
+  await page.getByRole("button", { name: /Preview profile/ }).click();
+  await page.getByText("Manage data", { exact: true }).click();
+  await page.getByRole("button", { name: "Clear all transactions", exact: true }).click();
+  await page.getByRole("button", { name: "Yes, delete", exact: true }).click();
+  await expect.poll(() => database.prepare("SELECT COUNT(*) AS n FROM transactions WHERE profile_id=1").get()).toEqual({ n: 0 });
+  await expect(page.getByRole("button", { name: "Yes, delete", exact: true })).toBeHidden();
+  expect(database.prepare("SELECT id FROM import_sessions ORDER BY id").all()).toEqual([investment, otherBank, otherEmptyBank].map((id) => ({ id })));
+  expect(database.prepare("SELECT id FROM import_sessions WHERE id IN (?,?)").all(bank, emptyBank)).toEqual([]);
+  expect(database.prepare("SELECT * FROM holdings WHERE import_session_id=?").all(investment)).toEqual(holdingBefore);
+  expect(database.prepare("SELECT * FROM transactions WHERE profile_id=2").all()).toEqual(otherBefore);
+});
+
+test("PIN queue reuses the dialog safely and ignores a late unlock after advancing", async ({ page, database }) => {
+  database.exec("INSERT INTO profiles (id,name,created_at) VALUES (2,'Locked second','2026-01-01'),(3,'Locked third','2026-01-01')");
+  const hash = createHash("sha256").update("43212026-01-01").digest("hex");
+  database.prepare("UPDATE profiles SET pin_hash=? WHERE id IN (2,3)").run(hash);
+  await page.goto("/overview");
+  await page.getByRole("button", { name: /Preview profile/ }).click();
+  await page.evaluate(async () => {
+    const path = "/src/components/PinModal.tsx";
+    const pin = await import(path);
+    // Give the third profile a running deadline before it enters the reused queue dialog.
+    for (let i = 0; i < 3; i++) pin.recordFailedPin(3, Date.now() + 30_000);
+    const digest = crypto.subtle.digest.bind(crypto.subtle);
+    crypto.subtle.digest = async (...args) => {
+      const result = await digest(...args);
+      await new Promise<void>((resolve) => { (window as unknown as { releasePin: () => void }).releasePin = resolve; });
+      return result;
+    };
+  });
+  await page.getByRole("switch").click();
+  const dialog = page.getByRole("dialog", { name: "PIN entry" });
+  await page.getByLabel("PIN for Locked second").fill("4321");
+  await dialog.getByRole("button", { name: "Unlock", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => typeof (window as unknown as { releasePin?: () => void }).releasePin)).toBe("function");
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByLabel("PIN for Locked third")).toBeDisabled();
+  await expect(dialog.getByRole("button", { name: /^Wait \d+s$/ })).toBeDisabled();
+  await page.evaluate(() => (window as unknown as { releasePin: () => void }).releasePin());
+  // Flush the verification continuation before checking that the old success did not unlock it.
+  await page.evaluate(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  expect(await page.evaluate(async () => {
+    const path = "/src/stores/profileStore.ts";
+    const store = await import(path);
+    return store.useProfileStore.getState().unlockedIds.has(2);
+  })).toBe(false);
+  await expect(page.getByLabel("PIN for Locked third")).toBeDisabled();
 });

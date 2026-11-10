@@ -197,7 +197,7 @@ export default function Spotlight() {
             {step.actionLabel && step.actionRoute && (
               <button
                 onClick={() => { navigate(step.actionRoute!); closeSpotlight(); }}
-                className="px-4 py-1.5 rounded-lg text-sm font-medium text-white hover:opacity-90 transition-opacity"
+                className="px-4 py-1.5 rounded-lg text-sm font-medium text-[hsl(var(--primary-foreground))] hover:opacity-90 transition-opacity"
                 style={{ backgroundColor: "var(--gold)" }}
               >
                 {step.actionLabel}

@@ -1,9 +1,9 @@
-import { BrowserRouter, Routes, Route, NavLink, useLocation } from "react-router-dom";
-import { useState, useEffect, Suspense, lazy, type CSSProperties } from "react";
+import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate } from "react-router-dom";
+import { useState, useEffect, Suspense, lazy, Fragment, type CSSProperties } from "react";
 import {
   SquaresFourIcon, ArrowsLeftRightIcon, UploadSimpleIcon, TrendUpIcon, ChartLineIcon,
-  WalletIcon, TargetIcon, ChartBarIcon, LightbulbIcon, GlobeIcon, CaretLeftIcon, CaretRightIcon, ChatCircleIcon, SparkleIcon, CalendarCheckIcon, GearSixIcon, LockKeyIcon,
-  MapTrifoldIcon, IconContext,
+  WalletIcon, TargetIcon, ChartBarIcon, LightbulbIcon, GlobeIcon, CaretLeftIcon, CaretRightIcon, ChatCircleIcon, ChatTeardropTextIcon, SparkleIcon, CalendarCheckIcon, GearSixIcon, LockKeyIcon,
+  MapTrifoldIcon, MagnifyingGlassIcon, SunIcon, MoonIcon, SidebarSimpleIcon, IconContext,
 } from "@phosphor-icons/react";
 import CompassMark from "@/components/CompassMark";
 import { useIsDark } from "@/hooks/useIsDark";
@@ -19,6 +19,9 @@ import OverviewPage from "@/pages/OverviewPage";
 import SettingsPage from "@/pages/SettingsPage";
 import ProfileSwitcher from "@/components/ProfileSwitcher";
 import UpdateChecker from "@/components/UpdateChecker";
+import FeedbackModal from "@/components/FeedbackModal";
+import CommandPalette, { type PaletteCommand } from "@/components/CommandPalette";
+import PageReadout from "@/components/PageReadout";
 import PinModal from "@/components/PinModal";
 import MonthRolloverModal from "@/components/MonthRolloverModal";
 import GoldParticleField from "@/components/GoldParticleField";
@@ -71,6 +74,7 @@ function RoutedContent() {
         transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
       >
         <span className="route-glint" aria-hidden="true" />
+        <PageReadout />
         <Routes>
         <Route path="/overview" element={<div className="py-6"><OverviewPage /></div>} />
         <Route path="/" element={<DashboardPage />} />
@@ -113,6 +117,39 @@ function AppBackdrop() {
   );
 }
 
+const IS_MAC = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
+const PALETTE_KEY = IS_MAC ? "⌘K" : "Ctrl K";
+
+/**
+ * Owns the command palette. Ctrl+K (Cmd+K on macOS, where Ctrl+K is a text-editing key) toggles
+ * it; its commands are the sidebar's own destinations plus the app-wide actions App passes in.
+ * Lives inside the router because the destinations navigate.
+ */
+function PaletteHost({ open, setOpen, actions }: { open: boolean; setOpen: (open: boolean) => void; actions: PaletteCommand[] }) {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      // Autofill can dispatch a keydown that carries no key at all.
+      if (event.key?.toLowerCase() !== "k" || event.altKey || event.shiftKey) return;
+      if (IS_MAC ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey) return;
+      event.preventDefault();
+      // A held key would flicker the palette open and shut. And when another dialog owns the
+      // keyboard and the focus trap, leave it alone.
+      if (event.repeat || (!open && document.querySelector('[aria-modal="true"]'))) return;
+      setOpen(!open);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, setOpen]);
+
+  if (!open) return null;
+  const destinations: PaletteCommand[] = NAV_ITEMS.map(({ to, label, Icon, about, keywords }) => ({
+    id: to, label, about, keywords, group: "Go to", icon: <Icon size={16} />, run: () => navigate(to),
+  }));
+  return <CommandPalette commands={[...destinations, ...actions]} onClose={() => setOpen(false)} />;
+}
+
 import { useCategoryStore } from "@/stores/categoryStore";
 import { useProfileStore } from "@/stores/profileStore";
 import { useOnboardingStore } from "@/stores/onboardingStore";
@@ -126,20 +163,22 @@ import "@fontsource-variable/source-sans-3";
 import "@fontsource-variable/source-serif-4/standard.css";
 import "./index.css";
 
+// `about` and `keywords` feed the command palette, so a page answers to what it shows as well
+// as to its name. `group` starts a new cluster in the sidebar (a hairline above the item).
 const NAV_ITEMS = [
-  { to: "/overview",      label: "Overview",      Icon: GlobeIcon,            showBadge: false, tourId: undefined },
-  { to: "/",             label: "Dashboard",     Icon: SquaresFourIcon,      showBadge: false, tourId: undefined },
-  { to: "/transactions", label: "Transactions",  Icon: ArrowsLeftRightIcon,  showBadge: false, tourId: undefined },
-  { to: "/import",       label: "Import",        Icon: UploadSimpleIcon,     showBadge: false, tourId: undefined },
-  { to: "/trends",       label: "Trends",        Icon: TrendUpIcon,          showBadge: false, tourId: undefined },
-  { to: "/chart",        label: "Chart",         Icon: MapTrifoldIcon,       showBadge: false, tourId: undefined },
-  { to: "/investments",  label: "Investments",   Icon: ChartLineIcon,        showBadge: false, tourId: undefined },
-  { to: "/budgets",      label: "Budgets",       Icon: WalletIcon,           showBadge: false, tourId: undefined },
-  { to: "/goals",        label: "Goals",         Icon: TargetIcon,           showBadge: false, tourId: undefined },
-  { to: "/plan",         label: "Plan",          Icon: CalendarCheckIcon,    showBadge: false, tourId: undefined },
-  { to: "/reports",      label: "Reports",       Icon: ChartBarIcon,         showBadge: false, tourId: undefined },
-  { to: "/agent",        label: "Insights",      Icon: LightbulbIcon,        showBadge: true,  tourId: "nav-agent" },
-  { to: "/settings",     label: "Settings",      Icon: GearSixIcon,          showBadge: false, tourId: undefined },
+  { to: "/overview",      label: "Overview",      Icon: GlobeIcon,            showBadge: false, tourId: undefined,   group: false, about: "Net worth and every account",  keywords: "balances own owe assets debt profiles" },
+  { to: "/",             label: "Dashboard",     Icon: SquaresFourIcon,      showBadge: false, tourId: undefined,   group: false, about: "This month at a glance",       keywords: "home income spending net pay cycle accounts" },
+  { to: "/transactions", label: "Transactions",  Icon: ArrowsLeftRightIcon,  showBadge: false, tourId: undefined,   group: true,  about: "Search, edit and categorize",  keywords: "ledger activity add category rules export" },
+  { to: "/import",       label: "Import",        Icon: UploadSimpleIcon,     showBadge: false, tourId: undefined,   group: false, about: "Bring in statements",          keywords: "upload csv pdf xlsx bank card brokerage file" },
+  { to: "/trends",       label: "Trends",        Icon: TrendUpIcon,          showBadge: false, tourId: undefined,   group: true,  about: "Spending over time",           keywords: "history months categories compare" },
+  { to: "/chart",        label: "Chart",         Icon: MapTrifoldIcon,       showBadge: false, tourId: undefined,   group: false, about: "Where the money flows",        keywords: "map flow currents sources" },
+  { to: "/investments",  label: "Investments",   Icon: ChartLineIcon,        showBadge: false, tourId: undefined,   group: false, about: "Portfolio and holdings",       keywords: "stocks funds crypto brokerage allocation dividends" },
+  { to: "/budgets",      label: "Budgets",       Icon: WalletIcon,           showBadge: false, tourId: undefined,   group: true,  about: "Limits by category",           keywords: "limit over weekly monthly allowance" },
+  { to: "/goals",        label: "Goals",         Icon: TargetIcon,           showBadge: false, tourId: undefined,   group: false, about: "Targets and progress",         keywords: "savings reserve emergency fund reduce" },
+  { to: "/plan",         label: "Plan",          Icon: CalendarCheckIcon,    showBadge: false, tourId: undefined,   group: false, about: "Cash-flow forecast",           keywords: "bills paycheck safe to spend scenario what if calendar upcoming" },
+  { to: "/reports",      label: "Reports",       Icon: ChartBarIcon,         showBadge: false, tourId: undefined,   group: true,  about: "Any cut of the ledger",        keywords: "report table totals dates" },
+  { to: "/agent",        label: "Insights",      Icon: LightbulbIcon,        showBadge: true,  tourId: "nav-agent", group: false, about: "Health score and review",      keywords: "score subscriptions debt payoff interest savings rate" },
+  { to: "/settings",     label: "Settings",      Icon: GearSixIcon,          showBadge: false, tourId: undefined,   group: true,  about: "Backup, appearance and data",  keywords: "restore theme motion schedule diagnostics" },
 ];
 
 function greeting(): string {
@@ -178,6 +217,25 @@ function App() {
     () => localStorage.getItem("sidebarOpen") !== "false"
   );
   const [appVersion, setAppVersion] = useState("");
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  // The collapsed rail shows icons only; this is the label of the one under the pointer or focus.
+  const [railTip, setRailTip] = useState<{ label: string; top: number } | null>(null);
+
+  const toggleSidebar = (open: boolean) => {
+    setSidebarOpen(open);
+    setRailTip(null);
+    localStorage.setItem("sidebarOpen", String(open));
+  };
+  const railTipProps = (label: string) => {
+    if (sidebarOpen) return {};
+    const show = (event: { currentTarget: HTMLElement }) => {
+      const box = event.currentTarget.getBoundingClientRect();
+      setRailTip({ label, top: box.top + box.height / 2 });
+    };
+    const hide = () => setRailTip(null);
+    return { onMouseEnter: show, onFocus: show, onMouseLeave: hide, onBlur: hide };
+  };
 
   useEffect(() => {
     import("@tauri-apps/api/app").then(({ getVersion }) => {
@@ -314,6 +372,7 @@ function App() {
                       ${sidebarOpen ? "w-60" : "w-14"}`}
           data-expanded={sidebarOpen}
           onKeyDown={(event) => { if (event.key === "Escape") setSidebarOpen(false); }}
+          onScroll={() => setRailTip(null)}
         >
           {/* Mark + wordmark, collapse toggle */}
           <div className={`border-b flex items-center ${sidebarOpen ? "px-4 py-3 justify-between" : "py-3 justify-center"}`}>
@@ -328,20 +387,33 @@ function App() {
             {/* Rendered only when open: the collapsed rail has its own toggle below, and two
                 elements titled "Expand sidebar" would be ambiguous for assistive tech and tests. */}
             {sidebarOpen && (
-              <button
-                onClick={() => { setSidebarOpen(false); localStorage.setItem("sidebarOpen", "false"); }}
-                title="Collapse sidebar"
-                aria-expanded
-                className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]
-                           hover:bg-[hsl(var(--muted))] rounded-md p-1 transition-colors"
-              >
-                <CaretLeftIcon size={16} />
-              </button>
+              <span className="flex items-center gap-0.5 shrink-0">
+                {profileSelected && (
+                  <button
+                    type="button"
+                    onClick={() => setPaletteOpen(true)}
+                    title={`Jump to a page or action (${PALETTE_KEY})`}
+                    aria-haspopup="dialog"
+                    className="palette-launcher"
+                  >
+                    <MagnifyingGlassIcon size={16} />
+                  </button>
+                )}
+                <button
+                  onClick={() => toggleSidebar(false)}
+                  title="Collapse sidebar"
+                  aria-expanded
+                  className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]
+                             hover:bg-[hsl(var(--muted))] rounded-md p-1 transition-colors"
+                >
+                  <CaretLeftIcon size={16} />
+                </button>
+              </span>
             )}
           </div>
           {!sidebarOpen && (
             <button
-              onClick={() => { setSidebarOpen(true); localStorage.setItem("sidebarOpen", "true"); }}
+              onClick={() => toggleSidebar(true)}
               title="Expand sidebar"
               aria-expanded={false}
               className="mx-auto mt-1 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]
@@ -350,19 +422,35 @@ function App() {
               <CaretRightIcon size={16} />
             </button>
           )}
+          {!sidebarOpen && profileSelected && (
+            <button
+              type="button"
+              onClick={() => setPaletteOpen(true)}
+              aria-label={`Jump to a page or action (${PALETTE_KEY})`}
+              aria-haspopup="dialog"
+              className="palette-launcher mx-auto mt-1"
+              data-rail="true"
+              {...railTipProps(`Jump to… ${PALETTE_KEY}`)}
+            >
+              <MagnifyingGlassIcon size={18} />
+            </button>
+          )}
 
-          {/* Nav, icon+label when open, icon-only with tooltip when collapsed. The active item
-              carries a 2px gold bearing mark on its leading edge and a filled icon. */}
-          <nav className="flex-1 py-3 space-y-0.5 px-2">
-            {NAV_ITEMS.map(({ to, label, Icon, showBadge, tourId }) => (
+          {/* Nav, icon+label when open, icon-only with an instant label beside the rail when
+              collapsed. The active item carries a 2px gold bearing mark on its leading edge and a
+              filled icon; hairlines cluster the pages by job. */}
+          <nav className="flex-1 flex flex-col py-2 gap-0.5 px-2" aria-label="Pages">
+            {NAV_ITEMS.map(({ to, label, Icon, showBadge, tourId, group }, index) => (
+              <Fragment key={to}>
+              {group && <span className="nav-divider" data-pin={index === NAV_ITEMS.length - 1 ? "bottom" : undefined} aria-hidden="true" />}
               <NavLink
-                key={to}
                 to={to}
                 end={to === "/"}
                 data-tour={tourId}
-                title={!sidebarOpen ? label : undefined}
+                aria-label={!sidebarOpen ? label : undefined}
+                {...railTipProps(label)}
                 className={({ isActive }) =>
-                  `relative flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium transition-colors
+                  `relative flex items-center gap-2.5 px-2.5 py-[7px] rounded-md text-sm font-medium transition-colors
                    ${sidebarOpen ? "" : "justify-center"}
                    ${isActive
                      ? "nav-active bg-[hsl(var(--primary)/0.08)] text-[hsl(var(--gold-ink))]"
@@ -388,8 +476,12 @@ function App() {
                   </>
                 )}
               </NavLink>
+              </Fragment>
             ))}
           </nav>
+          {!sidebarOpen && railTip && (
+            <span className="rail-tip" style={{ top: railTip.top }} aria-hidden="true">{railTip.label}</span>
+          )}
 
           {sidebarOpen && (
             <div className="px-4 pb-4 space-y-2">
@@ -410,6 +502,15 @@ function App() {
               >
                 <SparkleIcon size={12} />
                 Replay tour
+              </button>
+              <button
+                onClick={() => setFeedbackOpen(true)}
+                className="w-full text-xs px-3 py-1.5 rounded-md text-[hsl(var(--muted-foreground))]
+                           hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--border))]
+                           transition-colors flex items-center justify-center gap-1.5"
+              >
+                <ChatTeardropTextIcon size={12} />
+                Send feedback
               </button>
               <button
                 onClick={() => openUrl("https://github.com/tylahfam97/Compass/issues/new").catch(() => {})}
@@ -436,6 +537,20 @@ function App() {
           </div>
         </main>
       </div>
+      {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} version={appVersion} />}
+      {profileSelected && (
+        <PaletteHost
+          open={paletteOpen}
+          setOpen={setPaletteOpen}
+          actions={[
+            { id: "theme", group: "Actions", label: dark ? "Switch to light mode" : "Switch to dark mode", keywords: "theme appearance night paper", icon: dark ? <SunIcon size={16} /> : <MoonIcon size={16} />, run: () => setDark(!dark) },
+            { id: "sidebar", group: "Actions", label: sidebarOpen ? "Collapse sidebar" : "Expand sidebar", keywords: "menu navigation rail", icon: <SidebarSimpleIcon size={16} />, run: () => toggleSidebar(!sidebarOpen) },
+            { id: "feedback", group: "Actions", label: "Send feedback", keywords: "contact developer idea problem", icon: <ChatTeardropTextIcon size={16} />, run: () => setFeedbackOpen(true) },
+            // The tour points at controls that only exist in the open sidebar.
+            { id: "tour", group: "Actions", label: "Replay tour", keywords: "help guide onboarding walkthrough", icon: <SparkleIcon size={16} />, run: () => { toggleSidebar(true); restartOnboarding(); } },
+          ]}
+        />
+      )}
       {profileSelected && (
         <>
           <Spotlight />

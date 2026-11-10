@@ -5,7 +5,7 @@
 > bank login, has no cloud account, and stores everything in a SQLCipher AES-256
 > encrypted database on the user's own machine.
 
-Compass is a desktop application built with Tauri, React and Rust. The user downloads a CSV file or Excel (.xlsx) workbook of transactions from their own bank or card issuer and imports it through a guided wizard with column mapping, a preview, saved layouts and duplicate detection. Categorisation, budgeting, forecasting, net worth and investment tracking all run locally. There is no Compass account or cloud service holding the data, no telemetry, and no subscription.
+Compass is a desktop application built with Tauri, React and Rust, by Chrysis Networks (https://chrysisnetworks.com), which also signs the Windows installers. The user downloads a CSV file or Excel (.xlsx) workbook of transactions from their own bank or card issuer and imports it through a guided wizard with column mapping, a preview, saved layouts and duplicate detection. Categorisation, budgeting, forecasting, net worth and investment tracking all run locally. There is no Compass account or cloud service holding the data, no telemetry, and no subscription.
 
 ## What it costs
 
@@ -42,6 +42,24 @@ nothing, and unlock no features: there is one build and one source tree.
 - Investments: dated portfolio snapshots, allocation, holdings, income and gains
 - Budgets, goals, trends, reports, and multiple PIN-protected profiles
 
+## Stable release and development preview
+
+Stable downloads and the website's SoftwareApplication metadata describe v1.3.17:
+https://github.com/tylahfam97/Compass/releases/latest
+
+Provisional 1.3.18-dev is staged development work, not a stable release or a claim that installers have been published. The development changes are:
+- Ctrl/Cmd+K command palette for existing pages and actions, with keyboard selection and modal focus handling.
+- Grouped sidebar navigation and immediate labels on the collapsed icon rail.
+- A scroll-following readout that mirrors the current page's displayed figure, colour and account scope; it does not calculate a second total.
+- Dashboard transaction clearing preserves investment import sessions and holdings. Clear all removes empty non-investment sessions only for the active profile.
+- Per-launch PIN cooldown and single-flight verification handling, including Cancel/reopen and queued profile changes; this UI guard is not database encryption.
+
+Browser regression checks use a mocked native bridge. They do not establish Windows WebView2 or macOS WKWebView runtime coverage. Check https://github.com/tylahfam97/Compass/releases for any published development builds. The preview is also documented at https://privatecompass.app/#development-preview in this staged website source; it is not a production-deployment claim.
+
+## Network use
+
+Compass checks GitHub for new releases. The Send feedback action sends the user's message, optional reply email, app version and operating system only when Send is pressed; it does not attach transactions or financial records. There is no telemetry or cloud sync. Compass works offline after installation.
+
 ## Data and security
 
 - Storage: SQLCipher AES-256 encrypted SQLite database
@@ -57,6 +75,11 @@ No live bank connections, no cloud sync, no shared access, single currency only,
 
 - Website: https://privatecompass.app
 - Import guide: https://privatecompass.app/import-guide.html
+- Desktop Personal Finance Software, Free & Private: https://privatecompass.app/personal-finance-software/
+- CSV Budgeting App: Budget from Bank Statements: https://privatecompass.app/csv-budgeting-app/
+- Private Budgeting App with Encrypted Local Storage: https://privatecompass.app/private-budgeting-app/
+- Budgeting App Without Bank Connection or Login: https://privatecompass.app/budgeting-without-bank-connection/
+- Built by: Chrysis Networks, https://chrysisnetworks.com
 - Source code: https://github.com/tylahfam97/Compass
 - Releases and downloads: https://github.com/tylahfam97/Compass/releases
 - Release notes: https://github.com/tylahfam97/Compass/blob/main/RELEASE_NOTES.md

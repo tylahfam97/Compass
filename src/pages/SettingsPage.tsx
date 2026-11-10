@@ -358,7 +358,7 @@ function ProfileSettings() {
               <button
                 onClick={handleErase}
                 disabled={eraseConfirmText !== "ERASE" || erasing || backupBusy || restoreBusy || balanceCheckBusy}
-                className="text-sm px-3 py-1.5 rounded-lg font-medium text-white disabled:opacity-40"
+                className="text-sm px-3 py-1.5 rounded-lg font-medium text-[hsl(var(--background))] disabled:opacity-40"
                 style={{ backgroundColor: "hsl(var(--error))" }}
               >
                 {erasing ? "Erasing…" : "Erase everything"}

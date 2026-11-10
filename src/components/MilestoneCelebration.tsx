@@ -161,6 +161,7 @@ function CelebrationDialog({ event, onDismiss }: { event: MilestoneEvent; onDism
           boxShadow: "0 24px 70px rgba(0, 0, 0, 0.45), 0 0 90px rgba(16, 185, 129, 0.35)",
         }}
         role="alertdialog"
+        aria-modal="true"
         aria-labelledby="milestone-title"
       >
         <motion.div
@@ -188,7 +189,7 @@ function CelebrationDialog({ event, onDismiss }: { event: MilestoneEvent; onDism
 
         <button
           onClick={onDismiss}
-          className="mt-3 px-10 py-3 rounded-xl text-base font-semibold text-white transition-opacity hover:opacity-90"
+          className="mt-3 px-10 py-3 rounded-xl text-base font-semibold text-[hsl(var(--background))] transition-opacity hover:opacity-90"
           style={{ backgroundColor: GREEN }}
         >
           Nice

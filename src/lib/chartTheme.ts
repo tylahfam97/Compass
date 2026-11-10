@@ -47,6 +47,19 @@ export const gridProps = {
   strokeDasharray: "2 6",
 } as const;
 
+/**
+ * Y domain for a sparkline: the series' own range with a fifth of headroom on each side. A
+ * level series gets a band around its value, so the line sits mid-height instead of on an edge
+ * (recharts' default zero-based axis pins it to the top and the area fill becomes a solid box).
+ */
+export function sparkDomain(values: readonly number[]): [number, number] {
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return [0, 1];
+  const pad = max > min ? (max - min) * 0.2 : Math.max(1, Math.abs(max) * 0.1);
+  return [min - pad, max + pad];
+}
+
 // ── Color harmonization ──────────────────────────────────────────────────────
 // Category and account colors are stored in the database as whatever hex the seed or
 // the user picked (today a Tailwind-500 rainbow). Rather than migrate them, every paint

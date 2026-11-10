@@ -6,9 +6,9 @@
 
   <!-- ── Primary SEO ──────────────────────────────────────────────────────── -->
   <!-- Domain: privatecompass.app                                              -->
-  <title>Compass | Spending Tracker for CSV &amp; Excel, No Bank Login</title>
-  <meta name="description" content="Free Windows and macOS (beta) app that sorts CSV and Excel bank statements into categories with rules you can save. No bank login or cloud account.">
-  <meta name="author" content="Compass">
+  <title>Private Personal Finance Software, No Bank Login | Compass</title>
+  <meta name="description" content="Free, open-source personal finance software for Windows and macOS (beta). Budget from bank CSV and Excel files, encrypted on your computer. No bank login.">
+  <meta name="author" content="Chrysis Networks">
   <!-- max-image-preview:large is what lets Google and AI answer engines show the
        screenshot rather than a thumbnail; the snippet caps are lifted so a full
        answer can be quoted. -->
@@ -18,8 +18,8 @@
   <!-- ── Open Graph (Facebook, LinkedIn, Discord) ─────────────────────────── -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://privatecompass.app/">
-  <meta property="og:title" content="Compass | Spending Tracker for CSV &amp; Excel, No Bank Login">
-  <meta property="og:description" content="Turn the CSV and Excel statements you download from your bank into categorized spending, stored in an encrypted database on your computer. No bank login.">
+  <meta property="og:title" content="Private Personal Finance Software, No Bank Login | Compass">
+  <meta property="og:description" content="Your money. Your machine. Compass turns the bank statements you download into budgets, forecasts and net worth, encrypted on your own computer.">
   <meta property="og:image" content="https://privatecompass.app/img/og-cover.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
@@ -29,8 +29,8 @@
 
   <!-- ── Twitter / X card ─────────────────────────────────────────────────── -->
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Compass | Spending Tracker for CSV &amp; Excel, No Bank Login">
-  <meta name="twitter:description" content="Free desktop spending tracker for CSV and Excel bank statements. No bank login and no cloud account. Windows, plus a macOS beta.">
+  <meta name="twitter:title" content="Private Personal Finance Software, No Bank Login | Compass">
+  <meta name="twitter:description" content="Free, open-source personal finance software for Windows and macOS (beta). Budget from bank CSV and Excel files, encrypted on your computer. No bank login.">
   <meta name="twitter:image" content="https://privatecompass.app/img/og-cover.png">
   <meta name="twitter:image:alt" content="Compass, a private finance tracker for Windows and macOS, showing net worth drawn above and below a zero waterline.">
 
@@ -42,7 +42,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; img-src 'self' https://github.com https://*.githubusercontent.com; media-src 'self'; connect-src 'self' https://api.github.com; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';">
   <meta name="referrer" content="strict-origin-when-cross-origin">
 
-  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/style.css?v=6aadfdee">
 
   <!-- ── Structured data ───────────────────────────────────────────────────
        Tells search engines and AI answer engines what Compass is, that it runs
@@ -59,7 +59,7 @@
         "applicationCategory": "FinanceApplication",
         "applicationSubCategory": "Personal finance and budgeting",
         "operatingSystem": "Windows 10, Windows 11, macOS 10.15+",
-        "softwareVersion": "1.3.13",
+        "softwareVersion": "1.3.17",
         "url": "https://privatecompass.app/",
         "downloadUrl": "https://github.com/tylahfam97/Compass/releases/latest",
         "installUrl": "https://privatecompass.app/#download",
@@ -85,18 +85,23 @@
           "priceCurrency": "USD",
           "availability": "https://schema.org/InStock"
         },
-        "author": { "@id": "https://privatecompass.app/#org" },
-        "publisher": { "@id": "https://privatecompass.app/#org" }
-      },
-      {
-        "@type": "Organization",
-        "@id": "https://privatecompass.app/#org",
-        "name": "Compass",
-        "url": "https://privatecompass.app/",
-        "logo": "https://privatecompass.app/img/logo.png",
         "sameAs": [
           "https://github.com/tylahfam97/Compass",
           "https://alternativeto.net/software/compass-financial/about/"
+        ],
+        "author": { "@id": "https://chrysisnetworks.com/#org" },
+        "publisher": { "@id": "https://chrysisnetworks.com/#org" }
+      },
+      {
+        "@type": "Organization",
+        "@id": "https://chrysisnetworks.com/#org",
+        "name": "Chrysis Networks",
+        "url": "https://chrysisnetworks.com/",
+        "logo": "https://chrysisnetworks.com/resources/images/logo.png",
+        "sameAs": [
+          "https://www.linkedin.com/company/chrysis-networks",
+          "https://www.crunchbase.com/organization/chrysis-networks",
+          "https://clutch.co/profile/chrysis-networks"
         ]
       },
       {
@@ -104,8 +109,20 @@
         "@id": "https://privatecompass.app/#website",
         "name": "Compass",
         "url": "https://privatecompass.app/",
-        "publisher": { "@id": "https://privatecompass.app/#org" },
+        "publisher": { "@id": "https://chrysisnetworks.com/#org" },
         "inLanguage": "en-US"
+      },
+      {
+        "@type": "WebPage",
+        "@id": "https://privatecompass.app/#webpage",
+        "url": "https://privatecompass.app/",
+        "name": "Private Personal Finance Software, No Bank Login | Compass",
+        "description": "Free, open-source personal finance software for Windows and macOS (beta). Budget from bank CSV and Excel files, encrypted on your computer. No bank login.",
+        "inLanguage": "en-US",
+        "dateModified": "2026-11-09",
+        "isPartOf": { "@id": "https://privatecompass.app/#website" },
+        "about": { "@id": "https://privatecompass.app/#app" },
+        "publisher": { "@id": "https://chrysisnetworks.com/#org" }
       },
       {
         "@type": "FAQPage",
@@ -148,7 +165,15 @@
             "name": "Does Compass connect to the internet?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "Yes, to check GitHub for new releases. Your transactions aren't uploaded, and there's no telemetry or cloud sync. Once it's installed, Compass works offline."
+              "text": "Yes, to check GitHub for new releases, and to deliver feedback when you press Send feedback. Your transactions aren't uploaded, and there's no telemetry or cloud sync. Once it's installed, Compass works offline."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What does the Send feedback button send?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Only what you type, plus two technical details: your message, a reply email if you add one, the Compass version and your operating system go privately to the developer when you press Send, and Compass attaches nothing else, so your transactions and other financial data stay on your computer."
             }
           },
           {
@@ -179,6 +204,7 @@
     <nav aria-label="Main navigation">
       <ul class="nav-links" role="list">
         <li><a href="#features">Features</a></li>
+        <li><a href="#guides">Guides</a></li>
         <li><a href="#compare">Compare</a></li>
         <li><a href="#security">Security</a></li>
         <li><a href="#download">Download</a></li>
@@ -204,6 +230,7 @@
   <div class="mobile-menu" id="mobileMenu" aria-hidden="true">
     <ul role="list">
       <li><a href="#features">Features</a></li>
+      <li><a href="#guides">Guides</a></li>
       <li><a href="#compare">Compare</a></li>
       <li><a href="#security">Security</a></li>
       <li><a href="#download">Download</a></li>
@@ -251,8 +278,10 @@
       <span class="chip" role="listitem">Free &amp; Open Source</span>
       <span class="chip" role="listitem">No Account Required</span>
       <span class="chip chip-blue" role="listitem">Windows and macOS (beta)</span>
-      <span class="chip chip-gold" role="listitem">v1.3.13</span>
+      <span class="chip chip-gold" role="listitem">v1.3.17</span>
     </div>
+
+    <p class="section-eyebrow hero-eyebrow">Your money. Your machine.</p>
 
     <h1 class="hero-title" id="hero-title">
       See where your money goes,<br>
@@ -260,7 +289,7 @@
     </h1>
 
     <p class="hero-sub">
-      Compass is a free desktop spending tracker for Windows, with a macOS beta. Bring in the CSV or Excel (.xlsx) statements you download from your bank or card issuer. Built-in category rules sort common merchants, and rules you save apply to every import after that. It's all stored in an encrypted database on your own computer.
+      Compass is free, open-source personal finance software for Windows, with a macOS beta. It's a private budgeting app that works from the CSV and Excel statements you already download from your bank, so there's no bank connection to set up and your transactions never leave your computer. Budgets, a cash-flow Plan, net worth and investments sit together in one encrypted database on your own disk.
     </p>
 
     <div class="hero-actions">
@@ -397,6 +426,39 @@
   </div>
 </section>
 
+<!-- ── Guides: one landing page per reason people arrive ─────────────────── -->
+<section class="section guides-section" id="guides" aria-labelledby="guides-title">
+  <div class="container">
+    <div class="section-header">
+      <h2 id="guides-title">Guides</h2>
+      <p class="section-sub">Pick the reason you're here.</p>
+    </div>
+
+    <div class="why-grid guides-grid">
+      <a class="why-card guide-card" href="/csv-budgeting-app/">
+        <h3>Budget from your bank's CSV file</h3>
+        <p>Column mapping, duplicate checks and rules you can see working.</p>
+        <span class="guide-cta">Read guide <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      </a>
+      <a class="why-card guide-card" href="/private-budgeting-app/">
+        <h3>Keep your finances off other people's servers</h3>
+        <p>AES-256 encrypted, no account, no telemetry.</p>
+        <span class="guide-cta">Read guide <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      </a>
+      <a class="why-card guide-card" href="/budgeting-without-bank-connection/">
+        <h3>Budget without connecting your bank</h3>
+        <p>No bank password, ever. Plan fills the gap between imports.</p>
+        <span class="guide-cta">Read guide <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      </a>
+      <a class="why-card guide-card" href="/personal-finance-software/">
+        <h3>Run your whole financial picture from one desktop app</h3>
+        <p>Net worth, budgets, forecasts and investments in one place.</p>
+        <span class="guide-cta">Read guide <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      </a>
+    </div>
+  </div>
+</section>
+
 <!-- ── How it works ─────────────────────────────────────────────────────────── -->
 <section class="section how-section" id="how" aria-labelledby="how-title">
   <div class="container">
@@ -484,6 +546,7 @@
     <div class="section-header">
       <p class="section-eyebrow">Features</p>
       <h2 id="features-title">Everything you need. Nothing you don't.</h2>
+      <p class="section-sub">A personal finance companion for your desktop: it reads your bank statement CSVs, sorts the spending, and shows you the month ahead.</p>
     </div>
 
     <div class="features-grid">
@@ -681,7 +744,12 @@
           </svg>
           <span class="qa-q-text">Does Compass connect to the internet?</span>
         </div>
-        <div class="qa-a">Yes, to check GitHub for new releases. Your transactions aren't uploaded, and there's no telemetry or cloud sync. Once it's installed, Compass works offline.</div>
+        <div class="qa-a">Yes, to check GitHub for new releases, and to deliver feedback when you press Send feedback. Your transactions aren't uploaded, and there's no telemetry or cloud sync. Once it's installed, Compass works offline.</div>
+      </div>
+
+      <div class="qa-card">
+        <div class="qa-q"><span class="qa-q-text">What does the Send feedback button send?</span></div>
+        <div class="qa-a">Only what you type, plus two technical details: your message, a reply email if you add one, the Compass version and your operating system go privately to the developer when you press Send, and Compass attaches nothing else, so your transactions and other financial data stay on your computer.</div>
       </div>
 
       <div class="qa-card qa-card--answer">
@@ -697,12 +765,19 @@
   </div>
 </section>
 
+<!-- Technical staging note; not part of the stable SoftwareApplication featureList. -->
+<section class="container" id="development-preview" aria-labelledby="development-preview-title">
+  <h2 id="development-preview-title">Development preview — provisional 1.3.18-dev</h2>
+  <p>These changes are staged for DEV, not included in the stable v1.3.17 downloads below: Ctrl/Cmd+K page and action search; grouped sidebar navigation with immediate rail labels; and a scroll-following readout of the current page's displayed figure and account scope.</p>
+  <p>The draft also preserves investment imports during Dashboard transaction clearing and tightens per-launch PIN cooldown handling. Browser checks use a mocked native bridge, not Windows or macOS runtime verification. See <a href="https://github.com/tylahfam97/Compass/releases">all releases</a> for any published development builds; this note does not announce a release.</p>
+</section>
+
 <!-- ── Download ───────────────────────────────────────────────────────────────── -->
 <section class="section download-section" id="download" aria-labelledby="download-title">
   <div class="container">
     <div class="download-cards">
       <div class="download-card">
-        <div class="version-badge">v1.3.13</div>
+        <div class="version-badge">v1.3.17</div>
         <div class="download-header">
           <svg width="56" height="56" class="download-logo" aria-hidden="true" focusable="false"><use href="#compass-mark"/></svg>
           <div>
@@ -780,7 +855,7 @@
       </div>
 
       <div class="download-card">
-        <div class="version-badge">v1.3.13</div>
+        <div class="version-badge">v1.3.17</div>
         <div class="download-header">
           <svg width="56" height="56" class="download-logo" aria-hidden="true" focusable="false"><use href="#compass-mark"/></svg>
           <div>
@@ -968,13 +1043,20 @@
       <span>Compass</span>
     </a>
     <p class="footer-copy">
-      Free and open source. MIT License. Built with Tauri, React, Rust and SQLite.
+      Free and open source. MIT License. Built with Tauri, React, Rust and SQLite.<br>
+      Built by <a href="https://chrysisnetworks.com">Chrysis Networks</a>.
     </p>
     <nav class="footer-links" aria-label="Footer navigation">
       <a href="https://github.com/tylahfam97/Compass" target="_blank" rel="noopener noreferrer">GitHub</a>
       <a href="https://github.com/tylahfam97/Compass/releases" target="_blank" rel="noopener noreferrer">Releases</a>
       <a href="https://github.com/tylahfam97/Compass/issues" target="_blank" rel="noopener noreferrer">Issues</a>
       <a href="/import-guide.html">Import guide</a>
+    </nav>
+    <nav class="footer-links footer-guides" aria-label="Guides">
+      <a href="/personal-finance-software/">Personal finance software</a>
+      <a href="/csv-budgeting-app/">CSV budgeting app</a>
+      <a href="/private-budgeting-app/">Private budgeting app</a>
+      <a href="/budgeting-without-bank-connection/">Budgeting without a bank connection</a>
     </nav>
   </div>
 </footer>

@@ -2,6 +2,80 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.18 — Unreleased DEV (provisional)
+
+Development-only preparation; not a stable release or a deployment. The provisional dev1.3.18 number must be reconciled with current main at a later authorized promotion. Implementation PR: #133 (DEV only).
+
+### Workspace navigation and reading
+- Add a searchable Ctrl/Cmd+K page/action palette with keyboard selection, focus return, native text editing and modal shortcut protection.
+- Add a scroll-following page readout that mirrors the displayed figure and account scope, including settled theme colours; it is visual-only and does not duplicate screen-reader content.
+- Align financial summary and account rows; render flat-balance sparklines as lines, place negative axis-label signs before the currency symbol, and match pay-cycle legend swatches to their lines. Use existing theme tokens for confirmation/status button text and native controls without replacing the colour tokens, login scene or Plan map.
+- Preserve reduced-motion handling alongside route, skeleton and insight accents.
+
+### Website metadata (staged only)
+- Document the provisional DEV workspace features separately from stable v1.3.17 download badges and SoftwareApplication metadata.
+- Reuse the approved feedback/network FAQ corrections from issue #132; that issue remains open for reconciliation in the next authorized production batch.
+- Align llms.txt and crawl exclusions without promising indexing or assistant citations.
+
+### Bounded correctness and regression coverage
+- Keep investment import sessions/holdings when Dashboard clears transactions; Clear all also removes empty non-investment sessions only in the active profile.
+- Prevent overlapping PIN verification, preserve cooldown across Cancel/reopen, and ignore late dialog callbacks after a profile switch or close. This remains a per-launch UI guard, not database encryption.
+- Add browser coverage for palette/modal focus, native editing, readout theme/scope/navigation, reduced motion, bank-data clearing and queued PIN dialogs.
+- Make the real-SQLite duplicate-account test bridge bind integer IDs like Rust rather than node:sqlite REAL values; production money logic is unchanged.
+
+The dev branch's seven-commit catch-up through stable v1.3.17 (eed18c529c14ce90f2d71c6d5b6165d138768db6) was already released separately. Its existing history below is retained, not presented as new dev functionality. No publisher changes or publisher dispatch are part of this draft.
+
+## Compass 1.3.17 — Send Feedback 🧭
+
+### Send feedback from inside the app (#131)
+- A new "Send feedback" button sits in the sidebar footer, just above "Report an issue". It opens a short form: your message (up to 4,000 characters) and, only if you want a reply, your email.
+- The email contains exactly that: the message, the email if you typed one, your Compass version and your OS type. No financial data, account names or file contents are included, and nothing is sent until you press Send. As with any web request, the server sees your IP address; it is not put in the email.
+- It goes straight to the maintainer's inbox as a plain-text email. It is not posted anywhere public, unlike a GitHub issue.
+- If sending fails (offline, or too many messages in a short time), you get an error message and your text stays in the form so you can try again. A very long message in a non-Latin script can exceed the size limit before 4,000 characters; the form says so instead of sending.
+- Under the hood: one form POST to privatecompass.app, which is rate-limited and size-capped. The app's content security policy adds only that one address. No account, token or secret is built into the app.
+
+## Compass 1.3.16 — Clean Merge 🧭
+
+### Merging duplicate accounts keeps splits counted once (#130; related to #107)
+- When two same-named accounts held the same statement row and the duplicate's copy had been split into an investment part and a spending part, merging kept the primary account's full-amount copy but moved the duplicate's spending part across with it, so that money was counted twice. The merge now removes the spending part together with the discarded copy, along with that copy's split and portfolio-link records, so the deposit can be matched again.
+- Splits on rows that move to the merged account are kept intact and can still be undone. The primary account's own splits and other profiles' accounts are unchanged; the primary account's copy still wins wherever both accounts held the same row.
+- The cleanup runs as one all-or-nothing database step, so a failure partway through cannot leave a split half-removed.
+- A real-SQLite regression covers the discarded split, a moved split that is still undoable, the primary's split and another profile's untouched account, checking amounts and totals.
+- This release does not repair rows already double-counted by an earlier merge.
+
+## Compass 1.3.15 — Vanguard import and asset allocation 🧭
+
+### Vanguard Excel import
+- Detect Vanguard's holdings and activity tables by column headers, including reordered columns and multi-account downloads.
+- Preview every source account and require separate account destinations plus an explicit holdings valuation date. Use source market values for snapshots, not cost basis or realized gains.
+- Preserve original activity cells locally, including signed net amount, fees, principal, accrued interest, account type and both dates. Repeated-file imports are idempotent without collapsing legitimate repeated rows.
+- Keep distributions and corporate actions under review instead of inventing income, basis or lot adjustments. Warn about incomplete rows, numeric account identifiers and assumed currency/date conventions.
+
+### Editable asset classes
+- Add optional Cash, Equity and Bond labels, with equity region/size and free-text bond details. Preserve the source security type and leave unlabeled values Unclassified.
+- Show a separate asset-class breakdown using the latest holdings snapshots and selected account scope. No automatic fund look-through or estimated regional exposure is added.
+- Persist labels within the active profile across reloads and replacement snapshots; account/profile deletion cleans up their labels.
+
+### Import safeguards
+- Apply a multi-account snapshot replacement atomically and surface save failures. Preserve legacy import paths.
+- Add synthetic XLSX, allocation, migration and browser regression coverage. No private brokerage workbook or financial records are included.
+
+Implementation PR: #128.
+
+## Compass 1.3.14 — Fresh Count 🧭
+
+A small maintenance release: nothing changes inside the app, but the public download numbers now
+keep up with releases on their own.
+
+### Download statistics refresh after each release (follow-up to #113)
+- **The stats page updates right after a release is hosted.** Once a new stable release's installers
+  are placed on privatecompass.app, the download statistics page is refreshed straight away instead
+  of waiting for the nightly update. The automatic refresh added in 1.3.10 never actually started,
+  because GitHub does not chain workflows that its own release automation kicks off; the hosting step
+  now starts the refresh directly. The nightly update still runs as a fallback.
+- The counts themselves are unchanged: they are download requests and transfers, not people or
+  completed installs.
+
 ## Compass 1.3.13 — Clear Horizon 🧭
 
 Plan stops guessing how much money you have to play with, and it can now show your forecast three

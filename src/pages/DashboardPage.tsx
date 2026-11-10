@@ -367,9 +367,12 @@ export default function DashboardPage() {
         [start, end, profileId]
       );
       await db.execute("DELETE FROM transactions WHERE date>=? AND date<? AND profile_id=?", [start, end, profileId]);
-      // Remove sessions that no longer have any transactions linked to them
+      // Remove sessions that no longer have any transactions linked to them. Investment imports
+      // keep their data in holdings/activity, never in transactions, so they always look empty
+      // here: leave them, or clearing a month would drop the portfolio's import history (and,
+      // where SQLite enforces the ON DELETE CASCADE, the holdings themselves).
       await db.execute(
-        `DELETE FROM import_sessions WHERE profile_id=?
+        `DELETE FROM import_sessions WHERE profile_id=? AND kind <> 'investment'
          AND id NOT IN (
            SELECT DISTINCT import_session_id FROM transactions
            WHERE profile_id=? AND import_session_id IS NOT NULL
@@ -383,7 +386,7 @@ export default function DashboardPage() {
         [profileId]
       );
       await db.execute("DELETE FROM transactions WHERE profile_id=?", [profileId]);
-      await db.execute("DELETE FROM import_sessions WHERE profile_id=?", [profileId]);
+      await db.execute("DELETE FROM import_sessions WHERE profile_id=? AND kind <> 'investment'", [profileId]);
       // Every account just lost all its transactions - recompute clears each one's stale
       // balance anchor too, so a future reimport doesn't resurrect the old balance.
       for (const { account_id } of affectedAccounts) await recomputeCalculatedBalances(account_id);
@@ -875,7 +878,7 @@ export default function DashboardPage() {
               </p>
               <button
                 onClick={() => handleClear(confirmClear)}
-                className="px-3 py-1 bg-[hsl(var(--error))] text-white rounded-lg text-sm font-medium
+                className="px-3 py-1 bg-[hsl(var(--error))] text-[hsl(var(--background))] rounded-lg text-sm font-medium
                            hover:opacity-90 transition-colors"
               >
                 Yes, delete
