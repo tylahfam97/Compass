@@ -42,19 +42,21 @@ nothing, and unlock no features: there is one build and one source tree.
 - Investments: dated portfolio snapshots, allocation, holdings, income and gains
 - Budgets, goals, trends, reports, and multiple PIN-protected profiles
 
-## Stable release and development preview
+## Latest release
 
-Stable downloads and the website's SoftwareApplication metadata describe v1.3.17:
-https://github.com/tylahfam97/Compass/releases/latest
+Installers for the latest stable release: https://github.com/tylahfam97/Compass/releases/latest
+Release notes for every version: https://github.com/tylahfam97/Compass/blob/main/RELEASE_NOTES.md
 
-Provisional 1.3.18-dev is staged development work, not a stable release or a claim that installers have been published. The development changes are:
+Added in 1.3.18:
+- Insights opens with a briefing of what changed since the last visit: new findings, observations that became action items, and action items no longer flagged. To compare visits it keeps a small per-profile note in local storage, outside the encrypted database, holding finding types, severities and one-way hashes only; no titles, merchants, amounts or balances.
+- Two Insights findings: a thin stretch of everyday spending money before the next scheduled income, and a count of flexible purchases under $10 in the month that just ended.
 - Ctrl/Cmd+K command palette for existing pages and actions, with keyboard selection and modal focus handling.
 - Grouped sidebar navigation and immediate labels on the collapsed icon rail.
 - A scroll-following readout that mirrors the current page's displayed figure, colour and account scope; it does not calculate a second total.
 - Dashboard transaction clearing preserves investment import sessions and holdings. Clear all removes empty non-investment sessions only for the active profile.
 - Per-launch PIN cooldown and single-flight verification handling, including Cancel/reopen and queued profile changes; this UI guard is not database encryption.
 
-Browser regression checks use a mocked native bridge. They do not establish Windows WebView2 or macOS WKWebView runtime coverage. Check https://github.com/tylahfam97/Compass/releases for any published development builds. The preview is also documented at https://privatecompass.app/#development-preview in this staged website source; it is not a production-deployment claim.
+Browser regression checks use a mocked native bridge. They do not establish Windows WebView2 or macOS WKWebView runtime coverage.
 
 ## Network use
 
