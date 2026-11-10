@@ -4,7 +4,7 @@
 
 ## Compass 1.3.18 — Unreleased DEV (provisional)
 
-Development-only preparation; not a stable release or a deployment. The provisional dev1.3.18 number must be reconciled with current main at a later authorized promotion. Implementation PR number is pending creation.
+Development-only preparation; not a stable release or a deployment. The provisional dev1.3.18 number must be reconciled with current main at a later authorized promotion. Implementation PR: #133 (DEV only).
 
 ### Workspace navigation and reading
 - Add a searchable Ctrl/Cmd+K page/action palette with keyboard selection, focus return, native text editing and modal shortcut protection.
