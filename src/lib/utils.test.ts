@@ -27,6 +27,12 @@ describe("formatAxisCurrency", () => {
   it("shows whole dollars under 1000", () => {
     expect(formatAxisCurrency(15_000)).toBe("$150");
   });
+
+  it("puts the minus sign before the dollar sign", () => {
+    expect(formatAxisCurrency(-67_100)).toBe("-$671");
+    expect(formatAxisCurrency(-2_500_00)).toBe("-$2.5k");
+    expect(formatAxisCurrency(-40)).toBe("$0");
+  });
 });
 
 describe("lightenHex", () => {

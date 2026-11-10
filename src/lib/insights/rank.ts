@@ -37,6 +37,7 @@ export const TYPE_CAPS: Partial<Record<InsightType, number>> = {
 /** Tie-breaker inside a band once impact is equal (lower first). */
 const TYPE_PRIORITY: Partial<Record<InsightType, number>> = {
   bills_this_week: 0,
+  payday_cushion: 0.5,
   scheduled_missing: 1,
   duplicate_charge: 2,
   budget_pace: 3,

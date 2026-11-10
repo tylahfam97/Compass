@@ -1,8 +1,8 @@
 import { useId, type ReactNode } from "react";
-import { AreaChart, Area, ResponsiveContainer } from "recharts";
+import { AreaChart, Area, YAxis, ResponsiveContainer } from "recharts";
 import { EyeIcon, EyeSlashIcon } from "@phosphor-icons/react";
 import { formatCurrency, formatDate, cn } from "@/lib/utils";
-import { series } from "@/lib/chartTheme";
+import { series, sparkDomain } from "@/lib/chartTheme";
 import TrendChip from "@/components/TrendChip";
 
 /**
@@ -63,6 +63,9 @@ export default function AccountRow({ name, kind, balanceCents, balanceDate, meta
                     <stop offset="100%" stopColor={series.balance} stopOpacity={0} />
                   </linearGradient>
                 </defs>
+                {/* Scaled to the series with headroom on both sides: the default zero-based
+                    axis pinned a level balance to the top edge, so it drew as a filled box. */}
+                <YAxis hide domain={sparkDomain(points.map((p) => p.balance_cents))} />
                 <Area type="monotone" dataKey="balance_cents" stroke={series.balance} strokeWidth={1.5} fill={`url(#${gradientId})`} isAnimationActive={false} />
               </AreaChart>
             </ResponsiveContainer>

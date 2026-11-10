@@ -166,7 +166,7 @@ planTest("Plan purchase preview is inspectable and never writes transactions", a
   await expect(page.getByTestId('safe-to-spend')).toHaveText('-$750.01');
   await expect(page.locator('.horizon-inspector')).toContainText('Hypothetical, not recorded');
   await expect(page.locator('.horizon-inspector')).toContainText('-$250.01');
-  await expect(page.locator('aside a[title="Insights"] span')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Insights', exact: true }).locator('span')).toBeVisible();
   await expect(page.locator('.plan-rules').getByTitle('Edit', { exact: true })).toHaveCount(2);
   await page.evaluate(() => {
     const host = window as unknown as { previewQueries: number; __TAURI_INTERNALS__: { invoke: (command: string, args: unknown) => Promise<unknown> } };
@@ -284,7 +284,7 @@ test("Plan keeps profile scenarios separate while an old load is pending", async
   await page.reload();
   await page.getByRole('button', { name: /Preview profile/ }).click();
   await page.getByLabel('Hypothetical purchase amount').fill('125');
-  await page.getByTitle('Transactions', { exact: true }).click();
+  await page.getByRole('link', { name: 'Transactions', exact: true }).click();
   await page.evaluate(() => {
     const host = window as unknown as { releaseForecast?: () => void; __TAURI_INTERNALS__: { invoke: (command: string, args: { sql?: string; params?: unknown[] }) => Promise<unknown> } };
     const original = host.__TAURI_INTERNALS__.invoke;
@@ -294,7 +294,7 @@ test("Plan keeps profile scenarios separate while an old load is pending", async
       return result;
     };
   });
-  await page.getByTitle('Plan', { exact: true }).click();
+  await page.getByRole('link', { name: 'Plan', exact: true }).click();
   await expect.poll(() => page.evaluate(() => typeof (window as unknown as { releaseForecast?: () => void }).releaseForecast)).toBe('function');
   await page.evaluate(async (profile) => {
     const path = '/src/stores/profileStore.ts';
@@ -454,8 +454,8 @@ test("Transactions restores private view context and still changes month", async
   await page.goto('/transactions');
   await page.getByLabel('Search transactions').fill('Green Market');
   await page.getByRole('button', { name: 'Table', exact: true }).click();
-  await page.getByTitle('Plan', { exact: true }).click();
-  await page.getByTitle('Transactions', { exact: true }).click();
+  await page.getByRole('link', { name: 'Plan', exact: true }).click();
+  await page.getByRole('link', { name: 'Transactions', exact: true }).click();
   await expect(page.getByLabel('Search transactions')).toHaveValue('Green Market');
   await expect(page.getByRole('table')).toBeVisible();
   const before = await page.locator('input[type="month"]').inputValue();
@@ -513,6 +513,95 @@ test("Insights retains available sections with limited history", async ({ page, 
   await expect(page.getByRole('status').filter({ hasText: 'Limited history' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Items to review' })).toBeVisible();
   await expect(page.getByText('Not enough data yet', { exact: true })).toHaveCount(0);
+});
+
+test("Insights briefing compares against the last visit and takes the user to the finding", async ({ page, database }) => {
+  expect(database.isOpen).toBe(true);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/agent');
+  const briefing = page.locator('.companion');
+  await expect(briefing.getByRole('heading', { name: 'First reading' })).toBeVisible();
+  await expect(briefing).toContainText('Based on 14 transactions across 1 account');
+  // The note keeps types and hashes only: no merchant, title or amount can be read back from it.
+  const stored = await page.evaluate(() => localStorage.getItem('compass_insight_visits_1')!);
+  expect(stored).not.toMatch(/rent|market|coffee|1,?500/i);
+
+  // Age that visit: an earlier day, before the Rent shortfall, with an action item that has since cleared.
+  await page.evaluate(() => {
+    const memory = JSON.parse(localStorage.getItem('compass_insight_visits_1')!);
+    const latest = memory.profile.latest;
+    latest.day = '2020-01-01';
+    latest.items = [...latest.items.filter((item: { t: string }) => item.t !== 'bills_this_week'), { h: 'cleared', t: 'duplicate_charge', s: 'warning' }];
+    latest.txCount -= 2;
+    localStorage.setItem('compass_insight_visits_1', JSON.stringify(memory));
+  });
+  // The second load is the same day: the comparison must not reset to itself.
+  for (let load = 0; load < 2; load++) {
+    await page.reload();
+    await expect(briefing.getByRole('heading', { name: '2 changes since Jan 1, 2020' })).toBeVisible();
+  }
+  await expect(briefing).toContainText('No longer flagged: possible duplicate charge');
+  await expect(briefing).toContainText('2 more transactions on file');
+  await expect(briefing).toContainText('Compared with your visit on Jan 1, 2020.');
+  await expect(briefing).toContainText('Most at stake: Emergency fund is $1,500 below its $2,500 floor');
+
+  // Keyboard: a new finding's line opens its collapsed group and lands on the row.
+  await page.getByRole('button', { name: /Action items/ }).click();
+  const row = page.locator('.insight-row[data-insight-id]').filter({ hasText: 'Rent' });
+  await expect(row).toHaveCount(0);
+  await briefing.getByRole('button', { name: /New: Short \$500 for Rent/ }).focus();
+  await page.keyboard.press('Enter');
+  await expect(row).toBeFocused();
+  await expect(row).toBeInViewport();
+
+  await page.setViewportSize({ width: 390, height: 900 });
+  expect(await page.evaluate(() => {
+    const panel = document.querySelector('.companion')!;
+    const context = document.querySelector('.insights-context')!;
+    return panel.scrollWidth <= panel.clientWidth && panel.getBoundingClientRect().bottom <= context.getBoundingClientRect().top;
+  })).toBe(true);
+
+  // Dismissing the finding takes it out of the briefing too.
+  await row.getByRole('button', { name: 'Dismiss' }).click();
+  await expect(briefing.getByRole('heading', { name: '1 change since Jan 1, 2020' })).toBeVisible();
+});
+
+test("Insights adds up last month's small purchases", async ({ page, database }) => {
+  // 25 purchases of $6.40 on separate days of the month that just ended; the base fixture's
+  // history already reaches back before that month began.
+  const small = database.prepare("INSERT INTO transactions (account_id,profile_id,date,description,amount_cents,category_id,import_hash) VALUES (1,1,date('now','localtime','start of month','-1 month',?),'Corner Cafe',-640,(SELECT id FROM categories WHERE name='Food & Dining'),?)");
+  for (let day = 0; day < 25; day++) small.run(`+${day} days`, `small-${day}`);
+  await page.goto('/agent');
+  const review = page.getByRole('region', { name: 'Items to review' });
+  await review.getByRole('button', { name: /Observations/ }).click();
+  await expect(review).toContainText(/25 purchases under \$10 came to \$160 in [A-Z][a-z]+/);
+  await expect(review).toContainText('Scheduled bills and recurring charges are not counted.');
+});
+
+test("Insights warns when the days before payday are thin even though the bills fit", async ({ page, database }) => {
+  // Rent now fits the $1,000 balance, leaving $300 for the 4 days until the Paycheck rule.
+  // Eight weeks of everyday checking spending near $300 a day make that well under the usual pace.
+  database.exec("UPDATE recurring_rules SET amount_cents=-70000 WHERE description='Rent'");
+  const everyday = database.prepare("INSERT INTO transactions (account_id,profile_id,date,description,amount_cents,category_id,import_hash) VALUES (1,1,date('now','localtime',?),?,?,(SELECT id FROM categories WHERE name='Shopping'),?)");
+  for (let day = 1; day <= 56; day++) everyday.run(`-${day} days`, `Market run ${day}`, -(30_000 + day * 37), `everyday-${day}`);
+  await page.goto('/agent');
+  const review = page.getByRole('region', { name: 'Items to review' });
+  await expect(review).toContainText(/About \$75 a day until Paycheck on [A-Z][a-z]{2} \d+/);
+  await expect(review).toContainText('After 1 scheduled bill of $700, $300 has to last 4 days.');
+  await expect(review).toContainText('Card purchases are not counted until their payment is due.');
+  // Once Rent has posted and the balance on file reflects it, it is not subtracted again:
+  // $1,000 over 4 days is $250 a day, within reach of the usual pace, so the finding goes quiet.
+  database.prepare("INSERT INTO transactions (account_id,profile_id,date,description,amount_cents,balance_cents,category_id,import_hash) VALUES (1,1,date('now','localtime'),'Rent',-70000,100000,(SELECT id FROM categories WHERE name='Housing'),'rent-posted')").run();
+  await page.reload();
+  await expect(review).toBeVisible();
+  await expect(page.locator('.companion')).toBeVisible();
+  await expect(review).not.toContainText('a day until Paycheck');
+  database.exec("DELETE FROM transactions WHERE import_hash='rent-posted'");
+  // The shortfall warning owns the case where the bills alone overdraw the account.
+  database.exec("UPDATE recurring_rules SET amount_cents=-150000 WHERE description='Rent'");
+  await page.reload();
+  await expect(review).toContainText('Short $500 for Rent');
+  await expect(review).not.toContainText('a day until Paycheck');
 });
 
 test("login particles render, move, resize and stop for reduced motion", async ({ page, database }, testInfo) => {
@@ -1089,7 +1178,7 @@ test("workspace follows restored and maximized widths", async ({ page, database 
       return Math.abs(main.clientWidth - workspace.getBoundingClientRect().width);
     })).toBeLessThanOrEqual(1);
   }
-  await page.getByTitle('Plan', { exact: true }).click();
+  await page.getByRole('link', { name: 'Plan', exact: true }).click();
   for (const width of [2560, 1024, 1440]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.getByTitle('Expand sidebar', { exact: true }).click();
@@ -1366,4 +1455,220 @@ test("Vanguard holdings + activity workbook routes each account, dedupes re-impo
   await page.screenshot({ path: test.info().outputPath("vanguard-allocation-light.png"), fullPage: true });
   await page.evaluate(() => document.documentElement.classList.add("dark"));
   await page.screenshot({ path: test.info().outputPath("vanguard-allocation-dark.png"), fullPage: true });
+});
+
+test("Dashboard Clear month keeps investment imports and their holdings", async ({ page, database }) => {
+  // An investment import stores holdings, never transactions, so its session always looks empty
+  // to the "sessions with no transactions left" sweep that follows a clear.
+  database.prepare("INSERT INTO accounts (id,name,account_type,profile_id) VALUES (2,'Sample brokerage','investment',1)").run();
+  const session = Number(database.prepare("INSERT INTO import_sessions (filename,row_count,skipped_count,profile_id,kind) VALUES ('sample-holdings.csv',0,0,1,'investment')").run().lastInsertRowid);
+  database.prepare("INSERT INTO holdings (account_id,profile_id,import_session_id,as_of_date,security_type,symbol,description,shares,market_value_cents) VALUES (2,1,?,'2026-01-31','etf','SMPL','Sample index fund',10,250000)").run(session);
+  const thisMonth = () => database.prepare("SELECT COUNT(*) AS n FROM transactions WHERE strftime('%Y-%m', date)=strftime('%Y-%m','now','localtime')").get();
+  expect(Number(thisMonth()?.n)).toBeGreaterThan(0);
+
+  await page.goto("/");
+  await page.getByText("Manage data", { exact: true }).click();
+  await page.getByRole("button", { name: /^Clear \d{4}-\d{2}$/ }).click();
+  await page.getByRole("button", { name: "Yes, delete", exact: true }).click();
+
+  await expect.poll(thisMonth).toEqual({ n: 0 });
+  await expect(page.getByRole("button", { name: "Yes, delete", exact: true })).toBeHidden();
+  expect(database.prepare("SELECT kind FROM import_sessions WHERE id=?").get(session)).toEqual({ kind: "investment" });
+  expect(database.prepare("SELECT COUNT(*) AS n FROM holdings WHERE import_session_id=?").get(session)).toEqual({ n: 1 });
+});
+
+test("PIN dialog spends one attempt per entry and keeps its cooldown across Cancel", async ({ page, database }) => {
+  // Hashes from before the PBKDF2 upgrade (SHA-256 of PIN + created_at) are still accepted.
+  const created = String(database.prepare("SELECT created_at FROM profiles WHERE id=1").get()?.created_at);
+  database.prepare("UPDATE profiles SET pin_hash=? WHERE id=1").run(createHash("sha256").update(`4321${created}`).digest("hex"));
+
+  await page.goto("/");
+  const openDialog = () => page.getByRole("button", { name: /PIN protected/ }).click();
+  const dialog = page.getByRole("dialog", { name: "PIN entry" });
+  const pinField = page.getByLabel("PIN for Preview profile");
+  await openDialog();
+
+  // Two submits before the first verification has finished are one entry, so one attempt.
+  await pinField.fill("0000");
+  await dialog.locator("form").evaluate((form: HTMLFormElement) => { form.requestSubmit(); form.requestSubmit(); });
+  await expect(dialog.getByText("Incorrect PIN. 2 attempts left.")).toBeVisible();
+
+  await pinField.fill("0000");
+  await dialog.getByRole("button", { name: "Unlock", exact: true }).click();
+  await expect(dialog.getByText("Incorrect PIN. 1 attempt left.")).toBeVisible();
+
+  await pinField.fill("0000");
+  await dialog.getByRole("button", { name: "Unlock", exact: true }).click();
+  await expect(dialog.getByRole("button", { name: /^Wait \d+s$/ })).toBeDisabled();
+
+  // Cancel unmounts the dialog; the cooldown belongs to the profile, not to the dialog.
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await openDialog();
+  await expect(dialog.getByRole("button", { name: /^Wait \d+s$/ })).toBeDisabled();
+  await expect(pinField).toBeDisabled();
+});
+
+test("Command palette restores focus and preserves native query editing", async ({ page, database }) => {
+  expect(database.isOpen).toBe(true);
+  await page.reload();
+  const launcher = page.getByRole("button", { name: /Jump to a page or action/ });
+  const search = page.getByRole("combobox", { name: "Search pages and actions" });
+  await launcher.click();
+  await expect(search).toBeFocused();
+  await search.fill("forecast");
+  await search.press("Home");
+  expect(await search.evaluate((el: HTMLInputElement) => el.selectionStart)).toBe(0);
+  await search.press("End");
+  expect(await search.evaluate((el: HTMLInputElement) => el.selectionStart)).toBe(8);
+  await search.press("Shift+Home");
+  expect(await search.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd])).toEqual([0, 8]);
+  await search.press("Tab");
+  await expect(search).toBeFocused();
+  await search.press("Escape");
+  await expect(search).toHaveCount(0);
+  await expect(launcher).toBeFocused();
+  await page.keyboard.press("Control+k");
+  await expect(search).toBeFocused();
+  await search.dispatchEvent("keydown", { key: "k", ctrlKey: true, repeat: true });
+  await expect(search).toBeFocused();
+  await page.keyboard.press("Control+k");
+  await expect(search).toHaveCount(0);
+  await expect(launcher).toBeFocused();
+});
+
+test("Command palette hands focus to an action modal and respects its shortcut guard", async ({ page, database }) => {
+  expect(database.isOpen).toBe(true);
+  await page.reload();
+  // Opening the feedback dialog is local; never send or let this regression contact its endpoint.
+  await page.route("https://privatecompass.app/api/feedback", (route) => route.abort());
+  const launcher = page.getByRole("button", { name: /Jump to a page or action/ });
+  await launcher.click();
+  const search = page.getByRole("combobox", { name: "Search pages and actions" });
+  await search.fill("Send feedback");
+  await search.press("Enter");
+  const feedback = page.getByRole("dialog", { name: "Send feedback" });
+  await expect(search).toHaveCount(0);
+  await expect(feedback.getByLabel("Message", { exact: true })).toBeFocused();
+  await page.keyboard.press("Control+k");
+  await expect(search).toHaveCount(0);
+  await expect(feedback.getByLabel("Message", { exact: true })).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(feedback.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(feedback).toHaveCount(0);
+  await expect(launcher).toBeFocused();
+});
+
+test("Page readout follows theme, account scope and navigation under reduced motion", async ({ page, database }) => {
+  database.exec("INSERT INTO accounts (id,name,account_type,profile_id) VALUES (2,'First fund','investment',1),(3,'Second fund','investment',1),(4,'Empty fund','investment',1)");
+  database.exec("INSERT INTO holdings (account_id,profile_id,as_of_date,security_type,symbol,description,shares,market_value_cents) VALUES (2,1,'2026-01-31','etf','ONE','First fund',10,250000),(3,1,'2026-01-31','etf','TWO','Second fund',5,100000)");
+  // Keep every scope long enough to scroll its hero out of view, including a zero-value scope.
+  const holding = database.prepare("INSERT INTO holdings (account_id,profile_id,as_of_date,security_type,symbol,shares,market_value_cents) VALUES (?,1,'2026-01-31','etf',?,0,0)");
+  for (const id of [2, 3, 4]) for (let n = 0; n < 16; n++) holding.run(id, `ZERO${n}`);
+  await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "dark" });
+  await page.setViewportSize({ width: 1100, height: 700 });
+  await page.goto("/investments");
+  const source = page.locator('.stat-row-item[data-hero="true"] > strong');
+  const readout = page.locator('.page-readout[data-shown="true"]');
+  const scrollPast = () => page.locator("main").evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  await expect(source).toHaveText("$3,500.00");
+  await scrollPast();
+  await expect(readout.locator("strong")).toHaveText("$3,500.00");
+  await expect(readout).toHaveAttribute("aria-hidden", "true");
+  const darkColor = await source.evaluate((el) => getComputedStyle(el).color);
+  await expect(readout.locator("strong")).toHaveCSS("color", darkColor);
+  await page.keyboard.press("Control+k");
+  const search = page.getByRole("combobox", { name: "Search pages and actions" });
+  await search.fill("Switch to light mode");
+  await search.press("Enter");
+  await expect(page.locator("html")).not.toHaveClass(/dark/);
+  await expect.poll(() => source.evaluate((el) => getComputedStyle(el).color)).not.toBe(darkColor);
+  await expect.poll(async () => (await readout.locator("strong").evaluate((el) => getComputedStyle(el).color)) === (await source.evaluate((el) => getComputedStyle(el).color))).toBe(true);
+  const account = page.getByRole("combobox", { name: /^Account/ });
+  await account.focus();
+  await account.press("f");
+  await account.press("Enter");
+  await expect(account).toHaveValue("2");
+  await expect(source).toHaveText("$2,500.00");
+  await scrollPast();
+  await expect(readout.locator("strong")).toHaveText("$2,500.00");
+  await account.selectOption("4");
+  await scrollPast();
+  // No stale all-account value survives switching to an empty account.
+  await expect(source).toHaveText("$0.00");
+  await expect(readout.locator("strong")).toHaveText("$0.00");
+  await page.getByRole("link", { name: "Plan", exact: true }).click();
+  await expect(page.getByTestId("safe-to-spend")).toBeVisible();
+  await scrollPast();
+  await expect(readout.locator(".page-readout-title")).toHaveText("Plan");
+  await expect.poll(async () => readout.locator("strong").textContent()).toBe(await page.getByTestId("safe-to-spend").textContent());
+  await expect(page.locator(".route-glint")).toHaveCSS("display", "none");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await scrollPast();
+  await expect(readout).toHaveCount(0);
+});
+
+test("Dashboard Clear all preserves investments and other profiles but sweeps empty bank sessions", async ({ page, database }) => {
+  database.exec("INSERT INTO profiles (id,name) VALUES (2,'Other profile')");
+  database.exec("INSERT INTO accounts (id,name,account_type,profile_id) VALUES (2,'Sample brokerage','investment',1),(3,'Other checking','checking',2)");
+  const session = (profile: number, kind: string) => Number(database.prepare("INSERT INTO import_sessions (filename,row_count,skipped_count,profile_id,kind) VALUES ('sample.csv',0,0,?,?)").run(profile, kind).lastInsertRowid);
+  const investment = session(1, "investment");
+  const bank = session(1, "bank");
+  const emptyBank = session(1, "bank");
+  const otherBank = session(2, "bank");
+  const otherEmptyBank = session(2, "bank");
+  database.prepare("UPDATE transactions SET import_session_id=? WHERE profile_id=1").run(bank);
+  database.prepare("INSERT INTO holdings (account_id,profile_id,import_session_id,as_of_date,security_type,symbol,shares,market_value_cents) VALUES (2,1,?,'2026-01-31','etf','SMPL',10,250000)").run(investment);
+  database.prepare("INSERT INTO transactions (account_id,profile_id,import_session_id,date,description,amount_cents,import_hash) VALUES (3,2,?,'2026-01-31','Other spending',-100,'other')").run(otherBank);
+  const otherBefore = database.prepare("SELECT * FROM transactions WHERE profile_id=2").all();
+  const holdingBefore = database.prepare("SELECT * FROM holdings WHERE import_session_id=?").all(investment);
+  await page.goto("/");
+  await page.getByRole("button", { name: /Preview profile/ }).click();
+  await page.getByText("Manage data", { exact: true }).click();
+  await page.getByRole("button", { name: "Clear all transactions", exact: true }).click();
+  await page.getByRole("button", { name: "Yes, delete", exact: true }).click();
+  await expect.poll(() => database.prepare("SELECT COUNT(*) AS n FROM transactions WHERE profile_id=1").get()).toEqual({ n: 0 });
+  await expect(page.getByRole("button", { name: "Yes, delete", exact: true })).toBeHidden();
+  expect(database.prepare("SELECT id FROM import_sessions ORDER BY id").all()).toEqual([investment, otherBank, otherEmptyBank].map((id) => ({ id })));
+  expect(database.prepare("SELECT id FROM import_sessions WHERE id IN (?,?)").all(bank, emptyBank)).toEqual([]);
+  expect(database.prepare("SELECT * FROM holdings WHERE import_session_id=?").all(investment)).toEqual(holdingBefore);
+  expect(database.prepare("SELECT * FROM transactions WHERE profile_id=2").all()).toEqual(otherBefore);
+});
+
+test("PIN queue reuses the dialog safely and ignores a late unlock after advancing", async ({ page, database }) => {
+  database.exec("INSERT INTO profiles (id,name,created_at) VALUES (2,'Locked second','2026-01-01'),(3,'Locked third','2026-01-01')");
+  const hash = createHash("sha256").update("43212026-01-01").digest("hex");
+  database.prepare("UPDATE profiles SET pin_hash=? WHERE id IN (2,3)").run(hash);
+  await page.goto("/overview");
+  await page.getByRole("button", { name: /Preview profile/ }).click();
+  await page.evaluate(async () => {
+    const path = "/src/components/PinModal.tsx";
+    const pin = await import(path);
+    // Give the third profile a running deadline before it enters the reused queue dialog.
+    for (let i = 0; i < 3; i++) pin.recordFailedPin(3, Date.now() + 30_000);
+    const digest = crypto.subtle.digest.bind(crypto.subtle);
+    crypto.subtle.digest = async (...args) => {
+      const result = await digest(...args);
+      await new Promise<void>((resolve) => { (window as unknown as { releasePin: () => void }).releasePin = resolve; });
+      return result;
+    };
+  });
+  await page.getByRole("switch").click();
+  const dialog = page.getByRole("dialog", { name: "PIN entry" });
+  await page.getByLabel("PIN for Locked second").fill("4321");
+  await dialog.getByRole("button", { name: "Unlock", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => typeof (window as unknown as { releasePin?: () => void }).releasePin)).toBe("function");
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByLabel("PIN for Locked third")).toBeDisabled();
+  await expect(dialog.getByRole("button", { name: /^Wait \d+s$/ })).toBeDisabled();
+  await page.evaluate(() => (window as unknown as { releasePin: () => void }).releasePin());
+  // Flush the verification continuation before checking that the old success did not unlock it.
+  await page.evaluate(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  expect(await page.evaluate(async () => {
+    const path = "/src/stores/profileStore.ts";
+    const store = await import(path);
+    return store.useProfileStore.getState().unlockedIds.has(2);
+  })).toBe(false);
+  await expect(page.getByLabel("PIN for Locked third")).toBeDisabled();
 });

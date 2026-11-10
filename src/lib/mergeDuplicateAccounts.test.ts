@@ -9,9 +9,11 @@ const sqlite = vi.hoisted(() => {
 });
 
 vi.mock("@tauri-apps/api/core", () => {
-  // Same coercion as the Rust json_to_sql: booleans become 0/1, missing values NULL.
+  // Match Rust json_to_sql: integer JSON numbers/booleans bind as SQLite INTEGER.
+  // node:sqlite binds JS numbers as REAL (6 becomes '6.0' in SQL concatenation).
   const bind = (params: unknown[] = []) =>
-    params.map((v) => (typeof v === "boolean" ? Number(v) : v ?? null)) as (string | number | null)[];
+    params.map((v) => typeof v === "boolean" ? BigInt(v) :
+      typeof v === "number" && Number.isSafeInteger(v) ? BigInt(v) : v ?? null) as (string | number | bigint | null)[];
   return {
     invoke: async (cmd: string, args: { sql: string; params?: unknown[]; statements?: { sql: string; params?: unknown[] }[] }) => {
       if (cmd === "db_select") return sqlite.prepare(args.sql).all(...bind(args.params));
@@ -43,6 +45,13 @@ const insert = (sql: string, ...params: (string | number)[]) =>
 const rows = (sql: string, ...params: (string | number)[]) => sqlite.prepare(sql).all(...params);
 
 describe("mergeDuplicateAccounts", () => {
+  it("binds integer IDs like the native bridge, including SQL text concatenation", async () => {
+    const db = await getDb();
+    expect(await db.select("SELECT typeof(?) AS id_type, 'split:' || ? AS hash, typeof(?) AS fraction_type, ? AS flag, ? AS missing", [6, 6, 1.25, true, null])).toEqual([
+      { id_type: "integer", hash: "split:6", fraction_type: "real", flag: 1, missing: null },
+    ]);
+  });
+
   it("moves investment rows, goals and scheduled rules onto the primary; the primary's copy wins collisions", async () => {
     await getDb(); // run the real migrations first
     insert("INSERT INTO profiles (id, name) VALUES (2, 'Other')");

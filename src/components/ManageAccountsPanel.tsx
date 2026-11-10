@@ -252,7 +252,7 @@ export default function ManageAccountsPanel({ profileId, special = false }: Prop
                               <button
                                 onClick={() => handleDeleteWithData(a.id)}
                                 disabled={deleting}
-                                className="px-2.5 py-1 bg-[hsl(var(--error))] text-white rounded-md font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+                                className="px-2.5 py-1 bg-[hsl(var(--error))] text-[hsl(var(--background))] rounded-md font-medium hover:opacity-90 transition-colors disabled:opacity-50"
                               >
                                 {deleting ? "Deleting…" : "Yes, delete everything"}
                               </button>

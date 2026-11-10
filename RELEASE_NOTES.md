@@ -2,6 +2,41 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.18 — New Bearings 🧭
+
+Everything since 1.3.17. Insights now opens with what changed since your last visit and adds two findings (#134). The workspace gains a Ctrl/Cmd+K palette, grouped navigation and a page readout, alongside two data-safety fixes (#133).
+
+### Insights: what changed since your last visit (#134)
+- Insights now opens with a briefing: which findings are new, which observations became action items and which action items are no longer flagged since the last day you opened the page, with the health-score change and how many more transactions are on file beside it. Reopening the page the same day keeps comparing against the earlier day. Each new finding takes you to its row in Review, by mouse or keyboard, and the top-ranked action item sits beside the list with its action.
+- When nothing changed, the briefing says why (for example, no new transactions are on file) instead of filling the space. A first reading says there is nothing to compare yet.
+- The briefing states what the reading is based on: the number of transactions, accounts, the date range they cover and the visit it is compared with.
+- To compare visits, Compass keeps a small note per profile in local storage, outside the encrypted database. For each finding it holds only the type, the severity and a one-way hash of its identifier; per visit the health score, the transaction count and the newest transaction date. No titles, merchants, amounts or balances. Erasing a profile's data clears the note. It is not part of backups.
+- New finding, a thin stretch before payday: when the checking balance covers the scheduled bills due before the next scheduled income but leaves well under your usual everyday spending per day, Insights shows the per-day figure, the bills it counted and its assumptions. It needs a balance no more than 3 days old and the same typical-spending median Plan uses, and it does not count card purchases until their payment is due. When the bills alone overdraw the account, the existing shortfall warning reports that instead.
+- New finding, small purchases: for the month that just ended, flexible purchases under $10 are counted and set against that month's flexible spending. It appears only with at least 20 such purchases, $100 in total and 10% of flexible spending, and only when the data reaches back to the start of that month. Scheduled bills, recurring charges and transfers are left out.
+- Motion is one sweep along the briefing's top edge and a single ping on each new finding; neither plays under reduced motion. Colour tokens, logo, login scene and Plan map are unchanged.
+
+### Workspace navigation and reading (#133)
+- Add a searchable Ctrl/Cmd+K page/action palette with keyboard selection, focus return, native text editing and modal shortcut protection.
+- Group the sidebar into clusters, and show a page's label beside the collapsed icon rail as soon as the pointer or keyboard focus reaches its icon.
+- Add a scroll-following page readout that mirrors the displayed figure and account scope, including settled theme colours; it is visual-only and does not duplicate screen-reader content.
+- Align financial summary and account rows; render flat-balance sparklines as lines, place negative axis-label signs before the currency symbol, and match pay-cycle legend swatches to their lines. Use existing theme tokens for confirmation/status button text and native controls without replacing the colour tokens, login scene or Plan map.
+- Preserve reduced-motion handling alongside route, skeleton and insight accents.
+
+### Safer clearing and PIN entry (#133)
+- Keep investment import sessions/holdings when Dashboard clears transactions; Clear all also removes empty non-investment sessions only in the active profile.
+- Prevent overlapping PIN verification, preserve cooldown across Cancel/reopen, and ignore late dialog callbacks after a profile switch or close. This remains a per-launch UI guard, not database encryption.
+
+### Website (#132, #133)
+- The FAQ answer to "Does Compass connect to the internet?" now includes Send feedback, on the home page and the private budgeting guide. The home page adds an entry on what the Send feedback button sends. Visible text and structured data match, using the wording approved in #132.
+- llms.txt gains a network-use section and a list of what 1.3.18 added. robots.txt now applies the /stats/ and /downloads/ exclusions to the named AI crawlers as well as everyone else. Neither promises indexing or assistant citations.
+- The home page's version fields (structured-data softwareVersion, hero chip and both download badges) are set to 1.3.18, matching the app manifests.
+
+### Tests and limits
+- Insights coverage: unit tests for the comparison, same-day revisits, profile reset, scope changes, month rollover and both new findings; browser tests through the mocked SQLite bridge for the briefing, the keyboard jump to a finding, the narrow layout and both findings.
+- Add browser coverage for palette/modal focus, native editing, readout theme/scope/navigation, reduced motion, bank-data clearing and queued PIN dialogs.
+- Make the real-SQLite duplicate-account test bridge bind integer IDs like Rust rather than node:sqlite REAL values; production money logic is unchanged.
+- Browser tests run against a mocked native bridge. They do not exercise Windows WebView2 or macOS WKWebView. This release changes no Rust source.
+
 ## Compass 1.3.17 — Send Feedback 🧭
 
 ### Send feedback from inside the app (#131)

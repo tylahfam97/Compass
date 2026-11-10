@@ -1,7 +1,7 @@
 import { useId } from "react";
-import { AreaChart, Area, ResponsiveContainer } from "recharts";
+import { AreaChart, Area, YAxis, ResponsiveContainer } from "recharts";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { series } from "@/lib/chartTheme";
+import { series, sparkDomain } from "@/lib/chartTheme";
 import type { OverviewAccount, OverviewAccountKind } from "@/lib/overviewData";
 
 /**
@@ -52,6 +52,7 @@ function Sparkline({ name, points }: { name: string; points: { date: string; bal
               <stop offset="100%" stopColor={series.balance} stopOpacity={0} />
             </linearGradient>
           </defs>
+          <YAxis hide domain={sparkDomain(points.map((p) => p.balance_cents))} />
           <Area type="monotone" dataKey="balance_cents" stroke={series.balance} strokeWidth={1.5} fill={`url(#${gradientId})`} isAnimationActive={false} />
         </AreaChart>
       </ResponsiveContainer>

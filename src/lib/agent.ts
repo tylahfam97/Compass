@@ -8,7 +8,7 @@ import { getRemembered, remember } from "./voiceMemory";
 import { chargeKey } from "./hiddenCharges";
 import { formatCurrencyWhole as formatCents, formatCurrency, formatDate } from "./utils";
 import { evaluateBudgetPeriod, type BudgetDefinition } from "./budgetMetrics";
-import { expandOccurrences, projectCashFlow, toISODate, chargeMatchesRule } from "./forecast";
+import { expandOccurrences, projectCashFlow, toISODate, chargeMatchesRule, computeSpendingBaseline, baselineIsUsable } from "./forecast";
 import { getPlannedRules, plannedMonthlyIncomeCents, plannedMonthlyBillsCents, getFixedFlexibleInputs } from "./plannedRules";
 import { detectRecurringCharges } from "./recurringCharges";
 import { loadScenario } from "./planScenario";
@@ -18,6 +18,7 @@ import { findMissingScheduled, billsDueWithin, nextIncomeEvent } from "./insight
 import { findDuplicateCharges, findFrequentMerchants } from "./insights/duplicates";
 import { summarizeFixedFlexible, monthsWithIncome, countNoSpendDays, paydayBurstShare, classifyExpense, isIncomeTxn, type ShapeTxn, type ScheduledLike } from "./insights/shape";
 import { rankInsights } from "./insights/rank";
+import { paydayCushion, smallPurchases } from "./insights/patterns";
 import { evaluateGoals, projectGoalCompletion, monthlyPaceFromBalances } from "./goals";
 
 export { detectRecurringCharges } from "./recurringCharges";
@@ -1259,6 +1260,49 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     }
   }
 
+  // ── INSIGHT: payday_cushion ──────────────────────────────────────────────
+  // The bills fit, but the days in between can still be thin: the projection above only knows
+  // scheduled events. This sets what is free per day against what usually leaves checking.
+  // Needs a balance from the last 3 days, and stays out of the way of a real shortfall.
+  if (!shortfallWarned && nextIncome && balanceKnown && daysBetweenIso(balanceRow.date!, todayIso) <= 3) {
+    // Same baseline as Plan (forecastData.ts): checking only, scheduled and detected charges out.
+    const scheduledLike = [...planned.activeRules, ...detectedCharges].map((c) => ({ description: c.description, amount_cents: c.amount_cents }));
+    const everyday = recent.filter((r) => r.account_type === "checking" && r.amount_cents < 0 && !isExcludedCategory(r.category_id)
+      && !scheduledLike.some((s) => chargeMatchesRule({ description: r.description, amount_cents: r.amount_cents }, s)));
+    const baseline = computeSpendingBaseline(everyday, today);
+    // A bill whose charge already posted, on or before the day of the balance on file, is
+    // already inside that balance; counting it as still due would subtract it twice.
+    const alreadyPaid = (e: { date: string; description: string; amountCents: number }) => recent.some((r) =>
+      r.date >= addDaysIso(e.date, -3) && r.date <= balanceRow.date!
+      && chargeMatchesRule({ description: r.description, amount_cents: r.amount_cents }, { description: e.description, amount_cents: e.amountCents }));
+    const billsBefore = plannedEvents14.filter((e) => e.amountCents < 0 && e.date >= todayIso && e.date < nextIncome.date && !alreadyPaid(e));
+    const billsDueCents = billsBefore.reduce((s, e) => s - e.amountCents, 0);
+    const cushion = baselineIsUsable(baseline)
+      ? paydayCushion({ balanceCents: balanceRow.balance_cents, daysToIncome: daysBetweenIso(todayIso, nextIncome.date), billsDueCents, dailySpendCents: baseline.dailySpendCents })
+      : null;
+    if (cushion && baselineIsUsable(baseline)) {
+      const asOf = balanceRow.date === todayIso ? "" : ` as of ${shortDate(balanceRow.date!)}`;
+      insights.push({
+        id: `cushion_${nextIncome.date}`,
+        type: "payday_cushion",
+        title: `About ${formatCents(cushion.perDayCents)} a day until ${truncate(nextIncome.description, 22)} on ${shortDate(nextIncome.date)}`,
+        description: `Checking holds ${formatCents(balanceRow.balance_cents)}${asOf}. `
+          + (billsBefore.length > 0
+            ? `After ${plural(billsBefore.length, "scheduled bill", "scheduled bills")} of ${formatCents(billsDueCents)}, ${formatCents(cushion.freeCents)} has to last ${cushion.days} days. `
+            : `No scheduled bills fall before then, so it has to last ${cushion.days} days. `)
+          + `Everyday spending from checking usually runs ${formatCents(baseline.dailySpendCents)} a day (median of the last ${baseline.weeksCovered} weeks), about ${formatCents(cushion.gapCents)} more than is free. Card purchases are not counted until their payment is due.`,
+        severity: cushion.perDayCents < baseline.dailySpendCents / 2 ? "warning" : "info",
+        impactCents: cushion.gapCents,
+        period: `until ${shortDate(nextIncome.date)}`,
+        action: { type: "open_plan", payload: {} },
+        dismissKey: `cushion_${nextIncome.date}`,
+        richData: billsBefore.length > 0
+          ? { timeline: billsBefore.map((e) => ({ date: e.date, label: e.description, cents: -e.amountCents, kind: e.source })) }
+          : undefined,
+      });
+    }
+  }
+
   // ── INSIGHT: income_expected ─────────────────────────────────────────────
   if (nextIncome && !shortfallWarned) {
     const days = daysBetweenIso(todayIso, nextIncome.date);
@@ -1664,6 +1708,26 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
         severity: "success",
         period: "last month",
         dismissKey: `nospend_${lastComplete.month}`,
+      });
+    }
+  }
+
+  // ── INSIGHT: small_purchases ─────────────────────────────────────────────
+  // Only the calendar month that just ended, and only when the data reaches back to its start.
+  if (lastComplete && lastComplete.month === months12[1] && earliestIso && earliestIso <= `${lastComplete.month}-03`) {
+    const small = smallPurchases(shapeTxns, lastComplete.month, billRules, detectedLike);
+    if (small && small.count >= 20 && small.totalCents >= 10000 && small.share >= 0.1) {
+      insights.push({
+        id: `small_purchases_${lastComplete.month}`,
+        type: "small_purchases",
+        title: `${small.count} purchases under $10 came to ${formatCents(small.totalCents)} in ${monthName(lastComplete.month)}`,
+        description: `${Math.round(small.share * 100)}% of the month's flexible spending. Most of it went to ${listClauses(small.top.map((t) => `${truncate(t.label, 22)} (${formatCents(t.cents)})`))}. Scheduled bills and recurring charges are not counted.`,
+        severity: "info",
+        impactCents: small.totalCents,
+        period: "last month",
+        action: { type: "view_transactions", payload: { month: lastComplete.month } },
+        dismissKey: `small_purchases_${lastComplete.month}`,
+        richData: { items: small.top.map((t) => ({ label: t.label, valueCents: t.cents })) },
       });
     }
   }
