@@ -4,7 +4,17 @@
 
 ## Compass 1.3.18 — Unreleased DEV (provisional)
 
-Development-only preparation; not a stable release or a deployment. The provisional dev1.3.18 number must be reconciled with current main at a later authorized promotion. Implementation PR: #133 (DEV only).
+Development-only preparation; not a stable release or a deployment. The provisional dev1.3.18 number must be reconciled with current main at a later authorized promotion. Implementation PRs: #133, #134 (DEV only).
+
+### Insights: what changed since your last visit (#134)
+- Insights now opens with a briefing: which findings are new, which observations became action items and which action items are no longer flagged since the last day you opened the page, with the health-score change and how many more transactions are on file beside it. Reopening the page the same day keeps comparing against the earlier day. Each new finding takes you to its row in Review, by mouse or keyboard, and the top-ranked action item sits beside the list with its action.
+- When nothing changed, the briefing says why (for example, no new transactions are on file) instead of filling the space. A first reading says there is nothing to compare yet.
+- The briefing states what the reading is based on: the number of transactions, accounts, the date range they cover and the visit it is compared with.
+- To compare visits, Compass keeps a small note per profile in local storage, outside the encrypted database. For each finding it holds only the type, the severity and a one-way hash of its identifier; per visit the health score, the transaction count and the newest transaction date. No titles, merchants, amounts or balances. Erasing a profile's data clears the note. It is not part of backups.
+- New finding, a thin stretch before payday: when the checking balance covers the scheduled bills due before the next scheduled income but leaves well under your usual everyday spending per day, Insights shows the per-day figure, the bills it counted and its assumptions. It needs a balance no more than 3 days old and the same typical-spending median Plan uses, and it does not count card purchases until their payment is due. When the bills alone overdraw the account, the existing shortfall warning reports that instead.
+- New finding, small purchases: for the month that just ended, flexible purchases under $10 are counted and set against that month's flexible spending. It appears only with at least 20 such purchases, $100 in total and 10% of flexible spending, and only when the data reaches back to the start of that month. Scheduled bills, recurring charges and transfers are left out.
+- Motion is one sweep along the briefing's top edge and a single ping on each new finding; neither plays under reduced motion. Colour tokens, logo, login scene and Plan map are unchanged.
+- Coverage: unit tests for the comparison, same-day revisits, profile reset, scope changes, month rollover and both new findings; browser tests through the mocked SQLite bridge for the briefing, the keyboard jump to a finding, the narrow layout and both findings. No Rust changes.
 
 ### Workspace navigation and reading
 - Add a searchable Ctrl/Cmd+K page/action palette with keyboard selection, focus return, native text editing and modal shortcut protection.

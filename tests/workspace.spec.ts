@@ -515,6 +515,87 @@ test("Insights retains available sections with limited history", async ({ page, 
   await expect(page.getByText('Not enough data yet', { exact: true })).toHaveCount(0);
 });
 
+test("Insights briefing compares against the last visit and takes the user to the finding", async ({ page, database }) => {
+  expect(database.isOpen).toBe(true);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/agent');
+  const briefing = page.locator('.companion');
+  await expect(briefing.getByRole('heading', { name: 'First reading' })).toBeVisible();
+  await expect(briefing).toContainText('Based on 14 transactions across 1 account');
+  // The note keeps types and hashes only: no merchant, title or amount can be read back from it.
+  const stored = await page.evaluate(() => localStorage.getItem('compass_insight_visits_1')!);
+  expect(stored).not.toMatch(/rent|market|coffee|1,?500/i);
+
+  // Age that visit: an earlier day, before the Rent shortfall, with an action item that has since cleared.
+  await page.evaluate(() => {
+    const memory = JSON.parse(localStorage.getItem('compass_insight_visits_1')!);
+    const latest = memory.profile.latest;
+    latest.day = '2020-01-01';
+    latest.items = [...latest.items.filter((item: { t: string }) => item.t !== 'bills_this_week'), { h: 'cleared', t: 'duplicate_charge', s: 'warning' }];
+    latest.txCount -= 2;
+    localStorage.setItem('compass_insight_visits_1', JSON.stringify(memory));
+  });
+  // The second load is the same day: the comparison must not reset to itself.
+  for (let load = 0; load < 2; load++) {
+    await page.reload();
+    await expect(briefing.getByRole('heading', { name: '2 changes since Jan 1, 2020' })).toBeVisible();
+  }
+  await expect(briefing).toContainText('No longer flagged: possible duplicate charge');
+  await expect(briefing).toContainText('2 more transactions on file');
+  await expect(briefing).toContainText('Compared with your visit on Jan 1, 2020.');
+  await expect(briefing).toContainText('Most at stake: Emergency fund is $1,500 below its $2,500 floor');
+
+  // Keyboard: a new finding's line opens its collapsed group and lands on the row.
+  await page.getByRole('button', { name: /Action items/ }).click();
+  const row = page.locator('.insight-row[data-insight-id]').filter({ hasText: 'Rent' });
+  await expect(row).toHaveCount(0);
+  await briefing.getByRole('button', { name: /New: Short \$500 for Rent/ }).focus();
+  await page.keyboard.press('Enter');
+  await expect(row).toBeFocused();
+  await expect(row).toBeInViewport();
+
+  await page.setViewportSize({ width: 390, height: 900 });
+  expect(await page.evaluate(() => {
+    const panel = document.querySelector('.companion')!;
+    const context = document.querySelector('.insights-context')!;
+    return panel.scrollWidth <= panel.clientWidth && panel.getBoundingClientRect().bottom <= context.getBoundingClientRect().top;
+  })).toBe(true);
+
+  // Dismissing the finding takes it out of the briefing too.
+  await row.getByRole('button', { name: 'Dismiss' }).click();
+  await expect(briefing.getByRole('heading', { name: '1 change since Jan 1, 2020' })).toBeVisible();
+});
+
+test("Insights adds up last month's small purchases", async ({ page, database }) => {
+  // 25 purchases of $6.40 on separate days of the month that just ended; the base fixture's
+  // history already reaches back before that month began.
+  const small = database.prepare("INSERT INTO transactions (account_id,profile_id,date,description,amount_cents,category_id,import_hash) VALUES (1,1,date('now','localtime','start of month','-1 month',?),'Corner Cafe',-640,(SELECT id FROM categories WHERE name='Food & Dining'),?)");
+  for (let day = 0; day < 25; day++) small.run(`+${day} days`, `small-${day}`);
+  await page.goto('/agent');
+  const review = page.getByRole('region', { name: 'Items to review' });
+  await review.getByRole('button', { name: /Observations/ }).click();
+  await expect(review).toContainText(/25 purchases under \$10 came to \$160 in [A-Z][a-z]+/);
+  await expect(review).toContainText('Scheduled bills and recurring charges are not counted.');
+});
+
+test("Insights warns when the days before payday are thin even though the bills fit", async ({ page, database }) => {
+  // Rent now fits the $1,000 balance, leaving $300 for the 4 days until the Paycheck rule.
+  // Eight weeks of everyday checking spending near $300 a day make that well under the usual pace.
+  database.exec("UPDATE recurring_rules SET amount_cents=-70000 WHERE description='Rent'");
+  const everyday = database.prepare("INSERT INTO transactions (account_id,profile_id,date,description,amount_cents,category_id,import_hash) VALUES (1,1,date('now','localtime',?),?,?,(SELECT id FROM categories WHERE name='Shopping'),?)");
+  for (let day = 1; day <= 56; day++) everyday.run(`-${day} days`, `Market run ${day}`, -(30_000 + day * 37), `everyday-${day}`);
+  await page.goto('/agent');
+  const review = page.getByRole('region', { name: 'Items to review' });
+  await expect(review).toContainText(/About \$75 a day until Paycheck on [A-Z][a-z]{2} \d+/);
+  await expect(review).toContainText('After 1 scheduled bill of $700, $300 has to last 4 days.');
+  await expect(review).toContainText('Card purchases are not counted until their payment is due.');
+  // The shortfall warning owns the case where the bills alone overdraw the account.
+  database.exec("UPDATE recurring_rules SET amount_cents=-150000 WHERE description='Rent'");
+  await page.reload();
+  await expect(review).toContainText('Short $500 for Rent');
+  await expect(review).not.toContainText('a day until Paycheck');
+});
+
 test("login particles render, move, resize and stop for reduced motion", async ({ page, database }, testInfo) => {
   database.prepare("INSERT INTO profiles(name,avatar_color) VALUES ('Second profile','#0284c7')").run();
   await page.emulateMedia({ reducedMotion: 'no-preference' });

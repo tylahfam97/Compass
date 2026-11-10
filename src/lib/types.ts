@@ -69,6 +69,8 @@ export type InsightType =
   | "fixed_costs_high"
   | "no_spend_days"
   | "payday_burst"
+  | "payday_cushion"
+  | "small_purchases"
   // Housekeeping
   | "uncategorized_share"
   | "stale_data"

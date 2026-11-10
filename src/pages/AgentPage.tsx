@@ -25,6 +25,9 @@ import {
 import { getFixedFlexibleInputs } from "@/lib/forecastData";
 import { summarizeFixedFlexible, monthsWithIncome, type FixedFlexibleSummary } from "@/lib/insights/shape";
 import { resolveInsightAction } from "@/lib/insightActions";
+import { buildBriefing, diffVisit, recordVisit, snapshotOf, type VisitDiff } from "@/lib/insights/companion";
+import { toISODate } from "@/lib/forecast";
+import CompanionBriefing, { type BriefingCoverage } from "@/components/CompanionBriefing";
 import { gradeTint, scoreGrade } from "@/lib/benchmarks";
 import { series, chartTooltipStyle, chartTooltipText, chartTooltipWrapper, axisTick, harmonizeColor } from "@/lib/chartTheme";
 import { useIsDark } from "@/hooks/useIsDark";
@@ -249,9 +252,14 @@ interface InsightGroupProps {
   onApply: (i: Insight) => void;
   open: boolean;
   onToggle: () => void;
+  /** A row the briefing is pointing at; shown even when it sits past the first page. */
+  focusId: string | null;
 }
-function InsightGroup({ label, severity, items, onApply, open, onToggle }: InsightGroupProps) {
+function InsightGroup({ label, severity, items, onApply, open, onToggle, focusId }: InsightGroupProps) {
   const [showAll, setShowAll] = useState(false);
+  useEffect(() => {
+    if (focusId && items.findIndex((i) => i.id === focusId) >= GROUP_PAGE) setShowAll(true);
+  }, [focusId, items]);
   if (items.length === 0) return null;
 
   type StyleMap = { iconWrap: string; chevronCls: string; badgeCls: string; };
@@ -847,6 +855,8 @@ export default function AgentPage() {
   const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>(loadGroupState);
   const didSetDefaults = useRef(false);
   const [showScoreIntro, setShowScoreIntro] = useState(false);
+  const [visit, setVisit] = useState<{ diff: VisitDiff; coverage: BriefingCoverage } | null>(null);
+  const [focusId, setFocusId] = useState<string | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem(viewKey(profileId));
@@ -921,7 +931,7 @@ export default function AgentPage() {
       const db = await getDb();
       const ph = ids.map(() => "?").join(",");
 
-      const [allInsights, history, profile, globalScore, profileScore, nw, nwHistory, invReturn, topRoiHoldings, ccScore, invHealthScore, fixedFlexInputs, costOfMoneyInputs] = await Promise.all([
+      const [allInsights, history, profile, globalScore, profileScore, nw, nwHistory, invReturn, topRoiHoldings, ccScore, invHealthScore, fixedFlexInputs, costOfMoneyInputs, coverageRows] = await Promise.all([
         generateInsights(ids),
         getSavingsHistory(ids, 12),
         getSpendingProfile(ids),
@@ -935,8 +945,32 @@ export default function AgentPage() {
         computeInvestmentHealthScore(ids),
         getFixedFlexibleInputs(ids),
         getCostOfMoneyInputs(ids, prevYM(currentYM()), DEFAULT_ASSUMED_YIELD_BPS),
+        db.select<{ n: number; accounts: number; first: string | null; newest: string | null }[]>(
+          `SELECT COUNT(*) as n, COUNT(DISTINCT t.account_id) as accounts, MIN(t.date) as first, MAX(t.date) as newest
+           FROM transactions t JOIN accounts a ON a.id=t.account_id
+           WHERE t.profile_id IN (${ph}) AND a.excluded_from_insights=0`,
+          ids
+        ),
       ]);
       if (cancelled) return;
+
+      // What changed since the last day this page was opened. Nothing is noted for an empty
+      // profile, so the first reading is the first one that had data behind it.
+      const coverage = coverageRows[0];
+      if (coverage && coverage.n > 0) {
+        const scoreNow = viewMode === "global" ? globalScore : profileScore;
+        const now = snapshotOf(allInsights, {
+          day: toISODate(new Date()),
+          scope: ids.join(","),
+          score: scoreNow.hasData ? scoreNow.total : null,
+          txCount: coverage.n,
+          newest: coverage.newest,
+        });
+        const baseline = recordVisit(profileId, viewMode, now);
+        setVisit({ diff: diffVisit(baseline, now, allInsights), coverage: { txCount: coverage.n, accounts: coverage.accounts, first: coverage.first, newest: coverage.newest } });
+      } else {
+        setVisit(null);
+      }
 
       setCostInputs(costOfMoneyInputs);
       setHasEnoughData(!!profile && history.length >= 2);
@@ -1057,6 +1091,38 @@ export default function AgentPage() {
   const infoInsights     = visibleInsights.filter((i) => i.severity === "info");
   const warningInsights  = visibleInsights.filter((i) => i.severity === "warning");
 
+  const activeScore = viewMode === "global" ? globalHealthScore : (profileHealthScore ?? globalHealthScore);
+  const briefing = useMemo(() => {
+    if (!visit) return null;
+    const shown = (i: Insight) => !dismissedInsights.includes(i.dismissKey);
+    return buildBriefing(
+      { ...visit.diff, appeared: visit.diff.appeared.filter(shown), escalated: visit.diff.escalated.filter(shown) },
+      { todayIso: toISODate(new Date()), score: activeScore?.hasData ? activeScore.total : null, newest: visit.coverage.newest }
+    );
+  }, [visit, dismissedInsights, activeScore]);
+
+  /** Takes the user to a finding's row in Review: opens its group, scrolls, and marks the row. */
+  const showInsight = (id: string) => {
+    const target = visibleInsights.find((i) => i.id === id);
+    if (!target) return;
+    setGroupOpen((prev) => ({ ...prev, [target.severity]: true }));
+    setFocusId(id);
+  };
+  useEffect(() => {
+    if (!focusId) return;
+    let clear: number | undefined;
+    // One beat for the group to open and, if needed, show its later rows.
+    const find = window.setTimeout(() => {
+      const row = document.querySelector<HTMLElement>(`[data-insight-id="${CSS.escape(focusId)}"]`);
+      if (!row) { setFocusId(null); return; }
+      row.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" });
+      row.focus({ preventScroll: true });
+      row.setAttribute("data-flash", "");
+      clear = window.setTimeout(() => { row.removeAttribute("data-flash"); setFocusId(null); }, 1600);
+    }, 60);
+    return () => { window.clearTimeout(find); window.clearTimeout(clear); };
+  }, [focusId, reduced]);
+
   const openAllDebtsPayoff = () => {
     if (loans.length === 0) return;
     setPayoffModal({
@@ -1083,7 +1149,6 @@ export default function AgentPage() {
   const avgSavingsRatePct = spendingProfile ? Math.round(spendingProfile.avgSavingsRate * 100) : 0;
   const totalSubCost = subscriptions.reduce((s, r) => s + Math.abs(r.amount_cents), 0);
   const annualSubCost = totalSubCost * 12;
-  const activeScore = viewMode === "global" ? globalHealthScore : (profileHealthScore ?? globalHealthScore);
   const colorMode = isDark ? "dark" : "light";
 
   // ── Shared sticky header ─────────────────────────────────────────────────
@@ -1185,6 +1250,18 @@ export default function AgentPage() {
           <p>Limited history. Trends need at least two months; available balances and review items are shown below.</p>
           <Link to="/import" className="inline-block mt-2 text-[hsl(var(--gold-ink))]">Import transactions</Link>
         </div>}
+
+        {briefing && visit && (
+          <CompanionBriefing
+            briefing={briefing}
+            today={new Date()}
+            coverage={visit.coverage}
+            since={visit.diff.since}
+            next={warningInsights.find((i) => !!i.action) ?? warningInsights[0] ?? null}
+            onShow={showInsight}
+            onApply={handleApply}
+          />
+        )}
 
         <section className="insights-context" aria-label="Financial context and scores">
           <h2 className="font-semibold">Financial context and scores</h2>
@@ -1360,9 +1437,9 @@ export default function AgentPage() {
             {dismissedInsights.length > 0 && <button onClick={clearDismissed} className="text-xs text-[hsl(var(--muted-foreground))]">Restore {dismissedInsights.length} dismissed</button>}
           </div>
           {visibleInsights.length === 0 && <p className="py-6 text-sm text-[hsl(var(--muted-foreground))]">Nothing left to review. This list is not an assessment of your financial health.</p>}
-          <InsightGroup label="Action items" severity="warning" items={warningInsights} onApply={handleApply} open={!!groupOpen.warning} onToggle={() => toggleGroup("warning")} />
-          <InsightGroup label="Observations" severity="info" items={infoInsights} onApply={handleApply} open={!!groupOpen.info} onToggle={() => toggleGroup("info")} />
-          <InsightGroup label="Wins" severity="success" items={successInsights} onApply={handleApply} open={!!groupOpen.success} onToggle={() => toggleGroup("success")} />
+          <InsightGroup label="Action items" severity="warning" items={warningInsights} onApply={handleApply} open={!!groupOpen.warning} onToggle={() => toggleGroup("warning")} focusId={focusId} />
+          <InsightGroup label="Observations" severity="info" items={infoInsights} onApply={handleApply} open={!!groupOpen.info} onToggle={() => toggleGroup("info")} focusId={focusId} />
+          <InsightGroup label="Wins" severity="success" items={successInsights} onApply={handleApply} open={!!groupOpen.success} onToggle={() => toggleGroup("success")} focusId={focusId} />
         </section>
 
         {/* ── Category Trends ── */}
