@@ -589,6 +589,14 @@ test("Insights warns when the days before payday are thin even though the bills 
   await expect(review).toContainText(/About \$75 a day until Paycheck on [A-Z][a-z]{2} \d+/);
   await expect(review).toContainText('After 1 scheduled bill of $700, $300 has to last 4 days.');
   await expect(review).toContainText('Card purchases are not counted until their payment is due.');
+  // Once Rent has posted and the balance on file reflects it, it is not subtracted again:
+  // $1,000 over 4 days is $250 a day, within reach of the usual pace, so the finding goes quiet.
+  database.prepare("INSERT INTO transactions (account_id,profile_id,date,description,amount_cents,balance_cents,category_id,import_hash) VALUES (1,1,date('now','localtime'),'Rent',-70000,100000,(SELECT id FROM categories WHERE name='Housing'),'rent-posted')").run();
+  await page.reload();
+  await expect(review).toBeVisible();
+  await expect(page.locator('.companion')).toBeVisible();
+  await expect(review).not.toContainText('a day until Paycheck');
+  database.exec("DELETE FROM transactions WHERE import_hash='rent-posted'");
   // The shortfall warning owns the case where the bills alone overdraw the account.
   database.exec("UPDATE recurring_rules SET amount_cents=-150000 WHERE description='Rent'");
   await page.reload();

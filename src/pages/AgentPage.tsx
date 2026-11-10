@@ -961,7 +961,7 @@ export default function AgentPage() {
         const scoreNow = viewMode === "global" ? globalScore : profileScore;
         const now = snapshotOf(allInsights, {
           day: toISODate(new Date()),
-          scope: ids.join(","),
+          scope: [...ids].sort((x, y) => x - y).join(","),
           score: scoreNow.hasData ? scoreNow.total : null,
           txCount: coverage.n,
           newest: coverage.newest,

@@ -1270,7 +1270,12 @@ async function _insightsForProfile(profileId: number): Promise<Insight[]> {
     const everyday = recent.filter((r) => r.account_type === "checking" && r.amount_cents < 0 && !isExcludedCategory(r.category_id)
       && !scheduledLike.some((s) => chargeMatchesRule({ description: r.description, amount_cents: r.amount_cents }, s)));
     const baseline = computeSpendingBaseline(everyday, today);
-    const billsBefore = plannedEvents14.filter((e) => e.amountCents < 0 && e.date >= todayIso && e.date < nextIncome.date);
+    // A bill whose charge already posted, on or before the day of the balance on file, is
+    // already inside that balance; counting it as still due would subtract it twice.
+    const alreadyPaid = (e: { date: string; description: string; amountCents: number }) => recent.some((r) =>
+      r.date >= addDaysIso(e.date, -3) && r.date <= balanceRow.date!
+      && chargeMatchesRule({ description: r.description, amount_cents: r.amount_cents }, { description: e.description, amount_cents: e.amountCents }));
+    const billsBefore = plannedEvents14.filter((e) => e.amountCents < 0 && e.date >= todayIso && e.date < nextIncome.date && !alreadyPaid(e));
     const billsDueCents = billsBefore.reduce((s, e) => s - e.amountCents, 0);
     const cushion = baselineIsUsable(baseline)
       ? paydayCushion({ balanceCents: balanceRow.balance_cents, daysToIncome: daysBetweenIso(todayIso, nextIncome.date), billsDueCents, dailySpendCents: baseline.dailySpendCents })
