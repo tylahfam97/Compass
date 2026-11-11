@@ -218,6 +218,8 @@ export interface Transaction {
   account_name?: string;
   /** Moved to Transfers as a crypto portfolio deposit (#107): 1 automatic exact-cent match, 2 user-confirmed. */
   crypto_matched?: number;
+  /** 1 when the row is in the crypto review queue (CRYPTO_REVIEW_SQL in db.ts, #107). */
+  crypto_review?: number;
 }
 
 export interface Category {

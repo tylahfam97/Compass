@@ -1286,6 +1286,62 @@ test("Ledger crypto export imports as an investment holding with transfers, not 
   expect(database.prepare("SELECT COUNT(*) AS n FROM transactions").get()).toEqual(transactionsBefore);
 });
 
+test("Crypto purchases near a portfolio deposit are listed for review and confirmed from the editor (#107)", async ({ page, database }) => {
+  // Invented operations: two receives. The first equals a Crypto purchase exactly (auto-matched);
+  // the second is a cent more than another purchase, so it is only listed for review.
+  const csv = [
+    "Operation Date,Status,Currency Ticker,Operation Type,Operation Amount,Operation Fees,Operation Hash,Account Name,Account xpub,Countervalue Ticker,Countervalue at Operation Date,Countervalue at CSV Export",
+    "2026-09-12T15:00:00.000Z,Confirmed,XRP,IN,106.165,0.000017,SYNTHETIC6,Sample Wallet,xpub-sample,USD,212.33,265.41",
+    "2026-09-01T15:00:00.000Z,Confirmed,XRP,IN,100.123456,0.000017,SYNTHETIC5,Sample Wallet,xpub-sample,USD,200.25,250.31",
+  ].join("\n");
+  const insertPurchase = database.prepare("INSERT INTO transactions (account_id,profile_id,date,description,amount_cents,balance_cents,category_id,import_hash) VALUES (1,1,?,?,?,100000,25,?)");
+  insertPurchase.run("2026-08-31", "Sample exchange purchase", -20025, "crypto-exact");
+  insertPurchase.run("2026-09-11", "Sample exchange top-up", -21232, "crypto-near");
+  const transactionsBefore = database.prepare("SELECT COUNT(*) AS n FROM transactions").get();
+  await page.goto("/import");
+  await page.getByRole("button", { name: /Investment \/ Brokerage/ }).click();
+  await page.locator("#csv-input").setInputFiles({ name: "synthetic-ledger.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
+  await page.getByPlaceholder("e.g. Fidelity Brokerage").fill("Sample Ledger");
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Import 1 Position + 2 Activity" }).click();
+  await expect(page.getByText("Import complete")).toBeVisible();
+  await expect(page.getByText(/1 Crypto purchase matches a deposit of exactly the same amount/)).toBeVisible();
+  await expect(page.getByText(/In this profile \(all imports, not only this one\), 1 Crypto purchase has a deposit in your crypto portfolio within 10 days but is not an exact one-to-one match, so nothing was changed\./)).toBeVisible();
+
+  await page.getByRole("button", { name: "Review in Transactions", exact: true }).click();
+  const notice = page.getByText(/Crypto purchases to review, from all dates\. Each has a deposit in your crypto portfolio within 10 days\. Open one to confirm the deposit, split it, or keep it as spending\./);
+  await expect(notice).toBeVisible();
+  await expect(page.locator(".activity-row")).toHaveCount(1);
+  await expect(page.locator(".activity-row")).toContainText("Sample exchange top-up");
+  await expect(page.locator(".activity-row")).toContainText("possible crypto deposit - review");
+  await expect(page.locator(".activity-row")).toContainText("-$212.32");
+
+  // One action reaches the editor's crypto panel (not the read-only details).
+  await page.locator(".activity-row .activity-description").click();
+  const editor = page.getByRole("dialog", { name: "Transaction editor" });
+  await expect(editor).toContainText("Crypto portfolio");
+  const deposits = editor.locator("select", { has: page.locator("option", { hasText: "Choose a deposit..." }) });
+  await expect(deposits.locator("option")).toHaveCount(2); // the exact receipt is already matched
+  await deposits.selectOption({ index: 1 });
+  await expect(deposits.locator("option:checked")).toContainText("XRP $212.33");
+  await editor.getByRole("checkbox", { name: /The amounts differ by \$0\.01/ }).check();
+  await editor.getByRole("button", { name: "Confirm: investment transfer", exact: true }).click();
+  await expect(editor).toHaveCount(0);
+
+  const near = () => database.prepare(`SELECT t.amount_cents, t.category_id, l.confirmed, ia.amount_cents AS deposit_cents FROM transactions t
+    LEFT JOIN crypto_transfer_links l ON l.transaction_id = t.id LEFT JOIN investment_activity ia ON ia.id = l.activity_id WHERE t.import_hash = 'crypto-near'`).get();
+  expect(near()).toEqual({ amount_cents: -21232, category_id: 20, confirmed: 1, deposit_cents: 21233 });
+  expect(database.prepare("SELECT COUNT(*) AS n FROM transactions").get()).toEqual(transactionsBefore);
+  // The queue is empty, so the page is back on all transactions with no notice, also after a reload.
+  const reviewNotice = page.getByText(/may have funded a deposit in your crypto portfolio|Crypto purchases to review/);
+  await expect(page.getByText("Green Market Groceries").first()).toBeVisible();
+  await expect(reviewNotice).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByText("Green Market Groceries").first()).toBeVisible();
+  await expect(reviewNotice).toHaveCount(0);
+  expect(near()).toEqual({ amount_cents: -21232, category_id: 20, confirmed: 1, deposit_cents: 21233 });
+});
+
 test("Vanguard schema upgrades existing SQLite data and keeps classifications profile-scoped", async ({ page, database }) => {
   database.exec("INSERT INTO accounts (id,name,account_type,profile_id) VALUES (2,'Synthetic legacy','investment',1)");
   database.exec("INSERT INTO holdings (account_id,profile_id,as_of_date,security_type,symbol,description,market_value_cents) VALUES (2,1,'2026-01-31','mutual_fund','ZZMIG','Synthetic legacy fund',25000)");

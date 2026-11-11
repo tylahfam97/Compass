@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, type CSSProperties } from "re
 import { motion, AnimatePresence } from "motion/react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowsDownUpIcon, ArrowUpIcon, ArrowDownIcon, PlusIcon, SparkleIcon, DownloadSimpleIcon, TagIcon, GearSixIcon, SlidersHorizontalIcon, CaretDownIcon, CaretUpIcon, UploadSimpleIcon, PencilSimpleIcon, NoteIcon, TrashIcon, ListIcon, TableIcon, DotsThreeIcon, ArrowDownLeftIcon, ArrowUpRightIcon, ArrowsLeftRightIcon, XIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
-import { getDb, reapplyCategorizationRules, reconcileCryptoTransfers } from "@/lib/db";
+import { getDb, reapplyCategorizationRules, reconcileCryptoTransfers, countCryptoReview, CRYPTO_REVIEW_SQL } from "@/lib/db";
 import { monthBounds } from "@/lib/goals";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useCategoryStore } from "@/stores/categoryStore";
@@ -58,7 +58,9 @@ function buildQueryParts(opts: {
   filterAmountMin: string;         // dollar string, empty = no bound
   filterAmountMax: string;         // dollar string, empty = no bound
   filterAccount: string;           // "" = all accounts, else stringified account id
+  cryptoReview: boolean;           // the crypto review list: all dates, every other filter ignored
 }): { where: string; params: unknown[] } {
+  if (opts.cryptoReview) return { where: `t.profile_id=? AND ${CRYPTO_REVIEW_SQL}`, params: [opts.profileId] };
   const conditions: string[] = [
     "t.profile_id=?",
     // Loan "transactions" are just balance-snapshot rows from statement uploads, not itemized
@@ -118,7 +120,7 @@ export default function TransactionsPage() {
 function ProfileTransactions({ profileId }: { profileId: number }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const navState = location.state as { month?: string; category?: number | null; range?: { start: string; end: string }; search?: string } | null;
+  const navState = location.state as { month?: string; category?: number | null; range?: { start: string; end: string }; search?: string; cryptoReview?: boolean } | null;
   const [saved] = useState(() => loadTransactionView(profileId));
   useEffect(() => {
     if (location.state) navigate(location.pathname, { replace: true, state: null });
@@ -142,6 +144,9 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
   const [view, setView] = useState(saved.view);
   const [rows, setRows] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+  // Crypto purchases to review (#107). Review mode is per visit, never saved in the view.
+  const [reviewCount, setReviewCount] = useState(0);
+  const [cryptoReview, setCryptoReview] = useState(navState?.cryptoReview === true);
   const [showTransferNotice, setShowTransferNotice] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCounterRef = useRef(0);
@@ -242,26 +247,29 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
     const db = await getDb();
     const { where, params } = buildQueryParts({
       profileId, allTime, month, range, search,
-      filterCategory, filterType, filterAmountMin, filterAmountMax, filterAccount,
+      filterCategory, filterType, filterAmountMin, filterAmountMax, filterAccount, cryptoReview,
     });
     const orderBy = sortCol
       ? `${SORT_EXPR[sortCol]} ${sortDir.toUpperCase()}, t.id ${sortDir.toUpperCase()}`
       : "t.date DESC, t.id DESC";
-    const data = await db.select<Transaction[]>(
+    const [data, count] = await Promise.all([db.select<Transaction[]>(
       `SELECT t.*, c.name as category_name, c.color as category_color, a.account_type as account_type, a.name as account_name,
-              (SELECT 1 + l.confirmed FROM crypto_transfer_links l WHERE l.transaction_id=t.id) as crypto_matched
+              (SELECT 1 + l.confirmed FROM crypto_transfer_links l WHERE l.transaction_id=t.id) as crypto_matched,
+              (CASE WHEN ${CRYPTO_REVIEW_SQL} THEN 1 END) as crypto_review
        FROM transactions t LEFT JOIN categories c ON t.category_id=c.id
        LEFT JOIN accounts a ON a.id=t.account_id
        WHERE ${where}
        ORDER BY ${orderBy}
        LIMIT ${allTime ? ALL_TIME_LIMIT + 1 : MAX_ROWS + 1}`,
       params
-    );
+    ), countCryptoReview(profileId)]);
     if (sequence !== loadSequence.current) return;
+    setReviewCount(count);
+    if (count === 0) setCryptoReview(false); // the last one was handled: back to all transactions
     setSelectedIds(new Set());
     setRows(data);
     setLoading(false);
-  }, [month, range, allTime, search, profileId, filterCategory, filterType, filterAmountMin, filterAmountMax, filterAccount, sortCol, sortDir]);
+  }, [month, range, allTime, search, profileId, filterCategory, filterType, filterAmountMin, filterAmountMax, filterAccount, sortCol, sortDir, cryptoReview]);
 
   useEffect(() => {
     loadRows().catch(handleLoadFailure("your transactions", setLoading, () => void loadRows()));
@@ -384,7 +392,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
     const db = await getDb();
     const { where, params } = buildQueryParts({
       profileId, allTime, month, range, search,
-      filterCategory, filterType, filterAmountMin, filterAmountMax, filterAccount,
+      filterCategory, filterType, filterAmountMin, filterAmountMax, filterAccount, cryptoReview,
     });
     const data = await db.select<Transaction[]>(
       `SELECT t.*, c.name as category_name
@@ -593,8 +601,29 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
         </div>
       )}
 
-      {/* Filters */}
-      <div className="space-y-2 mb-4">
+      {/* Crypto purchases to review (#107): a way into the review list and back out. */}
+      {reviewCount > 0 && (
+        <div className="mb-4 rounded-xl px-4 py-3 flex items-start gap-3 text-sm border"
+          style={{ borderColor: "hsl(var(--border))", backgroundColor: "hsl(var(--muted)/0.35)" }}>
+          <ArrowsLeftRightIcon size={16} weight="bold" className="mt-0.5 shrink-0 text-[hsl(var(--gold-ink))]" aria-hidden />
+          <p className="flex-1 text-[hsl(var(--muted-foreground))]" role="status">
+            {cryptoReview ? <>
+              <strong className="text-[hsl(var(--foreground))]">Crypto purchases to review</strong>, from all dates. Each has a deposit in
+              your crypto portfolio within 10 days. Open one to confirm the deposit, split it, or keep it as spending.
+            </> : <>
+              <strong className="text-[hsl(var(--foreground))]">{reviewCount} Crypto {reviewCount === 1 ? "purchase" : "purchases"}</strong> may
+              have funded a deposit in your crypto portfolio. {reviewCount === 1 ? "It counts" : "They count"} as spending until you review {reviewCount === 1 ? "it" : "them"}.
+            </>}
+          </p>
+          <button onClick={() => setCryptoReview((on) => !on)}
+            className="shrink-0 text-xs px-2.5 py-1 rounded-md border hover:bg-[hsl(var(--muted))] transition-colors">
+            {cryptoReview ? "Show all transactions" : "Review"}
+          </button>
+        </div>
+      )}
+
+      {/* Filters (the review list ignores them, so they are hidden there) */}
+      <div className="space-y-2 mb-4" hidden={cryptoReview}>
         {range && <div className="flex flex-wrap items-center gap-3 text-sm" role="status"><span>{formatDate(range.start)} to {formatDate(range.end)} (end exclusive)</span><button className="text-[hsl(var(--gold-ink))]" onClick={() => setRange(null)}>Clear date range</button></div>}
         {/* Row 1, the essentials, always visible */}
         <div className="flex gap-3 flex-wrap items-center">
@@ -888,9 +917,9 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
               <div className="activity-row category-wash" data-selected={selectedIds.has(transaction.id)} style={{ "--category-color": transaction.category_color ?? "hsl(var(--muted-foreground))" } as CSSProperties}>
                 <input type="checkbox" checked={selectedIds.has(transaction.id)} onChange={() => toggleSelectOne(transaction.id)} aria-label={`Select ${transaction.description}`} />
                 <span className="activity-direction" aria-hidden="true">{transaction.amount_cents < 0 ? <ArrowUpRightIcon size={18} /> : <ArrowDownLeftIcon size={18} />}</span>
-                <button className="activity-description" onClick={() => setViewTxn(transaction)}>
+                <button className="activity-description" onClick={() => (cryptoReview ? setEditTxn : setViewTxn)(transaction)}>
                   <span className="font-medium">{transaction.description}</span>
-                  <span className="text-xs text-[hsl(var(--muted-foreground))]">{transaction.account_name ?? formatDate(transaction.date)}{sortCol && sortCol !== "date" ? `, ${formatDate(transaction.date)}` : ""}{transaction.notes ? `, ${transaction.notes}` : ""}{transaction.crypto_matched ? (transaction.crypto_matched === 2 ? ", you confirmed: crypto portfolio deposit" : ", auto-matched (exact amount) to a crypto portfolio deposit") : ""}</span>
+                  <span className="text-xs text-[hsl(var(--muted-foreground))]">{transaction.account_name ?? formatDate(transaction.date)}{sortCol && sortCol !== "date" ? `, ${formatDate(transaction.date)}` : ""}{transaction.notes ? `, ${transaction.notes}` : ""}{transaction.crypto_matched ? (transaction.crypto_matched === 2 ? ", you confirmed: crypto portfolio deposit" : ", auto-matched (exact amount) to a crypto portfolio deposit") : ""}{transaction.crypto_review ? ", possible crypto deposit - review" : ""}</span>
                 </button>
                 {editingId === transaction.id ? <select autoFocus onBlur={() => setEditingId(null)} aria-label={`Category for ${transaction.description}`} value={transaction.category_id ?? 15} onChange={(event) => recategorize(transaction, Number(event.target.value))} className="activity-category">
                   <CategoryOptions categories={categories} />
@@ -942,7 +971,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
             </thead>
             <tbody>
               {rows.slice(0, allTime ? ALL_TIME_LIMIT : MAX_ROWS).map((t) => (
-                <tr key={t.id} onClick={() => setViewTxn(t)} style={{ "--category-color": t.category_color ?? "hsl(var(--muted-foreground))" } as CSSProperties}
+                <tr key={t.id} onClick={() => (cryptoReview ? setEditTxn : setViewTxn)(t)} style={{ "--category-color": t.category_color ?? "hsl(var(--muted-foreground))" } as CSSProperties}
                   className="category-wash group border-b last:border-0 cursor-pointer">
                   <td className="pl-4 pr-1 py-3" onClick={(e) => e.stopPropagation()}>
                     <input
@@ -983,6 +1012,11 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
                     {!!t.crypto_matched && (
                       <span className="block text-[10px] text-[hsl(var(--muted-foreground))]" title={t.crypto_matched === 2 ? "You confirmed this funded a deposit in your crypto portfolio. Open the transaction to review or undo." : "Automatically matched to a deposit of exactly the same amount in your crypto portfolio. Open the transaction to review or undo; it won't be matched again."}>
                         {t.crypto_matched === 2 ? "Confirmed crypto deposit" : "Auto-matched crypto deposit"}
+                      </span>
+                    )}
+                    {!!t.crypto_review && (
+                      <span className="block text-[10px] text-[hsl(var(--muted-foreground))]" title="A deposit in your crypto portfolio within 10 days may be this money. It counts as spending until you open the transaction and decide.">
+                        Possible crypto deposit - review
                       </span>
                     )}
                   </td>
