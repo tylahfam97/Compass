@@ -47,6 +47,11 @@ nothing, and unlock no features: there is one build and one source tree.
 Installers for the latest stable release: https://github.com/tylahfam97/Compass/releases/latest
 Release notes for every version: https://github.com/tylahfam97/Compass/blob/main/RELEASE_NOTES.md
 
+Added in 1.3.20:
+- License: PolyForm Strict License 1.0.0 (source-available). Compass 1.3.18 and earlier were released under the MIT License and stay under it.
+- A review list for Crypto purchases from a bank or card account that may have funded a deposit in a tracked crypto portfolio but were not matched automatically. Nothing changes until the user confirms the deposit, splits the purchase or keeps it as spending.
+- A 20-second video tour with English captions: https://privatecompass.app/#inaction
+
 Added in 1.3.18:
 - Insights opens with a briefing of what changed since the last visit: new findings, observations that became action items, and action items no longer flagged. To compare visits it keeps a small per-profile note in local storage, outside the encrypted database, holding finding types, severities and one-way hashes only; no titles, merchants, amounts or balances.
 - Two Insights findings: a thin stretch of everyday spending money before the next scheduled income, and a count of flexible purchases under $10 in the month that just ended.

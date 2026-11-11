@@ -42,7 +42,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; img-src 'self' https://github.com https://*.githubusercontent.com; media-src 'self'; connect-src 'self' https://api.github.com; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';">
   <meta name="referrer" content="strict-origin-when-cross-origin">
 
-  <link rel="stylesheet" href="/css/style.css?v=6aadfdee">
+  <link rel="stylesheet" href="/css/style.css?v=f5d6710b">
 
   <!-- ── Structured data ───────────────────────────────────────────────────
        Tells search engines and AI answer engines what Compass is, that it runs
@@ -121,6 +121,24 @@
         "inLanguage": "en-US",
         "dateModified": "2026-11-11",
         "isPartOf": { "@id": "https://privatecompass.app/#website" },
+        "about": { "@id": "https://privatecompass.app/#app" },
+        "video": { "@id": "https://privatecompass.app/#promo-video" },
+        "publisher": { "@id": "https://chrysisnetworks.com/#org" }
+      },
+      {
+        "@type": "VideoObject",
+        "@id": "https://privatecompass.app/#promo-video",
+        "name": "Compass in 20 seconds: budgeting without a bank login",
+        "description": "Compass budgets from the statements you download, never your bank login. Watch it chart where the money went and test a purchase, all on your computer.",
+        "thumbnailUrl": [
+          "https://privatecompass.app/img/promo-wide-poster.webp",
+          "https://privatecompass.app/img/promo-tall-poster.webp"
+        ],
+        "contentUrl": "https://privatecompass.app/img/promo-wide.mp4",
+        "uploadDate": "2026-11-11",
+        "duration": "PT21S",
+        "inLanguage": "en-US",
+        "transcript": "Every budgeting app wants your bank login. Compass never asks for one. Free, source-available, Windows and macOS. Import: start from the statements you download. Chart: see where the money went. Overview: and when you’ll be above water. Plan: try a purchase before you make it. Compass. Your money. Your machine. privatecompass.app. Free for Windows and macOS (beta). No bank login. No account. No telemetry. AES-256 encrypted. PolyForm Strict License.",
         "about": { "@id": "https://privatecompass.app/#app" },
         "publisher": { "@id": "https://chrysisnetworks.com/#org" }
       },
@@ -508,32 +526,53 @@
       <p class="section-sub">Recorded at full resolution, from the real app.</p>
     </div>
 
-    <!-- Screen recordings ship as H.264 rather than GIF: the same three clips
-         went from 67 MB to under 7 MB. Each one loads only when it scrolls into
-         view, and holds on its poster frame when the visitor prefers reduced
-         motion. -->
+    <!-- Every clip offers VP9 WebM first and H.264 MP4 second, both at most
+         1920 px wide, so a browser without H.264 still plays it. Sources carry
+         data-src and load only when the clip scrolls near the viewport; anyone
+         who prefers reduced motion gets the poster frame and player controls.
+         The promo's portrait cut goes to phones held upright (its media query),
+         the landscape cut everywhere else. -->
     <div class="showcase-stack">
+      <figure class="showcase-figure">
+        <figcaption>Compass in 20 seconds. No bank login needed.</figcaption>
+        <video class="showcase-img showcase-promo" muted playsinline controls preload="none"
+               poster="/img/promo-wide-poster.webp" data-poster-portrait="/img/promo-tall-poster.webp"
+               aria-label="A 20-second tour of Compass: import the statements you download, see where the money went, see when you will be above water and try a purchase before you make it">
+          <source data-src="/img/promo-tall.webm" type='video/webm; codecs="vp9, opus"' media="(max-width: 767px) and (orientation: portrait)">
+          <source data-src="/img/promo-tall.mp4" type='video/mp4; codecs="avc1.640028, mp4a.40.2"' media="(max-width: 767px) and (orientation: portrait)">
+          <source data-src="/img/promo-wide.webm" type='video/webm; codecs="vp9, opus"'>
+          <source data-src="/img/promo-wide.mp4" type='video/mp4; codecs="avc1.640028, mp4a.40.2"'>
+          <track kind="captions" src="/img/promo.vtt" srclang="en" label="English">
+        </video>
+      </figure>
+
       <figure class="showcase-figure">
         <figcaption>Overview and net worth</figcaption>
         <video class="showcase-img" muted loop playsinline preload="none"
-               poster="/img/dashboard-poster.webp" data-src="/img/dashboard.mp4"
+               poster="/img/dashboard-poster.webp"
                aria-label="The Compass dashboard showing a monthly spending summary, top categories, and the profile overview">
+          <source data-src="/img/dashboard.webm" type='video/webm; codecs="vp9"'>
+          <source data-src="/img/dashboard-h264.mp4" type='video/mp4; codecs="avc1.640028"'>
         </video>
       </figure>
 
       <figure class="showcase-figure">
         <figcaption>The guided import wizard</figcaption>
         <video class="showcase-img" muted loop playsinline preload="none"
-               poster="/img/import-wizard-poster.webp" data-src="/img/import-wizard.mp4"
+               poster="/img/import-wizard-poster.webp"
                aria-label="The guided import wizard walking through column detection, date parsing, amount mapping, and the import preview">
+          <source data-src="/img/import-wizard.webm" type='video/webm; codecs="vp9"'>
+          <source data-src="/img/import-wizard-h264.mp4" type='video/mp4; codecs="avc1.640028"'>
         </video>
       </figure>
 
       <figure class="showcase-figure">
         <figcaption>Insights and spending analysis</figcaption>
         <video class="showcase-img" muted loop playsinline preload="none"
-               poster="/img/insights-poster.webp" data-src="/img/insights.mp4"
+               poster="/img/insights-poster.webp"
                aria-label="The Insights page showing budget pace warnings, top merchant spend, and detected subscription totals">
+          <source data-src="/img/insights.webm" type='video/webm; codecs="vp9"'>
+          <source data-src="/img/insights-h264.mp4" type='video/mp4; codecs="avc1.640028"'>
         </video>
       </figure>
     </div>
@@ -1068,29 +1107,53 @@
   // Showcase clips: fetch and play only once one scrolls near the viewport, so the
   // page costs nothing to load until someone actually wants to watch. Anyone who
   // prefers reduced motion gets the poster frame and normal player controls instead.
-  const clips = document.querySelectorAll('video[data-src]');
+  const clips = document.querySelectorAll('video.showcase-img');
   const stillPreferred = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const arm = (clip, play) => {
+    // A <source> whose media query does not match (the promo's portrait cut on a
+    // landscape screen) is removed rather than relied on: older browsers ignore
+    // media on video sources and would play the first one.
+    clip.querySelectorAll('source').forEach(s => {
+      if (s.media && !window.matchMedia(s.media).matches) s.remove();
+      else s.src = s.dataset.src;
+    });
+    const start = () => { if (play) clip.play().catch(() => { clip.controls = true; }); };
+    // privatecompass.app's edge answers bursts with 429 Too Many Requests and
+    // Retry-After: 10, which a first visit can reach. Every source then fails and
+    // Firefox shows "No video with supported format and MIME type found". Load
+    // again after the window, twice at most.
+    let retries = 2;
+    const retry = () => {
+      if (!clip.error && clip.networkState !== HTMLMediaElement.NETWORK_NO_SOURCE) return;
+      if (retries-- > 0) setTimeout(() => { clip.load(); start(); }, 11000);
+      else clip.controls = true;
+    };
+    clip.querySelector('source:last-of-type')?.addEventListener('error', retry);
+    clip.addEventListener('error', retry);
+    clip.load();
+    start();
+  };
+  const portrait = document.querySelector('video.showcase-img source[media]')?.media;
+  clips.forEach(clip => {
+    if (clip.dataset.posterPortrait && portrait && window.matchMedia(portrait).matches) clip.poster = clip.dataset.posterPortrait;
+  });
   if (stillPreferred) {
     clips.forEach(clip => {
       clip.controls = true;
       clip.preload = 'metadata';
-      clip.src = clip.dataset.src;
+      arm(clip, false);
     });
   } else if (clips.length && 'IntersectionObserver' in window) {
     const watcher = new IntersectionObserver((entries) => {
       entries.forEach(entry => {
         if (!entry.isIntersecting) return;
-        const clip = entry.target;
-        if (!clip.src) {
-          clip.src = clip.dataset.src;
-          clip.play().catch(() => { clip.controls = true; });
-        }
-        watcher.unobserve(clip);
+        arm(entry.target, true);
+        watcher.unobserve(entry.target);
       });
     }, { rootMargin: '300px 0px' });
     clips.forEach(clip => watcher.observe(clip));
   } else {
-    clips.forEach(clip => { clip.src = clip.dataset.src; clip.controls = true; });
+    clips.forEach(clip => { clip.controls = true; arm(clip, false); });
   }
 
   // Mobile nav toggle

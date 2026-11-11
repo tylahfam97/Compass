@@ -687,6 +687,13 @@
     border: 1px solid var(--border);
     box-shadow: var(--shadow-lg), 0 0 80px rgba(0, 0, 0, 0.35);
   }
+
+  /* The promo reserves its box before anything loads (no layout shift). Phones
+     held upright get the 9:16 cut; the media query matches its <source media>. */
+  .showcase-promo { aspect-ratio: 16 / 9; height: auto; }
+  @media (max-width: 767px) and (orientation: portrait) {
+    .showcase-promo { aspect-ratio: 9 / 16; }
+  }
 }
 
 /* ── Features ─────────────────────────────────────────────────────────────── */
