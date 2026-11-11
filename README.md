@@ -9,7 +9,7 @@
 <p align="center">
   <a href="https://github.com/tylahfam97/Compass/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/tylahfam97/Compass?color=c08a1c&label=release"></a>
   <a href="https://github.com/tylahfam97/Compass/actions/workflows/playwright.yml"><img alt="End-to-end tests" src="https://github.com/tylahfam97/Compass/actions/workflows/playwright.yml/badge.svg"></a>
-  <a href="LICENSE.txt"><img alt="MIT licence" src="https://img.shields.io/badge/license-MIT-blue"></a>
+  <a href="LICENSE.txt"><img alt="PolyForm Strict 1.0.0 licence" src="https://img.shields.io/badge/license-PolyForm%20Strict%201.0.0-blue"></a>
   <img alt="Windows and macOS" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey">
 </p>
 
@@ -25,7 +25,7 @@
   <img src="website/img/overview.webp" width="900" alt="Compass Overview: net worth drawn as depth above and below a zero waterline, with a projected date it clears zero, and a table of every account" />
 </p>
 
-Download a CSV or Excel statement from your bank or card issuer and import it. Then see where your money actually goes. Compass is a free, open-source desktop app for Windows, with a macOS beta. You don't hand over a bank login or pay a subscription, and there's nothing to sign up for. Your statements are read on your machine, and the transactions are stored there in an encrypted database ([how the encryption works, and what it doesn't cover](#your-data)).
+Download a CSV or Excel statement from your bank or card issuer and import it. Then see where your money actually goes. Compass is a free, source-available desktop app for Windows, with a macOS beta. You don't hand over a bank login or pay a subscription, and there's nothing to sign up for. Your statements are read on your machine, and the transactions are stored there in an encrypted database ([how the encryption works, and what it doesn't cover](#your-data)).
 
 ## Why Compass
 
@@ -33,7 +33,7 @@ Download a CSV or Excel statement from your bank or card issuer and import it. T
 - **Encrypted and local.** Your data is stored in a SQLCipher (AES-256) database on your own disk. The key lives in your OS credential store, with a key file fallback that can decrypt the database, so [protect both](#your-data).
 - **No telemetry.** No analytics, no cloud sync and no account. Compass checks GitHub for updates and doesn't upload your financial data.
 - **Rules you can check.** Built-in category rules plus your own, with a live preview of what a rule matches before you save it.
-- **Free and open source.** MIT licensed, so you can read exactly what it does with your money.
+- **Free and source-available.** The code is public, so you can read exactly what it does with your money, but it may not be copied, modified, redistributed or reused in other software.
 
 ## What you get
 
@@ -202,4 +202,6 @@ contacts them. Nothing recurs unless you choose it there, and you can stop it th
 
 ## License
 
-[MIT](LICENSE.txt).
+[PolyForm Strict License 1.0.0](LICENSE.txt).
+
+Compass 1.3.18 and earlier were released under the MIT License; from 1.3.19 onward, Compass is licensed only under the PolyForm Strict License 1.0.0.

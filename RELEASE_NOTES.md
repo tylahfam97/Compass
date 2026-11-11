@@ -2,6 +2,22 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.19 — Clear Terms 🧭
+
+Everything since 1.3.18. Compass is now source-available under the PolyForm Strict License 1.0.0. The app itself works exactly as it did in 1.3.18.
+
+### License
+- From 1.3.19, Compass is licensed only under the PolyForm Strict License 1.0.0, in LICENSE.txt. It stays free to download and use for yourself, and the code stays public on GitHub so you can read exactly what it does with your money. The code may not be copied, modified, redistributed or reused in other software.
+- Compass 1.3.18 and earlier were released under the MIT License, and those releases remain under it.
+- CONTRIBUTING.md now explains how contributions are licensed: by submitting one, you confirm you wrote it and agree that Tyler Fameli may use, modify, relicense and distribute it as part of Compass under any license terms.
+
+### README and website
+- The README, home page, the four guides, the import guide, llms.txt, the Reddit banners and the social preview image now say "source-available" where they said "open source", and name the PolyForm Strict License where they named MIT. Structured data points its license field at the PolyForm Strict License 1.0.0, and each FAQ answer still matches its structured data word for word.
+- The home page's version fields (structured-data softwareVersion, hero chip and both download badges) are set to 1.3.19, matching the app manifests. Page dates and sitemap entries are updated to the day of the change.
+
+### Tests and limits
+- No app source or Rust source changes in this release; the manifests change only their version fields.
+
 ## Compass 1.3.18 — New Bearings 🧭
 
 Everything since 1.3.17. Insights now opens with what changed since your last visit and adds two findings (#134). The workspace gains a Ctrl/Cmd+K palette, grouped navigation and a page readout, alongside two data-safety fixes (#133).

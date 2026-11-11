@@ -2,7 +2,7 @@ Contributing to Compass
 
 Thank you for considering contributing to Compass.
 
-Compass is an independent, open-source project built to provide private, local-first financial guidance and budgeting tools. You do not need to be a professional developer, financial expert, or long-time open-source contributor to help.
+Compass is an independent, source-available project built to provide private, local-first financial guidance and budgeting tools. You do not need to be a professional developer, financial expert, or long-time open-source contributor to help.
 
 Hobbyists, learners, designers, privacy advocates, finance enthusiasts, and curious users are all welcome here.
 
@@ -224,7 +224,7 @@ Duplicates existing functionality
 Requires ongoing maintenance the project cannot support
 Changes the project in a direction outside its intended scope
 
-This does not mean the idea or contribution was bad. Open-source projects must make deliberate choices about what they can sustainably maintain.
+This does not mean the idea or contribution was bad. Projects like this must make deliberate choices about what they can sustainably maintain.
 
 Respectful Collaboration
 
@@ -234,9 +234,9 @@ Disagreement is welcome. Personal attacks, harassment, gatekeeping, and dismissi
 
 Assume good intent, explain your reasoning, and remember that most contributors are volunteering their free time.
 
-Licensing
+Licensing of contributions
 
-By submitting a contribution, you agree that your work may be distributed under the same license as the rest of the project.
+By submitting a contribution, you confirm that you wrote it and agree that Tyler Fameli may use, modify, relicense and distribute it as part of Compass under any license terms.
 
 Please only submit work that you have the right to contribute.
 

@@ -79,7 +79,7 @@
   <text x="126" y="73" fill="#8896b0" font-size="12.5">Private finance for Windows. No account, no cloud, no subscription.</text>
 
   <!-- Trust row -->
-  <text x="126" y="91" fill="#364d68" font-size="10.5">Free  ·  Open Source  ·  AES-256 Encrypted  ·  CSV import from any bank</text>
+  <text x="126" y="91" fill="#364d68" font-size="10.5">Free  ·  Source-Available  ·  AES-256 Encrypted  ·  CSV import from any bank</text>
 
   <!-- ── Right column ───────────────────────────────────────────────── -->
   <!-- Vertical separator -->
