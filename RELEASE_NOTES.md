@@ -2,9 +2,9 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
-## Compass 1.3.19 — Second Look 🧭
+## Compass 1.3.20 — Second Look 🧭
 
-Everything since 1.3.18. Crypto purchases that may have funded a deposit in your crypto portfolio, but were not matched automatically, are now listed for review instead of silently staying spending (#107). Nothing is changed until you decide.
+Crypto purchases that may have funded a deposit in your crypto portfolio, but were not matched automatically, are now listed for review instead of silently staying spending (#107). Nothing is changed until you decide.
 
 ### Crypto purchases to review (#107)
 - Compass already moves a Crypto purchase to Transfers when it matches a deposit in a tracked crypto portfolio to the cent, within 5 days, and no other purchase or deposit fits. Purchases that miss that rule (a few cents of fees, two equal purchases near one deposit, a purchase that was partly spent) stayed Crypto spending, and nothing pointed them out.
@@ -18,7 +18,7 @@ Everything since 1.3.18. Crypto purchases that may have funded a deposit in your
 - Wallet sends are recorded as transfers and are never assumed to be spending.
 
 ### Website (#132)
-- The Send feedback FAQ entry and the updated answer to "Does Compass connect to the internet?" shipped in 1.3.18. This release changes only the home page's version fields (structured-data softwareVersion, hero chip and both download badges) to 1.3.19.
+- The Send feedback FAQ entry and the updated answer to "Does Compass connect to the internet?" shipped in 1.3.18. This release changes only the home page's version fields (structured-data softwareVersion, hero chip and both download badges) to 1.3.20.
 
 ### Tests and limits
 - Unit tests on a real in-memory SQLite database with the app's migrations cover the issue's example (212.23 against 212.33 listed, the exact match moved, the partly spent purchase listed, no amounts or rows changed), both import orders, a portfolio added later, repeated reconciling, two equal purchases near one deposit, confirm, undo and allow again with unequal amounts, split and undo split, keep as spending, rows outside the rule (another profile, a coin the account does not hold, a cash deposit, 11 days away, an investment account, another category, a Crypto refund), a split's Crypto spending part that stays unlisted while another deposit nearby is still free, duplicate purchases, the editor's order (closest amount, then earliest date), a row without a profile that is offered the default profile's deposits, and that every listed row has a deposit in the editor.
