@@ -1407,8 +1407,11 @@ const CRYPTO_DEPOSIT_SQL = `investment_activity ia JOIN accounts a ON a.id = ia.
 const CANDIDATE_COLS = "ia.id, ia.trade_date AS date, ia.amount_cents AS amountCents, ia.symbol, a.id AS accountId, a.name AS accountName, ia.description";
 /** Deposit `ia` is one the editor offers for outflow `t`. One definition shared by the editor
  *  and the review queue, so a queued row always has a deposit to confirm when it is opened. */
+// The last two conditions only narrow the scan (they let SQLite use idx_investment_activity_account_date); dates are plain YYYY-MM-DD text.
 const CRYPTO_CANDIDATE_SQL = `ia.profile_id = COALESCE(t.profile_id, 1) AND ABS(julianday(ia.trade_date) - julianday(t.date)) <= 10
-        AND ia.id NOT IN (SELECT activity_id FROM crypto_transfer_links)`;
+        AND ia.id NOT IN (SELECT activity_id FROM crypto_transfer_links)
+        AND ia.account_id IN (SELECT account_id FROM holdings WHERE security_type = 'crypto')
+        AND ia.trade_date BETWEEN date(t.date, '-10 days') AND date(t.date, '+10 days')`;
 
 /**
  * Predicate over `transactions t`: a Crypto purchase with a portfolio deposit nearby that was

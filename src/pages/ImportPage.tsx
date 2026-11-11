@@ -339,8 +339,8 @@ interface Summary {
   /** Crypto purchases matched one-to-one to a deposit in a tracked crypto portfolio and moved
    *  to Transfers (#107) - by this import or any earlier one it completed a match for. */
   cryptoMatched?: number;
-  /** Crypto purchases in the profile with a nearby portfolio deposit but no exact one-to-one
-   *  match, left unchanged for the user to review (#107). The profile's total, not this file's. */
+  /** Crypto purchases in the profile with a portfolio deposit within 10 days that were not
+   *  matched automatically, left unchanged for the user to review (#107). The profile's total, not this file's. */
   cryptoReview?: number;
 }
 
@@ -3229,7 +3229,7 @@ export default function ImportPage() {
               style={{ backgroundColor: "hsl(var(--primary)/0.05)" }}>
               In this profile (all imports, not only this one), <strong className="text-[hsl(var(--foreground))]">{summary.cryptoReview}</strong> Crypto{" "}
               {summary.cryptoReview === 1 ? "purchase has" : "purchases have"} a deposit in your crypto portfolio within 10 days
-              but {summary.cryptoReview === 1 ? "is" : "are"} not an exact one-to-one match, so nothing was changed.{" "}
+              but {summary.cryptoReview === 1 ? "was" : "were"} not matched automatically, so nothing was changed.{" "}
               {summary.cryptoReview === 1 ? "It still counts" : "They still count"} as spending until you review {summary.cryptoReview === 1 ? "it" : "them"}.{" "}
               <button onClick={() => navigate("/transactions", { state: { cryptoReview: true } })}
                 className="underline text-[hsl(var(--gold-ink))]">Review in Transactions</button>

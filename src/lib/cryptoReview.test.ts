@@ -63,9 +63,9 @@ async function setup() {
   const purchase = (date: string, cents: number, category = CRYPTO_CATEGORY_ID, account = checking) =>
     insert("INSERT INTO transactions (account_id, profile_id, date, amount_cents, description, category_id, import_hash) VALUES (?, ?, ?, ?, 'Exchange purchase', ?, ?)",
       account, profile, date, cents, category, `h${hash++}`);
-  const deposit = (date: string, cents: number, symbol: string | null = "BTC") =>
+  const deposit = (date: string, cents: number, symbol: string | null = "BTC", account = wallet) =>
     insert("INSERT INTO investment_activity (account_id, profile_id, trade_date, activity_type, symbol, import_hash, amount_cents) VALUES (?, ?, ?, 'deposit', ?, ?, ?)",
-      wallet, profile, date, symbol, `h${hash++}`, cents);
+      account, profile, date, symbol, `h${hash++}`, cents);
   const queue = async () => (await (await getDb()).select<{ id: number; amount_cents: number }[]>(
     `SELECT t.id, t.amount_cents FROM transactions t WHERE t.profile_id = ? AND ${CRYPTO_REVIEW_SQL} ORDER BY t.amount_cents, t.id`, [profile]));
   const queuedAmounts = async () => (await queue()).map((r) => r.amount_cents);
@@ -206,6 +206,7 @@ describe("crypto review queue (#107)", () => {
       const c = await setup();
       const partly = c.purchase("2026-03-05", -15000);
       const deposit = c.deposit("2026-03-06", 12600);
+      c.deposit("2026-03-07", 9000); // still free after the split: a Crypto spending part must not be listed against it
       await reconcileCryptoTransfers();
       expect(await c.queuedAmounts()).toEqual([-15000]);
 
@@ -265,6 +266,7 @@ describe("crypto review queue (#107)", () => {
       ["deposit 11 days away", (c) => { c.purchase("2026-06-01", -4000); c.deposit("2026-06-12", 4100); }],
       ["outflow in an investment account", (c) => { c.purchase("2026-06-01", -4000, CRYPTO_CATEGORY_ID, c.wallet); c.deposit("2026-06-01", 4100); }],
       ["outflow not categorized Crypto", (c) => { c.purchase("2026-06-01", -4000, SHOPPING); c.deposit("2026-06-01", 4100); }],
+      ["Crypto refund (money in)", (c) => { c.purchase("2026-06-01", 4000); c.deposit("2026-06-01", 4100); }],
     ];
     for (const [name, seed] of cases) {
       const c = await setup();
@@ -293,10 +295,28 @@ describe("crypto review queue (#107)", () => {
   it("the editor still offers candidates closest amount first, then by date", async () => {
     const c = await setup();
     const purchase = c.purchase("2026-08-05", -10000);
+    // Inserted latest first, and the earliest in a second wallet, so neither row order nor the
+    // (account, date) index order produces the expected order: only the ORDER BY does.
+    const wallet2 = insert("INSERT INTO accounts (name, account_type, profile_id) VALUES ('Second wallet', 'investment', ?)", c.profile);
+    insert("INSERT INTO holdings (account_id, profile_id, as_of_date, security_type, symbol) VALUES (?, ?, '2026-03-31', 'crypto', 'BTC')", wallet2, c.profile);
     const far = c.deposit("2026-08-01", 10300);
-    const lowEarly = c.deposit("2026-08-02", 9900);
-    const high = c.deposit("2026-08-03", 10100);
     const lowLate = c.deposit("2026-08-04", 9900);
+    const high = c.deposit("2026-08-03", 10100);
+    const lowEarly = c.deposit("2026-08-02", 9900, "BTC", wallet2);
     expect((await getCryptoMatchState(purchase))!.candidates.map((d) => d.id)).toEqual([lowEarly, high, lowLate, far]);
+  });
+
+  it("the editor offers the default profile's deposits for a row without a profile", async () => {
+    await getDb();
+    const checking = insert("INSERT INTO accounts (name, account_type, profile_id) VALUES ('Old checking', 'checking', 1)");
+    const wallet = insert("INSERT INTO accounts (name, account_type, profile_id) VALUES ('Old Ledger', 'investment', 1)");
+    insert("INSERT INTO holdings (account_id, profile_id, as_of_date, security_type, symbol) VALUES (?, 1, '2026-09-30', 'crypto', 'BTC')", wallet);
+    const deposit = insert("INSERT INTO investment_activity (account_id, profile_id, trade_date, activity_type, symbol, import_hash, amount_cents) VALUES (?, 1, '2026-09-02', 'deposit', 'BTC', 'old-deposit', 6100)", wallet);
+    const purchase = insert(`INSERT INTO transactions (account_id, profile_id, date, amount_cents, description, category_id, import_hash) VALUES (?, NULL, '2026-09-01', -6000, 'Exchange purchase', ${CRYPTO_CATEGORY_ID}, 'old-purchase')`, checking);
+    expect((await getCryptoMatchState(purchase))!.candidates.map((d) => d.id)).toEqual([deposit]);
+    // Unlike the other cases this one uses profile 1: remove its rows so other cases are unaffected.
+    for (const [table, id] of [["transactions", purchase], ["investment_activity", deposit], ["accounts", checking], ["accounts", wallet]] as const)
+      sqlite.prepare(`DELETE FROM ${table} WHERE id = ?`).run(id);
+    sqlite.prepare("DELETE FROM holdings WHERE account_id = ?").run(wallet);
   });
 });

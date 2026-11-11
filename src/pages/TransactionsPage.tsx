@@ -120,7 +120,10 @@ export default function TransactionsPage() {
 function ProfileTransactions({ profileId }: { profileId: number }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const navState = location.state as { month?: string; category?: number | null; range?: { start: string; end: string }; search?: string; cryptoReview?: boolean } | null;
+  const rawNavState = location.state as { month?: string; category?: number | null; range?: { start: string; end: string }; search?: string; cryptoReview?: boolean } | null;
+  // Arriving with only { cryptoReview } opens the review list but keeps the saved view to return to.
+  const startInReview = rawNavState?.cryptoReview === true;
+  const navState = startInReview && Object.keys(rawNavState).length === 1 ? null : rawNavState;
   const [saved] = useState(() => loadTransactionView(profileId));
   useEffect(() => {
     if (location.state) navigate(location.pathname, { replace: true, state: null });
@@ -146,7 +149,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
   const [loading, setLoading] = useState(true);
   // Crypto purchases to review (#107). Review mode is per visit, never saved in the view.
   const [reviewCount, setReviewCount] = useState(0);
-  const [cryptoReview, setCryptoReview] = useState(navState?.cryptoReview === true);
+  const [cryptoReview, setCryptoReview] = useState(startInReview);
   const [showTransferNotice, setShowTransferNotice] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCounterRef = useRef(0);
@@ -184,7 +187,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
   // Column sort state, null = default (date DESC)
   const [sortCol, setSortCol] = useState<SortCol | null>(saved.sort);
   const [sortDir, setSortDir] = useState<SortDir>(saved.direction);
-  const scroll = useRef(navState ? 0 : saved.scroll);
+  const scroll = useRef(navState || startInReview ? 0 : saved.scroll);
   const restoreScroll = useRef(true);
   const loadSequence = useRef(0);
   useEffect(() => {
@@ -265,7 +268,9 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
     ), countCryptoReview(profileId)]);
     if (sequence !== loadSequence.current) return;
     setReviewCount(count);
-    if (count === 0) setCryptoReview(false); // the last one was handled: back to all transactions
+    // Nothing (left) to review: back to all transactions without showing an empty list first.
+    // Changing cryptoReview reloads, and that load clears `loading`.
+    if (count === 0 && cryptoReview) { setCryptoReview(false); return; }
     setSelectedIds(new Set());
     setRows(data);
     setLoading(false);
@@ -413,7 +418,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
       ].join(",")
     );
     const csv = [header, ...lines].join("\n");
-    const suggestedName = `compass-${allTime ? "all-time" : month}.csv`;
+    const suggestedName = cryptoReview ? "compass-crypto-review.csv" : `compass-${allTime ? "all-time" : month}.csv`;
 
     // Use the native File System Access API where available (WebView2/Chromium on Windows) -
     // opens the OS save-file dialog so the user can choose location and name. This API is
@@ -924,7 +929,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
                 {editingId === transaction.id ? <select autoFocus onBlur={() => setEditingId(null)} aria-label={`Category for ${transaction.description}`} value={transaction.category_id ?? 15} onChange={(event) => recategorize(transaction, Number(event.target.value))} className="activity-category">
                   <CategoryOptions categories={categories} />
                 </select> : <button onClick={() => setEditingId(transaction.id)} className="activity-category flex items-center gap-1 text-left" title="Change category" aria-label={`Change category for ${transaction.description}`}><span className="truncate flex-1">{transaction.category_name ?? "Uncategorized"}</span><CaretDownIcon size={12} /></button>}
-                <button onClick={() => setViewTxn(transaction)} className={`activity-amount ${transaction.amount_cents > 0 ? "text-[hsl(var(--success))]" : ""}`}>
+                <button onClick={() => (cryptoReview ? setEditTxn : setViewTxn)(transaction)} className={`activity-amount ${transaction.amount_cents > 0 ? "text-[hsl(var(--success))]" : ""}`}>
                   {formatCurrency(transaction.amount_cents)}
                 </button>
                 <button onClick={() => setEditTxn(transaction)} className="workspace-icon" title="Edit transaction" aria-label={`Edit ${transaction.description}`}><PencilSimpleIcon size={15} /></button>

@@ -1298,6 +1298,10 @@ test("Crypto purchases near a portfolio deposit are listed for review and confir
   insertPurchase.run("2026-08-31", "Sample exchange purchase", -20025, "crypto-exact");
   insertPurchase.run("2026-09-11", "Sample exchange top-up", -21232, "crypto-near");
   const transactionsBefore = database.prepare("SELECT COUNT(*) AS n FROM transactions").get();
+  // A saved All time view, which the review list must not replace.
+  await page.goto("/transactions");
+  await page.getByRole("button", { name: "All time", exact: true }).click();
+  await expect(page.getByText("Sample exchange top-up")).toBeVisible();
   await page.goto("/import");
   await page.getByRole("button", { name: /Investment \/ Brokerage/ }).click();
   await page.locator("#csv-input").setInputFiles({ name: "synthetic-ledger.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
@@ -1306,7 +1310,7 @@ test("Crypto purchases near a portfolio deposit are listed for review and confir
   await page.getByRole("button", { name: "Import 1 Position + 2 Activity" }).click();
   await expect(page.getByText("Import complete")).toBeVisible();
   await expect(page.getByText(/1 Crypto purchase matches a deposit of exactly the same amount/)).toBeVisible();
-  await expect(page.getByText(/In this profile \(all imports, not only this one\), 1 Crypto purchase has a deposit in your crypto portfolio within 10 days but is not an exact one-to-one match, so nothing was changed\./)).toBeVisible();
+  await expect(page.getByText(/In this profile \(all imports, not only this one\), 1 Crypto purchase has a deposit in your crypto portfolio within 10 days but was not matched automatically, so nothing was changed\./)).toBeVisible();
 
   await page.getByRole("button", { name: "Review in Transactions", exact: true }).click();
   const notice = page.getByText(/Crypto purchases to review, from all dates\. Each has a deposit in your crypto portfolio within 10 days\. Open one to confirm the deposit, split it, or keep it as spending\./);
@@ -1315,6 +1319,17 @@ test("Crypto purchases near a portfolio deposit are listed for review and confir
   await expect(page.locator(".activity-row")).toContainText("Sample exchange top-up");
   await expect(page.locator(".activity-row")).toContainText("possible crypto deposit - review");
   await expect(page.locator(".activity-row")).toContainText("-$212.32");
+
+  // The in-page way out and back in, without another import: back on the saved All time view.
+  await page.getByRole("button", { name: "Show all transactions", exact: true }).click();
+  await expect(page.getByText(/1 Crypto purchase may have funded a deposit in your crypto portfolio\./)).toBeVisible();
+  await expect(page.getByRole("button", { name: "All time", exact: true })).toBeVisible();
+  await expect(page.locator(".activity-row", { hasText: "Sample exchange top-up" })).toContainText("possible crypto deposit - review");
+  await expect(page.locator(".activity-row", { hasText: "Green Market Groceries" }).first()).toBeVisible();
+  await page.getByRole("button", { name: "Review", exact: true }).click();
+  await expect(notice).toBeVisible();
+  await expect(page.locator(".activity-row")).toHaveCount(1);
+  await expect(page.locator(".activity-row")).toContainText("Sample exchange top-up");
 
   // One action reaches the editor's crypto panel (not the read-only details).
   await page.locator(".activity-row .activity-description").click();
