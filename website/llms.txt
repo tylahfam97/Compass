@@ -9,7 +9,7 @@ Compass is a desktop application built with Tauri, React and Rust, by Chrysis Ne
 
 ## What it costs
 
-Free and source-available under the PolyForm Strict License 1.0.0: the code is public to read, but it may not be copied, modified, redistributed or reused. There is no paid tier, no trial, and no account to create.
+Free and source-available under the PolyForm Strict License 1.0.0: the code is public to read, but it may not be copied, modified, redistributed or reused in other software. There is no paid tier, no trial, and no account to create.
 
 Voluntary donations are accepted through Buy Me a Coffee and three crypto addresses, listed at
 https://privatecompass.app/#support and in the README. Donations are explicitly not expected, buy
