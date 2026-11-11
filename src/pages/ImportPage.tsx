@@ -7,7 +7,7 @@ import { useNavigate } from "react-router-dom";
 import {
   getDb, applyCategorizationRules, recomputeCalculatedBalances,
   listAccountsForProfile, resolveAccountId, setAccountInterestRate, setAccountMinimumPayment,
-  getManualTransactionsForAccount, shiftBalanceAnchorForTransactionChange, reconcileCryptoTransfers,
+  getManualTransactionsForAccount, shiftBalanceAnchorForTransactionChange, reconcileCryptoTransfers, countCryptoReview,
 } from "@/lib/db";
 import { loadCategories } from "@/lib/categoryManagement";
 import { groupRowsForReview, reviewedCategory, groupCategory } from "@/lib/importReview";
@@ -339,6 +339,9 @@ interface Summary {
   /** Crypto purchases matched one-to-one to a deposit in a tracked crypto portfolio and moved
    *  to Transfers (#107) - by this import or any earlier one it completed a match for. */
   cryptoMatched?: number;
+  /** Crypto purchases in the profile with a portfolio deposit within 10 days that were not
+   *  matched automatically, left unchanged for the user to review (#107). The profile's total, not this file's. */
+  cryptoReview?: number;
 }
 
 /** Runs the crypto-transfer reconciliation after an import has already been committed. A
@@ -1059,7 +1062,8 @@ export default function ImportPage() {
         }
       }
       const cryptoMatched = await reconcileCryptoAfterImport();
-      setSummary({ imported, skipped: activitySkipped, activityImported, cryptoMatched });
+      const cryptoReview = await countCryptoReview(profileId).catch(() => 0);
+      setSummary({ imported, skipped: activitySkipped, activityImported, cryptoMatched, cryptoReview });
       await loadHistory();
       setStep("done");
     } catch (err) {
@@ -1517,8 +1521,9 @@ export default function ImportPage() {
         await recomputeCalculatedBalances(accountId);
       }
       const cryptoMatched = await reconcileCryptoAfterImport();
+      const cryptoReview = await countCryptoReview(profileId).catch(() => 0);
 
-      setSummary({ imported, skipped, invalidCount, transferCount, errors: rowErrors, keptManualCount, replacedManualCount, cryptoMatched });
+      setSummary({ imported, skipped, invalidCount, transferCount, errors: rowErrors, keptManualCount, replacedManualCount, cryptoMatched, cryptoReview });
       await loadHistory();
       setStep("done");
       setImportSubmitting(false);
@@ -1658,8 +1663,9 @@ export default function ImportPage() {
         await recomputeCalculatedBalances(accountId);
       }
       const cryptoMatched = await reconcileCryptoAfterImport();
+      const cryptoReview = await countCryptoReview(profileId).catch(() => 0);
       await loadHistory();
-      setSummary({ imported, skipped, invalidCount, transferCount, errors: rowErrors, cryptoMatched });
+      setSummary({ imported, skipped, invalidCount, transferCount, errors: rowErrors, cryptoMatched, cryptoReview });
       setStep("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -3216,6 +3222,17 @@ export default function ImportPage() {
               in your crypto portfolio, so {summary.cryptoMatched === 1 ? "it was" : "they were"} moved to Transfers -
               the money is counted once, as an investment, not also as spending. Amounts weren't changed; re-categorize
               under Transactions if a match is wrong.
+            </p>
+          )}
+          {!!summary.cryptoReview && (
+            <p className="text-xs text-[hsl(var(--muted-foreground))] mb-6 max-w-md mx-auto border rounded-lg px-3 py-2"
+              style={{ backgroundColor: "hsl(var(--primary)/0.05)" }}>
+              In this profile (all imports, not only this one), <strong className="text-[hsl(var(--foreground))]">{summary.cryptoReview}</strong> Crypto{" "}
+              {summary.cryptoReview === 1 ? "purchase has" : "purchases have"} a deposit in your crypto portfolio within 10 days
+              but {summary.cryptoReview === 1 ? "was" : "were"} not matched automatically, so nothing was changed.{" "}
+              {summary.cryptoReview === 1 ? "It still counts" : "They still count"} as spending until you review {summary.cryptoReview === 1 ? "it" : "them"}.{" "}
+              <button onClick={() => navigate("/transactions", { state: { cryptoReview: true } })}
+                className="underline text-[hsl(var(--gold-ink))]">Review in Transactions</button>
             </p>
           )}
           <div className="flex gap-3 justify-center">

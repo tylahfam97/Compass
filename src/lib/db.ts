@@ -1405,6 +1405,38 @@ const CRYPTO_DEPOSIT_SQL = `investment_activity ia JOIN accounts a ON a.id = ia.
         AND EXISTS (SELECT 1 FROM holdings h WHERE h.account_id = a.id AND h.security_type = 'crypto'
                     AND h.symbol = ia.symbol)`;
 const CANDIDATE_COLS = "ia.id, ia.trade_date AS date, ia.amount_cents AS amountCents, ia.symbol, a.id AS accountId, a.name AS accountName, ia.description";
+/** Deposit `ia` is one the editor offers for outflow `t`. One definition shared by the editor
+ *  and the review queue, so a queued row always has a deposit to confirm when it is opened. */
+// The last two conditions only narrow the scan (they let SQLite use idx_investment_activity_account_date); dates are plain YYYY-MM-DD text.
+const CRYPTO_CANDIDATE_SQL = `ia.profile_id = COALESCE(t.profile_id, 1) AND ABS(julianday(ia.trade_date) - julianday(t.date)) <= 10
+        AND ia.id NOT IN (SELECT activity_id FROM crypto_transfer_links)
+        AND ia.account_id IN (SELECT account_id FROM holdings WHERE security_type = 'crypto')
+        AND ia.trade_date BETWEEN date(t.date, '-10 days') AND date(t.date, '+10 days')`;
+
+/**
+ * Predicate over `transactions t`: a Crypto purchase with a portfolio deposit nearby that was
+ * not matched automatically (amounts differ, or more than one purchase fits) and that the user
+ * has not decided on yet (#107). It is only listed for review - it stays spending, nothing is
+ * changed, until the user confirms, splits or keeps it. Same exclusions as getCryptoMatchState
+ * (split parts, links), plus rows kept as spending.
+ */
+export const CRYPTO_REVIEW_SQL = `(t.category_id = ${CRYPTO_CATEGORY_ID} AND t.amount_cents < 0
+  AND t.account_id IN (SELECT id FROM accounts WHERE account_type <> 'investment')
+  AND t.import_hash NOT LIKE 'split:%'
+  AND t.id NOT IN (SELECT transaction_id FROM crypto_transfer_links)
+  AND t.id NOT IN (SELECT parent_id FROM transaction_splits)
+  AND NOT EXISTS (SELECT 1 FROM crypto_transfer_rejections r WHERE r.account_id = t.account_id AND r.import_hash = t.import_hash)
+  AND EXISTS (SELECT 1 FROM ${CRYPTO_DEPOSIT_SQL} AND ${CRYPTO_CANDIDATE_SQL}))`;
+
+/** How many of a profile's Crypto purchases are waiting for review (CRYPTO_REVIEW_SQL). */
+export async function countCryptoReview(profileId: number): Promise<number> {
+  const db = await getDb();
+  const [row] = await db.select<{ n: number }[]>(
+    `SELECT COUNT(*) AS n FROM transactions t WHERE t.profile_id = ? AND ${CRYPTO_REVIEW_SQL}`,
+    [profileId]
+  );
+  return row?.n ?? 0;
+}
 
 /**
  * Match state for one non-investment outflow: its link (automatic or confirmed), whether
@@ -1436,11 +1468,10 @@ export async function getCryptoMatchState(transactionId: number): Promise<Crypto
   );
   // A plain Transfers row is already not spending; only other categories can be confirmed.
   const candidates = link || split || txn.categoryId === TRANSFER_CATEGORY_ID ? [] : await db.select<CryptoDepositCandidate[]>(
-    `SELECT ${CANDIDATE_COLS} FROM ${CRYPTO_DEPOSIT_SQL}
-        AND ia.profile_id = ? AND ABS(julianday(ia.trade_date) - julianday(?)) <= 10
-        AND ia.id NOT IN (SELECT activity_id FROM crypto_transfer_links)
-      ORDER BY ABS(ia.amount_cents + ?), ia.trade_date`,
-    [txn.profileId, txn.date, txn.amountCents]
+    `SELECT ${CANDIDATE_COLS} FROM transactions t JOIN ${CRYPTO_DEPOSIT_SQL}
+        AND t.id = ? AND ${CRYPTO_CANDIDATE_SQL}
+      ORDER BY ABS(ia.amount_cents + t.amount_cents), ia.trade_date`,
+    [transactionId]
   );
   return {
     link: link ?? null, rejected: !!txn.rejected, candidates, split: split ?? null,
