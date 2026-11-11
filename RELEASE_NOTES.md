@@ -4,9 +4,15 @@
 
 ## Compass 1.3.20 — Second Look 🧭
 
-Crypto purchases that may have funded a deposit in your crypto portfolio, but were not matched automatically, are now listed for review instead of silently staying spending (#107). Nothing is changed until you decide.
+Everything since 1.3.18. Compass is now source-available under the PolyForm Strict License 1.0.0 (#137), and Crypto purchases that may have funded a deposit in your crypto portfolio, but were not matched automatically, are now listed for review instead of silently staying spending (#107). Nothing is changed until you decide. Version 1.3.19 was never released; its license change ships here.
 
-### Crypto purchases to review (#107)
+### License (#137)
+- From 1.3.20, Compass is licensed only under the PolyForm Strict License 1.0.0, in LICENSE.txt. It stays free to download and use for yourself, and the code stays public on GitHub so you can read exactly what it does with your money. The code may not be copied, modified, redistributed or reused in other software.
+- Compass 1.3.18 and earlier were released under the MIT License, and those releases remain under it.
+- CONTRIBUTING.md now explains how contributions are licensed: by submitting one, you confirm you wrote it and agree that Tyler Fameli may use, modify, relicense and distribute it as part of Compass under any license terms.
+- The README, home page, the four guides, the import guide, llms.txt, the Reddit banners and the social preview image now say "source-available" where they said "open source", and name the PolyForm Strict License where they named MIT. Structured data points its license field at the PolyForm Strict License 1.0.0, and each FAQ answer still matches its structured data word for word.
+
+### Crypto purchases to review (#107, #138)
 - Compass already moves a Crypto purchase to Transfers when it matches a deposit in a tracked crypto portfolio to the cent, within 5 days, and no other purchase or deposit fits. Purchases that miss that rule (a few cents of fees, two equal purchases near one deposit, a purchase that was partly spent) stayed Crypto spending, and nothing pointed them out.
 - The review list holds each Crypto purchase from an account that is not an investment account that has at least one deposit the transaction editor would offer for it: same profile, within 10 days, and not already linked to another purchase. The list and the editor use one shared rule, so every listed purchase has a deposit to choose when it is opened. Purchases already matched, confirmed, split or kept as spending are not listed.
 - Where it appears: a notice on Transactions with the count and a Review button; the review list itself, which shows only these purchases from all dates and ignores the month, search and filters until you go back to all transactions, which returns to the month, search and filters you had; a line in the import summary after a bank or portfolio import that counts the Crypto purchases with a deposit within 10 days that were not matched automatically, with a button that opens the list (the count is the profile's current total, not only that file's); and a "Possible crypto deposit - review" label on each listed row.
@@ -16,9 +22,6 @@ Crypto purchases that may have funded a deposit in your crypto portfolio, but we
 ### Still not in this release (#107)
 - Coinbase exports are not imported. Coinbase's help page on statements explains how to download one but does not document its columns (checked 2026-11-11), and no real export was available to verify a parser against.
 - Wallet sends are recorded as transfers and are never assumed to be spending.
-
-### Website (#132)
-- The Send feedback FAQ entry and the updated answer to "Does Compass connect to the internet?" shipped in 1.3.18. This release changes only the home page's version fields (structured-data softwareVersion, hero chip and both download badges) to 1.3.20.
 
 ### Tests and limits
 - Unit tests on a real in-memory SQLite database with the app's migrations cover the issue's example (212.23 against 212.33 listed, the exact match moved, the partly spent purchase listed, no amounts or rows changed), both import orders, a portfolio added later, repeated reconciling, two equal purchases near one deposit, confirm, undo and allow again with unequal amounts, split and undo split, keep as spending, rows outside the rule (another profile, a coin the account does not hold, a cash deposit, 11 days away, an investment account, another category, a Crypto refund), a split's Crypto spending part that stays unlisted while another deposit nearby is still free, duplicate purchases, the editor's order (closest amount, then earliest date), a row without a profile that is offered the default profile's deposits, and that every listed row has a deposit in the editor.

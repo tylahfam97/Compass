@@ -1,6 +1,6 @@
 # Compass
 
-> A free, open-source personal finance app for Windows and macOS that reads bank,
+> A free, source-available personal finance app for Windows and macOS that reads bank,
 > credit card, and brokerage statements you export yourself. It never asks for a
 > bank login, has no cloud account, and stores everything in a SQLCipher AES-256
 > encrypted database on the user's own machine.
@@ -9,7 +9,7 @@ Compass is a desktop application built with Tauri, React and Rust, by Chrysis Ne
 
 ## What it costs
 
-Free. MIT licensed. There is no paid tier, no trial, and no account to create.
+Free and source-available under the PolyForm Strict License 1.0.0: the code is public to read, but it may not be copied, modified, redistributed or reused in other software. There is no paid tier, no trial, and no account to create.
 
 Voluntary donations are accepted through Buy Me a Coffee and three crypto addresses, listed at
 https://privatecompass.app/#support and in the README. Donations are explicitly not expected, buy
@@ -86,4 +86,4 @@ No live bank connections, no cloud sync, no shared access, single currency only,
 - Releases and downloads: https://github.com/tylahfam97/Compass/releases
 - Release notes: https://github.com/tylahfam97/Compass/blob/main/RELEASE_NOTES.md
 - Issues: https://github.com/tylahfam97/Compass/issues
-- Licence: MIT
+- Licence: PolyForm Strict License 1.0.0 (source-available), https://polyformproject.org/licenses/strict/1.0.0
