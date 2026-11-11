@@ -42,7 +42,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; img-src 'self' https://github.com https://*.githubusercontent.com; media-src 'self'; connect-src 'self' https://api.github.com; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';">
   <meta name="referrer" content="strict-origin-when-cross-origin">
 
-  <link rel="stylesheet" href="/css/style.css?v=f5d6710b">
+  <link rel="stylesheet" href="/css/style.css?v=4a7a48a1">
 
   <!-- ── Structured data ───────────────────────────────────────────────────
        Tells search engines and AI answer engines what Compass is, that it runs
@@ -135,7 +135,7 @@
           "https://privatecompass.app/img/promo-tall-poster.webp"
         ],
         "contentUrl": "https://privatecompass.app/img/promo-wide.mp4",
-        "uploadDate": "2026-11-11",
+        "uploadDate": "2026-11-11T18:00:00-05:00",
         "duration": "PT21S",
         "inLanguage": "en-US",
         "transcript": "Every budgeting app wants your bank login. Compass never asks for one. Free, source-available, Windows and macOS. Import: start from the statements you download. Chart: see where the money went. Overview: and when you’ll be above water. Plan: try a purchase before you make it. Compass. Your money. Your machine. privatecompass.app. Free for Windows and macOS (beta). No bank login. No account. No telemetry. AES-256 encrypted. PolyForm Strict License.",
@@ -540,8 +540,8 @@
                aria-label="A 20-second tour of Compass: import the statements you download, see where the money went, see when you will be above water and try a purchase before you make it">
           <source data-src="/img/promo-tall.webm" type='video/webm; codecs="vp9, opus"' media="(max-width: 767px) and (orientation: portrait)">
           <source data-src="/img/promo-tall.mp4" type='video/mp4; codecs="avc1.640028, mp4a.40.2"' media="(max-width: 767px) and (orientation: portrait)">
-          <source data-src="/img/promo-wide.webm" type='video/webm; codecs="vp9, opus"'>
-          <source data-src="/img/promo-wide.mp4" type='video/mp4; codecs="avc1.640028, mp4a.40.2"'>
+          <source data-src="/img/promo-wide.webm" type='video/webm; codecs="vp9, opus"' media="not all and (max-width: 767px) and (orientation: portrait)">
+          <source data-src="/img/promo-wide.mp4" type='video/mp4; codecs="avc1.640028, mp4a.40.2"' media="not all and (max-width: 767px) and (orientation: portrait)">
           <track kind="captions" src="/img/promo.vtt" srclang="en" label="English">
         </video>
       </figure>
@@ -1117,7 +1117,8 @@
       if (s.media && !window.matchMedia(s.media).matches) s.remove();
       else s.src = s.dataset.src;
     });
-    const start = () => { if (play) clip.play().catch(() => { clip.controls = true; }); };
+    // A retry's load() aborts the pending play(); only a real refusal shows controls.
+    const start = () => { if (play) clip.play().catch(e => { if (e.name !== 'AbortError') clip.controls = true; }); };
     // privatecompass.app's edge answers bursts with 429 Too Many Requests and
     // Retry-After: 10, which a first visit can reach. Every source then fails and
     // Firefox shows "No video with supported format and MIME type found". Load
@@ -1133,7 +1134,7 @@
     clip.load();
     start();
   };
-  const portrait = document.querySelector('video.showcase-img source[media]')?.media;
+  const portrait = document.querySelector('video.showcase-img source[media]:not([media^="not"])')?.media;
   clips.forEach(clip => {
     if (clip.dataset.posterPortrait && portrait && window.matchMedia(portrait).matches) clip.poster = clip.dataset.posterPortrait;
   });
