@@ -4,7 +4,7 @@
 
 ## Compass 1.3.20 — Second Look 🧭
 
-Everything since 1.3.18. Compass is now source-available under the PolyForm Strict License 1.0.0 (#137), and Crypto purchases that may have funded a deposit in your crypto portfolio, but were not matched automatically, are now listed for review instead of silently staying spending (#107). Nothing is changed until you decide. Version 1.3.19 was never released; its license change ships here.
+Everything since 1.3.18. Compass is now source-available under the PolyForm Strict License 1.0.0 (#137), and Crypto purchases that may have funded a deposit in your crypto portfolio, but were not matched automatically, are now listed for review instead of silently staying spending (#107). Nothing is changed until you decide. On the website, the videos play in every browser again and a 20-second tour opens "See it in action" (#139). Version 1.3.19 was never released; its license change ships here.
 
 ### License (#137)
 - From 1.3.20, Compass is licensed only under the PolyForm Strict License 1.0.0, in LICENSE.txt. It stays free to download and use for yourself, and the code stays public on GitHub so you can read exactly what it does with your money. The code may not be copied, modified, redistributed or reused in other software.
@@ -23,11 +23,18 @@ Everything since 1.3.18. Compass is now source-available under the PolyForm Stri
 - Coinbase exports are not imported. Coinbase's help page on statements explains how to download one but does not document its columns (checked 2026-11-11), and no real export was available to verify a parser against.
 - Wallet sends are recorded as transfers and are never assumed to be spending.
 
+### Website (#139)
+- The "See it in action" clips could fail to load on a first visit, which Firefox reports as "No video with supported format and MIME type found". The files were never the problem: the site's edge refused the clip requests with 429 Too Many Requests once a visit had made about ten requests in ten seconds. Each clip now loads again by itself after ten seconds, up to twice.
+- Each clip is offered as VP9 WebM first and H.264 MP4 second, at 1920 pixels wide instead of 2558, so it also plays in browsers without H.264 support. The three clips are 3.1 MB as WebM, down from 7 MB.
+- A 20-second tour of Compass opens the section: a vertical cut on phones held upright and a widescreen cut elsewhere. It starts muted with player controls, has English captions, and is described in the page's structured data and sitemap.
+- The home page's version fields (structured-data softwareVersion, hero chip and both download badges) are set to 1.3.20, matching the app manifests.
+
 ### Tests and limits
 - Unit tests on a real in-memory SQLite database with the app's migrations cover the issue's example (212.23 against 212.33 listed, the exact match moved, the partly spent purchase listed, no amounts or rows changed), both import orders, a portfolio added later, repeated reconciling, two equal purchases near one deposit, confirm, undo and allow again with unequal amounts, split and undo split, keep as spending, rows outside the rule (another profile, a coin the account does not hold, a cash deposit, 11 days away, an investment account, another category, a Crypto refund), a split's Crypto spending part that stays unlisted while another deposit nearby is still free, duplicate purchases, the editor's order (closest amount, then earliest date), a row without a profile that is offered the default profile's deposits, and that every listed row has a deposit in the editor.
 - A browser test saves an All time view, imports a synthetic Ledger export, follows the summary line to the review list, leaves it with Show all transactions (back on All time, with the count in the notice and the label on the row) and returns with the Review button, confirms the one-cent near miss from the editor, and checks that the purchase is Transfers with its amount unchanged and that the notice stays gone after a reload.
 - The candidate lookup is limited to crypto accounts and a 10-day date range so the Transactions list stays fast (measured with 300 synthetic Crypto purchases and 10,000 portfolio rows).
 - Browser tests run against a mocked native bridge with a real SQLite fixture. They do not exercise Windows WebView2 or macOS WKWebView. This release changes no Rust source; the Cargo manifest version is first compiled in the release build.
+- The website videos were checked in Playwright's Firefox 155, Chromium 153 and WebKit 26.6 on Linux, at 1366 and 390 pixels wide: every clip and both promo cuts reach a playable state and advance, through WebM and, with WebM blocked, through MP4. In Firefox and Chromium they also recover from a simulated 429 limit. The captions track loads its nine cues. Desktop Safari, iOS and Android browsers were not tested on devices.
 
 ## Compass 1.3.18 — New Bearings 🧭
 
