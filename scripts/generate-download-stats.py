@@ -559,7 +559,7 @@ def build_page(meta, releases, per_version, per_day_totals, revalidated, win_tot
 <table><thead><tr><th>Day</th><th>Installer requests (raw)</th><th>Origin 304 (not counted)</th></tr></thead>
 <tbody>{"".join(day_rows) or '<tr><td colspan="3">Nothing recorded yet.</td></tr>'}</tbody></table>
 <footer>Generated {e(meta["updated"])} · refreshed daily around 06:17 UTC · GitHub fetched {e(meta["github_fetched"] or "never")} ·
-logs read this run cover {cov_txt} · website history begins when tracking began; GitHub counts are complete history from the API.</footer>
+logs read this run cover {cov_txt} · website history begins when tracking began; GitHub counts are complete history from the API. · <a href="/privacy/">Privacy</a></footer>
 </body></html>
 """
 
