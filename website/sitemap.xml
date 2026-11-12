@@ -1,33 +1,43 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:video="http://www.google.com/schemas/sitemap-video/1.1">
   <url>
     <loc>https://privatecompass.app/</loc>
-    <lastmod>2026-11-09</lastmod>
+    <lastmod>2026-11-11</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
+    <video:video>
+      <video:thumbnail_loc>https://privatecompass.app/img/promo-wide-poster.webp</video:thumbnail_loc>
+      <video:title>Compass in 20 seconds: budgeting without a bank login</video:title>
+      <video:description>Compass budgets from the statements you download, never your bank login. Watch it chart where the money went and test a purchase, all on your computer.</video:description>
+      <video:content_loc>https://privatecompass.app/img/promo-wide.mp4</video:content_loc>
+      <video:duration>21</video:duration>
+      <video:publication_date>2026-11-11</video:publication_date>
+      <video:family_friendly>yes</video:family_friendly>
+    </video:video>
   </url>
   <url>
     <loc>https://privatecompass.app/import-guide.html</loc>
-    <lastmod>2026-11-02</lastmod>
+    <lastmod>2026-11-11</lastmod>
   </url>
   <url>
     <loc>https://privatecompass.app/personal-finance-software/</loc>
-    <lastmod>2026-11-02</lastmod>
+    <lastmod>2026-11-11</lastmod>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://privatecompass.app/csv-budgeting-app/</loc>
-    <lastmod>2026-11-02</lastmod>
+    <lastmod>2026-11-11</lastmod>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://privatecompass.app/private-budgeting-app/</loc>
-    <lastmod>2026-11-09</lastmod>
+    <lastmod>2026-11-11</lastmod>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://privatecompass.app/budgeting-without-bank-connection/</loc>
-    <lastmod>2026-11-02</lastmod>
+    <lastmod>2026-11-11</lastmod>
     <priority>0.8</priority>
   </url>
 </urlset>
