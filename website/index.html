@@ -42,7 +42,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; img-src 'self' https://github.com https://*.githubusercontent.com; media-src 'self'; connect-src 'self' https://api.github.com; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';">
   <meta name="referrer" content="strict-origin-when-cross-origin">
 
-  <link rel="stylesheet" href="/css/style.css?v=4a7a48a1">
+  <link rel="stylesheet" href="/css/style.css?v=cbe918af">
 
   <!-- ── Structured data ───────────────────────────────────────────────────
        Tells search engines and AI answer engines what Compass is, that it runs
@@ -119,7 +119,7 @@
         "name": "Private Personal Finance Software, No Bank Login | Compass",
         "description": "Free, source-available personal finance software for Windows and macOS (beta). Budget from bank CSV and Excel files, encrypted on your computer. No bank login.",
         "inLanguage": "en-US",
-        "dateModified": "2026-11-11",
+        "dateModified": "2026-11-12",
         "isPartOf": { "@id": "https://privatecompass.app/#website" },
         "about": { "@id": "https://privatecompass.app/#app" },
         "video": { "@id": "https://privatecompass.app/#promo-video" },
@@ -384,18 +384,22 @@
   </div>
 </section>
 
-<!-- ── Product shot ─────────────────────────────────────────────────────────── -->
-<!-- The first thing a visitor should see is the instrument itself. WebP with a PNG
-     fallback, sized and priority-hinted so it is a fast LCP rather than a slow one. -->
-<section class="hero-shot-section" aria-label="The Compass Overview page">
+<!-- ── Product video ────────────────────────────────────────────────────────── -->
+<!-- The first thing a visitor should see is the instrument itself: the 20-second
+     promo, started muted by the showcase loader at the end of this page (its
+     sources and fallbacks are described at "See it in action"). -->
+<section class="hero-shot-section">
   <div class="container">
     <figure class="hero-shot">
-      <picture>
-        <source srcset="/img/overview.webp" type="image/webp">
-        <img src="/img/overview.png" width="1400" height="880"
-             alt="The Compass Overview page. Net worth of minus $13,610 is drawn as depth, with everything owned above a zero waterline and everything owed below it, and a dashed line projecting the month it clears zero in September 2027."
-             fetchpriority="high" decoding="async">
-      </picture>
+      <video class="showcase-img showcase-promo" muted loop playsinline controls preload="none"
+             poster="/img/promo-wide-poster.webp" data-poster-portrait="/img/promo-tall-poster.webp"
+             aria-label="A 20-second tour of Compass: import the statements you download, see where the money went, see when you will be above water and try a purchase before you make it">
+        <source data-src="/img/promo-tall.webm" type='video/webm; codecs="vp9, opus"' media="(max-width: 767px) and (orientation: portrait)">
+        <source data-src="/img/promo-tall.mp4" type='video/mp4; codecs="avc1.640028, mp4a.40.2"' media="(max-width: 767px) and (orientation: portrait)">
+        <source data-src="/img/promo-wide.webm" type='video/webm; codecs="vp9, opus"' media="not all and (max-width: 767px) and (orientation: portrait)">
+        <source data-src="/img/promo-wide.mp4" type='video/mp4; codecs="avc1.640028, mp4a.40.2"' media="not all and (max-width: 767px) and (orientation: portrait)">
+        <track kind="captions" src="/img/promo.vtt" srclang="en" label="English">
+      </video>
     </figure>
   </div>
 </section>
@@ -530,49 +534,37 @@
          1920 px wide, so a browser without H.264 still plays it. Sources carry
          data-src and load only when the clip scrolls near the viewport; anyone
          who prefers reduced motion gets the poster frame and player controls.
-         The promo's portrait cut goes to phones held upright (its media query),
-         the landscape cut everywhere else. -->
+         The hero promo (top of the page) uses the same loader; its portrait cut
+         goes to phones held upright (its media query), the landscape cut
+         everywhere else. -->
     <div class="showcase-stack">
-      <figure class="showcase-figure">
-        <figcaption>Compass in 20 seconds. No bank login needed.</figcaption>
-        <video class="showcase-img showcase-promo" muted playsinline controls preload="none"
-               poster="/img/promo-wide-poster.webp" data-poster-portrait="/img/promo-tall-poster.webp"
-               aria-label="A 20-second tour of Compass: import the statements you download, see where the money went, see when you will be above water and try a purchase before you make it">
-          <source data-src="/img/promo-tall.webm" type='video/webm; codecs="vp9, opus"' media="(max-width: 767px) and (orientation: portrait)">
-          <source data-src="/img/promo-tall.mp4" type='video/mp4; codecs="avc1.640028, mp4a.40.2"' media="(max-width: 767px) and (orientation: portrait)">
-          <source data-src="/img/promo-wide.webm" type='video/webm; codecs="vp9, opus"' media="not all and (max-width: 767px) and (orientation: portrait)">
-          <source data-src="/img/promo-wide.mp4" type='video/mp4; codecs="avc1.640028, mp4a.40.2"' media="not all and (max-width: 767px) and (orientation: portrait)">
-          <track kind="captions" src="/img/promo.vtt" srclang="en" label="English">
-        </video>
-      </figure>
-
       <figure class="showcase-figure">
         <figcaption>Overview and net worth</figcaption>
         <video class="showcase-img" muted loop playsinline preload="none"
-               poster="/img/dashboard-poster.webp"
+               poster="/img/dashboard-poster-v1320.webp?v=5d61b867"
                aria-label="The Compass dashboard showing a monthly spending summary, top categories, and the profile overview">
-          <source data-src="/img/dashboard.webm" type='video/webm; codecs="vp9"'>
-          <source data-src="/img/dashboard-h264.mp4" type='video/mp4; codecs="avc1.640028"'>
+          <source data-src="/img/dashboard.webm?v=38f95d10" type='video/webm; codecs="vp9"'>
+          <source data-src="/img/dashboard-h264.mp4?v=a4a0d295" type='video/mp4; codecs="avc1.640028"'>
         </video>
       </figure>
 
       <figure class="showcase-figure">
         <figcaption>The guided import wizard</figcaption>
         <video class="showcase-img" muted loop playsinline preload="none"
-               poster="/img/import-wizard-poster.webp"
+               poster="/img/import-wizard-poster-v1320.webp?v=b5cc2bcd"
                aria-label="The guided import wizard walking through column detection, date parsing, amount mapping, and the import preview">
-          <source data-src="/img/import-wizard.webm" type='video/webm; codecs="vp9"'>
-          <source data-src="/img/import-wizard-h264.mp4" type='video/mp4; codecs="avc1.640028"'>
+          <source data-src="/img/import-wizard.webm?v=f2f41140" type='video/webm; codecs="vp9"'>
+          <source data-src="/img/import-wizard-h264.mp4?v=a387feab" type='video/mp4; codecs="avc1.640028"'>
         </video>
       </figure>
 
       <figure class="showcase-figure">
         <figcaption>Insights and spending analysis</figcaption>
         <video class="showcase-img" muted loop playsinline preload="none"
-               poster="/img/insights-poster.webp"
+               poster="/img/insights-poster-v1320.webp?v=ade66af3"
                aria-label="The Insights page showing budget pace warnings, top merchant spend, and detected subscription totals">
-          <source data-src="/img/insights.webm" type='video/webm; codecs="vp9"'>
-          <source data-src="/img/insights-h264.mp4" type='video/mp4; codecs="avc1.640028"'>
+          <source data-src="/img/insights.webm?v=1dbb29e1" type='video/webm; codecs="vp9"'>
+          <source data-src="/img/insights-h264.mp4?v=db4b89c7" type='video/mp4; codecs="avc1.640028"'>
         </video>
       </figure>
     </div>

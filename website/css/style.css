@@ -688,6 +688,11 @@
     box-shadow: var(--shadow-lg), 0 0 80px rgba(0, 0, 0, 0.35);
   }
 
+  /* The hero promo is part of the page, not a framed picture. It lives here, not
+     in an inline style (the CSP is style-src 'self') or the layout layer (this
+     components layer would win over it). */
+  .hero-shot .showcase-img { border: 0; border-radius: 0; box-shadow: none; }
+
   /* The promo reserves its box before anything loads (no layout shift). Phones
      held upright get the 9:16 cut; the media query matches its <source media>. */
   .showcase-promo { aspect-ratio: 16 / 9; height: auto; }
