@@ -30,7 +30,8 @@ Verified site transfers (state key "site_verified", rule VERIFIED_RULE) are a
 separate metric recomputed only from log lines actually read, never derived
 from the raw history above. Each GET installer line lands in exactly one bucket:
   automation    our own checks (verification UA / ?verify= marker) or a
-                self-declared crawler UA; kept out of the other buckets
+                self-declared crawler UA, or one exact log line listed (hashed)
+                in AUTOMATION_EVENTS; kept out of the other buckets
   complete      200 and bytes sent == the known size of that version/family
                 (GitHub release asset size or the hosted versioned file).
                 Proves nginx handed the whole file to Cloudflare - not that a
@@ -54,10 +55,14 @@ Environment (all optional):
   WEB_ROOT       website document root                (default /var/www/compass/website)
   STATS_DIR      page directory name under WEB_ROOT   (default "stats")
   STATE_FILE     accumulated per-day counts           (default ~/.compass-download-stats-state.json)
+  AUTOMATION_EVENTS  private list of sha256 hashes of exact log lines that were our own
+                 traffic without a marker (default ~/.compass-download-stats-automation-events;
+                 absent = none). Exact events only, never an address rule; never commit it.
 """
 
 import glob
 import gzip
+import hashlib
 import html
 import json
 import os
@@ -74,16 +79,21 @@ DOWNLOADS_DIR = Path(os.environ.get("DOWNLOADS_DIR", "/var/www/compass/downloads
 WEB_ROOT = Path(os.environ.get("WEB_ROOT", "/var/www/compass/website"))
 STATS_DIR = os.environ.get("STATS_DIR", "stats")
 STATE_FILE = Path(os.environ.get("STATE_FILE", str(Path.home() / ".compass-download-stats-state.json")))
+AUTOMATION_EVENTS = Path(os.environ.get(
+    "AUTOMATION_EVENTS", str(Path.home() / ".compass-download-stats-automation-events")))
 
 FAMILIES = ("exe", "msi", "dmg")
-VERIFIED_RULE = 1
+# 2: facebookexternalhit/GoogleOther are crawlers, plus private exact-event automation.
+# Each stored day records the rule it was last bucketed under (state "site_verified_rules").
+VERIFIED_RULE = 2
 VERIFIED_BASIS = ("complete = origin GET 200 whose bytes sent equal the known size of that version's "
                   "installer: the whole file left the server. Not people, saves or installs.")
 BUCKETS = ("complete", "incomplete", "partial", "unverifiable", "automation")
 # Our own release checks identify themselves; crawlers that say so are split out too.
 # ponytail: UA heuristic only; a plain curl or browser UA stays eligible (it may be a person).
 INTERNAL_UA_RE = re.compile(r"compass-release-verification|hermes", re.IGNORECASE)
-BOT_UA_RE = re.compile(r"bot\b|bot/|crawl|spider|slurp|headless", re.IGNORECASE)
+BOT_UA_RE = re.compile(r"bot\b|bot/|crawl|spider|slurp|headless|\bfacebookexternalhit\b|\bgoogleother\b",
+                       re.IGNORECASE)
 PER_PAGE = 100
 VERSIONED_RE = re.compile(r"^Compass_(\d+\.\d+\.\d+)_.*\.(exe|msi|dmg)$", re.IGNORECASE)
 # nginx "combined" format: ip - user [time] "METHOD path HTTP/x" status bytes "referer" "ua"
@@ -239,12 +249,25 @@ def read_log_lines():
                      "sudo usermod -aG adm <runner user>, then restart the runner service and re-run.")
 
 
-def parse_website_downloads(sizes=None):
+def load_automation_events() -> set:
+    """sha256 hex of exact raw log lines known to be our own traffic. A bad file exits
+    before anything is written; a missing file means none."""
+    if not AUTOMATION_EVENTS.is_file():
+        return set()
+    hashes = {s.strip().lower() for s in AUTOMATION_EVENTS.read_text().splitlines()
+              if s.strip() and not s.lstrip().startswith("#")}
+    if not all(re.fullmatch(r"[0-9a-f]{64}", h) for h in hashes):
+        sys.exit(f"::error title=Bad automation events file::{AUTOMATION_EVENTS} must hold one sha256 per line")
+    return hashes
+
+
+def parse_website_downloads(sizes=None, private=frozenset()):
     """Days (the log's own calendar date, as stored since tracking began) in the current logs:
     counts      {day: {family: {version: n}}}  GET 200/206 on /downloads/ installers
     revalidated {day: n}                       GET 304 on the same paths (not downloads)
     coverage    [first, last] request time seen in the logs, or None
     verified    {day: {family: {version: {bucket: n}}}}  see module docstring
+    private     line hashes from load_automation_events(); each may match one line only
     """
     sizes = sizes or {}
     verified: dict = {}
@@ -253,6 +276,7 @@ def parse_website_downloads(sizes=None):
     revalidated: dict = {}
     first = last = None
     partial_seen = set()  # (day, path, version, ip, ua) - download managers send many 206s per file
+    matched: dict = {}
     for line in read_log_lines():
         m = LOG_RE.match(line)
         if not m:
@@ -277,7 +301,12 @@ def parse_website_downloads(sizes=None):
             continue
         vm = VERSIONED_RE.match(fname)
         version = vm.group(1) if vm else attribute(timeline, ext, when)
-        b = classify(status, _bytes, fname, version, ext, query, ua, sizes)
+        h = hashlib.sha256(line.rstrip("\r\n").encode()).hexdigest() if private else None
+        if h in private:
+            matched[h] = matched.get(h, 0) + 1
+            b = "automation"
+        else:
+            b = classify(status, _bytes, fname, version, ext, query, ua, sizes)
         vb = verified.setdefault(day, {}).setdefault(ext, {}).setdefault(version, {})
         vb[b] = vb.get(b, 0) + 1
         if status == "206":
@@ -287,6 +316,12 @@ def parse_website_downloads(sizes=None):
             partial_seen.add(key)
         per = counts.setdefault(day, {}).setdefault(ext, {})
         per[version] = per.get(version, 0) + 1
+    if any(n > 1 for n in matched.values()):
+        sys.exit("::error title=Ambiguous automation event::a private line hash matched more than one "
+                 "log line; nothing was written")
+    if private:
+        print(f"::notice title=Private automation events::{len(matched)} of {len(private)} matched "
+              "in the logs read", file=sys.stderr)
     coverage = [first.isoformat(timespec="seconds"), last.isoformat(timespec="seconds")] if first and last else None
     return counts, revalidated, coverage, verified
 
@@ -301,10 +336,14 @@ def verified_day_total(rec) -> int:
 
 def merge_days(stored: dict, fresh: dict, total=day_total):
     """A re-read day replaces the stored one only if it is not smaller: rotation can
-    leave the oldest day partially in the logs, and that must not erase history."""
+    leave the oldest day partially in the logs, and that must not erase history.
+    Equal size re-buckets a fully re-read day. Returns the days replaced."""
+    replaced = []
     for day, rec in fresh.items():
         if day not in stored or total(rec) >= total(stored[day]):
             stored[day] = rec
+            replaced.append(day)
+    return replaced
 
 
 def load_state() -> dict:
@@ -404,6 +443,8 @@ def build_page(meta, releases, per_version, per_day_totals, revalidated, win_tot
     vpv, vcov = sv["per_version"], sv["coverage"]
     v_total = sum(b["complete"] for b in vpv.values())
     since = e(sv["since"] or "never")
+    older = (f' Days still bucketed under an older rule because their logs are gone: {e(", ".join(sv["older_rule_days"]))}.'
+             if sv["older_rule_days"] else "")
 
     rows, vrows = [], []
     for v in versions:
@@ -461,7 +502,7 @@ def build_page(meta, releases, per_version, per_day_totals, revalidated, win_tot
 <li><b>GitHub updates</b>: download_count of the .nsis.zip package that the in-app updater installs (via latest.json). Shown separately and not added to any total. Signatures, latest.json and other assets are not counted anywhere.</li>
 <li><b>Website (raw, diagnostic only)</b>: GET requests for /downloads/*.exe|.msi|.dmg answered 200 or 206 by the server (compass.access.log). Repeated 206 range requests for one file from the same address and user agent on one log day count once. HEAD requests and 304 responses are not counted.</li>
 <li><b>Origin 304</b>: conditional requests answered "not modified", e.g. Cloudflare revalidating a cached installer. Shown for context only; a 304 is not proof of a completed download, and downloads served from a cache without contacting the server are not visible here.</li>
-<li><b>Website verified</b> (rule {sv["rule"]}, from log lines since {since}): {e(sv["basis"])} <i>Incomplete</i> = 200 with fewer/other bytes; <i>Partial</i> = 206 range responses (never promoted); <i>Unverifiable</i> = no known size or version; <i>Automation</i> = our own checks or self-declared crawlers. Requests before {since} have unknown verification. The BY VERSION site columns show only these complete transfers; automation is excluded there and listed in the verified table. GitHub and website figures are different measures and are not added together.</li>
+<li><b>Website verified</b> (rule {sv["rule"]}, from log lines since {since}): {e(sv["basis"])} <i>Incomplete</i> = 200 with fewer/other bytes; <i>Partial</i> = 206 range responses (never promoted); <i>Unverifiable</i> = no known size or version; <i>Automation</i> = our own checks or self-declared crawlers. Requests before {since} have unknown verification.{older} The BY VERSION site columns show only these complete transfers; automation is excluded there and listed in the verified table. GitHub and website figures are different measures and are not added together.</li>
 </ul>
 <h2>BY VERSION</h2>
 <table><thead><tr><th>Version</th><th>Published</th><th>GitHub installers</th><th>GitHub updates</th><th>Site verified .exe</th><th>Site verified .msi</th><th>Site verified .dmg</th><th>Site verified complete</th></tr></thead>
@@ -507,6 +548,8 @@ def build_summary(meta, releases, per_version, win_totals, sv):
     if meta["github_error"]:
         lines.append(f"**GitHub API unavailable this run ({meta['github_error']}); showing last good fetch.**")
     lines.append(f"Verified since {sv['since'] or 'never'}: {sv['basis']}")
+    if sv["older_rule_days"]:
+        lines.append(f"Verified days still bucketed under an older rule (logs gone): {', '.join(sv['older_rule_days'])}")
     lines.append("Other counts are HTTP requests (GitHub includes automation), not people or completed installs.")
     return "\n".join(lines)
 
@@ -527,13 +570,18 @@ def main():
                            "releases": prev.get("github", [])}
     github = state.get("github") or {"fetched": None, "releases": []}
     # Exits before any write if logs are unreadable.
-    fresh, revalidated, coverage, verified = parse_website_downloads(expected_sizes(github["releases"]))
+    fresh, revalidated, coverage, verified = parse_website_downloads(
+        expected_sizes(github["releases"]), load_automation_events())
 
     merge_days(state.setdefault("website", {}), fresh)
     merge_days(state.setdefault("website_304", {}), revalidated)
     # Separate, versioned metric: built only from lines read since this rule shipped.
     # Legacy raw days are never copied in, so older history stays "unknown", not 0.
-    merge_days(state.setdefault("site_verified", {}), verified, verified_day_total)
+    # A day whose logs are gone keeps its old buckets and old rule (days before rules: 1).
+    rules = state.setdefault("site_verified_rules", {})
+    for day in merge_days(state.setdefault("site_verified", {}), verified, verified_day_total):
+        rules[day] = VERIFIED_RULE
+    older = sorted(d for d in state["site_verified"] if rules.get(d, 1) < VERIFIED_RULE)
     if coverage and (not state.get("site_verified_from") or coverage[0] < state["site_verified_from"]):
         state["site_verified_from"] = coverage[0]
     state["site_verified_rule"] = VERIFIED_RULE
@@ -548,7 +596,7 @@ def main():
             "github_error": gh_error, "log_coverage": coverage}
     site_verified = {"rule": VERIFIED_RULE, "since": vfrom, "basis": VERIFIED_BASIS,
                      "per_version": v_per_version, "per_version_family": v_family,
-                     "per_day": v_per_day, "coverage": v_coverage}
+                     "per_day": v_per_day, "coverage": v_coverage, "older_rule_days": older}
     releases = github["releases"]
 
     out_dir.mkdir(parents=True, exist_ok=True)

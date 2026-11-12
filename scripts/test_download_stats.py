@@ -4,6 +4,7 @@
     python3 scripts/test_download_stats.py
 """
 import gzip
+import hashlib
 import importlib.util
 import io
 import json
@@ -18,6 +19,7 @@ HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("stats", HERE / "generate-download-stats.py")
 S = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(S)
+S.AUTOMATION_EVENTS = HERE / "no-such-automation-events-file"  # never the runner's real list
 
 UA = "Mozilla/5.0"
 
@@ -155,6 +157,7 @@ def main():
         assert out5["github"] == [] and out5["github_error"] == "boom" and out5["github_fetched"] is None
     verified_checks()
     display_checks()
+    rule2_checks()
     print("download stats checks: OK")
 
 
@@ -316,6 +319,106 @@ def display_checks():
         assert diag < page.index("website installer requests (raw), recorded") and \
             '<strong>15</strong><small>website installer requests (raw)' in page[diag:]
         assert page.count("(raw)") == page[diag:].count("(raw)"), "raw figure outside diagnostic area"
+
+
+def rule2_checks():
+    """Rule 2: recognised crawlers and private exact events leave 'complete', including on
+    history re-read from retained logs; days whose logs are gone keep rule 1, flagged."""
+    EXE, MSI = 6714328, 9310208
+    FB = "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)"
+    GO = ("Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 "
+          "(KHTML, like Gecko) Chrome/153.0.8010.47 Mobile Safari/537.36 (compatible; GoogleOther)")
+    for ua in (FB, GO, "GoogleOther", "GoogleOther-Image/1.0", "Mozilla/5.0 facebookexternalhit/1.1 Facebot"):
+        assert S.BOT_UA_RE.search(ua), ua
+    BROWSER = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36"
+    for ua in (BROWSER, "Mozilla/5.0", "curl/8.5.0", "Wget/1.21", "Mozilla/5.0 (Macintosh) Safari/605.1.15"):
+        assert not S.BOT_UA_RE.search(ua) and not S.INTERNAL_UA_RE.search(ua), ua
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        logs, dl = d / "logs", d / "downloads"
+        logs.mkdir(); dl.mkdir()
+        S.LOG_GLOB = str(logs / "compass.access.log*")
+        S.DOWNLOADS_DIR, S.WEB_ROOT, S.STATE_FILE = dl, d / "web", d / "state.json"
+        for n, size in (("Compass_1.3.9_x64-setup.exe", EXE), ("Compass_1.3.9_x64_en-US.msi", MSI)):
+            with open(dl / n, "wb") as fh:
+                fh.truncate(size)
+            os.utime(dl / n, (1761700000, 1761700000))  # 2025: hosted before every line below
+        S.urllib.request.urlopen = fake_api([[]])
+        T = "02/Nov/2026:10:00:{:02d} +0000"
+        ours = bline(T.format(5), "GET", "/downloads/Compass.exe", 200, EXE, ua=UA)  # internal, browser-shaped
+        day = "".join([
+            bline(T.format(0), "GET", "/downloads/Compass.exe", 200, EXE, ua=FB),
+            bline(T.format(1), "GET", "/downloads/Compass.msi", 200, MSI, ua=FB),
+            bline(T.format(2), "GET", "/downloads/Compass.exe", 200, EXE, ua=GO),
+            bline(T.format(3), "GET", "/downloads/Compass.exe", 200, EXE, ua=BROWSER),     # stays complete
+            bline(T.format(4), "GET", "/downloads/Compass.exe", 200, EXE, ua="curl/8.5.0"),  # stays complete
+            ours,
+            bline(T.format(6), "GET", "/downloads/Compass.exe", 200, EXE, ua=UA),  # same address+UA: complete
+            bline(T.format(7), "GET", "/downloads/Compass.exe", 200, 1024, ua=FB),  # crawler beats size
+            bline(T.format(8), "GET", "/downloads/Compass.msi", 206, MSI),         # partial unchanged
+            bline(T.format(9), "GET", "/downloads/Compass.msi", 200, 99),          # incomplete unchanged
+        ])
+        (logs / "compass.access.log.1").write_text(day)
+        (logs / "compass.access.log").write_text(bline("03/Nov/2026:09:00:00 +0000", "GET", "/", 200, 10))
+        # What rule 1 stored for these exact lines (crawlers and our check counted complete),
+        # plus 11-01, whose logs have rotated away since.
+        rule1_day = {"exe": {"1.3.9": {"complete": 6, "incomplete": 1}},
+                     "msi": {"1.3.9": {"complete": 1, "partial": 1, "incomplete": 1}}}
+        gone = {"exe": {"1.3.9": {"complete": 2, "automation": 1}}}
+        raw = {"2026-11-01": {"exe": {"1.3.9": 3}}, "2026-11-02": {"exe": {"1.3.9": 7}, "msi": {"1.3.9": 3}}}
+        S.STATE_FILE.write_text(json.dumps({
+            "website": raw, "site_verified": {"2026-11-01": gone, "2026-11-02": rule1_day},
+            "site_verified_from": "2026-11-01T00:00:00+00:00", "site_verified_rule": 1, "updated": "x"}))
+
+        # Private list: one exact line. Missing file = none; malformed file or a hash that
+        # matches two lines exits before anything is written.
+        S.AUTOMATION_EVENTS = d / "automation-events"
+        before = S.STATE_FILE.read_text()
+        for bad in ("not-a-hash\n", hashlib.sha256(b"x").hexdigest()[:63] + "\n"):
+            S.AUTOMATION_EVENTS.write_text(bad)
+            try:
+                S.main(); raise AssertionError("expected exit on malformed automation events")
+            except SystemExit:
+                pass
+            assert S.STATE_FILE.read_text() == before
+        (logs / "compass.access.log").write_text(ours)  # the same exact line twice in the logs
+        S.AUTOMATION_EVENTS.write_text("# ours\n" + hashlib.sha256(ours.rstrip("\n").encode()).hexdigest() + "\n")
+        try:
+            S.main(); raise AssertionError("expected exit on an ambiguous automation event")
+        except SystemExit:
+            pass
+        assert S.STATE_FILE.read_text() == before
+        (logs / "compass.access.log").write_text(bline("03/Nov/2026:09:00:00 +0000", "GET", "/", 200, 10))
+
+        state, out = run(d)
+        sv = out["site_verified"]
+        new_day = state["site_verified"]["2026-11-02"]
+        assert new_day == {"exe": {"1.3.9": {"complete": 3, "automation": 4}},
+                           "msi": {"1.3.9": {"automation": 1, "partial": 1, "incomplete": 1}}}, new_day
+        # Re-bucketing, not adding: same event total, raw requests untouched, complete may go down.
+        assert S.verified_day_total(new_day) == S.verified_day_total(rule1_day) == 10
+        assert state["website"] == raw
+        assert state["site_verified"]["2026-11-01"] == gone  # logs gone: kept as stored
+        assert state["site_verified_rules"] == {"2026-11-02": 2} and sv["rule"] == 2
+        assert sv["older_rule_days"] == ["2026-11-01"]
+        assert sv["per_version"]["1.3.9"] == {"complete": 5, "incomplete": 1, "partial": 1,
+                                              "unverifiable": 0, "automation": 6}
+        page = (S.WEB_ROOT / S.STATS_DIR / "index.html").read_text()
+        assert "older rule because their logs are gone: 2026-11-01." in page
+        # Rerun: idempotent, nothing subtracted twice.
+        state2, out2 = run(d)
+        assert state2["site_verified"] == state["site_verified"] and out2["site_verified"] == sv
+        # The day partly rotates away: smaller re-read keeps the rule-2 buckets.
+        (logs / "compass.access.log.1").write_text(day.split("\n", 3)[3])
+        state3, _ = run(d)
+        assert state3["site_verified"] == state["site_verified"]
+        assert state3["site_verified_rules"] == {"2026-11-02": 2}
+        # Without the private list (or once its line is gone) that event is complete again
+        # if re-read: the list, not a count, carries the correction.
+        S.AUTOMATION_EVENTS.unlink()
+        (logs / "compass.access.log.1").write_text(day)
+        assert run(d)[0]["site_verified"]["2026-11-02"]["exe"]["1.3.9"] == {"complete": 4, "automation": 3}
+    S.AUTOMATION_EVENTS = HERE / "no-such-automation-events-file"
 
 
 if __name__ == "__main__":
