@@ -20,6 +20,7 @@ spec = importlib.util.spec_from_file_location("stats", HERE / "generate-download
 S = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(S)
 S.AUTOMATION_EVENTS = HERE / "no-such-automation-events-file"  # never the runner's real list
+S.RECOGNITION_GLOB = str(HERE / "no-such-recognition-log*")  # never the host's real log
 
 UA = "Mozilla/5.0"
 
@@ -158,6 +159,7 @@ def main():
     verified_checks()
     display_checks()
     rule2_checks()
+    recognition_checks()
     print("download stats checks: OK")
 
 
@@ -419,6 +421,49 @@ def rule2_checks():
         (logs / "compass.access.log.1").write_text(day)
         assert run(d)[0]["site_verified"]["2026-11-02"]["exe"]["1.3.9"] == {"complete": 4, "automation": 3}
     S.AUTOMATION_EVENTS = HERE / "no-such-automation-events-file"
+
+
+def recognition_checks():
+    """Opt-in counting: rolling 7 days, distinct IDs, 2+ UTC days; never an ID in state/output;
+    not started -> absent; started then missing -> unavailable, not zero."""
+    now = datetime(2026, 11, 20, 12, 0, tzinfo=timezone.utc)
+    ts = lambda s: datetime.fromisoformat(s).replace(tzinfo=timezone.utc).timestamp()
+    A, B, C, OLD = "a" * 32, "b" * 32, "c" * 32, "d" * 32
+    rows = [(A, "2026-11-19T23:59:59"), (A, "2026-11-20T00:00:01"), (B, "2026-11-20T08:00:00"),
+            (B, "2026-11-20T09:00:00"), (OLD, "2026-11-13T11:59:59"), (C, "2026-11-14T00:00:00")]
+    body = "".join(json.dumps({"v": 1, "t": ts(t), "id": i}) + "\n" for i, t in rows)
+    body += 'not json\n{"v":1,"t":1,"id":"ZZ"}\n{"v":1,"t":"x","id":"' + "e" * 32 + '"}\n'
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        S.RECOGNITION_GLOB = str(d / "compass-recognition.jsonl*")
+        state = {}
+        assert S.recognition_counts(state, now) is None and state == {}  # not started: nothing
+        (d / "compass-recognition.jsonl").write_text(body[: len(body) // 2])
+        with gzip.open(d / "compass-recognition.jsonl.1.gz", "wt") as fh:
+            fh.write(body[len(body) // 2:])
+        (d / "compass-recognition.jsonl.1").write_text(body[len(body) // 2:])  # mid-rotation twin
+        r = S.recognition_counts(state, now)
+        assert r == {"available": True, "window_days": 7, "window_start": "2026-11-13T12:00Z",
+                     "window_end": "2026-11-20T12:00Z", "browsers": 3, "multi_day": 1, "partial": True}, r
+        assert state == {"recognition_seen_from": "2026-11-20"}
+        later = datetime(2026, 11, 28, 12, 0, tzinfo=timezone.utc)
+        assert S.recognition_counts(state, later)["partial"] is False
+        for f in d.iterdir():
+            f.unlink()
+        assert S.recognition_counts(state, later) == {"available": False}  # started, then missing
+        # End to end through main(): the aggregate is published, no ID reaches state or output.
+        (d / "compass-recognition.jsonl").write_text(json.dumps({"v": 1, "t": time.time(), "id": A}) + "\n")
+        logs = d / "logs"; logs.mkdir()
+        S.LOG_GLOB = str(logs / "compass.access.log*")
+        (logs / "compass.access.log").write_text("")
+        S.DOWNLOADS_DIR, S.WEB_ROOT, S.STATE_FILE = d / "dl", d / "web", d / "state.json"
+        S.urllib.request.urlopen = fake_api([[release(1)]])
+        st, out = run(d)
+        assert out["recognition"]["browsers"] == 1 and out["recognition"]["available"] is True
+        blob = S.STATE_FILE.read_text() + (S.WEB_ROOT / S.STATS_DIR / "stats.json").read_text() \
+            + (S.WEB_ROOT / S.STATS_DIR / "index.html").read_text()
+        assert A not in blob
+    S.RECOGNITION_GLOB = str(HERE / "no-such-recognition-log*")
 
 
 if __name__ == "__main__":

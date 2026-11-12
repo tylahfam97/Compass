@@ -58,6 +58,9 @@ Environment (all optional):
   AUTOMATION_EVENTS  private list of sha256 hashes of exact log lines that were our own
                  traffic without a marker (default ~/.compass-download-stats-automation-events;
                  absent = none). Exact events only, never an address rule; never commit it.
+  RECOGNITION_GLOB  opt-in browser counting log written by the proxy's /_measure location
+                 (default /var/log/nginx/compass-recognition.jsonl*). Only aggregates are
+                 published; IDs are never stored in state or output.
 """
 
 import glob
@@ -81,6 +84,8 @@ STATS_DIR = os.environ.get("STATS_DIR", "stats")
 STATE_FILE = Path(os.environ.get("STATE_FILE", str(Path.home() / ".compass-download-stats-state.json")))
 AUTOMATION_EVENTS = Path(os.environ.get(
     "AUTOMATION_EVENTS", str(Path.home() / ".compass-download-stats-automation-events")))
+RECOGNITION_GLOB = os.environ.get("RECOGNITION_GLOB", "/var/log/nginx/compass-recognition.jsonl*")
+RECOGNITION_ID_RE = re.compile(r"[0-9a-f]{32}")
 
 FAMILIES = ("exe", "msi", "dmg")
 # 2: facebookexternalhit/GoogleOther are crawlers, plus private exact-event automation.
@@ -259,6 +264,40 @@ def load_automation_events() -> set:
     if not all(re.fullmatch(r"[0-9a-f]{64}", h) for h in hashes):
         sys.exit(f"::error title=Bad automation events file::{AUTOMATION_EVENTS} must hold one sha256 per line")
     return hashes
+
+
+def recognition_counts(state: dict, now: datetime):
+    """Rolling 7-day opt-in browser counts from the dedicated log: distinct IDs, and IDs seen
+    on 2+ UTC days. None = counting not started (render nothing); {"available": False} = it
+    started but the log is missing or unreadable now (unknown, not zero). State keeps only
+    the first date the log was seen, never an ID."""
+    files = sorted(glob.glob(RECOGNITION_GLOB))
+    if not files:
+        return {"available": False} if state.get("recognition_seen_from") else None
+    start = now - timedelta(days=7)
+    days = {}
+    try:
+        for f in files:
+            if f.endswith(".gz") and f[:-3] in files:
+                continue
+            with (gzip.open if f.endswith(".gz") else open)(f, "rt", errors="replace") as fh:
+                for raw in fh:
+                    try:
+                        r = json.loads(raw)
+                        t, rid = datetime.fromtimestamp(float(r["t"]), timezone.utc), r["id"]
+                    except (ValueError, KeyError, TypeError, OverflowError):
+                        continue
+                    if isinstance(rid, str) and RECOGNITION_ID_RE.fullmatch(rid) and start <= t <= now:
+                        days.setdefault(rid, set()).add(t.date())
+    except OSError as e:
+        print(f"::warning title=Recognition log unreadable::{e}", file=sys.stderr)
+        return {"available": False}
+    seen = state.setdefault("recognition_seen_from", now.date().isoformat())
+    return {"available": True, "window_days": 7, "window_start": start.strftime("%Y-%m-%dT%H:%MZ"),
+            "window_end": now.strftime("%Y-%m-%dT%H:%MZ"), "browsers": len(days),
+            "multi_day": sum(len(d) > 1 for d in days.values()),
+            # ponytail: only the first-seen date is tracked; a later log gap is not detected.
+            "partial": seen > start.date().isoformat()}
 
 
 def parse_website_downloads(sizes=None, private=frozenset()):
@@ -591,6 +630,7 @@ def main():
     v_per_version, v_per_day, v_coverage = rollup_verified(state["site_verified"], state["website"], vfrom)
     v_family = rollup({d: {f: {v: b.get("complete", 0) for v, b in vers.items()} for f, vers in fams.items()}
                        for d, fams in state["site_verified"].items()})[0]
+    recognition = recognition_counts(state, datetime.now(timezone.utc))
     save_state(state)
     meta = {"updated": state["updated"], "github_fetched": github["fetched"],
             "github_error": gh_error, "log_coverage": coverage}
@@ -610,6 +650,7 @@ def main():
         "website_per_day": per_day_totals,
         "website_304_per_day": state["website_304"],
         "site_verified": site_verified,
+        **({"recognition": recognition} if recognition else {}),
     }, indent=1, sort_keys=True))
 
     print(build_summary(meta, releases, per_version, win_totals, site_verified))
