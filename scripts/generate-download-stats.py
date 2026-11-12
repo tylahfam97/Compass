@@ -470,7 +470,23 @@ footer{margin-top:40px;color:var(--muted);font-size:12px;border-top:1px solid va
 """
 
 
-def build_page(meta, releases, per_version, per_day_totals, revalidated, win_totals, sv):
+def recognition_html(r) -> str:
+    """Opt-in counting panels (Peitho strings-v2 stats.recognition_*); nothing before go-live."""
+    if not r:
+        return ""
+    if not r["available"]:
+        return ('<div class="cards"><div class="card"><strong>Not available</strong><small>Visit counting wasn\'t running, '
+                "or its log was missing, for this period. There's no number here, and that's different from zero.</small></div></div>")
+    win = f'{r["window_start"]} to {r["window_end"]} UTC'
+    return (f'<div class="cards"><div class="card"><strong>{r["browsers"]}</strong><small>Opted-in browsers, last 7 days. '
+            "Different random codes seen in the last seven days from browsers that chose Allow. This isn't a visitor count: "
+            "most visitors never opt in, one person can use several browsers, and software can send codes too. "
+            f'({html.escape(win)})</small></div>'
+            f'<div class="card"><strong>{r["multi_day"]}</strong><small>Seen on more than one day. Codes from that group '
+            "seen on two or more different calendar days (UTC).</small></div></div>")
+
+
+def build_page(meta, releases, per_version, per_day_totals, revalidated, win_totals, sv, recognition=None):
     e = html.escape
     gh_total = sum(r["total"] for r in releases)
     upd_total = sum(r.get("updater", 0) for r in releases)
@@ -535,6 +551,7 @@ def build_page(meta, releases, per_version, per_day_totals, revalidated, win_tot
 <div class="card"><strong>{upd_total}</strong><small>GitHub in-app update packages, all time</small></div>
 <div class="card"><strong>{v_total}</strong><small>website verified complete transfers, since {since[:10]}</small></div>
 </div>
+{recognition_html(recognition)}
 <h2>WHAT IS COUNTED</h2>
 <ul class="notes">
 <li><b>GitHub installers</b>: GitHub's download_count for each release's .exe, .msi and .dmg. GitHub counts every fetch, including automation: the Host Release Downloads job fetches each hosted installer once per stable release, and other fetches may also be automated. Nothing is subtracted.</li>
@@ -642,7 +659,7 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "index.html").write_text(
         build_page(meta, releases, per_version, per_day_totals, state["website_304"], win_totals,
-                   site_verified))
+                   site_verified, recognition))
     (out_dir / "stats.json").write_text(json.dumps({
         **meta,
         "github": releases,

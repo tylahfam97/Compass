@@ -463,6 +463,9 @@ def recognition_checks():
         blob = S.STATE_FILE.read_text() + (S.WEB_ROOT / S.STATS_DIR / "stats.json").read_text() \
             + (S.WEB_ROOT / S.STATS_DIR / "index.html").read_text()
         assert A not in blob
+        page = (S.WEB_ROOT / S.STATS_DIR / "index.html").read_text()
+        assert "Opted-in browsers, last 7 days" in page and "Seen on more than one day" in page
+        assert S.recognition_html(None) == "" and "Not available" in S.recognition_html({"available": False})
     S.RECOGNITION_GLOB = str(HERE / "no-such-recognition-log*")
 
 
