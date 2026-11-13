@@ -44,4 +44,8 @@
     <loc>https://privatecompass.app/privacy/</loc>
     <priority>0.3</priority>
   </url>
+  <url>
+    <loc>https://privatecompass.app/terms/</loc>
+    <priority>0.3</priority>
+  </url>
 </urlset>
