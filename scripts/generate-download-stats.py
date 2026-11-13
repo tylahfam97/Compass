@@ -470,6 +470,24 @@ footer{margin-top:40px;color:var(--muted);font-size:12px;border-top:1px solid va
 """
 
 
+# Peitho strings-v3 stats.*: one label per classify() bucket, never two summed under one label.
+BUCKET_TEXT = {
+    'complete': ('Complete transfers from privatecompass.app',
+                   "Times our server sent a whole installer file, matching its known size. A transfer isn't a person or an install. Transfers we can't attribute to known automated software are included."),
+    'automation': ('Known automated and test requests',
+                     "Installer requests from software that identifies itself as a crawler or bot, plus our own test requests. Counted here whatever their size, whole file or not. They're never counted as complete downloads or as incomplete, partial or unverifiable transfers. The raw diagnostic request counts on this page do include them."),
+    'incomplete': ('Incomplete transfers',
+                     "Requests for a whole installer where our server sent a different number of bytes than the file's known size, for example because the download stopped early. Not counted as complete."),
+    'partial': ('Partial requests',
+                  'Requests for only part of an installer file (HTTP 206), such as a resumed download or a download manager fetching pieces. Several can belong to one download. Not counted as complete.'),
+    'unverifiable': ("Transfers we couldn't check",
+                       "Requests for a whole installer where we didn't know the file's expected size or version, or the log had no byte count, so we can't tell whether the whole file was sent. Not counted as complete."),
+}
+INTRO = 'Totals from our server logs and GitHub, updated {updated} UTC. This page is public but unlisted, and it shows totals only: no network addresses or browser details.'
+INTRO_RECOGNITION = 'Totals from our server logs and GitHub, updated {updated} UTC. This page is public but unlisted, and it shows totals only: no network addresses, browser details or codes.'
+GITHUB_TEXT = ('GitHub installer downloads', "GitHub's own count for installer files on our releases page. It can include automated fetches, and we don't add it to our server's numbers. App update packages are counted separately.")
+
+
 def recognition_html(r) -> str:
     """Opt-in counting panels (Peitho strings-v2 stats.recognition_*); nothing before go-live."""
     if not r:
@@ -496,8 +514,13 @@ def build_page(meta, releases, per_version, per_day_totals, revalidated, win_tot
         key=semver_key, reverse=True)
     gh_by_version = {r["tag"].lstrip("v"): r for r in releases}
     vpv, vcov = sv["per_version"], sv["coverage"]
-    v_total = sum(b["complete"] for b in vpv.values())
     since = e(sv["since"] or "never")
+    totals = {k: sum(b[k] for b in vpv.values()) if sv["since"] else "unknown" for k in BUCKET_TEXT}
+    bucket_cards = "".join(f'<div class="card"><strong>{totals[k]}</strong><small>{lab}. {desc} '
+                           f'(since {since[:10]})</small></div>' for k, (lab, desc) in BUCKET_TEXT.items())
+    bucket_th = "".join(f"<th>{BUCKET_TEXT[k][0]}</th>" for k in BUCKETS)
+    intro = (INTRO_RECOGNITION if recognition else INTRO).format(
+        updated=e(meta["updated"][:16].replace("T", " ")))
     older = (f' Days still bucketed under an older rule because their logs are gone: {e(", ".join(sv["older_rule_days"]))}.'
              if sv["older_rule_days"] else "")
 
@@ -544,13 +567,13 @@ def build_page(meta, releases, per_version, per_day_totals, revalidated, win_tot
 <title>Compass — download log</title><style>{PAGE_CSS}</style></head>
 <body>
 <h1>Compass <span>download log</span></h1>
-<p class="sub">Download requests by version and source. Requests, not people or completed installs. Not linked anywhere.</p>
+<p class="sub">{intro}</p>
 {warn}
 <div class="cards">
-<div class="card"><strong>{gh_total}</strong><small>GitHub installer fetches, all time</small></div>
+<div class="card"><strong>{gh_total}</strong><small>{GITHUB_TEXT[0]}. {GITHUB_TEXT[1]}</small></div>
 <div class="card"><strong>{upd_total}</strong><small>GitHub in-app update packages, all time</small></div>
-<div class="card"><strong>{v_total}</strong><small>website verified complete transfers, since {since[:10]}</small></div>
 </div>
+<div class="cards">{bucket_cards}</div>
 {recognition_html(recognition)}
 <h2>WHAT IS COUNTED</h2>
 <ul class="notes">
@@ -564,7 +587,7 @@ def build_page(meta, releases, per_version, per_day_totals, revalidated, win_tot
 <table><thead><tr><th>Version</th><th>Published</th><th>GitHub installers</th><th>GitHub updates</th><th>Site verified .exe</th><th>Site verified .msi</th><th>Site verified .dmg</th><th>Site verified complete</th></tr></thead>
 <tbody>{"".join(rows) or '<tr><td colspan="8">Nothing recorded yet.</td></tr>'}</tbody></table>
 <h2>WEBSITE VERIFIED TRANSFERS BY VERSION</h2>
-<table><thead><tr><th>Version</th><th>Complete</th><th>Incomplete 200</th><th>Partial 206</th><th>Unverifiable</th><th>Automation</th><th>Coverage</th></tr></thead>
+<table><thead><tr><th>Version</th>{bucket_th}<th>Coverage</th></tr></thead>
 <tbody>{"".join(vrows) or '<tr><td colspan="7">No log lines verified yet.</td></tr>'}</tbody></table>
 <h2>WEBSITE RAW REQUESTS (DIAGNOSTIC, INCLUDES AUTOMATION)</h2>
 <div class="cards">

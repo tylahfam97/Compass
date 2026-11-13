@@ -71,7 +71,7 @@
 
     <h2>Download statistics</h2>
     <p>From the server logs we count completed installer transfers by day, platform and version. A complete transfer means our server sent one whole installer file, matching that file's known size. That's a file transfer, not a person or an install: one person can download twice, and a downloaded file may never be installed. Transfers we can't attribute to known automated software stay in the count.</p>
-    <p>Other installer requests are sorted into their own groups and never added to that count. Requests from software that identifies itself as a crawler or bot, and our own test requests, form one group whatever their size. The rest are transfers that ended short of the full file, requests for only part of a file, and transfers we couldn't check against a known file size. GitHub's download counts are also reported separately.</p>
+    <p>Other installer requests are sorted into their own groups and never added to that count. Requests from software that identifies itself as a crawler or bot, and our own test requests, form one group whatever their size. The rest are transfers where the bytes sent didn't match the file's known size, requests for only part of a file, and transfers we couldn't check against a known file size. GitHub's download counts are also reported separately.</p>
     <p>The totals are published on a statistics page. It isn't linked from the site or listed in search engines, but anyone with the address can open it. The totals contain no network addresses, browser details or identifiers, and we keep them as a running daily history.</p>
 
     <h2>Cookies and browser storage</h2>
