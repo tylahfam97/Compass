@@ -30,7 +30,8 @@ Verified site transfers (state key "site_verified", rule VERIFIED_RULE) are a
 separate metric recomputed only from log lines actually read, never derived
 from the raw history above. Each GET installer line lands in exactly one bucket:
   automation    our own checks (verification UA / ?verify= marker) or a
-                self-declared crawler UA; kept out of the other buckets
+                self-declared crawler UA, or one exact log line listed (hashed)
+                in AUTOMATION_EVENTS; kept out of the other buckets
   complete      200 and bytes sent == the known size of that version/family
                 (GitHub release asset size or the hosted versioned file).
                 Proves nginx handed the whole file to Cloudflare - not that a
@@ -54,10 +55,17 @@ Environment (all optional):
   WEB_ROOT       website document root                (default /var/www/compass/website)
   STATS_DIR      page directory name under WEB_ROOT   (default "stats")
   STATE_FILE     accumulated per-day counts           (default ~/.compass-download-stats-state.json)
+  AUTOMATION_EVENTS  private list of sha256 hashes of exact log lines that were our own
+                 traffic without a marker (default ~/.compass-download-stats-automation-events;
+                 absent = none). Exact events only, never an address rule; never commit it.
+  RECOGNITION_GLOB  opt-in browser counting log written by the proxy's /_measure location
+                 (default /var/log/nginx/compass-recognition.jsonl*). Only aggregates are
+                 published; IDs are never stored in state or output.
 """
 
 import glob
 import gzip
+import hashlib
 import html
 import json
 import os
@@ -74,16 +82,23 @@ DOWNLOADS_DIR = Path(os.environ.get("DOWNLOADS_DIR", "/var/www/compass/downloads
 WEB_ROOT = Path(os.environ.get("WEB_ROOT", "/var/www/compass/website"))
 STATS_DIR = os.environ.get("STATS_DIR", "stats")
 STATE_FILE = Path(os.environ.get("STATE_FILE", str(Path.home() / ".compass-download-stats-state.json")))
+AUTOMATION_EVENTS = Path(os.environ.get(
+    "AUTOMATION_EVENTS", str(Path.home() / ".compass-download-stats-automation-events")))
+RECOGNITION_GLOB = os.environ.get("RECOGNITION_GLOB", "/var/log/nginx/compass-recognition.jsonl*")
+RECOGNITION_ID_RE = re.compile(r"[0-9a-f]{32}")
 
 FAMILIES = ("exe", "msi", "dmg")
-VERIFIED_RULE = 1
+# 2: facebookexternalhit/GoogleOther are crawlers, plus private exact-event automation.
+# Each stored day records the rule it was last bucketed under (state "site_verified_rules").
+VERIFIED_RULE = 2
 VERIFIED_BASIS = ("complete = origin GET 200 whose bytes sent equal the known size of that version's "
                   "installer: the whole file left the server. Not people, saves or installs.")
 BUCKETS = ("complete", "incomplete", "partial", "unverifiable", "automation")
 # Our own release checks identify themselves; crawlers that say so are split out too.
 # ponytail: UA heuristic only; a plain curl or browser UA stays eligible (it may be a person).
 INTERNAL_UA_RE = re.compile(r"compass-release-verification|hermes", re.IGNORECASE)
-BOT_UA_RE = re.compile(r"bot\b|bot/|crawl|spider|slurp|headless", re.IGNORECASE)
+BOT_UA_RE = re.compile(r"bot\b|bot/|crawl|spider|slurp|headless|\bfacebookexternalhit\b|\bgoogleother\b",
+                       re.IGNORECASE)
 PER_PAGE = 100
 VERSIONED_RE = re.compile(r"^Compass_(\d+\.\d+\.\d+)_.*\.(exe|msi|dmg)$", re.IGNORECASE)
 # nginx "combined" format: ip - user [time] "METHOD path HTTP/x" status bytes "referer" "ua"
@@ -239,12 +254,59 @@ def read_log_lines():
                      "sudo usermod -aG adm <runner user>, then restart the runner service and re-run.")
 
 
-def parse_website_downloads(sizes=None):
+def load_automation_events() -> set:
+    """sha256 hex of exact raw log lines known to be our own traffic. A bad file exits
+    before anything is written; a missing file means none."""
+    if not AUTOMATION_EVENTS.is_file():
+        return set()
+    hashes = {s.strip().lower() for s in AUTOMATION_EVENTS.read_text().splitlines()
+              if s.strip() and not s.lstrip().startswith("#")}
+    if not all(re.fullmatch(r"[0-9a-f]{64}", h) for h in hashes):
+        sys.exit(f"::error title=Bad automation events file::{AUTOMATION_EVENTS} must hold one sha256 per line")
+    return hashes
+
+
+def recognition_counts(state: dict, now: datetime):
+    """Rolling 7-day opt-in browser counts from the dedicated log: distinct IDs, and IDs seen
+    on 2+ UTC days. None = counting not started (render nothing); {"available": False} = it
+    started but the log is missing or unreadable now (unknown, not zero). State keeps only
+    the first date the log was seen, never an ID."""
+    files = sorted(glob.glob(RECOGNITION_GLOB))
+    if not files:
+        return {"available": False} if state.get("recognition_seen_from") else None
+    start = now - timedelta(days=7)
+    days = {}
+    try:
+        for f in files:
+            if f.endswith(".gz") and f[:-3] in files:
+                continue
+            with (gzip.open if f.endswith(".gz") else open)(f, "rt", errors="replace") as fh:
+                for raw in fh:
+                    try:
+                        r = json.loads(raw)
+                        t, rid = datetime.fromtimestamp(float(r["t"]), timezone.utc), r["id"]
+                    except (ValueError, KeyError, TypeError, OverflowError):
+                        continue
+                    if isinstance(rid, str) and RECOGNITION_ID_RE.fullmatch(rid) and start <= t <= now:
+                        days.setdefault(rid, set()).add(t.date())
+    except OSError as e:
+        print(f"::warning title=Recognition log unreadable::{e}", file=sys.stderr)
+        return {"available": False}
+    seen = state.setdefault("recognition_seen_from", now.date().isoformat())
+    return {"available": True, "window_days": 7, "window_start": start.strftime("%Y-%m-%dT%H:%MZ"),
+            "window_end": now.strftime("%Y-%m-%dT%H:%MZ"), "browsers": len(days),
+            "multi_day": sum(len(d) > 1 for d in days.values()),
+            # ponytail: only the first-seen date is tracked; a later log gap is not detected.
+            "partial": seen > start.date().isoformat()}
+
+
+def parse_website_downloads(sizes=None, private=frozenset()):
     """Days (the log's own calendar date, as stored since tracking began) in the current logs:
     counts      {day: {family: {version: n}}}  GET 200/206 on /downloads/ installers
     revalidated {day: n}                       GET 304 on the same paths (not downloads)
     coverage    [first, last] request time seen in the logs, or None
     verified    {day: {family: {version: {bucket: n}}}}  see module docstring
+    private     line hashes from load_automation_events(); each may match one line only
     """
     sizes = sizes or {}
     verified: dict = {}
@@ -253,6 +315,7 @@ def parse_website_downloads(sizes=None):
     revalidated: dict = {}
     first = last = None
     partial_seen = set()  # (day, path, version, ip, ua) - download managers send many 206s per file
+    matched: dict = {}
     for line in read_log_lines():
         m = LOG_RE.match(line)
         if not m:
@@ -277,7 +340,12 @@ def parse_website_downloads(sizes=None):
             continue
         vm = VERSIONED_RE.match(fname)
         version = vm.group(1) if vm else attribute(timeline, ext, when)
-        b = classify(status, _bytes, fname, version, ext, query, ua, sizes)
+        h = hashlib.sha256(line.rstrip("\r\n").encode()).hexdigest() if private else None
+        if h in private:
+            matched[h] = matched.get(h, 0) + 1
+            b = "automation"
+        else:
+            b = classify(status, _bytes, fname, version, ext, query, ua, sizes)
         vb = verified.setdefault(day, {}).setdefault(ext, {}).setdefault(version, {})
         vb[b] = vb.get(b, 0) + 1
         if status == "206":
@@ -287,6 +355,12 @@ def parse_website_downloads(sizes=None):
             partial_seen.add(key)
         per = counts.setdefault(day, {}).setdefault(ext, {})
         per[version] = per.get(version, 0) + 1
+    if any(n > 1 for n in matched.values()):
+        sys.exit("::error title=Ambiguous automation event::a private line hash matched more than one "
+                 "log line; nothing was written")
+    if private:
+        print(f"::notice title=Private automation events::{len(matched)} of {len(private)} matched "
+              "in the logs read", file=sys.stderr)
     coverage = [first.isoformat(timespec="seconds"), last.isoformat(timespec="seconds")] if first and last else None
     return counts, revalidated, coverage, verified
 
@@ -301,10 +375,14 @@ def verified_day_total(rec) -> int:
 
 def merge_days(stored: dict, fresh: dict, total=day_total):
     """A re-read day replaces the stored one only if it is not smaller: rotation can
-    leave the oldest day partially in the logs, and that must not erase history."""
+    leave the oldest day partially in the logs, and that must not erase history.
+    Equal size re-buckets a fully re-read day. Returns the days replaced."""
+    replaced = []
     for day, rec in fresh.items():
         if day not in stored or total(rec) >= total(stored[day]):
             stored[day] = rec
+            replaced.append(day)
+    return replaced
 
 
 def load_state() -> dict:
@@ -392,7 +470,41 @@ footer{margin-top:40px;color:var(--muted);font-size:12px;border-top:1px solid va
 """
 
 
-def build_page(meta, releases, per_version, per_day_totals, revalidated, win_totals, sv):
+# Peitho strings-v3 stats.*: one label per classify() bucket, never two summed under one label.
+BUCKET_TEXT = {
+    'complete': ('Complete transfers from privatecompass.app',
+                   "Times our server sent a whole installer file, matching its known size. A transfer isn't a person or an install. Transfers we can't attribute to known automated software are included."),
+    'automation': ('Known automated and test requests',
+                     "Installer requests from software that identifies itself as a crawler or bot, plus our own test requests. Counted here whatever their size, whole file or not. They're never counted as complete downloads or as incomplete, partial or unverifiable transfers. The raw diagnostic request counts on this page do include them."),
+    'incomplete': ('Incomplete transfers',
+                     "Requests for a whole installer where our server sent a different number of bytes than the file's known size, for example because the download stopped early. Not counted as complete."),
+    'partial': ('Partial requests',
+                  'Requests for only part of an installer file (HTTP 206), such as a resumed download or a download manager fetching pieces. Several can belong to one download. Not counted as complete.'),
+    'unverifiable': ("Transfers we couldn't check",
+                       "Requests for a whole installer where we didn't know the file's expected size or version, or the log had no byte count, so we can't tell whether the whole file was sent. Not counted as complete."),
+}
+INTRO = 'Totals from our server logs and GitHub, updated {updated} UTC. This page is public but unlisted, and it shows totals only: no network addresses or browser details.'
+INTRO_RECOGNITION = 'Totals from our server logs and GitHub, updated {updated} UTC. This page is public but unlisted, and it shows totals only: no network addresses, browser details or codes.'
+GITHUB_TEXT = ('GitHub installer downloads', "GitHub's own count for installer files on our releases page. It can include automated fetches, and we don't add it to our server's numbers. App update packages are counted separately.")
+
+
+def recognition_html(r) -> str:
+    """Opt-in counting panels (Peitho strings-v2 stats.recognition_*); nothing before go-live."""
+    if not r:
+        return ""
+    if not r["available"]:
+        return ('<div class="cards"><div class="card"><strong>Not available</strong><small>Visit counting wasn\'t running, '
+                "or its log was missing, for this period. There's no number here, and that's different from zero.</small></div></div>")
+    win = f'{r["window_start"]} to {r["window_end"]} UTC'
+    return (f'<div class="cards"><div class="card"><strong>{r["browsers"]}</strong><small>Opted-in browsers, last 7 days. '
+            "Different random codes seen in the last seven days from browsers that chose Allow. This isn't a visitor count: "
+            "most visitors never opt in, one person can use several browsers, and software can send codes too. "
+            f'({html.escape(win)})</small></div>'
+            f'<div class="card"><strong>{r["multi_day"]}</strong><small>Seen on more than one day. Codes from that group '
+            "seen on two or more different calendar days (UTC).</small></div></div>")
+
+
+def build_page(meta, releases, per_version, per_day_totals, revalidated, win_totals, sv, recognition=None):
     e = html.escape
     gh_total = sum(r["total"] for r in releases)
     upd_total = sum(r.get("updater", 0) for r in releases)
@@ -402,8 +514,15 @@ def build_page(meta, releases, per_version, per_day_totals, revalidated, win_tot
         key=semver_key, reverse=True)
     gh_by_version = {r["tag"].lstrip("v"): r for r in releases}
     vpv, vcov = sv["per_version"], sv["coverage"]
-    v_total = sum(b["complete"] for b in vpv.values())
     since = e(sv["since"] or "never")
+    totals = {k: sum(b[k] for b in vpv.values()) if sv["since"] else "unknown" for k in BUCKET_TEXT}
+    bucket_cards = "".join(f'<div class="card"><strong>{totals[k]}</strong><small>{lab}. {desc} '
+                           f'(since {since[:10]})</small></div>' for k, (lab, desc) in BUCKET_TEXT.items())
+    bucket_th = "".join(f"<th>{BUCKET_TEXT[k][0]}</th>" for k in BUCKETS)
+    intro = (INTRO_RECOGNITION if recognition else INTRO).format(
+        updated=e(meta["updated"][:16].replace("T", " ")))
+    older = (f' Days still bucketed under an older rule because their logs are gone: {e(", ".join(sv["older_rule_days"]))}.'
+             if sv["older_rule_days"] else "")
 
     rows, vrows = [], []
     for v in versions:
@@ -448,26 +567,27 @@ def build_page(meta, releases, per_version, per_day_totals, revalidated, win_tot
 <title>Compass — download log</title><style>{PAGE_CSS}</style></head>
 <body>
 <h1>Compass <span>download log</span></h1>
-<p class="sub">Download requests by version and source. Requests, not people or completed installs. Not linked anywhere.</p>
+<p class="sub">{intro}</p>
 {warn}
 <div class="cards">
-<div class="card"><strong>{gh_total}</strong><small>GitHub installer fetches, all time</small></div>
+<div class="card"><strong>{gh_total}</strong><small>{GITHUB_TEXT[0]}. {GITHUB_TEXT[1]}</small></div>
 <div class="card"><strong>{upd_total}</strong><small>GitHub in-app update packages, all time</small></div>
-<div class="card"><strong>{v_total}</strong><small>website verified complete transfers, since {since[:10]}</small></div>
 </div>
+<div class="cards">{bucket_cards}</div>
+{recognition_html(recognition)}
 <h2>WHAT IS COUNTED</h2>
 <ul class="notes">
 <li><b>GitHub installers</b>: GitHub's download_count for each release's .exe, .msi and .dmg. GitHub counts every fetch, including automation: the Host Release Downloads job fetches each hosted installer once per stable release, and other fetches may also be automated. Nothing is subtracted.</li>
 <li><b>GitHub updates</b>: download_count of the .nsis.zip package that the in-app updater installs (via latest.json). Shown separately and not added to any total. Signatures, latest.json and other assets are not counted anywhere.</li>
 <li><b>Website (raw, diagnostic only)</b>: GET requests for /downloads/*.exe|.msi|.dmg answered 200 or 206 by the server (compass.access.log). Repeated 206 range requests for one file from the same address and user agent on one log day count once. HEAD requests and 304 responses are not counted.</li>
 <li><b>Origin 304</b>: conditional requests answered "not modified", e.g. Cloudflare revalidating a cached installer. Shown for context only; a 304 is not proof of a completed download, and downloads served from a cache without contacting the server are not visible here.</li>
-<li><b>Website verified</b> (rule {sv["rule"]}, from log lines since {since}): {e(sv["basis"])} <i>Incomplete</i> = 200 with fewer/other bytes; <i>Partial</i> = 206 range responses (never promoted); <i>Unverifiable</i> = no known size or version; <i>Automation</i> = our own checks or self-declared crawlers. Requests before {since} have unknown verification. The BY VERSION site columns show only these complete transfers; automation is excluded there and listed in the verified table. GitHub and website figures are different measures and are not added together.</li>
+<li><b>Website verified</b> (rule {sv["rule"]}, from log lines since {since}): {e(sv["basis"])} <i>Incomplete</i> = 200 with fewer/other bytes; <i>Partial</i> = 206 range responses (never promoted); <i>Unverifiable</i> = no known size or version; <i>Automation</i> = our own checks or self-declared crawlers. Requests before {since} have unknown verification.{older} The BY VERSION site columns show only these complete transfers; automation is excluded there and listed in the verified table. GitHub and website figures are different measures and are not added together.</li>
 </ul>
 <h2>BY VERSION</h2>
 <table><thead><tr><th>Version</th><th>Published</th><th>GitHub installers</th><th>GitHub updates</th><th>Site verified .exe</th><th>Site verified .msi</th><th>Site verified .dmg</th><th>Site verified complete</th></tr></thead>
 <tbody>{"".join(rows) or '<tr><td colspan="8">Nothing recorded yet.</td></tr>'}</tbody></table>
 <h2>WEBSITE VERIFIED TRANSFERS BY VERSION</h2>
-<table><thead><tr><th>Version</th><th>Complete</th><th>Incomplete 200</th><th>Partial 206</th><th>Unverifiable</th><th>Automation</th><th>Coverage</th></tr></thead>
+<table><thead><tr><th>Version</th>{bucket_th}<th>Coverage</th></tr></thead>
 <tbody>{"".join(vrows) or '<tr><td colspan="7">No log lines verified yet.</td></tr>'}</tbody></table>
 <h2>WEBSITE RAW REQUESTS (DIAGNOSTIC, INCLUDES AUTOMATION)</h2>
 <div class="cards">
@@ -479,7 +599,7 @@ def build_page(meta, releases, per_version, per_day_totals, revalidated, win_tot
 <table><thead><tr><th>Day</th><th>Installer requests (raw)</th><th>Origin 304 (not counted)</th></tr></thead>
 <tbody>{"".join(day_rows) or '<tr><td colspan="3">Nothing recorded yet.</td></tr>'}</tbody></table>
 <footer>Generated {e(meta["updated"])} · refreshed daily around 06:17 UTC · GitHub fetched {e(meta["github_fetched"] or "never")} ·
-logs read this run cover {cov_txt} · website history begins when tracking began; GitHub counts are complete history from the API.</footer>
+logs read this run cover {cov_txt} · website history begins when tracking began; GitHub counts are complete history from the API. · <a href="/privacy/">Privacy</a></footer>
 </body></html>
 """
 
@@ -507,6 +627,8 @@ def build_summary(meta, releases, per_version, win_totals, sv):
     if meta["github_error"]:
         lines.append(f"**GitHub API unavailable this run ({meta['github_error']}); showing last good fetch.**")
     lines.append(f"Verified since {sv['since'] or 'never'}: {sv['basis']}")
+    if sv["older_rule_days"]:
+        lines.append(f"Verified days still bucketed under an older rule (logs gone): {', '.join(sv['older_rule_days'])}")
     lines.append("Other counts are HTTP requests (GitHub includes automation), not people or completed installs.")
     return "\n".join(lines)
 
@@ -527,13 +649,18 @@ def main():
                            "releases": prev.get("github", [])}
     github = state.get("github") or {"fetched": None, "releases": []}
     # Exits before any write if logs are unreadable.
-    fresh, revalidated, coverage, verified = parse_website_downloads(expected_sizes(github["releases"]))
+    fresh, revalidated, coverage, verified = parse_website_downloads(
+        expected_sizes(github["releases"]), load_automation_events())
 
     merge_days(state.setdefault("website", {}), fresh)
     merge_days(state.setdefault("website_304", {}), revalidated)
     # Separate, versioned metric: built only from lines read since this rule shipped.
     # Legacy raw days are never copied in, so older history stays "unknown", not 0.
-    merge_days(state.setdefault("site_verified", {}), verified, verified_day_total)
+    # A day whose logs are gone keeps its old buckets and old rule (days before rules: 1).
+    rules = state.setdefault("site_verified_rules", {})
+    for day in merge_days(state.setdefault("site_verified", {}), verified, verified_day_total):
+        rules[day] = VERIFIED_RULE
+    older = sorted(d for d in state["site_verified"] if rules.get(d, 1) < VERIFIED_RULE)
     if coverage and (not state.get("site_verified_from") or coverage[0] < state["site_verified_from"]):
         state["site_verified_from"] = coverage[0]
     state["site_verified_rule"] = VERIFIED_RULE
@@ -543,18 +670,19 @@ def main():
     v_per_version, v_per_day, v_coverage = rollup_verified(state["site_verified"], state["website"], vfrom)
     v_family = rollup({d: {f: {v: b.get("complete", 0) for v, b in vers.items()} for f, vers in fams.items()}
                        for d, fams in state["site_verified"].items()})[0]
+    recognition = recognition_counts(state, datetime.now(timezone.utc))
     save_state(state)
     meta = {"updated": state["updated"], "github_fetched": github["fetched"],
             "github_error": gh_error, "log_coverage": coverage}
     site_verified = {"rule": VERIFIED_RULE, "since": vfrom, "basis": VERIFIED_BASIS,
                      "per_version": v_per_version, "per_version_family": v_family,
-                     "per_day": v_per_day, "coverage": v_coverage}
+                     "per_day": v_per_day, "coverage": v_coverage, "older_rule_days": older}
     releases = github["releases"]
 
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "index.html").write_text(
         build_page(meta, releases, per_version, per_day_totals, state["website_304"], win_totals,
-                   site_verified))
+                   site_verified, recognition))
     (out_dir / "stats.json").write_text(json.dumps({
         **meta,
         "github": releases,
@@ -562,6 +690,7 @@ def main():
         "website_per_day": per_day_totals,
         "website_304_per_day": state["website_304"],
         "site_verified": site_verified,
+        **({"recognition": recognition} if recognition else {}),
     }, indent=1, sort_keys=True))
 
     print(build_summary(meta, releases, per_version, win_totals, site_verified))

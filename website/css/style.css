@@ -1572,3 +1572,31 @@
   .footer-links { flex-wrap: wrap; }
   .footer-guides { flex-basis: 100%; }
 }
+
+/* ── Privacy choice (js/privacy.js): in page flow at the top, never over content ── */
+@layer components {
+  .privacy-choice {
+    /* Prepended to <body>: clear the fixed .nav (scroll-padding-top above uses the same 72px). */
+    width: min(44rem, 100% - 2 * var(--sp-4));
+    margin: calc(72px + var(--sp-4)) auto var(--sp-4);
+    padding: var(--sp-4);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    background: var(--bg-card);
+    color: var(--text);
+    font-size: 0.9375rem;
+  }
+  .privacy-choice-title { font-size: 1rem; margin: 0 0 var(--sp-2); }
+  .privacy-choice-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-top: var(--sp-3); }
+  .privacy-choice-actions a { font-size: 0.8125rem; color: var(--text-muted); }
+  .privacy-choice-status:empty { display: none; }
+  .footer-privacy-settings {
+    font: inherit; font-size: 0.8125rem; color: var(--text-muted);
+    background: none; border: 0; padding: 0; cursor: pointer;
+  }
+  .footer-privacy-settings:hover { color: var(--text); }
+  .hero-contact { margin-top: var(--sp-4); font-size: 0.875rem; }
+  .hero-contact a { color: var(--text-muted); }
+  .privacy-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+  .privacy-table th, .privacy-table td { border: 1px solid var(--border); padding: var(--sp-2); text-align: left; vertical-align: top; }
+}
