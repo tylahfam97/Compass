@@ -9,7 +9,7 @@
   <link rel="canonical" href="https://privatecompass.app/privacy/">
   <meta name="theme-color" content="#0A1124">
   <link rel="icon" type="image/png" href="/img/favicon.png">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; img-src 'self' https://github.com https://*.githubusercontent.com; media-src 'self'; connect-src 'self' https://api.github.com; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://*.clarity.ms https://c.bing.com; style-src 'self'; img-src 'self' https://github.com https://*.githubusercontent.com https://*.clarity.ms https://c.bing.com; media-src 'self'; connect-src 'self' https://api.github.com https://*.clarity.ms https://c.bing.com; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <link rel="stylesheet" href="/css/style.css?v=a85e53df">
 </head>
@@ -44,72 +44,186 @@
   <article>
     <h1>Privacy policy</h1>
     <p class="guide-lead">What Compass and this website collect, what stays on your computer, and the choices you have.</p>
-    <p class="guide-updated">Effective: 2026-11-12</p>
+    <p class="guide-updated">Effective: 2026-11-13</p>
 
-    <h2>Who's responsible</h2>
-    <p>This policy covers the privatecompass.app website and the Compass desktop app. Tyler Fameli is the operator responsible for this policy and the contact for privacy questions and requests. In this policy, "we" and "us" mean the operator.</p>
-    <p>Send questions or requests to <a href="mailto:tyler@fameli.net">tyler@fameli.net</a>.</p>
-
-    <h2>The short version</h2>
-    <p>Your financial data lives on your computer, encrypted, and the app doesn't send it to us. This website has no ads, no ad trackers and no third-party analytics. It does keep ordinary server logs, like any website. Two outside services also see ordinary request details: Cloudflare, which delivers the site, and GitHub, which hosts our releases and answers the home page's version check.</p>
-    <p>Counting your browser's visits is optional, and it's off unless you choose Allow.</p>
-
-    <h2>The Compass app</h2>
-    <p>This section describes Compass 1.3.20, the current release on the date above.</p>
-    <p>Your financial data, including the transactions you import, is stored on your computer in an encrypted SQLCipher database. There's no Compass account and no cloud sync. The app has no usage tracking and doesn't send the contents of that database to us.</p>
-    <p>Two things do leave your computer.</p>
-    <p><strong>Update checks.</strong> The app checks our GitHub releases for new versions. GitHub receives the ordinary details of that request, such as your network address.</p>
-    <p><strong>Feedback you choose to send.</strong> When you write feedback in the app and press send, it goes to our server with your message, the reply email address if you added one, your Compass version and your operating system. Nothing is sent unless you send it. Our server passes it to the workflow tool we use to receive feedback.</p>
-
-    <h2>This website</h2>
-    <p>These things happen on every visit, whatever you choose about cookies.</p>
-    <p><strong>Cloudflare.</strong> Cloudflare delivers privatecompass.app and screens traffic for attacks. It handles every request, including your network address, and it may run a security check in your browser or set its own security cookie.</p>
-    <p><strong>Our server logs.</strong> Our web server records details of each request, including the network address it came from (sometimes a Cloudflare address rather than yours), the time, the page or file requested including anything after a "?" in the address, the result, how many bytes were sent, the page that linked you there, and the description your browser sends of itself (its user agent). Errors go to a separate error log. We use these logs to keep the site secure, to fix problems and to produce the download statistics below.</p>
-    <p><strong>The version check on the home page.</strong> When the home page loads, your browser asks GitHub directly for the latest Compass version so the page can show it. GitHub sees that request's ordinary details too, such as your network address. We don't add any identifier to it.</p>
-    <p><strong>Downloads from GitHub.</strong> Installers are also on our GitHub releases page. GitHub handles those downloads. We see GitHub's download count for each file, not who downloaded it.</p>
-    <p><strong>What this site doesn't use.</strong> There are no ads or ad trackers here, and no third-party analytics such as Google Analytics. The site has no forms. Pages are served over HTTPS.</p>
-
-    <h2>Download statistics</h2>
-    <p>From the server logs we count completed installer transfers by day, platform and version. A complete transfer means our server sent one whole installer file, matching that file's known size. That's a file transfer, not a person or an install: one person can download twice, and a downloaded file may never be installed. Transfers we can't attribute to known automated software stay in the count.</p>
-    <p>Other installer requests are sorted into their own groups and never added to that count. Requests from software that identifies itself as a crawler or bot, and our own test requests, form one group whatever their size. The rest are transfers where the bytes sent didn't match the file's known size, requests for only part of a file, and transfers we couldn't check against a known file size. GitHub's download counts are also reported separately.</p>
-    <p>The totals are published on a statistics page. It isn't linked from the site or listed in search engines, but anyone with the address can open it. The totals contain no network addresses, browser details or identifiers, and we keep them as a running daily history.</p>
-
-    <h2>Cookies and browser storage</h2>
-    <p>Our own pages set only the first two cookies below. Both are limited to privatecompass.app and sent only over HTTPS.</p>
-    <table class="privacy-table">
-      <thead><tr><th>Cookie</th><th>Set by</th><th>What it's for</th><th>When it's set</th><th>How long it lasts</th></tr></thead>
-      <tbody>
-        <tr><td><code>__Host-compass_consent</code></td><td>Us</td><td>Remembers whether you chose Allow or Decline. It holds your choice and its dates, no identifier.</td><td>When you choose</td><td>7 days from your choice</td></tr>
-        <tr><td><code>__Secure-compass_browser</code></td><td>Us</td><td>Optional visit counting. It holds a random code.</td><td>Only after you choose Allow</td><td>7 days from your choice. Later visits don't extend it.</td></tr>
-        <tr><td>Cloudflare security cookies</td><td>Cloudflare</td><td>Screening traffic for attacks</td><td>When Cloudflare runs a check</td><td>Set by Cloudflare</td></tr>
-      </tbody>
-    </table>
-    <p>The counting cookie is sent only to our counting address. It doesn't go with downloads, GitHub requests or app feedback.</p>
-
-    <h2>Optional visit counting</h2>
-    <noscript><p>JavaScript is off, so visit counting is off. There's nothing to change.</p></noscript>
-    <p>Nothing is counted unless you choose Allow on the banner. Browsing, scrolling and downloading are not a choice to be counted. Choosing Decline costs you nothing: downloads and every page work the same.</p>
-    <p>If you choose Allow, your browser makes a random 32-character code and keeps it in a cookie for seven days. On each page you open while it's set, your browser sends our server a small request carrying that code. That request goes to a separate log holding only the time and the code: no network address, browser details, page address or referring page. Cloudflare still handles the request like any other.</p>
-    <p>From that log we publish two totals. One is how many different codes we saw in the last seven days. The other is how many of those we saw on more than one calendar day (UTC). These totals describe browsers that opted in. They aren't visitor counts and they don't count people: one person can use several browsers, clearing cookies makes a new code, most visitors may never choose Allow, and software can send codes too.</p>
-    <p>The code is random. We don't connect it to your name, your downloads or our server logs. It does link together the visits this browser makes while counting is on.</p>
-    <p>The cookie expires seven days after you choose. Visits don't extend it. After that, the banner asks again.</p>
-    <p>You can stop at any time with the Privacy settings link at the bottom of every page. Choosing Decline deletes the code from your browser and stops counting from that moment. It doesn't remove visits already in the log or totals already published. Logged visits drop out as the log rotates, after about seven days.</p>
-    <p>With JavaScript off, or cookies blocked, nothing is counted and the site still works.</p>
-
-    <h2>How long we keep things</h2>
-    <p>Server access and error logs: kept for security, troubleshooting and the download statistics above.</p>
-    <p>Daily download totals: kept as a running history.</p>
-    <p>Visit-counting log: about seven days. Visit-counting cookies: seven days in your browser, then they expire.</p>
-    <p>Records kept by Cloudflare and GitHub follow their own retention.</p>
-
-    <h2>Your questions and requests</h2>
-    <p>Send questions or requests about your information to <a href="mailto:tyler@fameli.net">tyler@fameli.net</a>. Most of what this site keeps isn't tied to a name, so tell us what your request is about, for example feedback you sent from a particular email address.</p>
-
-    <h2>Changes</h2>
-    <p>When the way Compass or this site handles data changes, we'll update this page and the date at the top.</p>
-
-    <h2>Contact</h2>
-    <p>Tyler Fameli<br>Email: <a href="mailto:tyler@fameli.net">tyler@fameli.net</a></p>
+<h2>Who's responsible</h2>
+<p>This policy covers the privatecompass.app website and the Compass desktop app. Tyler Fameli is the operator responsible for this policy and the contact for privacy questions and requests. In this policy, "we" and "us" mean the operator.</p>
+<p>Send questions or requests to <a href="mailto:tyler@fameli.net">tyler@fameli.net</a>.</p>
+<h2>The short version</h2>
+<p>Your financial data lives on your computer, encrypted, and the app doesn't send it to us. Nothing in this policy changes that.</p>
+<p>This website is different. It uses Microsoft Clarity, a third-party analytics service, to record how visitors use our web pages: clicks, scrolling, mouse movement and what the page showed. We use those recordings and heatmaps to find what's confusing or broken on the site. Microsoft also uses this data for its own purposes, described below. Recording starts on your first visit, before you've chosen anything, but Clarity cookies stay off until you allow them. You can turn website recording off in Privacy settings at the bottom of our pages, and downloads work the same either way.</p>
+<p>The site has no ads. It keeps ordinary server logs, like any website. Cloudflare, which delivers the site, and GitHub, which hosts our releases and answers the home page's version check, also see ordinary request details.</p>
+<p>Counting your browser's visits is a separate, optional choice. It's off unless you choose Allow.</p>
+<h2>The Compass app</h2>
+<p>This section describes Compass 1.3.20, the current release on the date above.</p>
+<p>Your financial data, including the transactions you import, is stored on your computer in an encrypted SQLCipher database. There's no Compass account and no cloud sync. The app has no usage tracking and doesn't send the contents of that database to us.</p>
+<p>Microsoft Clarity is not in the app. It runs only on the website's pages, in your web browser. It can't see the Compass app, your desktop, other windows or your financial database.</p>
+<p>Two things do leave your computer.</p>
+<p>Update checks. The app checks our GitHub releases for new versions. GitHub receives the ordinary details of that request, such as your network address.</p>
+<p>Feedback you choose to send. When you write feedback in the app and press send, it goes to our server with your message, the reply email address if you added one, your Compass version and your operating system. Nothing is sent unless you send it. Our server passes it to the workflow tool we use to receive feedback.</p>
+<h2>This website</h2>
+<p>These things happen on every visit, whatever you choose about cookies or recording.</p>
+<p>Cloudflare. Cloudflare delivers privatecompass.app and screens traffic for attacks. It handles every request, including your network address, and it may run a security check in your browser or set its own security cookie.</p>
+<p>Our server logs. Our web server records details of each request, including the network address it came from (sometimes a Cloudflare address rather than yours), the time, the page or file requested including anything after a "?" in the address, the result, how many bytes were sent, the page that linked you there, and the description your browser sends of itself (its user agent). Errors go to a separate error log. We use these logs to keep the site secure, to fix problems and to produce the download statistics below.</p>
+<p>The version check on the home page. When the home page loads, your browser asks GitHub directly for the latest Compass version so the page can show it. GitHub sees that request's ordinary details too, such as your network address. We don't add any identifier to it.</p>
+<p>Downloads from GitHub. Installers are also on our GitHub releases page. GitHub handles those downloads. We see GitHub's download count for each file, not who downloaded it.</p>
+<p>The site has no ads and no forms. Pages are served over HTTPS. Microsoft Clarity is the one third-party analytics service on the site, and it's described next.</p>
+<h2>Website recording with Microsoft Clarity</h2>
+<h3>What it records</h3>
+<p>Unless you've turned it off, Microsoft Clarity runs on this website's main pages, including the home page, the guides and the privacy and terms pages, from the first page you open and before you've made any choice. It isn't added to the unlisted statistics page described below. On the pages where it runs, it records how you interact with the page: the page's structure and the text it displays, the page address, clicks, taps, scrolling, mouse movement, text you select, page and performance events, and details about your device and browser. Microsoft's service sees your network address when your browser connects to it, and its documentation says it uses that address to estimate your location.</p>
+<p>Clarity rebuilds this into a replay of your visit to our web pages, plus heatmaps and summary reports. It's a reconstruction of what happened on our site in your browser. It isn't a video of your screen, and it doesn't record your desktop, other tabs, other programs or the Compass app.</p>
+<h3>How much is hidden</h3>
+<p>We've chosen Clarity's Relaxed masking level. At that level, Clarity masks what you type into text boxes and the contents of dropdown menus. It doesn't mask the text our pages display, so replays show what our pages showed you, including any text on the page outside a form field. Our pages are public, have no forms and don't show account or financial information. Even so, Relaxed masking doesn't keep every piece of personal information out of a recording, and it isn't anonymity. We don't describe Clarity data as anonymous.</p>
+<p>We don't send Clarity your name, email address or any identifier of our own, and we don't use Clarity in the Compass app.</p>
+<h3>Cookies and consent</h3>
+<p>Clarity can use cookies to connect the pages of one visit, and visits from the same browser, into one recording. Some would be set on our domain and some by Microsoft on its own domains. They're listed in the cookie table below.</p>
+<p>This site keeps Clarity cookies off for every visitor, wherever you are, until you choose Allow Clarity cookies in the first-visit notice or in Privacy settings. Browsing, scrolling and downloading aren't that choice, and neither is anything you chose about our own visit counter. Microsoft requires consent before Clarity uses cookies for visitors it places, by network address, in the European Economic Area, the United Kingdom and Switzerland. We ask everyone the same way.</p>
+<p>Until you allow cookies, Clarity still records, without them. It records each page you view on its own, with a separate identifier, so your pages aren't connected into one visit. To stop recording entirely, turn website recording off.</p>
+<p>If you allow Clarity cookies and later switch them off in Privacy settings, the site tells Clarity that cookies are no longer allowed, and recording continues without them.</p>
+<h3>What Microsoft does with it</h3>
+<p>Under Microsoft's Clarity terms, Microsoft collects and uses this data as an independent controller. It doesn't act only on our instructions. Microsoft collects or receives personal data from this site to provide and improve its services and to provide Microsoft Advertising, as its terms and the Microsoft Privacy Statement describe. Its terms also describe using data that isn't personal data to train and evaluate its systems.</p>
+<p>Our site always tells Clarity that advertising storage is denied, whatever you choose, which Microsoft documents as not sharing Clarity data with Microsoft Ads. That setting doesn't change what Microsoft's terms allow it to do with data it receives for its own services.</p>
+<p>Read Microsoft's own documents for the details:</p>
+<ul>
+<li>Microsoft Privacy Statement: <a href="https://privacy.microsoft.com/en-us/privacystatement">https://privacy.microsoft.com/en-us/privacystatement</a></li>
+<li>Microsoft Clarity terms: <a href="https://clarity.microsoft.com/terms">https://clarity.microsoft.com/terms</a></li>
+</ul>
+<p>Microsoft says Clarity data is stored on Microsoft Azure. We haven't chosen or verified a particular country for that storage.</p>
+<h3>How long it's kept</h3>
+<p>Microsoft states these retention periods for Clarity:</p>
+<ul>
+<li>Session recordings: 30 days, except recordings we mark as favorites or label, and a randomly selected sample, which can be kept for up to nine months.</li>
+<li>Heatmaps and click data: nine months.</li>
+</ul>
+<p>These are Microsoft's stated periods. We can't independently confirm when Microsoft deletes data.</p>
+<h3>Turning it off</h3>
+<p>Choose Turn recording off in the first-visit notice, or open Privacy settings at the bottom of our pages and turn website recording off. The site then tells Clarity on that page that you've withdrawn, removes Clarity's cookies on our domain and remembers your choice in this browser. After that, this site doesn't load Clarity on later pages or visits in this browser. Activity on the page where you turned it off may already have been recorded. Our site can't remove Microsoft's cookies on Microsoft's own domains; your browser's settings can. Downloads and every page work the same.</p>
+<p>Turning it off doesn't delete recordings already made. Clarity doesn't give us a way to delete one visitor's recordings without deleting the whole project, so we can't promise to remove a particular visit. Past recordings expire on the schedule above.</p>
+<p>If your browser sends a Global Privacy Control or Do Not Track signal, this site doesn't load Clarity at all. With JavaScript off, Clarity doesn't load either.</p>
+<p>Your recording choice is kept in this browser's local storage, listed in the table below. It has no expiry date. Clearing this site's data, or using another browser or device, resets it: recording returns to its default of on without cookies, and the first-visit notice appears again. If your browser won't let this site store the choice, the site doesn't load Clarity, because it couldn't remember a choice to turn recording off.</p>
+<p>Microsoft offers its own advertising opt-out through the Digital Advertising Alliance at <a href="https://optout.aboutads.info/">https://optout.aboutads.info/</a> (select Microsoft). Microsoft notes that browser-based opt-outs can be lost when you clear cookies.</p>
+<h2>Download statistics</h2>
+<p>From the server logs we count completed installer transfers by day, platform and version. A complete transfer means our server sent one whole installer file, matching that file's known size. That's a file transfer, not a person or an install: one person can download twice, and a downloaded file may never be installed. Transfers we can't attribute to known automated software stay in the count.</p>
+<p>Other installer requests are sorted into their own groups and never added to that count. Requests from software that identifies itself as a crawler or bot, and our own test requests, form one group whatever their size. The rest are transfers where the bytes sent didn't match the file's known size, requests for only part of a file, and transfers we couldn't check against a known file size. GitHub's download counts are also reported separately.</p>
+<p>The totals are published on a statistics page. It isn't linked from the site or listed in search engines, but anyone with the address can open it. The totals contain no network addresses, browser details or identifiers, and we keep them as a running daily history. Clarity isn't loaded on that page, and Clarity data isn't used for these totals.</p>
+<h2>Cookies and browser storage</h2>
+<p>Our own pages set the first two cookies below for the site's own features. Both are limited to privatecompass.app and sent only over HTTPS. Our pages also keep your website recording choice in your browser's local storage. Clarity's script can set the next two cookies on our domain, and Microsoft can set the rest on its own domains. Cloudflare sets its own security cookies.</p>
+<div class="table-wrap"><table class="privacy-table">
+<thead>
+<tr>
+<th>Name</th>
+<th>Set by</th>
+<th>What it's for</th>
+<th>When it's set</th>
+<th>How long it lasts</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>__Host-compass_consent</td>
+<td>Us</td>
+<td>Remembers whether you chose Allow or Decline for visit counting. It holds your choice and its dates, no identifier.</td>
+<td>When you choose</td>
+<td>7 days from your choice</td>
+</tr>
+<tr>
+<td>__Secure-compass_browser</td>
+<td>Us</td>
+<td>Optional visit counting. It holds a random code.</td>
+<td>Only after you choose Allow</td>
+<td>7 days from your choice. Later visits don't extend it.</td>
+</tr>
+<tr>
+<td>compass_clarity (local storage, not a cookie)</td>
+<td>Us</td>
+<td>Remembers your website recording choice: on without Clarity cookies, on with Clarity cookies, or off. It holds only that choice, no identifier or date. Your browser doesn't send it with requests.</td>
+<td>When you make a recording choice in the notice or Privacy settings</td>
+<td>Until you clear this site's data in your browser. It has no expiry date.</td>
+</tr>
+<tr>
+<td>_clck</td>
+<td>Microsoft Clarity, on our domain</td>
+<td>Keeps a Clarity identifier and settings for this site</td>
+<td>Only after you choose Allow Clarity cookies</td>
+<td>Set by Microsoft</td>
+</tr>
+<tr>
+<td>_clsk</td>
+<td>Microsoft Clarity, on our domain</td>
+<td>Connects the pages of one visit into a single recording</td>
+<td>Only after you choose Allow Clarity cookies</td>
+<td>Set by Microsoft</td>
+</tr>
+<tr>
+<td>CLID</td>
+<td>Microsoft</td>
+<td>Records when Clarity first saw this browser on any site using Clarity</td>
+<td>Only after you choose Allow Clarity cookies, and if your browser allows third-party cookies</td>
+<td>Set by Microsoft</td>
+</tr>
+<tr>
+<td>MUID</td>
+<td>Microsoft</td>
+<td>Identifies a browser across Microsoft sites for advertising, site analytics and other operational purposes</td>
+<td>Only after you choose Allow Clarity cookies, and if your browser allows third-party cookies</td>
+<td>Set by Microsoft</td>
+</tr>
+<tr>
+<td>MR</td>
+<td>Microsoft</td>
+<td>Tells Microsoft whether to refresh MUID</td>
+<td>As for MUID</td>
+<td>Set by Microsoft</td>
+</tr>
+<tr>
+<td>SM</td>
+<td>Microsoft</td>
+<td>Keeps MUID in sync across Microsoft domains</td>
+<td>As for MUID</td>
+<td>Set by Microsoft</td>
+</tr>
+<tr>
+<td>ANONCHK</td>
+<td>Microsoft</td>
+<td>Shows whether MUID was passed to Microsoft's advertising identifier. Microsoft says Clarity doesn't use that identifier and this value is always 0.</td>
+<td>As for MUID</td>
+<td>Set by Microsoft</td>
+</tr>
+<tr>
+<td>Cloudflare security cookies</td>
+<td>Cloudflare</td>
+<td>Screening traffic for attacks</td>
+<td>When Cloudflare runs a check</td>
+<td>Set by Cloudflare</td>
+</tr>
+</tbody>
+</table></div>
+<p>Microsoft's Clarity cookie list doesn't state how long each cookie lasts, so we don't guess here. Your browser shows the expiry of any cookie it holds. Not every cookie is set for every visitor: your choices, your browser's cookie settings and Microsoft's own handling all change which ones appear.</p>
+<p>The counting cookie is sent only to our counting address. It doesn't go with downloads, GitHub requests, Clarity or app feedback. Our visit-counting choice and Clarity are separate: allowing one doesn't allow the other.</p>
+<h2>Optional visit counting</h2>
+<p>This is our own counter. It's separate from Microsoft Clarity, and a choice you made about counting before Clarity was added doesn't count as a choice about Clarity.</p>
+<p>Nothing is counted unless you choose Allow for visit counting. Browsing, scrolling and downloading are not a choice to be counted. Choosing Decline costs you nothing: downloads and every page work the same.</p>
+<p>If you choose Allow, your browser makes a random 32-character code and keeps it in a cookie for seven days. On each page you open while it's set, your browser sends our server a small request carrying that code. That request goes to a separate log holding only the time and the code: no network address, browser details, page address or referring page. Cloudflare still handles the request like any other.</p>
+<p>From that log we publish two totals. One is how many different codes we saw in the last seven days. The other is how many of those we saw on more than one calendar day (UTC). These totals describe browsers that opted in. They aren't visitor counts and they don't count people: one person can use several browsers, clearing cookies makes a new code, most visitors may never choose Allow, and software can send codes too.</p>
+<p>The code is random. We don't connect it to your name, your downloads, our server logs or Clarity. It does link together the visits this browser makes while counting is on.</p>
+<p>The cookie expires seven days after you choose. Visits don't extend it. After that, the banner asks again.</p>
+<p>You can stop at any time with the Privacy settings link at the bottom of our pages. Choosing Decline deletes the code from your browser and stops counting from that moment. It doesn't remove visits already in the log or totals already published. Logged visits drop out as the log rotates, after about seven days.</p>
+<p>With JavaScript off, or cookies blocked, nothing is counted and the site still works.</p>
+<h2>How long we keep things</h2>
+<p>Server access and error logs: kept for security, troubleshooting and the download statistics above.</p>
+<p>Daily download totals: kept as a running history.</p>
+<p>Visit-counting log: about seven days. Visit-counting cookies: seven days in your browser, then they expire.</p>
+<p>Your website recording choice: in your browser's local storage until you clear this site's data.</p>
+<p>Microsoft Clarity recordings and reports: kept by Microsoft on the schedule in the Clarity section above.</p>
+<p>Records kept by Cloudflare, GitHub and Microsoft follow their own retention.</p>
+<h2>Your questions and requests</h2>
+<p>Send questions or requests about your information to <a href="mailto:tyler@fameli.net">tyler@fameli.net</a>. Most of what this site keeps isn't tied to a name, so tell us what your request is about, for example feedback you sent from a particular email address, or the date and page of a website visit.</p>
+<p>For data Microsoft holds under its own terms, you can also contact Microsoft through the Microsoft Privacy Statement linked above.</p>
+<h2>Changes</h2>
+<p>When the way Compass or this site handles data changes, we'll update this page and the date at the top.</p>
+<h2>Contact</h2>
+<p>Tyler Fameli
+Email: <a href="mailto:tyler@fameli.net">tyler@fameli.net</a></p>
   </article>
 </main>
 
@@ -123,12 +237,15 @@
       Free and source-available. PolyForm Strict License. Built with Tauri, React, Rust and SQLite.<br>
       Built by <a href="https://chrysisnetworks.com">Chrysis Networks</a>.
     </p>
+    <p class="footer-copy">This site records page activity with Microsoft Clarity. Microsoft uses this data as described in our <a href="/privacy/">Privacy policy</a>.</p>
+    <noscript><p class="footer-copy">JavaScript is off, so visit counting and website recording are both off. There's nothing to change.</p></noscript>
     <nav class="footer-links" aria-label="Footer navigation">
       <a href="https://github.com/tylahfam97/Compass" target="_blank" rel="noopener noreferrer">GitHub</a>
       <a href="https://github.com/tylahfam97/Compass/releases" target="_blank" rel="noopener noreferrer">Releases</a>
       <a href="https://github.com/tylahfam97/Compass/issues" target="_blank" rel="noopener noreferrer">Issues</a>
       <a href="/import-guide.html">Import guide</a>
       <a href="/privacy/" aria-current="page">Privacy</a>
+      <a href="/terms/">Terms of use</a>
     </nav>
     <nav class="footer-links footer-guides" aria-label="Guides">
       <a href="/personal-finance-software/">Personal finance software</a>
@@ -138,6 +255,6 @@
     </nav>
   </div>
 </footer>
-<script src="/js/privacy.js?v=56cbb4f6" defer></script>
+<script src="/js/privacy.js?v=cb658992" defer></script>
 </body>
 </html>
