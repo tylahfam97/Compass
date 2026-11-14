@@ -1810,7 +1810,7 @@ export default function ImportPage() {
             </p>
             <p className="text-sm text-[hsl(var(--muted-foreground))]">
               {importKind === "investment"
-                ? "Works with Wells Fargo Advisors, Fidelity, and Thrivent exports (CSV, XLSX, or PDF)"
+                ? "Works with Wells Fargo Advisors, Vanguard, Fidelity, Thrivent, Principal, E*TRADE / Morgan Stanley and Ledger Live exports (CSV, XLSX, or PDF)"
                 : "Works with exports from any bank or credit card"}
             </p>
           </div>
