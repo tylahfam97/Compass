@@ -11,7 +11,7 @@
   <link rel="icon" type="image/png" href="/img/favicon.png">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://*.clarity.ms https://c.bing.com; style-src 'self'; img-src 'self' https://github.com https://*.githubusercontent.com https://*.clarity.ms https://c.bing.com; media-src 'self'; connect-src 'self' https://api.github.com https://*.clarity.ms https://c.bing.com; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';">
   <meta name="referrer" content="strict-origin-when-cross-origin">
-  <link rel="stylesheet" href="/css/style.css?v=a85e53df">
+  <link rel="stylesheet" href="/css/style.css?v=345e2207">
 </head>
 <body>
 <svg class="svg-defs" aria-hidden="true" focusable="false"><symbol id="compass-mark" viewBox="0 0 512 512"><defs><radialGradient id="cm-bg" cx="50%" cy="40%" r="70%"><stop offset="0%" stop-color="#1C2E54"/><stop offset="100%" stop-color="#070D1E"/></radialGradient><linearGradient id="cm-bezel" x1="15%" y1="5%" x2="85%" y2="95%"><stop offset="0%" stop-color="#F0D068"/><stop offset="40%" stop-color="#C08A1C"/><stop offset="100%" stop-color="#7C5208"/></linearGradient><linearGradient id="cm-north" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#C08A1C"/><stop offset="55%" stop-color="#FFD050"/><stop offset="100%" stop-color="#D09820"/></linearGradient><radialGradient id="cm-hub" cx="33%" cy="28%" r="70%"><stop offset="0%" stop-color="#F0D068"/><stop offset="55%" stop-color="#C08A1C"/><stop offset="100%" stop-color="#7C5208"/></radialGradient></defs><circle cx="256" cy="256" r="256" fill="url(#cm-bg)"/><circle cx="256" cy="256" r="244" fill="none" stroke="#C08A1C" stroke-width="1.5" opacity="0.35"/><circle cx="256" cy="256" r="234" fill="none" stroke="url(#cm-bezel)" stroke-width="6"/><g stroke="#F0D068" stroke-width="5.5" stroke-linecap="round"><line x1="256" y1="28" x2="256" y2="43"/><line x1="256" y1="469" x2="256" y2="484"/><line x1="469" y1="256" x2="484" y2="256"/><line x1="28" y1="256" x2="43" y2="256"/></g><path d="M256,74 L256,256 L238,248 Z" fill="#9C6E0E"/><path d="M256,74 L274,248 L256,256 Z" fill="url(#cm-north)"/><path d="M256,438 L238,264 L256,256 Z" fill="#1C2E54"/><path d="M256,438 L256,256 L274,264 Z" fill="#0A1428"/><path d="M416,256 L268,240 L256,256 L268,272 Z" fill="#B07C10" opacity="0.88"/><path d="M96,256 L244,240 L256,256 L244,272 Z" fill="#B07C10" opacity="0.88"/><circle cx="256" cy="256" r="27" fill="#050C1A"/><circle cx="256" cy="256" r="22" fill="url(#cm-hub)"/><circle cx="256" cy="256" r="13" fill="#050C1A"/><circle cx="256" cy="256" r="7" fill="#F0D068" opacity="0.95"/></symbol></svg>
@@ -51,9 +51,9 @@
 <p>Send questions or requests to <a href="mailto:tyler@fameli.net">tyler@fameli.net</a>.</p>
 <h2>The short version</h2>
 <p>Your financial data lives on your computer, encrypted, and the app doesn't send it to us. Nothing in this policy changes that.</p>
-<p>This website is different. It uses Microsoft Clarity, a third-party analytics service, to record how visitors use our web pages: clicks, scrolling, mouse movement and what the page showed. We use those recordings and heatmaps to find what's confusing or broken on the site. Microsoft also uses this data for its own purposes, described below. Recording starts on your first visit, before you've chosen anything. Clarity's cookies on our domain stay off until you allow them, but Microsoft may read or set its own cookies from your first page if your browser allows third-party cookies. You can turn website recording off in Privacy settings at the bottom of our pages, and downloads work the same either way.</p>
+<p>This website is different. It uses Microsoft Clarity, a third-party analytics service, to record how visitors use our web pages: clicks, scrolling, mouse movement and what the page showed. We use those recordings and heatmaps to find what's confusing or broken on the site. Microsoft also uses this data for its own purposes, described below. Recording starts on your first visit, before you've chosen anything. Clarity's cookies on our domain stay off until you accept them, but Microsoft may read or set its own cookies from your first page if your browser allows third-party cookies. You can turn website recording off in Privacy settings at the bottom of our pages, and downloads work the same either way.</p>
 <p>The site has no ads. It keeps ordinary server logs, like any website. Cloudflare, which delivers the site, and GitHub, which hosts our releases and answers the home page's version check, also see ordinary request details.</p>
-<p>Counting your browser's visits is a separate, optional choice. It's off unless you choose Allow.</p>
+<p>Counting your browser's visits is optional too. The privacy notice at the bottom of our pages asks about both: Accept turns on Clarity's cookies and visit counting, and Decline leaves both off, with recording carrying on without Clarity cookies. Following a link to another page on this site before you answer counts as Accept. You can change either choice at any time in Privacy settings.</p>
 <h2>The Compass app</h2>
 <p>This section describes Compass 1.3.20, the current release on the date above.</p>
 <p>Your financial data, including the transactions you import, is stored on your computer in an encrypted SQLCipher database. There's no Compass account and no cloud sync. The app has no usage tracking and doesn't send the contents of that database to us.</p>
@@ -77,8 +77,9 @@
 <p>We don't send Clarity your name, email address or any identifier of our own, and we don't use Clarity in the Compass app.</p>
 <h3>Cookies and consent</h3>
 <p>Clarity can use cookies to connect the pages of one visit, and visits from the same browser, into one recording. Some would be set on our domain and some by Microsoft on its own domains. They're listed in the cookie table below.</p>
-<p>This site keeps Clarity's cookies on our domain, _clck and _clsk, off for every visitor, wherever you are, until you choose Allow Clarity cookies in the first-visit notice or in Privacy settings. Browsing, scrolling and downloading aren't that choice, and neither is anything you chose about our own visit counter. Microsoft requires consent before Clarity uses cookies for visitors it places, by network address, in the European Economic Area, the United Kingdom and Switzerland. We ask everyone the same way.</p>
-<p>Until you allow Clarity cookies, Clarity still records, without them. It records each page you view on its own, with a separate identifier, so your pages aren't connected into one visit. To stop recording entirely, turn website recording off.</p>
+<p>This site keeps Clarity's cookies on our domain, _clck and _clsk, off for every visitor, wherever you are, until you accept them. You can accept them with Accept in the privacy notice at the bottom of our pages, or with Allow Clarity cookies in Privacy settings. Following a link from one of our pages to another page on this site, before you've answered the notice, also counts as accepting. Scrolling, downloading an installer and following a link to this policy or the terms don't. Microsoft requires consent before Clarity uses cookies for visitors it places, by network address, in the European Economic Area, the United Kingdom and Switzerland. We ask everyone the same way.</p>
+<p>A link counts as accepting only for a choice you haven't made yet. It never replaces a choice already saved in this browser, and links inside the notice or Privacy settings don't count. If your browser sends a Global Privacy Control or Do Not Track signal, or you've turned website recording off, no link counts as accepting anything. The same goes for any choice your browser won't let this site store. You can switch Clarity cookies off again at any time in Privacy settings.</p>
+<p>Until you accept Clarity cookies, or if you choose Decline, Clarity still records, without them. It records each page you view on its own, with a separate identifier, so your pages aren't connected into one visit. To stop recording entirely, turn website recording off.</p>
 <p>If you allow Clarity cookies and later switch them off in Privacy settings, the site tells Clarity that cookies are no longer allowed, and recording continues without them.</p>
 <p>Microsoft's cookies on its own domains work differently. The Clarity code on our pages comes from Microsoft, and once the page has loaded, it requests an image from a Microsoft domain. Your choice about Clarity cookies doesn't affect that request. So whenever Clarity loads, including on your first page before you've chosen anything, Microsoft may read or set its own cookies, such as MUID, if your browser allows third-party cookies. We haven't confirmed whether Microsoft actually sets them while Clarity cookies aren't allowed. To prevent this, block third-party cookies in your browser's settings, or turn website recording off so this site stops loading Clarity on later pages.</p>
 <h3>What Microsoft does with it</h3>
@@ -98,10 +99,10 @@
 </ul>
 <p>These are Microsoft's stated periods. We can't independently confirm when Microsoft deletes data.</p>
 <h3>Turning it off</h3>
-<p>Choose Turn recording off in the first-visit notice, or open Privacy settings at the bottom of our pages and turn website recording off. The site then tells Clarity on that page that you've withdrawn, removes Clarity's cookies on our domain and remembers your choice in this browser. After that, this site doesn't load Clarity on later pages or visits in this browser. Activity on the page where you turned it off may already have been recorded. Our site can't remove Microsoft's cookies on Microsoft's own domains; your browser's settings can. Downloads and every page work the same.</p>
+<p>Open Privacy settings, from the privacy notice or the link at the bottom of our pages, and turn website recording off. The site then tells Clarity on that page that you've withdrawn, removes Clarity's cookies on our domain and remembers your choice in this browser. After that, this site doesn't load Clarity on later pages or visits in this browser. Activity on the page where you turned it off may already have been recorded. Our site can't remove Microsoft's cookies on Microsoft's own domains; your browser's settings can. Downloads and every page work the same.</p>
 <p>Turning it off doesn't delete recordings already made. Clarity doesn't give us a way to delete one visitor's recordings without deleting the whole project, so we can't promise to remove a particular visit. Past recordings expire on the schedule above.</p>
 <p>If your browser sends a Global Privacy Control or Do Not Track signal, this site doesn't load Clarity at all. With JavaScript off, Clarity doesn't load either.</p>
-<p>Your recording choice is kept in this browser's local storage, listed in the table below. It has no expiry date. Clearing this site's data, or using another browser or device, resets it: recording returns to its default of on without Clarity cookies, and the first-visit notice appears again. If your browser won't let this site store the choice, the site doesn't load Clarity, because it couldn't remember a choice to turn recording off.</p>
+<p>Your recording choice is kept in this browser's local storage, listed in the table below. It has no expiry date. Clearing this site's data, or using another browser or device, resets it: recording returns to its default of on without Clarity cookies, and the privacy notice appears again. If your browser won't let this site store the choice, the site doesn't load Clarity, because it couldn't remember a choice to turn recording off.</p>
 <p>Microsoft offers its own advertising opt-out through the Digital Advertising Alliance at <a href="https://optout.aboutads.info/">https://optout.aboutads.info/</a> (select Microsoft). Microsoft notes that browser-based opt-outs can be lost when you clear cookies.</p>
 <h2>Download statistics</h2>
 <p>From the server logs we count completed installer transfers by day, platform and version. A complete transfer means our server sent one whole installer file, matching that file's known size. That's a file transfer, not a person or an install: one person can download twice, and a downloaded file may never be installed. Transfers we can't attribute to known automated software stay in the count.</p>
@@ -123,36 +124,36 @@
 <tr>
 <td>__Host-compass_consent</td>
 <td>Us</td>
-<td>Remembers whether you chose Allow or Decline for visit counting. It holds your choice and its dates, no identifier.</td>
-<td>When you choose</td>
+<td>Remembers whether visit counting is on or off for this browser. It holds that choice and its dates, no identifier.</td>
+<td>When you answer the privacy notice or choose in Privacy settings, or when a link counts as accepting</td>
 <td>7 days from your choice</td>
 </tr>
 <tr>
 <td>__Secure-compass_browser</td>
 <td>Us</td>
 <td>Optional visit counting. It holds a random code.</td>
-<td>Only after you choose Allow</td>
+<td>Only once visit counting is on: after Accept, Allow in Privacy settings, or a link that counts as accepting</td>
 <td>7 days from your choice. Later visits don't extend it.</td>
 </tr>
 <tr>
 <td>compass_clarity (local storage, not a cookie)</td>
 <td>Us</td>
 <td>Remembers your website recording choice: on without Clarity cookies, on with Clarity cookies, or off. It holds only that choice, no identifier or date. Your browser doesn't send it with requests.</td>
-<td>When you make a recording choice in the notice or Privacy settings</td>
+<td>When you answer the privacy notice, save Privacy settings, or follow a link that counts as accepting</td>
 <td>Until you clear this site's data in your browser. It has no expiry date.</td>
 </tr>
 <tr>
 <td>_clck</td>
 <td>Microsoft Clarity, on our domain</td>
 <td>Keeps a Clarity identifier and settings for this site</td>
-<td>Only after you choose Allow Clarity cookies</td>
+<td>Only after you accept Clarity cookies: Accept, Allow Clarity cookies in Privacy settings, or a link that counts as accepting</td>
 <td>Set by Microsoft</td>
 </tr>
 <tr>
 <td>_clsk</td>
 <td>Microsoft Clarity, on our domain</td>
 <td>Connects the pages of one visit into a single recording</td>
-<td>Only after you choose Allow Clarity cookies</td>
+<td>Only after you accept Clarity cookies: Accept, Allow Clarity cookies in Privacy settings, or a link that counts as accepting</td>
 <td>Set by Microsoft</td>
 </tr>
 <tr>
@@ -200,14 +201,14 @@
 </tbody>
 </table></div>
 <p>Microsoft's Clarity cookie list doesn't state how long each cookie lasts, so we don't guess here. Your browser shows the expiry of any cookie it holds. Not every cookie is set for every visitor: your choices, your browser's cookie settings and Microsoft's own handling all change which ones appear.</p>
-<p>The counting cookie is sent only to our counting address. It doesn't go with downloads, GitHub requests, Clarity or app feedback. Our visit-counting choice and Clarity are separate: allowing one doesn't allow the other.</p>
+<p>The counting cookie is sent only to our counting address. It doesn't go with downloads, GitHub requests, Clarity or app feedback. In Privacy settings, visit counting and Clarity are separate: changing one doesn't change the other. In the privacy notice, Accept and Decline each answer both, and a link that counts as accepting applies to whichever is still unanswered.</p>
 <h2>Optional visit counting</h2>
 <p>This is our own counter. It's separate from Microsoft Clarity, and a choice you made about counting before Clarity was added doesn't count as a choice about Clarity.</p>
-<p>Nothing is counted unless you choose Allow for visit counting. Browsing, scrolling and downloading are not a choice to be counted. Choosing Decline costs you nothing: downloads and every page work the same.</p>
-<p>If you choose Allow, your browser makes a random 32-character code and keeps it in a cookie for seven days. On each page you open while it's set, your browser sends our server a small request carrying that code. That request goes to a separate log holding only the time and the code: no network address, browser details, page address or referring page. Cloudflare still handles the request like any other.</p>
-<p>From that log we publish two totals. One is how many different codes we saw in the last seven days. The other is how many of those we saw on more than one calendar day (UTC). These totals describe browsers that opted in. They aren't visitor counts and they don't count people: one person can use several browsers, clearing cookies makes a new code, most visitors may never choose Allow, and software can send codes too.</p>
+<p>Nothing is counted unless visit counting is on. It's turned on by Accept in the privacy notice, by Allow in Privacy settings, or by following a link to another page on this site before you've answered the notice, with the limits described under Cookies and consent above. Scrolling and downloading an installer don't turn it on. Choosing Decline costs you nothing: downloads and every page work the same.</p>
+<p>Once counting is on, your browser makes a random 32-character code and keeps it in a cookie for seven days. On each page you open while it's set, your browser sends our server a small request carrying that code. That request goes to a separate log holding only the time and the code: no network address, browser details, page address or referring page. Cloudflare still handles the request like any other.</p>
+<p>From that log we publish two totals. One is how many different codes we saw in the last seven days. The other is how many of those we saw on more than one calendar day (UTC). These totals describe browsers that opted in. They aren't visitor counts and they don't count people: one person can use several browsers, clearing cookies makes a new code, not every visitor turns counting on, and software can send codes too.</p>
 <p>The code is random. We don't connect it to your name, your downloads, our server logs or Clarity. It does link together the visits this browser makes while counting is on.</p>
-<p>The cookie expires seven days after you choose. Visits don't extend it. After that, the banner asks again.</p>
+<p>The code cookie expires seven days after counting was turned on. Visits don't extend it. Your counting choice, on or off, also lasts seven days. After that, the privacy notice asks again, and following a link to another page before you answer turns counting on, within the limits above.</p>
 <p>You can stop at any time with the Privacy settings link at the bottom of our pages. Choosing Decline deletes the code from your browser and stops counting from that moment. It doesn't remove visits already in the log or totals already published. Logged visits drop out as the log rotates, after about seven days.</p>
 <p>With JavaScript off, or cookies blocked, nothing is counted and the site still works.</p>
 <h2>How long we keep things</h2>
@@ -256,6 +257,6 @@ Email: <a href="mailto:tyler@fameli.net">tyler@fameli.net</a></p>
     </nav>
   </div>
 </footer>
-<script src="/js/privacy.js?v=613bc457" defer></script>
+<script src="/js/privacy.js?v=73d97251" defer></script>
 </body>
 </html>

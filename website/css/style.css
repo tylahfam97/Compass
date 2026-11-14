@@ -1590,6 +1590,35 @@
   .privacy-choice-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-top: var(--sp-3); }
   .privacy-choice-actions a { font-size: 0.8125rem; color: var(--text-muted); }
   .privacy-choice-status:empty { display: none; }
+  /* Bottom privacy notice (mirrors the Chrysis .cookie-banner): fixed, non-modal, and the page is
+     padded by its measured height (--privacy-h, set by privacy.js, 0 once hidden). The two choices
+     share one style: no colour nudges toward Accept. */
+  html { scroll-padding-bottom: var(--privacy-h, 0px); }
+  body { padding-bottom: var(--privacy-h, 0px); }
+  .privacy-notice {
+    position: fixed; right: max(1rem, env(safe-area-inset-right)); bottom: max(1rem, env(safe-area-inset-bottom)); z-index: 150;
+    width: min(24rem, calc(100% - 2rem)); max-height: 55vh; overflow-y: auto;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.75rem; font-size: 0.8125rem;
+    background: var(--bg-card); color: var(--text); border: 1px solid var(--gold); border-radius: var(--r-md);
+    box-shadow: var(--shadow-md); padding: 0.6rem 0.8rem;
+  }
+  @media (max-width: 600px) {
+    .privacy-notice { left: 0; right: 0; bottom: 0; width: auto; border-radius: 0; border-width: 1px 0 0;
+      padding: 0.5rem 0.75rem max(0.5rem, env(safe-area-inset-bottom)); }
+  }
+  .privacy-notice[hidden] { display: none; }
+  .privacy-notice p { margin: 0; flex-basis: 100%; color: var(--text-muted); line-height: 1.5; }
+  .privacy-notice-actions, .privacy-notice-links { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); }
+  .privacy-notice .btn-outline { border-color: var(--text-subtle); }
+  .privacy-notice-links a, .privacy-notice-link {
+    font: inherit; color: var(--text-muted); text-decoration: underline; text-underline-offset: 2px;
+    background: none; border: 0; padding: 0; cursor: pointer;
+  }
+  .privacy-notice-links a:hover, .privacy-notice-link:hover { color: var(--text); }
+  .privacy-notice-status {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
   .footer-privacy-settings {
     font: inherit; font-size: 0.8125rem; color: var(--text-muted);
     background: none; border: 0; padding: 0; cursor: pointer;
