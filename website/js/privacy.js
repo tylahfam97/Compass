@@ -18,10 +18,10 @@
   // consent, with a worldwide notice and opt-out." false = nothing loads until a choice.
   const PRECHOICE_LOAD = true;
   const T = {
-    // Peitho r2 strings.json (t_cd526a8f). first_visit_banner
+    // Peitho r3 strings.json (t_b6aa451a; r2 t_cd526a8f). first_visit_banner
     clHeading: 'This site records how its pages are used',
     clBody: "We use Microsoft Clarity to record clicks, scrolling and what our pages showed, so we can fix what's confusing. Recording is on from your first page. Microsoft also uses this data under its own terms. Text typed into fields is masked, but page text isn't. Nothing in the Compass app is recorded.",
-    clRegional: 'Wherever you are, Clarity cookies stay off until you choose Allow Clarity cookies. Without them, each page is recorded on its own.',
+    clRegional: "Wherever you are, Clarity's cookies on our domain stay off until you choose Allow Clarity cookies. Without them, each page is recorded on its own. Separately, Microsoft may read or set cookies on its own domains whenever Clarity loads, even before you choose, if your browser allows third-party cookies.",
     clAllowCookies: 'Allow Clarity cookies', clTurnOff: 'Turn recording off', settingsLink: 'Privacy settings', policy: 'Privacy policy',
     // counting_banner
     bannerHeading: 'Count this browser?',
@@ -34,7 +34,7 @@
     clSectionBody: "Records how you use this website's pages, such as clicks, scrolling and the page text shown. Text typed into fields is masked, but page text isn't. It never records the Compass app or your desktop.",
     clRecordLabel: 'Record my visits to this website', clCookiesLabel: 'Allow Clarity cookies',
     clCookiesHelp: 'Cookies let Clarity connect the pages of a visit into one recording. Without them, Clarity can still record each page on its own.',
-    clRegionalHelp: 'Off for every visitor until you turn it on here. Microsoft requires consent before Clarity uses cookies in the EEA, UK and Switzerland, and this site asks everyone.',
+    clRegionalHelp: "Clarity's cookies on our domain are off for every visitor until you turn them on here. Microsoft requires consent before Clarity uses cookies in the EEA, UK and Switzerland, and this site asks everyone. Separately, Microsoft may read or set cookies on its own domains whenever Clarity loads, if your browser allows third-party cookies. To prevent that, block third-party cookies in your browser, or turn recording off here, which stops Clarity loading on later pages.",
     clSignal: "Your browser is sending a privacy signal, so this site doesn't load Clarity.",
     clOn: 'Recording is on.', clOff: 'Recording is off in this browser.',
     clOffDone: "Recording is off for this browser, and Clarity won't load on later pages. Recordings already made aren't deleted. Microsoft keeps them on its stated schedule.",
