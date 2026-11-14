@@ -2,6 +2,42 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.21 — In Plain Sight 🧭
+
+Everything since 1.3.20. Crypto is now an asset class on the Investments page, and coins imported from a Ledger Live export count as Crypto without labelling each one (#PR). The README now shows how to check that the file you downloaded is the one that was published, and lists every connection the app makes, with a test that fails if a new one appears (#PR). On the website, Microsoft Clarity runs behind the site's privacy controls with a privacy policy and terms (#142), and one privacy notice at the bottom of each page now asks about Clarity's cookies and the visit counter together (#PR).
+
+### Investments (#PR)
+- Crypto joins Equity, Bond and Cash in the Asset class card and in each holding's class picker. Holdings imported as crypto (today, Ledger Live operation exports) count as Crypto unless you choose another class for them, and a class you set always wins. Funds and ETFs are still never classified for you, so a crypto ETF held at a brokerage is labelled by hand; the Crypto option is now there for it.
+- The allocation total adds up every class, so no class can drop out of the percentages.
+- The class picker lists Equity, Bond, Crypto and Cash in the same order as the bars. Unclassified is not offered for a coin, because clearing its label would put it straight back in Crypto.
+- Nothing is stored or migrated. The Crypto default is worked out when the page is drawn, and labels you already set are untouched.
+- The investment import screen now names every supported source: Wells Fargo Advisors, Vanguard, Fidelity, Thrivent, Principal, E*TRADE / Morgan Stanley and Ledger Live.
+- Coinbase exports are still not imported.
+
+### Checking Compass for yourself (#PR)
+- README "Verify your download": the publisher Windows shows (Chrysis Networks), how to compare a file's SHA-256 with the one GitHub lists beside it on the release page, with the PowerShell and Terminal commands, and that in-app updates are checked against the signing key built into the app before they install.
+- README "What leaves your machine": the update check (GitHub, 2.5 seconds after launch and whenever you check), the update download (only after you accept it) and Send feedback (only when you press Send), with what each one sends. The app makes no other connections.
+- A unit test fails if the app's Content Security Policy, its update endpoint, the web addresses in its source or its Rust dependencies gain a new destination, and points to that README section. App behaviour is unchanged.
+
+### README (#PR)
+- A 20-second tour of Compass plays as an animated image at the top, linked to the captioned video on the website.
+- The No telemetry line now mentions feedback, Demo Mode is listed as a way to try Compass first, the Investments row names the asset classes, and the investment importer list adds Vanguard and Ledger Live.
+
+### Website (#140, #141, #142, #PR)
+- The promo video became the home page hero, and the demo clips were re-recorded on 1.3.20 (#140).
+- Optional visit counting with a privacy page, and download statistics that count complete installer transfers only (#141).
+- Microsoft Clarity records how the site's pages are used, behind privacy controls, with a privacy policy and website terms (#142). Clarity never runs in the app.
+- A correction to #142's privacy policy: the site's choice controls only Clarity's cookies on the site's own domain (_clck and _clsk). Microsoft may read or set its own cookies, such as MUID, whenever Clarity loads, including on the first page before any choice, if your browser allows third-party cookies. The policy now says so and how to prevent it (#PR).
+- One privacy notice now sits at the bottom of each page, with Accept and Decline. Accept turns on Clarity's cookies and the visit counter; Decline leaves both off, and Clarity keeps recording without cookies. Following a link to another page of the site before you answer counts as Accept for any choice you haven't made yet. It never replaces a saved choice, and it doesn't apply under a Global Privacy Control or Do Not Track signal, after you turned website recording off, for a choice your browser won't let the site store, or for links to the privacy policy, the terms or an installer download. Privacy settings still changes each choice on its own (#PR).
+- The download section notes that installers can be checked against GitHub's SHA-256, a new FAQ explains how, and the guides mention the asset classes and Vanguard workbooks (#PR).
+- The home page's version fields are set to 1.3.21, matching the app manifests.
+
+### Tests and limits
+- Unit tests (`npm test`, run locally; CI runs the browser suite and the Rust tests) include the new Crypto allocation test, which fails when the Crypto default is removed, and the outbound guard, which fails when a throwaway request to another host is added to the source.
+- The privacy notice is checked in Playwright's Chromium and Firefox with the site served from disk under its real hostname and every Clarity and counting request intercepted: a first visit, Accept, Decline, an implied Accept through a link, privacy, terms, download and same-page links that imply nothing, saved choices, Global Privacy Control and Do Not Track, storage that can't be written, recording turned off, and the layout at 375, 600, 601 and 1366 pixels wide with the page padded so nothing ends under the notice.
+- This release changes no Rust source. Browser tests use a mocked native bridge and don't exercise Windows WebView2 or macOS WKWebView.
+- 1.3.20's installers were rebuilt from the same app source on 2026-11-14, when #142 was merged, so a 1.3.20 file downloaded before that day has a different SHA-256 from the one listed now, and GitHub's download counts for 1.3.20 restarted.
+
 ## Compass 1.3.20 — Second Look 🧭
 
 Everything since 1.3.18. Compass is now source-available under the PolyForm Strict License 1.0.0 (#137), and Crypto purchases that may have funded a deposit in your crypto portfolio, but were not matched automatically, are now listed for review instead of silently staying spending (#107). Nothing is changed until you decide. On the website, the videos play in every browser again and a 20-second tour opens "See it in action" (#139). Version 1.3.19 was never released; its license change ships here.
