@@ -1,25 +1,59 @@
-// Opt-in browser counting. Nothing is stored or sent until the visitor chooses Allow.
-// Choice: __Host-compass_consent=1.<a|r>.<chosen>.<expires> (Path=/). On Allow only, a
-// random ID in __Secure-compass_browser (Path=/_measure, so it never rides along with
-// pages, downloads, GitHub or /api/feedback). Both last 7 days from the choice; visits
-// never extend them. A failure anywhere here only means nothing is counted.
+// Two separate, independently stored choices (Peitho strings.json, verbatim).
+// 1. Opt-in browser counting (unchanged). Nothing is stored or sent until the visitor chooses
+//    Allow. Choice: __Host-compass_consent=1.<a|r>.<chosen>.<expires> (Path=/). On Allow only, a
+//    random ID in __Secure-compass_browser (Path=/_measure, so it never rides along with pages,
+//    downloads, GitHub, Clarity or /api/feedback). Both last 7 days from the choice.
+// 2. Microsoft Clarity website recording (project zcrzloqmns). Choice in localStorage
+//    compass_clarity = on | cookies | off. Never loaded with a GPC/DNT signal, after "off", or
+//    when storage can't be read or written (an opt-out could not be remembered). ad_Storage is
+//    always denied; analytics_Storage is granted only after the visitor clicks "Allow Clarity cookies".
+//    Turning recording off also adds a stricter page CSP without the Clarity hosts, so the browser
+//    itself blocks anything more reaching Clarity from the current page.
+//    The counting choice never implies a Clarity choice and vice versa.
 (() => {
   const CHOICE = '__Host-compass_consent', ID = '__Secure-compass_browser', WEEK = 604800;
   const FLAGS = `; Max-Age=${WEEK}; Secure; SameSite=Strict`;
-  const T = { // Peitho strings-v2.json "recognition" + "footer", verbatim
+  const CL = 'compass_clarity';
+  // Tyler's ruling (2026-11-13): "Keep recording on by default, including cookieless recording before
+  // consent, with a worldwide notice and opt-out." false = nothing loads until a choice.
+  const PRECHOICE_LOAD = true;
+  const T = {
+    // Peitho r2 strings.json (t_cd526a8f). first_visit_banner
+    clHeading: 'This site records how its pages are used',
+    clBody: "We use Microsoft Clarity to record clicks, scrolling and what our pages showed, so we can fix what's confusing. Recording is on from your first page. Microsoft also uses this data under its own terms. Text typed into fields is masked, but page text isn't. Nothing in the Compass app is recorded.",
+    clRegional: 'Wherever you are, Clarity cookies stay off until you choose Allow Clarity cookies. Without them, each page is recorded on its own.',
+    clAllowCookies: 'Allow Clarity cookies', clTurnOff: 'Turn recording off', settingsLink: 'Privacy settings', policy: 'Privacy policy',
+    // counting_banner
     bannerHeading: 'Count this browser?',
-    bannerBody: "If you choose Allow, we'll keep a random code in a cookie for seven days so we can see how many browsers visit and come back. It isn't linked to your name or your downloads. Downloads work the same either way.",
-    allow: 'Allow', decline: 'Decline', policy: 'Privacy policy',
+    bannerBody: 'Optional, and separate from Clarity. If you allow it, this browser gets a random code for seven days so we can count repeat visits. Declining changes nothing on the site.',
+    allow: 'Allow', decline: 'Decline',
+    // privacy_settings_panel
     settingsHeading: 'Privacy settings',
-    settingsBody: "Visit counting keeps a random code in this browser for seven days so we can count browsers that come back. It's off unless you choose Allow. Downloads work the same either way.",
-    on: 'Counting is on in this browser until {date}.', off: 'Counting is off in this browser.',
-    unset: "You haven't chosen yet, so nothing is being counted.",
+    intro: "Two separate choices. Changing one doesn't change the other.",
+    clSection: 'Website recording (Microsoft Clarity)',
+    clSectionBody: "Records how you use this website's pages, such as clicks, scrolling and the page text shown. Text typed into fields is masked, but page text isn't. It never records the Compass app or your desktop.",
+    clRecordLabel: 'Record my visits to this website', clCookiesLabel: 'Allow Clarity cookies',
+    clCookiesHelp: 'Cookies let Clarity connect the pages of a visit into one recording. Without them, Clarity can still record each page on its own.',
+    clRegionalHelp: 'Off for every visitor until you turn it on here. Microsoft requires consent before Clarity uses cookies in the EEA, UK and Switzerland, and this site asks everyone.',
+    clSignal: "Your browser is sending a privacy signal, so this site doesn't load Clarity.",
+    clOn: 'Recording is on.', clOff: 'Recording is off in this browser.',
+    clOffDone: "Recording is off for this browser, and Clarity won't load on later pages. Recordings already made aren't deleted. Microsoft keeps them on its stated schedule.",
+    clStorage: "This browser won't let the site remember a recording choice, so Clarity isn't loaded.",
+    msLink: 'Microsoft Privacy Statement',
+    countSection: 'Visit counting (our own counter)',
+    countSectionBody: 'Optional and off unless you choose Allow. A random code is kept for seven days so we can count repeat visits. Separate from Clarity.',
+    on: 'Visit counting is on for this browser until the date shown.', off: 'Visit counting is off for this browser.',
+    unset: "You haven't chosen. Nothing is counted.",
+    afterDecline: 'Counting is off and the code is deleted from this browser. Visits already logged drop out as the log rotates, after about seven days.',
+    storage: "These choices are saved in this browser only. Clearing this site's data or using another browser resets them.",
+    save: 'Save choices', close: 'Close',
+    // kept from strings-v2 (no replacement in the new pack)
     unavailable: "This browser blocks what counting needs, so it's off. Everything else works.",
-    close: 'Close', afterAllow: 'Counting is on until {date}.',
-    afterDecline: 'Counting is off, and the code is deleted from this browser. Visits already counted stay in our log until it rotates.',
-    settingsLink: 'Privacy settings',
+    afterAllow: 'Counting is on until {date}.',
   };
   const now = () => Math.floor(Date.now() / 1000);
+
+  // ---- visit counting (behavior unchanged) ----
   // undefined = cookies unusable here, null = no valid choice (unset/expired/garbled)
   const read = () => {
     let m;
@@ -54,49 +88,156 @@
     return c;
   };
 
+  // ---- Microsoft Clarity ----
+  const signal = () => navigator.globalPrivacyControl === true || navigator.doNotTrack === '1' || window.doNotTrack === '1';
+  // undefined = storage unusable, null = no choice yet. Rewriting the same value (or an empty
+  // write+remove) proves a later "off" could be saved; if not, nothing loads (fail closed).
+  const clGet = () => {
+    try {
+      const v = localStorage.getItem(CL), ok = ['on', 'cookies', 'off'].includes(v);
+      localStorage.setItem(CL, ok ? v : '');
+      if (!ok) localStorage.removeItem(CL);
+      return ok ? v : null;
+    } catch { return undefined; }
+  };
+  const clSet = v => { try { localStorage.setItem(CL, v); return clGet() === v; } catch { return false; } };
+  const consent = grant => window.clarity('consentv2', { ad_Storage: 'denied', analytics_Storage: grant ? 'granted' : 'denied' });
+  let loaded = false;
+  const loadClarity = () => {
+    if (loaded || signal()) return;
+    loaded = true;
+    if (!window.clarity) { // supplied bootstrap, verbatim apart from formatting; one copy per page
+      (function(c,l,a,r,i,t,y){
+        c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+        t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
+        y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
+      })(window, document, "clarity", "script", "zcrzloqmns");
+    }
+    consent(clGet() === 'cookies'); // queued before the tag runs: no cookies until an explicit grant
+  };
+  const dropClarityCookies = () => {
+    for (const n of ['_clck', '_clsk']) for (const d of ['', `; Domain=${location.hostname}`, `; Domain=.${location.hostname.replace(/^www\./, '')}`]) {
+      try { document.cookie = `${n}=; Path=/; Max-Age=0${d}`; } catch {}
+    }
+  };
+  // Browser-enforced stop for this page: a second meta CSP (same policy minus the Clarity hosts).
+  // Policies only ever tighten, so already-running Clarity code can't send or fetch anything more.
+  const lock = () => {
+    const m = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+    if (!m || document.getElementById('clarity-off-csp')) return;
+    const n = document.createElement('meta');
+    n.id = 'clarity-off-csp'; n.httpEquiv = 'Content-Security-Policy';
+    n.content = m.content.replace(/ https:\/\/\*\.clarity\.ms https:\/\/c\.bing\.com/g, '');
+    document.head.append(n);
+  };
+  const stop = () => { if (loaded) { consent(false); window.clarity('consent', false); } lock(); dropClarityCookies(); };
+  // v: 'on' | 'cookies' | 'off'. Returns false when the choice could not be saved; then this page
+  // stops too (fail closed), since nothing would remember the visitor's choice.
+  const clChoose = v => {
+    const saved = clSet(v);
+    if (v === 'off' || !saved) stop();
+    else if (loaded) consent(v === 'cookies'); else loadClarity();
+    return saved;
+  };
+
+  // ---- UI ----
   let panel, opener;
   const el = (tag, props, ...kids) => { const n = Object.assign(document.createElement(tag), props); n.append(...kids); return n; };
-  const statusText = c => c === undefined ? T.unavailable : !c ? T.unset : c.allow ? T.on.replace('{date}', day(c.exp)) : T.off;
+  const statusText = c => c === undefined ? T.unavailable : !c ? T.unset : c.allow ? `${T.on} ${day(c.exp)}` : T.off;
   const close = () => { if (!panel) return; panel.remove(); panel = null; if (opener) opener.focus(); opener = null; };
-  const show = settings => {
+  const button = (label, onClick, cls = 'btn btn-outline btn-sm') => {
+    const b = el('button', { type: 'button', className: cls, textContent: label });
+    b.addEventListener('click', onClick);
+    return b;
+  };
+  const status = () => { const p = el('p', { className: 'privacy-choice-status' }); p.setAttribute('role', 'status'); return p; };
+  const countRow = (live, after) => el('div', { className: 'privacy-choice-actions' }, ...[true, false].map(allow =>
+    button(allow ? T.allow : T.decline, () => {
+      const r = choose(allow);
+      live.textContent = r === undefined ? T.unavailable : allow ? T.afterAllow.replace('{date}', day(r.exp)) : T.afterDecline;
+      if (after) after();
+    })));
+  const mount = (kind, h, ...kids) => {
     if (panel) panel.remove();
-    const c = read();
-    const h = el('h2', { id: 'privacy-choice-title', className: 'privacy-choice-title', tabIndex: -1, textContent: settings ? T.settingsHeading : T.bannerHeading });
-    const live = el('p', { className: 'privacy-choice-status', textContent: settings ? statusText(c) : '' });
-    live.setAttribute('role', 'status');
-    const btn = (label, allow) => {
-      const b = el('button', { type: 'button', className: 'btn btn-outline btn-sm', textContent: label });
-      b.addEventListener('click', () => {
-        const r = choose(allow);
-        live.textContent = r === undefined ? T.unavailable : allow ? T.afterAllow.replace('{date}', day(r.exp)) : T.afterDecline;
-        if (!settings) setTimeout(close, 4000); // the banner reports the result, then goes
-      });
-      return b;
-    };
-    const row = el('div', { className: 'privacy-choice-actions' }, btn(T.allow, true), btn(T.decline, false));
-    if (settings) {
-      const x = el('button', { type: 'button', className: 'btn btn-ghost btn-sm', textContent: T.close });
-      x.addEventListener('click', close);
-      row.append(x);
-    } else row.append(el('a', { href: '/privacy/', textContent: T.policy }));
-    panel = el('section', { className: 'privacy-choice' },
-      h, el('p', { textContent: settings ? T.settingsBody : T.bannerBody }), row, live);
+    panel = el('section', { className: 'privacy-choice' }, h, ...kids);
+    panel.dataset.kind = kind;
     panel.setAttribute('aria-labelledby', h.id);
-    panel.addEventListener('keydown', e => { if (e.key === 'Escape' && settings) close(); });
     document.body.prepend(panel);
-    if (settings) h.focus();
+  };
+
+  const showBanner = (needClarity, needCount) => {
+    const kids = [];
+    const later = () => setTimeout(() => { if (panel && panel.dataset.kind === 'banner') close(); }, 4000);
+    let h;
+    if (needClarity) {
+      const live = status();
+      h = el('h2', { id: 'privacy-choice-title', className: 'privacy-choice-title', tabIndex: -1, textContent: T.clHeading });
+      kids.push(el('p', { textContent: T.clBody }), el('p', { textContent: T.clRegional }),
+        el('div', { className: 'privacy-choice-actions' },
+          button(T.clAllowCookies, () => { live.textContent = clChoose('cookies') ? T.clOn : T.clStorage; if (!needCount) later(); }),
+          button(T.clTurnOff, () => { live.textContent = clChoose('off') ? T.clOffDone : T.clStorage; if (!needCount) later(); }),
+          button(T.settingsLink, () => showSettings(), 'btn btn-ghost btn-sm'),
+          el('a', { href: '/privacy/', textContent: T.policy })),
+        live);
+    }
+    if (needCount) {
+      const live = status();
+      const ch = el(h ? 'h3' : 'h2', { id: h ? 'privacy-count-title' : 'privacy-choice-title', className: 'privacy-choice-title', tabIndex: -1, textContent: T.bannerHeading });
+      const row = countRow(live, later);
+      if (!h) { h = ch; row.append(el('a', { href: '/privacy/', textContent: T.policy })); } else kids.push(ch);
+      kids.push(el('p', { textContent: T.bannerBody }), row, live);
+    }
+    mount('banner', h, ...kids);
+  };
+
+  const showSettings = () => {
+    const h = el('h2', { id: 'privacy-choice-title', className: 'privacy-choice-title', tabIndex: -1, textContent: T.settingsHeading });
+    const kids = [el('p', { textContent: T.intro }), el('h3', { className: 'privacy-choice-title', textContent: T.clSection }), el('p', { textContent: T.clSectionBody })];
+    const clLive = status();
+    const cur = clGet();
+    if (signal()) kids.push(el('p', { textContent: T.clSignal }));
+    else if (cur === undefined) clLive.textContent = T.clStorage;
+    else {
+      const box = (label, checked) => { const i = el('input', { type: 'checkbox', checked }); return [i, el('label', {}, i, ' ', label)]; };
+      const [rec, recL] = box(T.clRecordLabel, cur !== 'off' && (cur !== null || PRECHOICE_LOAD));
+      const [ck, ckL] = box(T.clCookiesLabel, cur === 'cookies');
+      ck.disabled = !rec.checked;
+      rec.addEventListener('change', () => { ck.disabled = !rec.checked; if (!rec.checked) ck.checked = false; });
+      clLive.textContent = rec.checked ? T.clOn : T.clOff;
+      kids.push(el('div', {}, recL), el('div', {}, ckL), el('p', { textContent: T.clCookiesHelp }), el('p', { textContent: T.clRegionalHelp }),
+        el('div', { className: 'privacy-choice-actions' },
+          button(T.save, () => {
+            const v = !rec.checked ? 'off' : ck.checked ? 'cookies' : 'on';
+            const ok = clChoose(v);
+            clLive.textContent = !ok ? T.clStorage : v === 'off' ? T.clOffDone : T.clOn;
+          }),
+          el('a', { href: 'https://privacy.microsoft.com/en-us/privacystatement', target: '_blank', rel: 'noopener noreferrer', textContent: T.msLink })));
+    }
+    kids.push(clLive);
+    const cLive = status();
+    cLive.textContent = statusText(read());
+    kids.push(el('h3', { className: 'privacy-choice-title', textContent: T.countSection }), el('p', { textContent: T.countSectionBody }), countRow(cLive), cLive,
+      el('p', { textContent: T.storage }),
+      el('div', { className: 'privacy-choice-actions' }, button(T.close, close, 'btn btn-ghost btn-sm')));
+    mount('settings', h, ...kids);
+    panel.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+    h.focus();
   };
 
   const start = () => {
     const nav = document.querySelector('.footer-links');
     if (nav) {
       const b = el('button', { type: 'button', className: 'footer-privacy-settings', textContent: T.settingsLink });
-      b.addEventListener('click', () => { opener = b; show(true); });
+      b.addEventListener('click', () => { opener = b; showSettings(); });
       nav.append(b);
     }
+    const cl = clGet();
+    if (cl === 'on' || cl === 'cookies' || (cl === null && PRECHOICE_LOAD)) loadClarity();
     const c = read();
-    if (c === null) show(false); // undefined (cookies blocked): no banner, nothing counted
-    else if (c && c.allow) send();
+    // cookies blocked: no counting banner; privacy signal or unusable storage: no Clarity banner
+    const needClarity = cl === null && !signal();
+    if (needClarity || c === null) showBanner(needClarity, c === null);
+    if (c && c.allow) send();
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
