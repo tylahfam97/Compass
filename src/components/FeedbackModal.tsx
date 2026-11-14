@@ -1,8 +1,11 @@
 import { useState } from "react";
 import { motion } from "motion/react";
+import { ThumbsDownIcon, ThumbsUpIcon } from "@phosphor-icons/react";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import { toast, useToastStore } from "@/stores/toastStore";
-import { MAX_BODY_BYTES, MAX_MESSAGE, buildFeedbackBody, sendFeedback } from "@/lib/feedback";
+import { MAX_BODY_BYTES, MAX_MESSAGE, buildFeedbackBody, sendFeedback, type FeedbackRating } from "@/lib/feedback";
+
+const RATINGS = [["like", "Like", ThumbsUpIcon], ["dislike", "Dislike", ThumbsDownIcon]] as const;
 
 interface Props {
   onClose: () => void;
@@ -12,11 +15,12 @@ interface Props {
 export default function FeedbackModal({ onClose, version }: Props) {
   const [message, setMessage] = useState("");
   const [email, setEmail] = useState("");
+  const [rating, setRating] = useState<FeedbackRating>("");
   const [sending, setSending] = useState(false);
   const [errorToast, setErrorToast] = useState<number | null>(null);
   // No dismissing mid-send: a failure after closing would lose the typed text.
   const { onBackdropClick, containerRef } = useModalDismiss(sending ? () => {} : onClose);
-  const input = { message, email, version, os: navigator.platform };
+  const input = { message, email, rating, version, os: navigator.platform };
   const tooLong = buildFeedbackBody(input).toString().length > MAX_BODY_BYTES;
 
   async function handleSend() {
@@ -69,8 +73,16 @@ export default function FeedbackModal({ onClose, version }: Props) {
               className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-[hsl(var(--background))]"
             />
           </div>
+          {/* Optional; pressing the picked one again clears it. */}
+          <div className="workspace-segments" role="group" aria-label="Rating">
+            {RATINGS.map(([value, label, Icon]) => (
+              <button key={value} type="button" aria-pressed={rating === value} onClick={() => setRating(rating === value ? "" : value)}>
+                <Icon size={16} aria-hidden="true" />{label}
+              </button>
+            ))}
+          </div>
           <p className="text-xs text-[hsl(var(--muted-foreground))]">
-            Sends only this message, the email above if you add one, your Compass version and your OS type.
+            Sends only this message, the email above if you add one, your rating, your Compass version and your OS type.
             None of your financial data leaves this device.
           </p>
         </div>

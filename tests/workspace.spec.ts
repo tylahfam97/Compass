@@ -436,6 +436,17 @@ test("Send feedback posts only the typed fields, keeps the text on failure and c
   const send = dialog.getByRole("button", { name: "Send", exact: true });
   await expect(send).toBeDisabled();
   await dialog.getByLabel("Message").fill("The Plan tab is great");
+  const like = dialog.getByRole("button", { name: "Like", exact: true });
+  const dislike = dialog.getByRole("button", { name: "Dislike", exact: true });
+  await expect(like).toHaveAttribute("aria-pressed", "false");
+  await expect(dislike).toHaveAttribute("aria-pressed", "false");
+  await dislike.click();
+  await like.press("Enter"); // keyboard picks too, and replaces the other choice
+  await expect(like).toHaveAttribute("aria-pressed", "true");
+  await expect(dislike).toHaveAttribute("aria-pressed", "false");
+  await like.click(); // pressing the picked one clears it
+  await expect(like).toHaveAttribute("aria-pressed", "false");
+  await like.click();
   await send.click();
   await expect(page.getByText("Couldn't send. Check your connection or try again later.")).toBeVisible();
   await expect(dialog.getByLabel("Message")).toHaveValue("The Plan tab is great");
@@ -444,8 +455,9 @@ test("Send feedback posts only the typed fields, keeps the text on failure and c
   await expect(page.getByText("Thanks, sent.")).toBeVisible();
   await expect(dialog).toHaveCount(0);
   const sent = new URLSearchParams(posts[1]);
-  expect([...sent.keys()]).toEqual(["message", "version", "os"]);
+  expect([...sent.keys()]).toEqual(["message", "rating", "version", "os"]);
   expect(sent.get("message")).toBe("The Plan tab is great");
+  expect(sent.get("rating")).toBe("like");
   expect(sent.get("version")).toBe("1.0.2");
 });
 

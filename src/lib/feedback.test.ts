@@ -1,16 +1,24 @@
 import { expect, it, vi } from "vitest";
-import { FEEDBACK_URL, MAX_BODY_BYTES, buildFeedbackBody, sendFeedback } from "./feedback";
+import { FEEDBACK_URL, MAX_BODY_BYTES, buildFeedbackBody, sendFeedback, type FeedbackRating } from "./feedback";
 
 it("sends only the trimmed, clamped fields", () => {
   const body = buildFeedbackBody({ message: `  ${"x".repeat(4100)}  `, email: "  me@example.com ", version: "1.3.17", os: "Win32" });
-  expect([...body.keys()]).toEqual(["message", "email", "version", "os"]);
+  expect([...body.keys()]).toEqual(["message", "email", "rating", "version", "os"]);
   expect(body.get("message")).toHaveLength(4000);
   expect(body.get("email")).toBe("me@example.com");
   expect(buildFeedbackBody({ message: "hi", email: "   " }).has("email")).toBe(false);
 });
 
+it("sends the rating as like, dislike or empty, and nothing else", () => {
+  const rating = (r?: string) => buildFeedbackBody({ message: "hi", rating: r as FeedbackRating }).get("rating");
+  expect(rating("like")).toBe("like");
+  expect(rating("dislike")).toBe("dislike");
+  expect(rating()).toBe("");
+  expect(rating("love it")).toBe("");
+});
+
 it("a full ASCII message fits the site's 8 KB cap; a long non-Latin one is flagged by size", () => {
-  const size = (message: string) => buildFeedbackBody({ message, email: "x".repeat(254), version: "1.3.17", os: "MacIntel" }).toString().length;
+  const size = (message: string) => buildFeedbackBody({ message, email: "x".repeat(254), rating: "dislike", version: "1.3.17", os: "MacIntel" }).toString().length;
   expect(size("x".repeat(4000))).toBeLessThanOrEqual(MAX_BODY_BYTES);
   expect(size("é".repeat(1500))).toBeGreaterThan(MAX_BODY_BYTES);
 });
