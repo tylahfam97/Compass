@@ -291,7 +291,7 @@ export interface InvestmentActivity {
 }
 
 /** A user-chosen asset class for one security (see holding_classes in db.ts). */
-export type AssetClass = "cash" | "equity" | "bond";
+export type AssetClass = "cash" | "equity" | "bond" | "crypto";
 export interface HoldingClass {
   identity: string;
   asset_class: AssetClass | null;

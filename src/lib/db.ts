@@ -1311,7 +1311,8 @@ async function runMigrations(db: CompassDb): Promise<void> {
   if (!(await colExists(db, "investment_activity", "source_json"))) {
     await db.execute("ALTER TABLE investment_activity ADD COLUMN source_json TEXT");
   }
-  // User-chosen asset class per security (cash | equity | bond; no row = Unclassified), with
+  // User-chosen asset class per security (cash | equity | bond | crypto; no row = Unclassified, or
+  // Crypto for a holding imported as crypto, see holdingAssetClass in InvestmentsPage), with
   // optional equity region/size and a free-text bond note. Keyed by `identity`: "symbol:<SYMBOL>"
   // when the holding has a symbol, else "account:<id>:<description>" so two unlabeled holdings in
   // different accounts are never merged. Imports never write here, so labels survive re-imports.

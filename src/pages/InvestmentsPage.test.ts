@@ -76,11 +76,22 @@ describe("asset-class labels and allocation", () => {
       h(1, "ZZTMX", "a", 60000), h(2, "ZZTMX", "a", 40000), h(1, "ZZINT", "b", 50000),
       h(1, "ZZBDX", "c", 30000), h(1, "ZZTDF", "target-date (mixed)", 20000), h(1, null, "no value", null),
     ], classes);
-    expect(a.byClass).toEqual({ cash: 0, equity: 150000, bond: 30000, unclassified: 20000 });
+    expect(a.byClass).toEqual({ cash: 0, equity: 150000, bond: 30000, crypto: 0, unclassified: 20000 });
     expect(a.total).toBe(200000);
     expect(a.incomplete).toBe(true);
     expect(Object.fromEntries(a.region)).toEqual({ us: 100000, developed: 50000 });
     expect(Object.fromEntries(a.size)).toEqual({ large: 100000, unset: 50000 });
+  });
+
+  it("counts crypto holdings as Crypto unless the user labelled them, and the total covers every bucket", () => {
+    const classes = new Map([cls("symbol:ZZETF", "crypto"), cls("symbol:ZZCASH", "cash")]);
+    const c = (account_id: number, symbol: string, market_value_cents: number, security_type: "crypto" | "etf" | "mutual_fund") => ({ ...h(account_id, symbol, symbol, market_value_cents), security_type });
+    const a = assetClassAllocation([
+      c(1, "ZZBTC", 10000, "crypto"), c(1, "ZZETF", 20000, "etf"), c(1, "ZZCASH", 30000, "crypto"), c(1, "ZZFND", 40000, "mutual_fund"),
+    ], classes);
+    expect(a.byClass).toEqual({ cash: 30000, equity: 0, bond: 0, crypto: 30000, unclassified: 40000 });
+    expect(a.total).toBe(Object.values(a.byClass).reduce((x, y) => x + y, 0));
+    expect(a.total).toBe(100000);
   });
 
   it("returns zero totals for an empty scope rather than fake shares", () => {
