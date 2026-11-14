@@ -148,7 +148,7 @@ backups) are not converted.
 
 | Destination | When | What is sent |
 |---|---|---|
-| GitHub: `github.com/tylahfam97/Compass/releases/latest/download/latest.json` | Update check, 2.5 seconds after launch and whenever you choose **Check for updates** | A request for that one file. Compass adds none of your data and no identifier. |
+| GitHub: `github.com/tylahfam97/Compass/releases/latest/download/latest.json` | Update check, 2.5 seconds after the expanded sidebar appears (at launch when the sidebar is open, and each time you expand it), and whenever you choose **Check for updates** | A request for that one file. Compass adds none of your data and no identifier. |
 | GitHub: the release's update package | Only after you accept an update | A download request for that package |
 | `privatecompass.app/api/feedback` | Only when you press **Send** in **Send feedback** | Your message, the reply email if you typed one, your Compass version and your operating system |
 

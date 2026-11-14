@@ -16,8 +16,8 @@ Everything since 1.3.20. Crypto is now an asset class on the Investments page, a
 
 ### Checking Compass for yourself (#143)
 - README "Verify your download": the publisher Windows shows (Chrysis Networks), how to compare a file's SHA-256 with the one GitHub lists beside it on the release page, with the PowerShell and Terminal commands, and that in-app updates are checked against the signing key built into the app before they install.
-- README "What leaves your machine": the update check (GitHub, 2.5 seconds after launch and whenever you check), the update download (only after you accept it) and Send feedback (only when you press Send), with what each one sends. The app makes no other connections.
-- A unit test fails if the app's Content Security Policy, its update endpoint, the web addresses in its source or its Rust dependencies gain a new destination, and points to that README section. App behaviour is unchanged.
+- README "What leaves your machine": the update check (GitHub, 2.5 seconds after the expanded sidebar appears, and whenever you check), the update download (only after you accept it) and Send feedback (only when you press Send), with what each one sends. The app makes no other connections.
+- A unit test fails if the app's Content Security Policy, its update endpoint or the web addresses in its source gain a new destination, or if its Rust dependencies gain an HTTP client, and points to that README section. App behaviour is unchanged.
 
 ### README (#143)
 - A 20-second tour of Compass plays as an animated image at the top, linked to the captioned video on the website.
