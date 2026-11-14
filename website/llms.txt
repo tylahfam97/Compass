@@ -73,7 +73,7 @@ Browser regression checks use a mocked native bridge. They do not establish Wind
 
 ## Network use
 
-Compass checks GitHub for new releases. The Send feedback action sends the user's message, optional reply email, app version and operating system only when Send is pressed; it does not attach transactions or financial records. There is no telemetry or cloud sync. Compass works offline after installation.
+Compass checks GitHub for new releases. The Send feedback action sends the user's message, optional reply email, optional Like or Dislike rating, app version and operating system only when Send is pressed; it does not attach transactions or financial records. There is no telemetry or cloud sync. Compass works offline after installation.
 
 ## Data and security
 

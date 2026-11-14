@@ -11,6 +11,10 @@ Everything since 1.3.21. Send feedback now has an optional Like or Dislike (#144
 - The rating (like, dislike, or empty when neither is picked) goes with the message. The note in the dialog now lists it; nothing else was added to what is sent.
 - The README's "What leaves your machine" table lists the rating.
 
+### Website (#144)
+- The privacy policy, the home page FAQ and llms.txt list the rating among what Send feedback sends. The privacy policy also says where feedback is kept and for how long.
+- The home page's version fields are set to 1.3.22, matching the app manifests.
+
 ### Tests and limits
 - A unit test checks that the rating is sent only as like, dislike or empty, and the browser test for Send feedback now picks, switches and clears a rating before sending.
 - This release changes no Rust source. Browser tests use a mocked native bridge and don't exercise Windows WebView2 or macOS WKWebView.

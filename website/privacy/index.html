@@ -55,12 +55,12 @@
 <p>The site has no ads. It keeps ordinary server logs, like any website. Cloudflare, which delivers the site, and GitHub, which hosts our releases and answers the home page's version check, also see ordinary request details.</p>
 <p>Counting your browser's visits is optional too. The privacy notice at the bottom of our pages asks about both: Accept turns on Clarity's cookies and visit counting, and Decline leaves both off, with recording carrying on without Clarity cookies. Following a link to another page on this site before you answer counts as Accept. You can change either choice at any time in Privacy settings.</p>
 <h2>The Compass app</h2>
-<p>This section describes Compass 1.3.21, the current release on the date above.</p>
+<p>This section describes Compass 1.3.22, the current release on the date above.</p>
 <p>Your financial data, including the transactions you import, is stored on your computer in an encrypted SQLCipher database. There's no Compass account and no cloud sync. The app has no usage tracking and doesn't send the contents of that database to us.</p>
 <p>Microsoft Clarity is not in the app. It runs only on the website's pages, in your web browser. It can't see the Compass app, your desktop, other windows or your financial database.</p>
 <p>Two things do leave your computer.</p>
 <p>Update checks. The app checks our GitHub releases for new versions. GitHub receives the ordinary details of that request, such as your network address.</p>
-<p>Feedback you choose to send. When you write feedback in the app and press send, it goes to our server with your message, the reply email address if you added one, your Compass version and your operating system. Nothing is sent unless you send it. Our server passes it to the workflow tool we use to receive feedback.</p>
+<p>Feedback you choose to send. When you write feedback in the app and press send, it goes to our server with your message, the reply email address if you added one, your rating if you picked Like or Dislike, your Compass version and your operating system. Nothing is sent unless you send it. Our server passes it to the workflow tool we use to receive feedback. That tool emails it to us and adds an entry to our internal feedback table with the time it arrived, your message and its length, your rating, your Compass version and operating system, and whether you added a reply address, but not the address itself.</p>
 <h2>This website</h2>
 <p>These things happen on every visit, whatever you choose about cookies or recording.</p>
 <p>Cloudflare. Cloudflare delivers privatecompass.app and screens traffic for attacks. It handles every request, including your network address, and it may run a security check in your browser or set its own security cookie.</p>
@@ -214,6 +214,7 @@
 <h2>How long we keep things</h2>
 <p>Server access and error logs: kept for security, troubleshooting and the download statistics above.</p>
 <p>Daily download totals: kept as a running history.</p>
+<p>Feedback you send from the app: kept in our mailbox and in our internal feedback table until we delete it.</p>
 <p>Visit-counting log: about seven days. Visit-counting cookies: seven days in your browser, then they expire.</p>
 <p>Your website recording choice: in your browser's local storage until you clear this site's data.</p>
 <p>Microsoft Clarity recordings and reports: kept by Microsoft on the schedule in the Clarity section above.</p>
