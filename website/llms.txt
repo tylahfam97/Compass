@@ -47,6 +47,9 @@ nothing, and unlock no features: there is one build and one source tree.
 Installers for the latest stable release: https://github.com/tylahfam97/Compass/releases/latest
 Release notes for every version: https://github.com/tylahfam97/Compass/blob/main/RELEASE_NOTES.md
 
+Added in 1.3.22:
+- Send feedback has an optional Like or Dislike choice, sent with the message as a rating (like, dislike, or empty when neither is picked).
+
 Added in 1.3.21:
 - Crypto is an asset class on the Investments page (Equity, Bond, Crypto, Cash). Holdings imported as crypto, such as Ledger Live exports, count as Crypto unless the user relabels them; funds are never classified automatically. No database migration.
 - README sections on verifying a download (the SHA-256 GitHub lists for every release file, the Windows publisher, signed in-app updates) and on every connection the app makes, guarded by a unit test.
