@@ -1,15 +1,19 @@
-// Two separate, independently stored choices (Peitho strings.json, verbatim).
-// 1. Opt-in browser counting (unchanged). Nothing is stored or sent until the visitor chooses
-//    Allow. Choice: __Host-compass_consent=1.<a|r>.<chosen>.<expires> (Path=/). On Allow only, a
-//    random ID in __Secure-compass_browser (Path=/_measure, so it never rides along with pages,
-//    downloads, GitHub, Clarity or /api/feedback). Both last 7 days from the choice.
+// Two independently stored choices (Peitho strings.json r4, verbatim).
+// 1. Opt-in browser counting. Choice: __Host-compass_consent=1.<a|r>.<chosen>.<expires> (Path=/).
+//    When on, a random ID in __Secure-compass_browser (Path=/_measure, so it never rides along with
+//    pages, downloads, GitHub, Clarity or /api/feedback). Both last 7 days from the choice.
 // 2. Microsoft Clarity website recording (project zcrzloqmns). Choice in localStorage
 //    compass_clarity = on | cookies | off. Never loaded with a GPC/DNT signal, after "off", or
 //    when storage can't be read or written (an opt-out could not be remembered). ad_Storage is
-//    always denied; analytics_Storage is granted only after the visitor clicks "Allow Clarity cookies".
+//    always denied; analytics_Storage is granted only once the stored choice is "cookies".
 //    Turning recording off also adds a stricter page CSP without the Clarity hosts, so the browser
 //    itself blocks anything more reaching Clarity from the current page.
-//    The counting choice never implies a Clarity choice and vice versa.
+// The bottom notice (mirrors the Chrysis .cookie-banner) answers both: Accept = Clarity cookies +
+// counting, Decline = recording without Clarity cookies + no counting. Following a link to another
+// page of this site while a choice is missing counts as Accept for the missing items only (Tyler
+// 2026-11-14), never over a stored choice, never when Clarity can't run here (GPC/DNT, stored off,
+// unusable storage) or after a choice failed to store, and never for privacy/terms/download links
+// or links inside the notice or settings. Privacy settings keeps the two choices separate.
 (() => {
   const CHOICE = '__Host-compass_consent', ID = '__Secure-compass_browser', WEEK = 604800;
   const FLAGS = `; Max-Age=${WEEK}; Secure; SameSite=Strict`;
@@ -18,15 +22,15 @@
   // consent, with a worldwide notice and opt-out." false = nothing loads until a choice.
   const PRECHOICE_LOAD = true;
   const T = {
-    // Peitho r2 strings.json (t_cd526a8f). first_visit_banner
-    clHeading: 'This site records how its pages are used',
-    clBody: "We use Microsoft Clarity to record clicks, scrolling and what our pages showed, so we can fix what's confusing. Recording is on from your first page. Microsoft also uses this data under its own terms. Text typed into fields is masked, but page text isn't. Nothing in the Compass app is recorded.",
-    clRegional: 'Wherever you are, Clarity cookies stay off until you choose Allow Clarity cookies. Without them, each page is recorded on its own.',
-    clAllowCookies: 'Allow Clarity cookies', clTurnOff: 'Turn recording off', settingsLink: 'Privacy settings', policy: 'Privacy policy',
-    // counting_banner
-    bannerHeading: 'Count this browser?',
-    bannerBody: 'Optional, and separate from Clarity. If you allow it, this browser gets a random code for seven days so we can count repeat visits. Declining changes nothing on the site.',
-    allow: 'Allow', decline: 'Decline',
+    // Peitho r4 strings.json (t_0b0f190f; r3 t_b6aa451a, r2 t_cd526a8f). first_visit_banner = the bottom notice
+    noticeLabel: "Privacy choices",
+    summary: "We record page activity with Microsoft Clarity either way. Accept turns on its cookies and our visit counter, and clicking through to another page before you choose counts as accepting.",
+    summaryNoClarity: "Microsoft Clarity isn't running in this browser. Accept turns on our visit counter, and nothing is counted unless you choose it.",
+    accept: "Accept", declineAll: "Decline",
+    settingsLink: "Privacy settings", policy: "Privacy policy",
+    saved: "Saved. You can change this any time in Privacy settings.",
+    // privacy_settings_panel counting row
+    allow: "Allow", decline: "Decline",
     // privacy_settings_panel
     settingsHeading: 'Privacy settings',
     intro: "Two separate choices. Changing one doesn't change the other.",
@@ -34,14 +38,14 @@
     clSectionBody: "Records how you use this website's pages, such as clicks, scrolling and the page text shown. Text typed into fields is masked, but page text isn't. It never records the Compass app or your desktop.",
     clRecordLabel: 'Record my visits to this website', clCookiesLabel: 'Allow Clarity cookies',
     clCookiesHelp: 'Cookies let Clarity connect the pages of a visit into one recording. Without them, Clarity can still record each page on its own.',
-    clRegionalHelp: 'Off for every visitor until you turn it on here. Microsoft requires consent before Clarity uses cookies in the EEA, UK and Switzerland, and this site asks everyone.',
+    clRegionalHelp: "Clarity's cookies on our domain stay off until you accept them, here or in the privacy notice. Following a link to another page before you answer the notice also counts as accepting. Microsoft requires consent before Clarity uses cookies in the EEA, UK and Switzerland, and this site asks everyone. Separately, Microsoft may read or set cookies on its own domains whenever Clarity loads, if your browser allows third-party cookies. To prevent that, block third-party cookies in your browser, or turn recording off here, which stops Clarity loading on later pages.",
     clSignal: "Your browser is sending a privacy signal, so this site doesn't load Clarity.",
     clOn: 'Recording is on.', clOff: 'Recording is off in this browser.',
     clOffDone: "Recording is off for this browser, and Clarity won't load on later pages. Recordings already made aren't deleted. Microsoft keeps them on its stated schedule.",
     clStorage: "This browser won't let the site remember a recording choice, so Clarity isn't loaded.",
     msLink: 'Microsoft Privacy Statement',
     countSection: 'Visit counting (our own counter)',
-    countSectionBody: 'Optional and off unless you choose Allow. A random code is kept for seven days so we can count repeat visits. Separate from Clarity.',
+    countSectionBody: "Optional, and off until you turn it on here or with Accept in the privacy notice. Following a link to another page before you answer the notice also turns it on. A random code is kept for seven days so we can count repeat visits. Separate from Clarity.",
     on: 'Visit counting is on for this browser until the date shown.', off: 'Visit counting is off for this browser.',
     unset: "You haven't chosen. Nothing is counted.",
     afterDecline: 'Counting is off and the code is deleted from this browser. Visits already logged drop out as the log rotates, after about seven days.',
@@ -53,7 +57,7 @@
   };
   const now = () => Math.floor(Date.now() / 1000);
 
-  // ---- visit counting (behavior unchanged) ----
+  // ---- visit counting ----
   // undefined = cookies unusable here, null = no valid choice (unset/expired/garbled)
   const read = () => {
     let m;
@@ -68,7 +72,7 @@
   const dropId = () => { try { document.cookie = `${ID}=; Path=/_measure; Max-Age=0; Secure; SameSite=Strict`; } catch {} };
   const send = () => {
     const c = read(); // re-read: a withdrawal in another tab stops this page's later sends
-    if (c && c.allow) fetch('/_measure', { method: 'POST', credentials: 'same-origin', cache: 'no-store' }).catch(() => {});
+    if (c && c.allow) fetch('/_measure', { method: 'POST', credentials: 'same-origin', cache: 'no-store', keepalive: true }).catch(() => {});
   };
   const choose = allow => {
     const cur = read();
@@ -141,56 +145,75 @@
   };
 
   // ---- UI ----
-  let panel, opener;
+  let panel, opener, notice, summary, live;
+  let failed = false; // page-lifetime: once a choice fails to store here, nothing is implied on this page
   const el = (tag, props, ...kids) => { const n = Object.assign(document.createElement(tag), props); n.append(...kids); return n; };
   const statusText = c => c === undefined ? T.unavailable : !c ? T.unset : c.allow ? `${T.on} ${day(c.exp)}` : T.off;
-  const close = () => { if (!panel) return; panel.remove(); panel = null; if (opener) opener.focus(); opener = null; };
+  // Focus somewhere sensible when the control that had it disappears (as the Chrysis banner does).
+  const settle = () => {
+    const m = document.querySelector('main');
+    if (!m) return;
+    if (!m.hasAttribute('tabindex')) { m.tabIndex = -1; m.addEventListener('blur', () => m.removeAttribute('tabindex'), { once: true }); }
+    m.focus({ preventScroll: true });
+  };
+  const close = () => {
+    if (!panel) return;
+    panel.remove(); panel = null;
+    if (opener && !opener.closest('[hidden]')) opener.focus(); else settle();
+    opener = null;
+  };
   const button = (label, onClick, cls = 'btn btn-outline btn-sm') => {
     const b = el('button', { type: 'button', className: cls, textContent: label });
     b.addEventListener('click', onClick);
     return b;
   };
   const status = () => { const p = el('p', { className: 'privacy-choice-status' }); p.setAttribute('role', 'status'); return p; };
-  const countRow = (live, after) => el('div', { className: 'privacy-choice-actions' }, ...[true, false].map(allow =>
+
+  // Clarity runs here unless a privacy signal, a stored "off" or unusable storage rules it out.
+  const clRuns = () => { const v = clGet(); return !signal() && (v === null || v === 'on' || v === 'cookies'); };
+  const needCl = () => clGet() === null && !signal();
+  const needCount = () => read() === null; // undefined (cookies unusable) can't be asked
+  // The notice is fixed to the bottom: pad the page by the space it takes from the bottom of the
+  // viewport (its height plus the card's bottom offset; 0 once hidden) so nothing ends under it.
+  const syncHeight = () => {
+    if (notice) document.documentElement.style.setProperty('--privacy-h',
+      (notice.hidden ? 0 : Math.max(0, document.documentElement.clientHeight - notice.getBoundingClientRect().top)) + 'px');
+  };
+  const refresh = () => {
+    if (!notice) return;
+    summary.textContent = clRuns() ? T.summary : T.summaryNoClarity;
+    notice.hidden = !(needCl() || needCount());
+    syncHeight();
+  };
+  // Explicit answer from the notice. When Clarity can't run here the Clarity choice is left as
+  // stored (a stored "off" is only ever changed in Privacy settings); counting is answered either way.
+  const answer = yes => {
+    let msg = T.saved;
+    if (clRuns() && !clChoose(yes ? 'cookies' : 'on')) { failed = true; msg = T.clStorage; }
+    if (read() !== undefined && choose(yes) === undefined) { failed = true; msg = T.unavailable; }
+    refresh();
+    live.textContent = msg;
+    if (notice.hidden) settle();
+  };
+  // Implied Accept, per missing item only. Both stores are synchronous, so the choice is saved
+  // before the browser follows the link; the counting POST is keepalive.
+  const imply = () => {
+    if (failed || !clRuns()) return;
+    if (clGet() === null && !clChoose('cookies')) failed = true;
+    if (read() === null && choose(true) === undefined) failed = true;
+    refresh();
+  };
+
+  const countRow = (rowLive, after) => el('div', { className: 'privacy-choice-actions' }, ...[true, false].map(allow =>
     button(allow ? T.allow : T.decline, () => {
       const r = choose(allow);
-      live.textContent = r === undefined ? T.unavailable : allow ? T.afterAllow.replace('{date}', day(r.exp)) : T.afterDecline;
+      rowLive.textContent = r === undefined ? T.unavailable : allow ? T.afterAllow.replace('{date}', day(r.exp)) : T.afterDecline;
+      refresh();
       if (after) after();
     })));
-  const mount = (kind, h, ...kids) => {
-    if (panel) panel.remove();
-    panel = el('section', { className: 'privacy-choice' }, h, ...kids);
-    panel.dataset.kind = kind;
-    panel.setAttribute('aria-labelledby', h.id);
-    document.body.prepend(panel);
-  };
-
-  const showBanner = (needClarity, needCount) => {
-    const kids = [];
-    const later = () => setTimeout(() => { if (panel && panel.dataset.kind === 'banner') close(); }, 4000);
-    let h;
-    if (needClarity) {
-      const live = status();
-      h = el('h2', { id: 'privacy-choice-title', className: 'privacy-choice-title', tabIndex: -1, textContent: T.clHeading });
-      kids.push(el('p', { textContent: T.clBody }), el('p', { textContent: T.clRegional }),
-        el('div', { className: 'privacy-choice-actions' },
-          button(T.clAllowCookies, () => { live.textContent = clChoose('cookies') ? T.clOn : T.clStorage; if (!needCount) later(); }),
-          button(T.clTurnOff, () => { live.textContent = clChoose('off') ? T.clOffDone : T.clStorage; if (!needCount) later(); }),
-          button(T.settingsLink, () => showSettings(), 'btn btn-ghost btn-sm'),
-          el('a', { href: '/privacy/', textContent: T.policy })),
-        live);
-    }
-    if (needCount) {
-      const live = status();
-      const ch = el(h ? 'h3' : 'h2', { id: h ? 'privacy-count-title' : 'privacy-choice-title', className: 'privacy-choice-title', tabIndex: -1, textContent: T.bannerHeading });
-      const row = countRow(live, later);
-      if (!h) { h = ch; row.append(el('a', { href: '/privacy/', textContent: T.policy })); } else kids.push(ch);
-      kids.push(el('p', { textContent: T.bannerBody }), row, live);
-    }
-    mount('banner', h, ...kids);
-  };
 
   const showSettings = () => {
+    if (panel) panel.remove();
     const h = el('h2', { id: 'privacy-choice-title', className: 'privacy-choice-title', tabIndex: -1, textContent: T.settingsHeading });
     const kids = [el('p', { textContent: T.intro }), el('h3', { className: 'privacy-choice-title', textContent: T.clSection }), el('p', { textContent: T.clSectionBody })];
     const clLive = status();
@@ -210,6 +233,7 @@
             const v = !rec.checked ? 'off' : ck.checked ? 'cookies' : 'on';
             const ok = clChoose(v);
             clLive.textContent = !ok ? T.clStorage : v === 'off' ? T.clOffDone : T.clOn;
+            refresh();
           }),
           el('a', { href: 'https://privacy.microsoft.com/en-us/privacystatement', target: '_blank', rel: 'noopener noreferrer', textContent: T.msLink })));
     }
@@ -219,8 +243,10 @@
     kids.push(el('h3', { className: 'privacy-choice-title', textContent: T.countSection }), el('p', { textContent: T.countSectionBody }), countRow(cLive), cLive,
       el('p', { textContent: T.storage }),
       el('div', { className: 'privacy-choice-actions' }, button(T.close, close, 'btn btn-ghost btn-sm')));
-    mount('settings', h, ...kids);
+    panel = el('section', { className: 'privacy-choice' }, h, ...kids);
+    panel.setAttribute('aria-labelledby', h.id);
     panel.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+    document.body.prepend(panel);
     h.focus();
   };
 
@@ -233,10 +259,36 @@
     }
     const cl = clGet();
     if (cl === 'on' || cl === 'cookies' || (cl === null && PRECHOICE_LOAD)) loadClarity();
+
+    // One persistent, non-modal notice: no overlay, no autofocus, no focus change on load.
+    summary = el('p', {});
+    const settingsBtn = button(T.settingsLink, () => { opener = settingsBtn; showSettings(); }, 'privacy-notice-link');
+    notice = el('section', { className: 'privacy-notice' }, summary,
+      el('div', { className: 'privacy-notice-actions' },
+        button(T.accept, () => answer(true)), button(T.declineAll, () => answer(false))), // one style: no nudge toward Accept
+      el('div', { className: 'privacy-notice-links' }, el('a', { href: '/privacy/', textContent: T.policy }), settingsBtn));
+    notice.setAttribute('aria-label', T.noticeLabel);
+    live = el('p', { className: 'privacy-notice-status' });
+    live.setAttribute('role', 'status');
+    const skip = document.querySelector('.skip-link');
+    document.body.insertBefore(notice, skip ? skip.nextSibling : document.body.firstChild);
+    document.body.append(live);
+    if (window.ResizeObserver) new ResizeObserver(syncHeight).observe(notice, { box: 'border-box' });
+    window.addEventListener('resize', syncHeight);
+    refresh();
+
+    // Implied consent: a same-site link to another page, followed while a choice is missing.
+    document.addEventListener('click', e => {
+      try {
+        const a = e.target && e.target.closest && e.target.closest('a[href]');
+        if (!a || e.defaultPrevented || notice.contains(a) || (panel && panel.contains(a))) return;
+        if (!/^https?:$/.test(a.protocol) || a.hostname !== location.hostname || a.pathname === location.pathname) return;
+        if (/^\/(privacy|terms)\/?$/.test(a.pathname) || /^\/downloads(\/|$)/.test(a.pathname) || a.hasAttribute('download')) return;
+        imply();
+      } catch {}
+    });
+
     const c = read();
-    // cookies blocked: no counting banner; privacy signal or unusable storage: no Clarity banner
-    const needClarity = cl === null && !signal();
-    if (needClarity || c === null) showBanner(needClarity, c === null);
     if (c && c.allow) send();
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);

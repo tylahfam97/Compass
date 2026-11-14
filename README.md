@@ -22,8 +22,10 @@
 </p>
 
 <p align="center">
-  <img src="website/img/overview.webp" width="900" alt="Compass Overview: net worth drawn as depth above and below a zero waterline, with a projected date it clears zero, and a table of every account" />
+  <a href="https://privatecompass.app/"><img src=".github/assets/compass-promo.gif" width="720" alt="A 20-second tour of Compass: importing a downloaded statement, the Chart of where a month's money went, the Overview waterline with the month you clear zero, and trying a purchase in Plan" /></a>
 </p>
+
+<p align="center"><sub>The full-quality video, with captions, is on <a href="https://privatecompass.app/">privatecompass.app</a>.</sub></p>
 
 Download a CSV or Excel statement from your bank or card issuer and import it. Then see where your money actually goes. Compass is a free, source-available desktop app for Windows, with a macOS beta. You don't hand over a bank login or pay a subscription, and there's nothing to sign up for. Your statements are read on your machine, and the transactions are stored there in an encrypted database ([how the encryption works, and what it doesn't cover](#your-data)).
 
@@ -31,7 +33,8 @@ Download a CSV or Excel statement from your bank or card issuer and import it. T
 
 - **No bank login.** Compass imports statement files you download yourself. It never asks for a bank login and has no way to reach your accounts.
 - **Encrypted and local.** Your data is stored in a SQLCipher (AES-256) database on your own disk. The key lives in your OS credential store, with a key file fallback that can decrypt the database, so [protect both](#your-data).
-- **No telemetry.** No analytics, no cloud sync and no account. Compass checks GitHub for updates and doesn't upload your financial data.
+- **No telemetry.** No analytics, no crash reports, no cloud sync and no account. Compass checks GitHub for updates and sends feedback only when you press **Send**; it never uploads your financial data. The full list is under [What leaves your machine](#what-leaves-your-machine).
+- **Try it first.** Demo Mode loads sample accounts and transactions, so you can look around before you import anything of your own.
 - **Rules you can check.** Built-in category rules plus your own, with a live preview of what a rule matches before you save it.
 - **Free and source-available.** The code is public, so you can read exactly what it does with your money, but it may not be copied, modified, redistributed or reused in other software.
 
@@ -47,7 +50,7 @@ Download a CSV or Excel statement from your bank or card issuer and import it. T
 | **Budgets & Goals** | Weekly or monthly limits with optional rollover, and savings, spending, balance or debt targets. |
 | **Plan** | Forecast spendable cash to your next paycheck, with safe-to-spend, projected lowest balance, and Avalanche, Snowball or Cash-flow First payoff comparisons. |
 | **Insights** | Health scores, a fixed-versus-flexible view of an average month, what your money cost or earned in interest, and action items ordered by the money at stake. |
-| **Investments** | Dated portfolio snapshots, allocation, holdings, and income and gains. |
+| **Investments** | Dated portfolio snapshots, allocation by asset class (Equity, Bond, Crypto, Cash, with an equity region and size split), holdings, and income and gains. Holdings imported as crypto count as Crypto until you relabel them. |
 
 Light and dark themes, keyboard navigation and reduced motion throughout. Profiles keep separate
 financial histories, and Global views combine the ones you unlock.
@@ -81,11 +84,24 @@ see any other publisher, you did not get the file from here.
 macOS builds are not notarized yet, so the first launch needs approval in **System Settings >
 Privacy & Security**. Only approve a download you trust from the official release page.
 
+### Verify your download
+
+- **Publisher (Windows):** the installer is code-signed, and Windows shows the publisher as
+  **Chrysis Networks**.
+- **SHA-256:** the [release page](https://github.com/tylahfam97/Compass/releases/latest) lists a
+  SHA-256 beside every file. Compute the hash of the file you downloaded and compare the two,
+  whether the file came from GitHub or from privatecompass.app (letter case doesn't matter):
+  - Windows (PowerShell): `Get-FileHash .\Compass_<version>_x64-setup.exe -Algorithm SHA256`
+  - macOS (Terminal): `shasum -a 256 Compass_<version>_universal.dmg`
+- **In-app updates** are checked against the signing public key built into Compass before they
+  install, and an update that fails the check is not installed.
+
 ### What imports
 
 - **Banks and credit cards:** CSV files and Excel (.xlsx) workbooks, with guided column mapping, a preview, saved layouts for repeat imports, and duplicate detection. One signed amount column, a Debit/Credit label column, and separate Debit and Credit columns are all supported. Batch import handles multiple files. Step by step: [import guide](https://privatecompass.app/import-guide.html).
-- **Investments:** Wells Fargo Advisors, Fidelity and Thrivent exports; Principal 401(k) and
-  E\*TRADE / Morgan Stanley PDF statements. Support varies by institution and statement type.
+- **Investments:** Wells Fargo Advisors workbooks, Vanguard holdings and activity downloads, and
+  Fidelity and Thrivent exports; Principal 401(k) and E\*TRADE / Morgan Stanley PDF statements;
+  Ledger Live crypto operation exports. Support varies by institution and statement type.
 - **Loans:** supported loan statements, or enter the rate and minimum payment yourself.
 - **Categorisation:** built-in rules plus your own, with a live preview showing what each rule
   matches before you save it.
@@ -127,6 +143,23 @@ backups) are not converted.
 - **CSV export:** in Transactions, select **All time**, clear filters and export. Repeat per profile.
 - **Erase:** **Settings > Erase this profile's data** permanently removes one profile's data after a
   typed confirmation.
+
+### What leaves your machine
+
+| Destination | When | What is sent |
+|---|---|---|
+| GitHub: `github.com/tylahfam97/Compass/releases/latest/download/latest.json` | Update check, 2.5 seconds after the expanded sidebar appears (at launch when the sidebar is open, and each time you expand it), and whenever you choose **Check for updates** | A request for that one file. Compass adds none of your data and no identifier. |
+| GitHub: the release's update package | Only after you accept an update | A download request for that package |
+| `privatecompass.app/api/feedback` | Only when you press **Send** in **Send feedback** | Your message, the reply email if you typed one, your Compass version and your operating system |
+
+Every request shows the receiving server your IP address, as any network request does. Nothing else
+leaves: there are no analytics, no crash reports, no account and no sync, and the app window's
+Content Security Policy (`src-tauri/tauri.conf.json`) allows connections only to the app itself and
+`privatecompass.app`. The unit test `src/lib/outbound.test.ts` fails if a new destination appears in
+that policy, in the updater settings, in the app source or as an HTTP client in the Rust backend.
+
+**Report an issue** opens GitHub in your default browser; the app itself sends nothing. The website
+has its own [privacy policy](https://privatecompass.app/privacy/), which covers the site, not the app.
 
 ## Current limits
 

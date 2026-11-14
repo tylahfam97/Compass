@@ -39,13 +39,18 @@ nothing, and unlock no features: there is one build and one source tree.
 - The Chart: a month of money drawn as flows from income through accounts to bills, categories, savings and debt
 - Plan: cash-flow forecast, safe-to-spend, projected lowest balance, and Avalanche, Snowball and Cash-flow First debt payoff comparisons
 - Insights: health scores, fixed versus flexible spending, interest paid and earned, and detected recurring charges
-- Investments: dated portfolio snapshots, allocation, holdings, income and gains
+- Investments: dated portfolio snapshots, allocation by asset class (Equity, Bond, Crypto, Cash), holdings, income and gains
 - Budgets, goals, trends, reports, and multiple PIN-protected profiles
 
 ## Latest release
 
 Installers for the latest stable release: https://github.com/tylahfam97/Compass/releases/latest
 Release notes for every version: https://github.com/tylahfam97/Compass/blob/main/RELEASE_NOTES.md
+
+Added in 1.3.21:
+- Crypto is an asset class on the Investments page (Equity, Bond, Crypto, Cash). Holdings imported as crypto, such as Ledger Live exports, count as Crypto unless the user relabels them; funds are never classified automatically. No database migration.
+- README sections on verifying a download (the SHA-256 GitHub lists for every release file, the Windows publisher, signed in-app updates) and on every connection the app makes, guarded by a unit test.
+- Website: one privacy notice at the bottom of each page with Accept and Decline. Following a link to another page of the site before answering counts as Accept, within the limits set out in the privacy policy (https://privatecompass.app/privacy/), which now also says that Microsoft may read or set its own cookies whenever Clarity loads.
 
 Added in 1.3.20:
 - License: PolyForm Strict License 1.0.0 (source-available). Compass 1.3.18 and earlier were released under the MIT License and stay under it.

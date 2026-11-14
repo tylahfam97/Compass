@@ -36,7 +36,9 @@ const INCOME_ACTIVITY_TYPES: ActivityType[] = ["dividend", "interest", "reinvest
 
 type InvestmentTab = "holdings" | "activity" | "income";
 
-export const ASSET_CLASS_NAMES: Record<AssetClass, string> = { cash: "Cash", equity: "Equity", bond: "Bond" };
+/** Display order for asset classes (bars, editor options). */
+export const ASSET_CLASS_NAMES: Record<AssetClass, string> = { equity: "Equity", bond: "Bond", crypto: "Crypto", cash: "Cash" };
+const ASSET_CLASSES = Object.keys(ASSET_CLASS_NAMES) as AssetClass[];
 /** Equity region and size are independent optional labels (a fund can be US and Large cap). */
 export const EQUITY_REGIONS: [string, string][] = [["us", "US"], ["developed", "Developed ex-US"], ["emerging", "Emerging markets"], ["global", "Global / mixed"]];
 export const EQUITY_SIZES: [string, string][] = [["large", "Large cap"], ["mid", "Mid cap"], ["small", "Small cap"], ["mixed", "Mixed / all-cap"]];
@@ -49,22 +51,28 @@ export function holdingIdentity(h: Pick<Holding, "symbol" | "account_id" | "desc
   return symbol && !/^(?:N\/?A|UNKNOWN|[—–?\-]+)$/.test(symbol) ? `symbol:${symbol}` : `account:${h.account_id}:${h.description.trim().toLowerCase()}`;
 }
 
+/** The user's label for a holding; holdings imported as crypto count as Crypto unless relabelled. */
+export function holdingAssetClass(h: Pick<Holding, "symbol" | "account_id" | "description"> & { security_type?: Holding["security_type"] }, classes: Map<string, HoldingClass>): AssetClass | null {
+  return classes.get(holdingIdentity(h))?.asset_class ?? (h.security_type === "crypto" ? "crypto" : null);
+}
+
 /**
- * Current market value by user asset class, plus equity value by region and by size. Holdings with
- * no label count as unclassified (never guessed from the name or vehicle type). Only the latest
- * snapshot's market values go in, so activity history can't inflate it.
+ * Current market value by user asset class, plus equity value by region and by size. A label wins;
+ * holdings imported as crypto count as Crypto unless relabelled, and everything else with no label
+ * is unclassified (never guessed from the name or vehicle type). Only the latest snapshot's market
+ * values go in, so activity history can't inflate it.
  */
 export function assetClassAllocation(
-  rows: Pick<Holding, "symbol" | "account_id" | "description" | "market_value_cents">[],
+  rows: (Pick<Holding, "symbol" | "account_id" | "description" | "market_value_cents"> & { security_type?: Holding["security_type"] })[],
   classes: Map<string, HoldingClass>
 ) {
-  const byClass: Record<AssetClass | "unclassified", number> = { cash: 0, equity: 0, bond: 0, unclassified: 0 };
+  const byClass = Object.fromEntries([...ASSET_CLASSES, "unclassified"].map((k) => [k, 0])) as Record<AssetClass | "unclassified", number>;
   const region = new Map<string, number>();
   const size = new Map<string, number>();
   for (const h of rows) {
     const value = h.market_value_cents ?? 0;
     const c = classes.get(holdingIdentity(h));
-    const assetClass = c?.asset_class ?? "unclassified";
+    const assetClass = holdingAssetClass(h, classes) ?? "unclassified";
     byClass[assetClass] += value;
     if (assetClass === "equity") {
       region.set(c?.equity_region ?? "unset", (region.get(c?.equity_region ?? "unset") ?? 0) + value);
@@ -72,7 +80,7 @@ export function assetClassAllocation(
     }
   }
   const incomplete = rows.some((h) => h.market_value_cents === null || h.market_value_cents < 0);
-  return { byClass, region, size, incomplete, total: byClass.cash + byClass.equity + byClass.bond + byClass.unclassified };
+  return { byClass, region, size, incomplete, total: Object.values(byClass).reduce((a, b) => a + b, 0) };
 }
 
 /**
@@ -270,10 +278,10 @@ function ClassEditor({ group, classes, onSave }: {
   const control = "border rounded-md px-1.5 py-1 text-xs bg-[hsl(var(--background))] text-[hsl(var(--foreground))] max-w-[9rem]";
   return (
     <fieldset disabled={busy} className="flex flex-col gap-1 min-w-0">
-      <select aria-label={`Asset class for ${name}`} className={control} value={c?.asset_class ?? ""}
+      <select aria-label={`Asset class for ${name}`} className={control} value={holdingAssetClass(group.lots[0], classes) ?? ""}
         onChange={(e) => save({ asset_class: (e.target.value || null) as AssetClass | null })}>
-        <option value="">Unclassified</option>
-        {(Object.keys(ASSET_CLASS_NAMES) as AssetClass[]).map((k) => <option key={k} value={k}>{ASSET_CLASS_NAMES[k]}</option>)}
+        {group.lots[0].security_type !== "crypto" && <option value="">Unclassified</option>}
+        {ASSET_CLASSES.map((k) => <option key={k} value={k}>{ASSET_CLASS_NAMES[k]}</option>)}
       </select>
       {c?.asset_class === "equity" && (
         <>
@@ -962,7 +970,7 @@ export default function InvestmentsPage() {
             <div className="border rounded-xl p-5" role="region" aria-labelledby="asset-class-heading">
               <h2 id="asset-class-heading" className="font-semibold mb-1">Asset class</h2>
               <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">
-                From the labels you set on each holding below. Compass doesn't look inside funds, so leave balanced or target-date funds Unclassified.
+                From the labels you set on each holding below; holdings imported as crypto count as Crypto unless you relabel them. Compass doesn't look inside funds, so leave balanced or target-date funds Unclassified.
               </p>
               {(() => {
                 const { byClass, region, size, total, incomplete } = classAllocation;
@@ -991,7 +999,7 @@ export default function InvestmentsPage() {
                 return (
                   <div className="space-y-3">
                     {incomplete && <p className="text-xs text-[hsl(var(--muted-foreground))]">Some holdings have missing or negative market values. Known values are shown; percentage coverage is unavailable.</p>}
-                    {(["equity", "bond", "cash"] as AssetClass[]).filter((c) => byClass[c] !== 0).map((c, i) => bar(c, ASSET_CLASS_NAMES[c], byClass[c], total, accountChartColor(i)))}
+                    {ASSET_CLASSES.filter((c) => byClass[c] !== 0).map((c, i) => bar(c, ASSET_CLASS_NAMES[c], byClass[c], total, accountChartColor(i)))}
                     {bar("unclassified", "Unclassified", byClass.unclassified, total, "hsl(var(--muted-foreground))")}
                     {byClass.equity > 0 && (
                       <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
