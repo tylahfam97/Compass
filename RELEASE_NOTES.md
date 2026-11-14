@@ -4,9 +4,9 @@
 
 ## Compass 1.3.21 — In Plain Sight 🧭
 
-Everything since 1.3.20. Crypto is now an asset class on the Investments page, and coins imported from a Ledger Live export count as Crypto without labelling each one (#PR). The README now shows how to check that the file you downloaded is the one that was published, and lists every connection the app makes, with a test that fails if a new one appears (#PR). On the website, Microsoft Clarity runs behind the site's privacy controls with a privacy policy and terms (#142), and one privacy notice at the bottom of each page now asks about Clarity's cookies and the visit counter together (#PR).
+Everything since 1.3.20. Crypto is now an asset class on the Investments page, and coins imported from a Ledger Live export count as Crypto without labelling each one (#143). The README now shows how to check that the file you downloaded is the one that was published, and lists every connection the app makes, with a test that fails if a new one appears (#143). On the website, Microsoft Clarity runs behind the site's privacy controls with a privacy policy and terms (#142), and one privacy notice at the bottom of each page now asks about Clarity's cookies and the visit counter together (#143).
 
-### Investments (#PR)
+### Investments (#143)
 - Crypto joins Equity, Bond and Cash in the Asset class card and in each holding's class picker. Holdings imported as crypto (today, Ledger Live operation exports) count as Crypto unless you choose another class for them, and a class you set always wins. Funds and ETFs are still never classified for you, so a crypto ETF held at a brokerage is labelled by hand; the Crypto option is now there for it.
 - The allocation total adds up every class, so no class can drop out of the percentages.
 - The class picker lists Equity, Bond, Crypto and Cash in the same order as the bars. Unclassified is not offered for a coin, because clearing its label would put it straight back in Crypto.
@@ -14,22 +14,22 @@ Everything since 1.3.20. Crypto is now an asset class on the Investments page, a
 - The investment import screen now names every supported source: Wells Fargo Advisors, Vanguard, Fidelity, Thrivent, Principal, E*TRADE / Morgan Stanley and Ledger Live.
 - Coinbase exports are still not imported.
 
-### Checking Compass for yourself (#PR)
+### Checking Compass for yourself (#143)
 - README "Verify your download": the publisher Windows shows (Chrysis Networks), how to compare a file's SHA-256 with the one GitHub lists beside it on the release page, with the PowerShell and Terminal commands, and that in-app updates are checked against the signing key built into the app before they install.
 - README "What leaves your machine": the update check (GitHub, 2.5 seconds after launch and whenever you check), the update download (only after you accept it) and Send feedback (only when you press Send), with what each one sends. The app makes no other connections.
 - A unit test fails if the app's Content Security Policy, its update endpoint, the web addresses in its source or its Rust dependencies gain a new destination, and points to that README section. App behaviour is unchanged.
 
-### README (#PR)
+### README (#143)
 - A 20-second tour of Compass plays as an animated image at the top, linked to the captioned video on the website.
 - The No telemetry line now mentions feedback, Demo Mode is listed as a way to try Compass first, the Investments row names the asset classes, and the investment importer list adds Vanguard and Ledger Live.
 
-### Website (#140, #141, #142, #PR)
+### Website (#140, #141, #142, #143)
 - The promo video became the home page hero, and the demo clips were re-recorded on 1.3.20 (#140).
 - Optional visit counting with a privacy page, and download statistics that count complete installer transfers only (#141).
 - Microsoft Clarity records how the site's pages are used, behind privacy controls, with a privacy policy and website terms (#142). Clarity never runs in the app.
-- A correction to #142's privacy policy: the site's choice controls only Clarity's cookies on the site's own domain (_clck and _clsk). Microsoft may read or set its own cookies, such as MUID, whenever Clarity loads, including on the first page before any choice, if your browser allows third-party cookies. The policy now says so and how to prevent it (#PR).
-- One privacy notice now sits at the bottom of each page, with Accept and Decline. Accept turns on Clarity's cookies and the visit counter; Decline leaves both off, and Clarity keeps recording without cookies. Following a link to another page of the site before you answer counts as Accept for any choice you haven't made yet. It never replaces a saved choice, and it doesn't apply under a Global Privacy Control or Do Not Track signal, after you turned website recording off, for a choice your browser won't let the site store, or for links to the privacy policy, the terms or an installer download. Privacy settings still changes each choice on its own (#PR).
-- The download section notes that installers can be checked against GitHub's SHA-256, a new FAQ explains how, and the guides mention the asset classes and Vanguard workbooks (#PR).
+- A correction to #142's privacy policy: the site's choice controls only Clarity's cookies on the site's own domain (_clck and _clsk). Microsoft may read or set its own cookies, such as MUID, whenever Clarity loads, including on the first page before any choice, if your browser allows third-party cookies. The policy now says so and how to prevent it (#143).
+- One privacy notice now sits at the bottom of each page, with Accept and Decline. Accept turns on Clarity's cookies and the visit counter; Decline leaves both off, and Clarity keeps recording without cookies. Following a link to another page of the site before you answer counts as Accept for any choice you haven't made yet. It never replaces a saved choice, and it doesn't apply under a Global Privacy Control or Do Not Track signal, after you turned website recording off, for a choice your browser won't let the site store, or for links to the privacy policy, the terms or an installer download. Privacy settings still changes each choice on its own (#143).
+- The download section notes that installers can be checked against GitHub's SHA-256, a new FAQ explains how, and the guides mention the asset classes and Vanguard workbooks (#143).
 - The home page's version fields are set to 1.3.21, matching the app manifests.
 
 ### Tests and limits
