@@ -8,17 +8,22 @@ export const MAX_MESSAGE = 4000;
 export const MAX_BODY_BYTES = 8000;
 const TIMEOUT_MS = 15_000;
 
+export type FeedbackRating = "like" | "dislike" | "";
+
 export interface FeedbackInput {
   message: string;
   email?: string;
+  rating?: FeedbackRating;
   version?: string;
   os?: string;
 }
 
-/** Exactly what leaves the device: the typed message, the optional reply email, app version, OS. */
-export function buildFeedbackBody({ message, email = "", version = "", os = "" }: FeedbackInput) {
+/** Exactly what leaves the device: the typed message, the optional reply email, the optional
+ *  like/dislike (empty when none is picked), app version, OS. */
+export function buildFeedbackBody({ message, email = "", rating = "", version = "", os = "" }: FeedbackInput) {
   const body = new URLSearchParams({ message: message.trim().slice(0, MAX_MESSAGE) });
   if (email.trim()) body.set("email", email.trim().slice(0, 254));
+  body.set("rating", rating === "like" || rating === "dislike" ? rating : "");
   body.set("version", version.slice(0, 32));
   body.set("os", os.slice(0, 32));
   return body;
