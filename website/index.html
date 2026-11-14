@@ -201,6 +201,14 @@
               "@type": "Answer",
               "text": "Not through Compass. There's no Compass account, cloud sync or bank connection, and the app doesn't send your transactions to the developer. Your data is only as private as the computer it's on, so protect the device, the key file and your backups."
             }
+          },
+          {
+            "@type": "Question",
+            "name": "How do I know the installer I downloaded is the real one?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The Windows installers are code-signed, so Windows shows Chrysis Networks as the publisher. If it shows another name or no publisher, don't run it. On either system, compare the file's SHA-256 with the one GitHub lists beside the .exe, .msi or .dmg on the release page for your version. That's the check to use on a Mac, where the beta isn't signed or notarized yet. To get yours, run Get-FileHash Compass.exe -Algorithm SHA256 in PowerShell, or shasum -a 256 Compass.dmg in Terminal, and ignore upper or lower case when comparing. It should match whether the file came from GitHub or privatecompass.app, and a match means you have exactly the file that release published. Updates you accept inside Compass are checked against a signing key built into the app before they install."
+            }
           }
         ]
       }
@@ -793,6 +801,11 @@
         </div>
         <div class="qa-a"><span class="answer-no">Not through Compass.</span> There's no Compass account, cloud sync or bank connection, and the app doesn't send your transactions to the developer. Your data is only as private as the computer it's on, so protect the device, the key file and your backups.</div>
       </div>
+
+      <div class="qa-card" id="verify-download">
+        <div class="qa-q"><span class="qa-q-text">How do I know the installer I downloaded is the real one?</span></div>
+        <div class="qa-a">The Windows installers are code-signed, so Windows shows Chrysis Networks as the publisher. If it shows another name or no publisher, don't run it. On either system, compare the file's SHA-256 with the one GitHub lists beside the .exe, .msi or .dmg on the release page for your version. That's the check to use on a Mac, where the beta isn't signed or notarized yet. To get yours, run Get-FileHash Compass.exe -Algorithm SHA256 in PowerShell, or shasum -a 256 Compass.dmg in Terminal, and ignore upper or lower case when comparing. It should match whether the file came from GitHub or privatecompass.app, and a match means you have exactly the file that release published. Updates you accept inside Compass are checked against a signing key built into the app before they install.</div>
+      </div>
     </div>
   </div>
 </section>
@@ -852,6 +865,14 @@
                     stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
             Code-signed as Chrysis Networks
+          </div>
+          <div class="req-item">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <path d="M7 1.5a5.5 5.5 0 1 0 0 11A5.5 5.5 0 0 0 7 1.5Z" stroke="currentColor" stroke-width="1.3"/>
+              <path d="M4.5 7l1.5 1.5 3.5-3.5"
+                    stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <a href="#verify-download">Verifiable with GitHub's SHA-256</a>
           </div>
           <div class="req-item">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
