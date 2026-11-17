@@ -114,6 +114,15 @@ $releaseNotes = if (Test-Path "RELEASE_NOTES.md") {
     "Compass $tagName Windows installer."
 }
 
+# GitHub rejects release bodies over 125000 characters and RELEASE_NOTES.md is cumulative,
+# so keep the newest whole "## " sections that fit and link the full history.
+$maxBody = 120000
+if ($releaseNotes.Length -gt $maxBody) {
+    $cut = $releaseNotes.LastIndexOf("`n## ", $maxBody, [StringComparison]::Ordinal)
+    if ($cut -lt 1) { $cut = $maxBody }
+    $releaseNotes = $releaseNotes.Substring(0, $cut).TrimEnd() + "`n`n---`nOlder release notes: https://github.com/$repo/blob/$buildSha/RELEASE_NOTES.md"
+}
+
 $releaseJson = (@{
     tag_name               = $tagName
     target_commitish       = $buildSha
