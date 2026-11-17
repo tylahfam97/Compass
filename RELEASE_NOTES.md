@@ -2,6 +2,24 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.23 — Clean Sheet 🧭
+
+Everything since 1.3.22. The spreadsheet reader behind Excel imports is updated to a release that fixes two published security advisories, and the build and test tools take their patch releases (#145).
+
+### Spreadsheet imports (#145)
+- The reader Compass uses for Excel statement and brokerage workbook imports (.xlsx and .xls) moves from SheetJS 0.18.5 to SheetJS 0.20.3. This fixes two published advisories in the old reader: a crafted workbook could tamper with JavaScript's shared object prototype while it was being read, and a crafted workbook could stall the reader.
+- npm's copy of the reader stopped at 0.18.5, so the 0.20.3 package from SheetJS ships inside the repository under vendor/ with its SHA-256 checksum, and builds install it from there.
+- The new reader has no dependencies of its own, so the eight small packages the old one pulled in are no longer installed.
+
+### Build and test tools (#145)
+- Vite 7.3.8, Vitest 5.0.3 and source-map-js 1.2.2 take patch releases that fix published advisories in those tools. They run only while Compass is built and tested and are not part of the installed app.
+
+### Tests and limits
+- The unit tests pass (551 in 42 files, the same count as 1.3.22), the app builds, and the built bundle contains the new reader. The browser test that imports a synthetic Vanguard holdings and activity workbook through the reader passes.
+- The old and new readers were compared through the calls Compass makes, on synthetic .xlsx, .xls, .xlsb and .ods workbooks written by both versions or by hand. Sheet names, text, amounts, account numbers and ordinary dates came out the same. The only differences were in unusual date cells. A time stored with fractions of a second, less than half a second before midnight, now shows as midnight of the next day; in a workbook that uses the 1904 date system the new reader shows that date four years early. Dates stored as ISO date cells in a 1904-date-system workbook now follow that date system, as the Vanguard import expects. An ISO date cell for the year 0001 now reads as 1901.
+- No workbook saved by Excel itself was available on the build host, so the comparison used workbooks written by the reader's own library and by hand.
+- This release changes no Rust source. Browser tests use a mocked native bridge and don't exercise Windows WebView2 or macOS WKWebView.
+
 ## Compass 1.3.22 — Thumbs 🧭
 
 Everything since 1.3.21. Send feedback now has an optional Like or Dislike (#144).
