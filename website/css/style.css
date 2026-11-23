@@ -1,3 +1,7 @@
+/* Hallmark · checked: 2026-11-22 · genre: modern-minimal (inferred)
+ * floor: 3 open, owner decisions (54 x8 eyebrows, 19 copy, 44b import-guide CTA) · fixed: 10a, 26a, 34, 40, 48, 67, 2b, 26b · structural: printed (44a, 44c, 58, 59, 77, 78, 79)
+ * built: the project · redesign: polish · v2.0.0 */
+
 /* =============================================================================
    Compass Website — style.css
    Colors derived from src/index.css dark-mode HSL tokens.
@@ -55,8 +59,19 @@
     --sea-dim:       rgba(97, 148, 229, 0.12);
 
     --success:       #45C489;
+    --success-wash:  rgba(63, 185, 80, 0.05);
     --warning:       #F38D49;
     --danger:        #EB7C6F;
+
+    /* Ink on the gold button, the white it lightens towards on hover, the
+       button-tag washes, the hero halos and the mask's opaque stop */
+    --primary-on:    #0E172F;
+    --white:         #fff;
+    --tag-bg:        rgba(255, 255, 255, 0.18);
+    --tag-bg-dim:    rgba(255, 255, 255, 0.07);
+    --halo-lg:       rgba(0, 0, 0, 0.45);
+    --halo-md:       rgba(0, 0, 0, 0.35);
+    --mask-opaque:   #000;
 
     /* Typography */
     --font: 'Source Sans 3 Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI Variable', 'Segoe UI',
@@ -92,6 +107,7 @@
   }
 
   html {
+    overflow-x: clip;
     scroll-behavior: smooth;
     scroll-padding-top: 72px;
     -webkit-text-size-adjust: 100%;
@@ -105,13 +121,14 @@
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
-    overflow-x: hidden;
+    overflow-x: clip;
   }
 
   img    { max-width: 100%; display: block; }
   ul     { list-style: none; }
   a      { color: var(--primary); text-decoration: none; transition: opacity var(--t); }
   a:hover { opacity: 0.82; }
+  :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
   code {
     font-family: var(--font-mono);
@@ -140,14 +157,6 @@
     max-width: 680px;
     margin-inline: auto;
     margin-bottom: var(--sp-12);
-  }
-
-  .section-eyebrow {
-    font-size: 0.75rem;
-    font-weight: 600;
-    letter-spacing: 0.01em;
-    color: var(--primary);
-    margin-bottom: var(--sp-3);
   }
 
   .section-header h2 {
@@ -296,23 +305,24 @@
     text-decoration: none;
     border-radius: var(--r-md);
     cursor: pointer;
-    transition: all var(--t);
+    transition: background-color var(--t), color var(--t), border-color var(--t);
     border: 1px solid transparent;
     white-space: nowrap;
     line-height: 1;
   }
   .btn:hover { opacity: 1; }
+  .btn:active { transform: translateY(1px); }
 
   .btn-sm { font-size: 0.8125rem; padding: 0.4rem 0.9rem; }
   .btn-lg { font-size: 1rem;      padding: 0.8rem 1.5rem; }
 
   .btn-primary {
     background: var(--primary);
-    color: #0E172F;
+    color: var(--primary-on);
     transition: background var(--t), box-shadow 300ms ease;
   }
   .btn-primary:hover {
-    background: color-mix(in srgb, var(--primary) 88%, #fff);
+    background: color-mix(in srgb, var(--primary) 88%, var(--white));
   }
 
   @starting-style {
@@ -336,13 +346,12 @@
   .btn-tag {
     font-size: 0.65rem;
     font-weight: 700;
-    letter-spacing: 0.06em;
-    background: rgba(255, 255, 255, 0.18);
+    background: var(--tag-bg);
     padding: 0.15rem 0.45rem;
     border-radius: var(--r-sm);
     margin-left: var(--sp-1);
   }
-  .btn-tag--dim { background: rgba(255, 255, 255, 0.07); color: var(--text-muted); }
+  .btn-tag--dim { background: var(--tag-bg-dim); color: var(--text-muted); }
 }
 
 /* ── Hero ─────────────────────────────────────────────────────────────────── */
@@ -393,10 +402,10 @@
     border-radius: var(--r-lg) var(--r-lg) 0 0;
     border: 1px solid var(--border);
     border-bottom: 0;
-    box-shadow: var(--shadow-lg), 0 0 110px rgba(0, 0, 0, 0.45);
+    box-shadow: var(--shadow-lg), 0 0 110px var(--halo-lg);
     /* Fades into the section beneath instead of ending on a hard edge. */
-    -webkit-mask-image: linear-gradient(to bottom, #000 80%, transparent 100%);
-    mask-image: linear-gradient(to bottom, #000 80%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, var(--mask-opaque) 80%, transparent 100%);
+    mask-image: linear-gradient(to bottom, var(--mask-opaque) 80%, transparent 100%);
   }
 
   .hero-bg {
@@ -494,6 +503,17 @@
 
   .hero-accent { color: var(--primary-ink); }
 
+  /* Short subline between the H1 and the download actions; the longer .hero-sub follows the actions. */
+  .hero-lede {
+    font-size: clamp(1.0625rem, 2.4vw, 1.25rem);
+    color: var(--text);
+    line-height: 1.55;
+    max-width: 600px;
+    margin-inline: auto;
+    margin-bottom: var(--sp-6);
+    text-wrap: pretty;
+  }
+
   .hero-sub {
     font-size: clamp(1rem, 2.2vw, 1.1875rem);
     color: var(--text-muted);
@@ -509,7 +529,7 @@
     gap: var(--sp-3);
     justify-content: center;
     flex-wrap: wrap;
-    margin-bottom: var(--sp-10);
+    margin-bottom: var(--sp-6);
   }
 
   .trust-row {
@@ -602,10 +622,7 @@
     font-weight: 900;
     letter-spacing: -0.05em;
     line-height: 1;
-    background: linear-gradient(145deg, var(--primary), var(--gold));
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: var(--primary);
     padding-top: 0.05em;
   }
 
@@ -624,7 +641,7 @@
   .step-detail {
     margin-top: var(--sp-3);
     font-size: 0.8125rem;
-    color: var(--text-subtle);
+    color: var(--text-muted);
     padding: var(--sp-3) var(--sp-4);
     background: var(--bg-card);
     border: 1px solid var(--border-subtle);
@@ -685,7 +702,7 @@
     display: block;
     border-radius: var(--r-lg);
     border: 1px solid var(--border);
-    box-shadow: var(--shadow-lg), 0 0 80px rgba(0, 0, 0, 0.35);
+    box-shadow: var(--shadow-lg), 0 0 80px var(--halo-md);
   }
 
   /* The hero promo is part of the page, not a framed picture. It lives here, not
@@ -806,7 +823,6 @@
     color: var(--text-muted);
     font-weight: 600;
     font-size: 0.8125rem;
-    letter-spacing: 0.05em;
     border-bottom: 1px solid var(--border);
   }
   .compare-table thead .col-compass { color: var(--primary); }
@@ -866,7 +882,7 @@
   }
   .qa-card--answer {
     border-color: color-mix(in srgb, var(--success) 18%, var(--border));
-    background: color-mix(in srgb, rgba(63, 185, 80, 0.05) 60%, var(--bg-card));
+    background: color-mix(in srgb, var(--success-wash) 60%, var(--bg-card));
   }
 
   .qa-q {
@@ -1052,7 +1068,7 @@
     align-items: center;
     gap: var(--sp-2);
     font-size: 0.8125rem;
-    color: var(--text-subtle);
+    color: var(--text-muted);
     border: 1px solid var(--border-subtle);
     border-radius: var(--r-md);
     padding: var(--sp-2) var(--sp-4);
@@ -1104,7 +1120,7 @@
     flex: 1 1 260px;
     font-size: 0.8125rem;
     line-height: 1.6;
-    color: var(--text-subtle);
+    color: var(--text-muted);
     text-align: left;
     text-wrap: pretty;
   }
@@ -1294,7 +1310,7 @@
   .donate-fine p {
     font-size: 0.8125rem;
     line-height: 1.65;
-    color: var(--text-subtle);
+    color: var(--text-muted);
     text-wrap: pretty;
   }
   /* Muted and underlined rather than gold: this link exists so a claim can be
@@ -1409,6 +1425,9 @@
     .hero-title    { font-size: clamp(2rem, 11vw, 2.6rem); }
     .trust-row     { gap: var(--sp-3) var(--sp-4); }
     .hero-actions  { flex-direction: column; align-items: center; }
+    /* Phone first screen: H1, subline and both platform downloads clear the bottom privacy notice. */
+    .hero-content  { padding-block: var(--sp-8) var(--sp-16); }
+    .hero-title    { margin-bottom: var(--sp-4); }
     .download-options { flex-direction: column; }
     .download-btn  { max-width: 100%; }
     .table-wrap    { font-size: 0.8125rem; }
@@ -1539,7 +1558,8 @@
 
 /* ── Landing pages, homepage guide cards, footer credit ───────────────────── */
 @layer components {
-  .hero-eyebrow { font-size: 0.875rem; margin-bottom: var(--sp-4); }
+  /* Brand signature: a plain line after the download actions, not a label above the H1. */
+  .hero-signature { color: var(--text-muted); font-weight: 500; margin-bottom: var(--sp-6); }
 
   .guides-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); }
   .guide-card { display: flex; flex-direction: column; color: inherit; }
