@@ -159,14 +159,6 @@
     margin-bottom: var(--sp-12);
   }
 
-  .section-eyebrow {
-    font-size: 0.75rem;
-    font-weight: 600;
-    letter-spacing: 0.01em;
-    color: var(--primary);
-    margin-bottom: var(--sp-3);
-  }
-
   .section-header h2 {
     font-family: var(--font-serif);
     font-weight: 500;
@@ -511,6 +503,17 @@
 
   .hero-accent { color: var(--primary-ink); }
 
+  /* Short subline between the H1 and the download actions; the longer .hero-sub follows the actions. */
+  .hero-lede {
+    font-size: clamp(1.0625rem, 2.4vw, 1.25rem);
+    color: var(--text);
+    line-height: 1.55;
+    max-width: 600px;
+    margin-inline: auto;
+    margin-bottom: var(--sp-6);
+    text-wrap: pretty;
+  }
+
   .hero-sub {
     font-size: clamp(1rem, 2.2vw, 1.1875rem);
     color: var(--text-muted);
@@ -526,7 +529,7 @@
     gap: var(--sp-3);
     justify-content: center;
     flex-wrap: wrap;
-    margin-bottom: var(--sp-10);
+    margin-bottom: var(--sp-6);
   }
 
   .trust-row {
@@ -1422,6 +1425,9 @@
     .hero-title    { font-size: clamp(2rem, 11vw, 2.6rem); }
     .trust-row     { gap: var(--sp-3) var(--sp-4); }
     .hero-actions  { flex-direction: column; align-items: center; }
+    /* Phone first screen: H1, subline and both platform downloads clear the bottom privacy notice. */
+    .hero-content  { padding-block: var(--sp-8) var(--sp-16); }
+    .hero-title    { margin-bottom: var(--sp-4); }
     .download-options { flex-direction: column; }
     .download-btn  { max-width: 100%; }
     .table-wrap    { font-size: 0.8125rem; }
@@ -1552,7 +1558,8 @@
 
 /* ── Landing pages, homepage guide cards, footer credit ───────────────────── */
 @layer components {
-  .hero-eyebrow { font-size: 0.875rem; margin-bottom: var(--sp-4); }
+  /* Brand signature: a plain line after the download actions, not a label above the H1. */
+  .hero-signature { color: var(--text-muted); font-weight: 500; margin-bottom: var(--sp-6); }
 
   .guides-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); }
   .guide-card { display: flex; flex-direction: column; color: inherit; }
