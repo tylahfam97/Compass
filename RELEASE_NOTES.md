@@ -2,6 +2,33 @@
 # Check us out at https://privatecompass.app
 # Hello! Another release just dropped 🧭 
 
+## Compass 1.3.24 — Plain Text 🧭
+
+Everything since 1.3.23. The Transactions CSV export now writes descriptions, categories and notes so spreadsheet apps treat them as text, backup files are named with your local date, and the TLS library under the in-app updater takes a patch release (#148).
+
+### CSV export (#148)
+- In an exported CSV file, a description, category or note that begins with =, +, - or @, or with a tab or carriage return, now starts with an apostrophe ('). Excel, LibreOffice Calc and Google Sheets can read text that starts this way as a formula, so a payee name or transfer memo from an imported statement could show an error or run as a formula when the exported file was opened.
+- Date, Amount and Balance are written as before, so negative amounts stay numbers. The columns, their order, the number format and the quoting are unchanged.
+
+### Backups (#148)
+- Backup files are named with your local calendar date. They used the UTC date, so a backup made in the evening in the Americas could be named with the next day's date.
+
+### Updater connection (#148)
+- rustls, the TLS library under the in-app updater's HTTPS connections, moves from 0.23.41 to 0.23.46, and its certificate checker rustls-webpki from 0.103.13 to 0.103.17. This closes four published advisories against 0.23.41.
+- One of them applies to Compass: TLS 1.3 handshake messages could be accepted at the wrong encryption level. The other three need Brotli certificate compression, post-quantum key exchange or a session store that logs, none of which this build uses.
+- Update files are still checked against Compass's update signature before they are installed, as before.
+
+### Website (#147)
+- The website's focus rings and text contrast were polished in #147. That change is already live and changed no app code.
+- The home page's version fields are set to 1.3.24, matching the app manifests.
+
+### Tests and limits
+- The CSV export text now comes from one function with its own unit test, written first. Before the apostrophe rule was added, the test's 7 formula-start cases failed and its 3 unchanged-output cases passed; with the rule all 10 pass. The unit tests pass (561 in 43 files) and the app builds.
+- The apostrophe is part of the exported text: it can show in the spreadsheet cell, and it stays in the text if the file is imported back into Compass.
+- The backup name change has no test of its own; it uses the local-date helper the rest of the app already uses and tests.
+- This release changes no Rust source. The Rust lock file update was checked to resolve but was not compiled on the build host; the pull request's Rust check is the first to compile it.
+- Windows WebView2 and macOS WKWebView were not exercised.
+
 ## Compass 1.3.23 — Clean Sheet 🧭
 
 Everything since 1.3.22. The spreadsheet reader behind Excel imports is updated to a release that fixes two published security advisories, and the build and test tools take their patch releases (#145).

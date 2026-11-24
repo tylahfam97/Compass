@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { toISODate } from "./forecast";
 
 // Minimal File System Access API surface used here - not in lib.dom.d.ts yet in this TS
 // target, so declared locally (same approach TransactionsPage's CSV export already relies on
@@ -39,7 +40,7 @@ export function getLastBackupAt(): string | null {
 }
 
 function backupFilename(): string {
-  return `compass-backup-${new Date().toISOString().slice(0, 10)}.compassbackup`;
+  return `compass-backup-${toISODate(new Date())}.compassbackup`;
 }
 
 /**

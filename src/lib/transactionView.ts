@@ -37,3 +37,34 @@ export function loadTransactionView(profileId: number): TransactionView {
 export function saveTransactionView(profileId: number, value: TransactionView) {
   try { sessionStorage.setItem(`compass_transactions_view_${profileId}`, JSON.stringify(value)); } catch { return; }
 }
+
+/** One quoted CSV text cell. Text from bank statements is chosen by third parties, so a cell that
+ *  starts with = + - @ tab or CR gets a leading apostrophe and spreadsheet apps show it as text
+ *  instead of running it as a formula (OWASP "CSV Injection"). */
+function csvText(value: string): string {
+  return `"${(/^[=+\-@\t\r]/.test(value) ? `'${value}` : value).replace(/"/g, '""')}"`;
+}
+
+/** Text of the Transactions CSV export: header plus one line per row, in the order given.
+ *  Date, Amount and Balance are app-made values and stay unprefixed, so negative amounts stay numbers. */
+export function transactionsCsv(rows: {
+  date: string;
+  description: string | null;
+  category_name?: string | null;
+  amount_cents: number;
+  balance_cents: number | null;
+  notes: string | null;
+}[]): string {
+  const header = "Date,Description,Category,Amount,Balance,Notes";
+  const lines = rows.map((r) =>
+    [
+      r.date,
+      csvText(r.description ?? ""),
+      csvText(r.category_name ?? "Uncategorized"),
+      (r.amount_cents / 100).toFixed(2),
+      r.balance_cents != null ? (r.balance_cents / 100).toFixed(2) : "",
+      csvText(r.notes ?? ""),
+    ].join(",")
+  );
+  return [header, ...lines].join("\n");
+}
