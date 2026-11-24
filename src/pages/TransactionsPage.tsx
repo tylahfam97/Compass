@@ -18,7 +18,7 @@ import TransactionDetailModal from "@/components/TransactionDetailModal";
 import { setPendingImportFiles } from "@/lib/pendingImport";
 import InfoTooltip from "@/components/InfoTooltip";
 import { TableSkeleton } from "@/components/Skeleton";
-import { loadTransactionView, saveTransactionView } from "@/lib/transactionView";
+import { loadTransactionView, saveTransactionView, transactionsCsv } from "@/lib/transactionView";
 import { CRYPTO_CATEGORY_ID } from "@/lib/cryptoTransfers";
 
 const MAX_ROWS = 500;
@@ -406,18 +406,7 @@ function ProfileTransactions({ profileId }: { profileId: number }) {
        ORDER BY ${sortCol ? `${SORT_EXPR[sortCol]} ${sortDir.toUpperCase()}, t.id ${sortDir.toUpperCase()}` : "t.date DESC, t.id DESC"}`,
       params
     );
-    const header = "Date,Description,Category,Amount,Balance,Notes";
-    const lines = data.map((r) =>
-      [
-        r.date,
-        `"${(r.description ?? "").replace(/"/g, '""')}"`,
-        `"${(r.category_name ?? "Uncategorized").replace(/"/g, '""')}"`,
-        (r.amount_cents / 100).toFixed(2),
-        r.balance_cents != null ? (r.balance_cents / 100).toFixed(2) : "",
-        `"${(r.notes ?? "").replace(/"/g, '""')}"`,
-      ].join(",")
-    );
-    const csv = [header, ...lines].join("\n");
+    const csv = transactionsCsv(data);
     const suggestedName = cryptoReview ? "compass-crypto-review.csv" : `compass-${allTime ? "all-time" : month}.csv`;
 
     // Use the native File System Access API where available (WebView2/Chromium on Windows) -
